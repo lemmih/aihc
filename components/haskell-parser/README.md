@@ -2,6 +2,17 @@
 
 This component contains a from-scratch Haskell parser plus oracle-backed tests.
 
+## Pretty-Printer Round-Trip Tests
+
+The parser now includes a canonical pretty-printer in `Parser.Pretty`:
+- `prettyExpr :: Expr -> Text`
+- `prettyModule :: Module -> Text`
+
+The test suite validates round-tripping in two ways:
+- QuickCheck-generated ASTs are pretty-printed and reparsed.
+- Every parser fixture `*.hs` file is checked for parse/pretty/reparse stability when the parser accepts it.
+  - Fixtures that are intentionally invalid (`golden/*/err`) and Haskell2010 manifest `xfail` entries are treated as expected non-round-trippable inputs.
+
 ## Haskell2010 Coverage Tracking
 
 The test suite includes a manifest-driven Haskell2010 syntax corpus under:
