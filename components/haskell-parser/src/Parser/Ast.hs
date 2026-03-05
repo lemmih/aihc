@@ -16,9 +16,15 @@ import Data.Text (Text)
 
 data Module = Module
   { moduleName :: Maybe Text,
-    moduleDecls :: [Decl]
+    moduleDecls :: [Decl],
+    moduleDeclChunks :: Maybe [Text]
   }
-  deriving (Eq, Show)
+  deriving (Show)
+
+instance Eq Module where
+  lhs == rhs =
+    moduleName lhs == moduleName rhs
+      && moduleDecls lhs == moduleDecls rhs
 
 data Decl
   = Decl

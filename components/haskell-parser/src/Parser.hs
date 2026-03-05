@@ -66,17 +66,35 @@ parseModuleLines cfg input = do
       meaningful = filter (not . isLanguagePragma . T.strip . snd) nonEmpty
       allowFfiFallback = any (isForeignDeclarationLine . T.strip . snd) meaningful
   case meaningful of
-    [] -> Right Module {moduleName = Nothing, moduleDecls = []}
+    [] -> Right Module {moduleName = Nothing, moduleDecls = [], moduleDeclChunks = Nothing}
     ((firstLineNo, firstLine) : rest) ->
       case parseModuleHeader (T.strip firstLine) of
         Right modName -> do
-          decls <- traverse (uncurry (parseDeclarationChunk cfg allowFfiFallback)) (groupDeclarationChunks rest)
-          Right Module {moduleName = Just modName, moduleDecls = mergeAdjacentFunctions decls}
+          let chunks = groupDeclarationChunks rest
+          decls <- traverse (uncurry (parseDeclarationChunk cfg allowFfiFallback)) chunks
+          let mergedDecls = mergeAdjacentFunctions decls
+          Right
+            Module
+              { moduleName = Just modName,
+                moduleDecls = mergedDecls,
+                moduleDeclChunks =
+                  if shouldPreserveDeclChunks mergedDecls
+                    then Just (map snd chunks)
+                    else Nothing
+              }
         Left _ -> do
           let chunks = groupDeclarationChunks ((firstLineNo, firstLine) : rest)
           parsed <- traverse (uncurry (parseDeclarationChunk cfg allowFfiFallback)) chunks
           let merged = mergeAdjacentFunctions parsed
-          Right Module {moduleName = Nothing, moduleDecls = merged}
+          Right
+            Module
+              { moduleName = Nothing,
+                moduleDecls = merged,
+                moduleDeclChunks =
+                  if shouldPreserveDeclChunks merged
+                    then Just (map snd chunks)
+                    else Nothing
+              }
 
 parseModuleHeader :: Text -> Either ParseError Text
 parseModuleHeader =
@@ -402,12 +420,12 @@ groupDeclarationChunks = go Nothing []
            in if T.null trimmed
                 then go current acc rest
                 else case current of
-                  Nothing -> go (Just (ln, [trimmed])) acc rest
+                  Nothing -> go (Just (ln, [rawLine])) acc rest
                   Just (startLn, pieces@(firstPiece : _))
                     | ind == 0 && not (continuesPrevious firstPiece trimmed) ->
-                        go (Just (ln, [trimmed])) ((startLn, T.intercalate "\n" (reverse pieces)) : acc) rest
+                        go (Just (ln, [rawLine])) ((startLn, T.intercalate "\n" (reverse pieces)) : acc) rest
                     | otherwise ->
-                        go (Just (startLn, trimmed : pieces)) acc rest
+                        go (Just (startLn, rawLine : pieces)) acc rest
                   Just _ -> go current acc rest
 
 continuesPrevious :: Text -> Text -> Bool
@@ -457,6 +475,25 @@ mergeAdjacentFunctions =
         (FunctionDecl {functionName = prev} : rest, FunctionDecl {functionName = curr})
           | prev == curr -> acc
         _ -> decl : acc
+
+shouldPreserveDeclChunks :: [Decl] -> Bool
+shouldPreserveDeclChunks decls =
+  any isStructuralDecl decls && not (any isValueDecl decls)
+  where
+    isStructuralDecl decl =
+      case decl of
+        DataDecl {} -> True
+        NewtypeDecl {} -> True
+        TypeDecl {} -> True
+        ClassDecl {} -> True
+        InstanceDecl {} -> True
+        FixityDecl {} -> True
+        DefaultDecl {} -> True
+        _ -> False
+    isValueDecl decl =
+      case decl of
+        Decl {} -> True
+        _ -> False
 
 valueDeclaration :: MParser Decl
 valueDeclaration = do

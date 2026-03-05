@@ -68,37 +68,37 @@ decls-type-signature	declarations	declarations/type-signature.hs	xfail	roundtrip
 decls-multiple-equations	declarations	declarations/multiple-equations.hs	xfail	roundtrip mismatch against oracle AST
 decls-pattern-binding	declarations	declarations/pattern-binding.hs	xfail	roundtrip mismatch against oracle AST
 decls-data	declarations	declarations/data.hs	pass	
-decls-data-context	declarations	declarations/data-context.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-prefix-positional	declarations	declarations/data-prefix-positional.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-prefix-strict	declarations	declarations/data-prefix-strict.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-infix	declarations	declarations/data-infix.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-infix-strict-left	declarations	declarations/data-infix-strict-left.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-infix-strict-right	declarations	declarations/data-infix-strict-right.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-record-empty	declarations	declarations/data-record-empty.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-record-fields	declarations	declarations/data-record-fields.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-record-grouped-fields	declarations	declarations/data-record-grouped-fields.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-record-strict-field	declarations	declarations/data-record-strict-field.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-deriving-single	declarations	declarations/data-deriving-single.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-deriving-empty	declarations	declarations/data-deriving-empty.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-abstract	declarations	declarations/data-abstract.hs	xfail	roundtrip mismatch against oracle AST
-decls-newtype	declarations	declarations/newtype.hs	xfail	roundtrip mismatch against oracle AST
-decls-type-synonym	declarations	declarations/type-synonym.hs	xfail	roundtrip mismatch against oracle AST
-decls-class	declarations	declarations/class.hs	xfail	roundtrip mismatch against oracle AST
-decls-class-minimal	declarations	declarations/class-minimal.hs	xfail	roundtrip mismatch against oracle AST
-decls-class-where-empty	declarations	declarations/class-where-empty.hs	xfail	roundtrip mismatch against oracle AST
-decls-class-super-simple	declarations	declarations/class-super-simple.hs	xfail	roundtrip mismatch against oracle AST
-decls-class-super-paren-empty	declarations	declarations/class-super-paren-empty.hs	xfail	roundtrip mismatch against oracle AST
-decls-class-super-paren-single	declarations	declarations/class-super-paren-single.hs	xfail	roundtrip mismatch against oracle AST
-decls-class-super-paren-multiple	declarations	declarations/class-super-paren-multiple.hs	xfail	roundtrip mismatch against oracle AST
-decls-class-cdecl-signature	declarations	declarations/class-cdecl-signature.hs	xfail	roundtrip mismatch against oracle AST
-decls-class-cdecl-signature-context	declarations	declarations/class-cdecl-signature-context.hs	xfail	roundtrip mismatch against oracle AST
-decls-class-cdecl-default-var	declarations	declarations/class-cdecl-default-var.hs	xfail	roundtrip mismatch against oracle AST
-decls-class-cdecl-default-funlhs	declarations	declarations/class-cdecl-default-funlhs.hs	xfail	roundtrip mismatch against oracle AST
-decls-class-cdecl-fixity	declarations	declarations/class-cdecl-fixity.hs	xfail	roundtrip mismatch against oracle AST
-decls-instance	declarations	declarations/instance.hs	xfail	roundtrip mismatch against oracle AST
-decls-fixity	declarations	declarations/fixity.hs	xfail	roundtrip mismatch against oracle AST
+decls-data-context	declarations	declarations/data-context.hs	pass	
+decls-data-prefix-positional	declarations	declarations/data-prefix-positional.hs	pass	
+decls-data-prefix-strict	declarations	declarations/data-prefix-strict.hs	pass	
+decls-data-infix	declarations	declarations/data-infix.hs	pass	
+decls-data-infix-strict-left	declarations	declarations/data-infix-strict-left.hs	pass	
+decls-data-infix-strict-right	declarations	declarations/data-infix-strict-right.hs	pass	
+decls-data-record-empty	declarations	declarations/data-record-empty.hs	pass	
+decls-data-record-fields	declarations	declarations/data-record-fields.hs	pass	
+decls-data-record-grouped-fields	declarations	declarations/data-record-grouped-fields.hs	pass	
+decls-data-record-strict-field	declarations	declarations/data-record-strict-field.hs	pass	
+decls-data-deriving-single	declarations	declarations/data-deriving-single.hs	pass	
+decls-data-deriving-empty	declarations	declarations/data-deriving-empty.hs	pass	
+decls-data-abstract	declarations	declarations/data-abstract.hs	pass	
+decls-newtype	declarations	declarations/newtype.hs	pass	
+decls-type-synonym	declarations	declarations/type-synonym.hs	pass	
+decls-class	declarations	declarations/class.hs	pass	
+decls-class-minimal	declarations	declarations/class-minimal.hs	pass	
+decls-class-where-empty	declarations	declarations/class-where-empty.hs	pass	
+decls-class-super-simple	declarations	declarations/class-super-simple.hs	pass	
+decls-class-super-paren-empty	declarations	declarations/class-super-paren-empty.hs	pass	
+decls-class-super-paren-single	declarations	declarations/class-super-paren-single.hs	pass	
+decls-class-super-paren-multiple	declarations	declarations/class-super-paren-multiple.hs	pass	
+decls-class-cdecl-signature	declarations	declarations/class-cdecl-signature.hs	pass	
+decls-class-cdecl-signature-context	declarations	declarations/class-cdecl-signature-context.hs	pass	
+decls-class-cdecl-default-var	declarations	declarations/class-cdecl-default-var.hs	pass	
+decls-class-cdecl-default-funlhs	declarations	declarations/class-cdecl-default-funlhs.hs	pass	
+decls-class-cdecl-fixity	declarations	declarations/class-cdecl-fixity.hs	pass	
+decls-instance	declarations	declarations/instance.hs	pass	
+decls-fixity	declarations	declarations/fixity.hs	pass	
 decls-default	declarations	declarations/default.hs	pass	default declarations unsupported
-decls-deriving	declarations	declarations/deriving.hs	xfail	roundtrip mismatch against oracle AST
+decls-deriving	declarations	declarations/deriving.hs	pass	
 
 expr-if-then-else	expressions	expressions/if-then-else.hs	xfail	roundtrip mismatch against oracle AST
 expr-case-of	expressions	expressions/case-of.hs	xfail	roundtrip mismatch against oracle AST
@@ -167,16 +167,16 @@ expr-s3-do-sequence-stmts	expressions	expressions/do-sequence-stmts.hs	xfail	sec
 expr-s3-record-field-selection	expressions	expressions/record-field-selection.hs	xfail	roundtrip mismatch against oracle AST
 expr-s3-record-construction-empty	expressions	expressions/record-construction-empty.hs	xfail	section 3 expression variation unsupported
 expr-s3-record-construction-fields	expressions	expressions/record-construction-fields.hs	xfail	section 3 expression variation unsupported
-expr-s3-record-update-single	expressions	expressions/record-update-single.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-record-update-multiple	expressions	expressions/record-update-multiple.hs	xfail	roundtrip mismatch against oracle AST
+expr-s3-record-update-single	expressions	expressions/record-update-single.hs	pass	
+expr-s3-record-update-multiple	expressions	expressions/record-update-multiple.hs	pass	
 expr-s3-expr-type-signature-basic	expressions	expressions/expr-type-signature-basic.hs	xfail	section 3 expression variation unsupported
 expr-s3-expr-type-signature-context	expressions	expressions/expr-type-signature-context.hs	xfail	section 3 expression variation unsupported
 expr-s3-pattern-infix-constructor	expressions	expressions/pattern-infix-constructor.hs	xfail	roundtrip mismatch against oracle AST
 expr-s3-pattern-negative-literal	expressions	expressions/pattern-negative-literal.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-pattern-constructor-application	expressions	expressions/pattern-constructor-application.hs	xfail	roundtrip mismatch against oracle AST
+expr-s3-pattern-constructor-application	expressions	expressions/pattern-constructor-application.hs	pass	
 expr-s3-pattern-as-pattern	expressions	expressions/pattern-as-pattern.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-pattern-nullary-constructor	expressions	expressions/pattern-nullary-constructor.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-pattern-labeled	expressions	expressions/pattern-labeled.hs	xfail	roundtrip mismatch against oracle AST
+expr-s3-pattern-nullary-constructor	expressions	expressions/pattern-nullary-constructor.hs	pass	
+expr-s3-pattern-labeled	expressions	expressions/pattern-labeled.hs	pass	
 expr-s3-pattern-literal	expressions	expressions/pattern-literal.hs	xfail	roundtrip mismatch against oracle AST
 expr-s3-pattern-wildcard	expressions	expressions/pattern-wildcard.hs	xfail	roundtrip mismatch against oracle AST
 expr-s3-pattern-parenthesized	expressions	expressions/pattern-parenthesized.hs	xfail	roundtrip mismatch against oracle AST
@@ -184,7 +184,7 @@ expr-s3-pattern-tuple	expressions	expressions/pattern-tuple.hs	xfail	roundtrip m
 expr-s3-pattern-list	expressions	expressions/pattern-list.hs	xfail	roundtrip mismatch against oracle AST
 expr-s3-pattern-irrefutable	expressions	expressions/pattern-irrefutable.hs	xfail	roundtrip mismatch against oracle AST
 
-pat-constructor	patterns	patterns/constructor.hs	xfail	roundtrip mismatch against oracle AST
+pat-constructor	patterns	patterns/constructor.hs	pass	
 pat-tuple-list	patterns	patterns/tuple-list.hs	xfail	roundtrip mismatch against oracle AST
 pat-as-pattern	patterns	patterns/as-pattern.hs	xfail	roundtrip mismatch against oracle AST
 pat-irrefutable	patterns	patterns/irrefutable.hs	xfail	roundtrip mismatch against oracle AST
@@ -197,7 +197,7 @@ pat-contexts	patterns	patterns/contexts.hs	xfail	pattern matching contexts unsup
 
 types-context	types	types/context.hs	xfail	roundtrip mismatch against oracle AST
 types-tuple-list	types	types/tuple-list-types.hs	xfail	roundtrip mismatch against oracle AST
-types-newtype-record	types	types/newtype-record.hs	xfail	roundtrip mismatch against oracle AST
+types-newtype-record	types	types/newtype-record.hs	pass	
 types-multi-vars-signature	types	types/multi-vars-signature.hs	xfail	roundtrip mismatch against oracle AST
 types-context-multi-vars	types	types/context-multi-vars.hs	xfail	roundtrip mismatch against oracle AST
 types-signature-where	types	types/signature-where.hs	xfail	local type signatures in where bindings unsupported

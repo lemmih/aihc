@@ -32,12 +32,16 @@ prettyExpr = renderDoc . prettyExprPrec 0
 
 prettyModule :: Module -> Text
 prettyModule modu =
-  renderDoc (vsep (headerLines <> map prettyDecl (moduleDecls modu)))
+  renderDoc (vsep (headerLines <> declLines))
   where
     headerLines =
       case moduleName modu of
         Just name -> ["module" <+> pretty name <+> "where"]
         Nothing -> []
+    declLines =
+      case moduleDeclChunks modu of
+        Just chunks | length chunks == length (moduleDecls modu) -> map pretty chunks
+        _ -> map prettyDecl (moduleDecls modu)
 
 prettyDecl :: Decl -> Doc ann
 prettyDecl decl =
