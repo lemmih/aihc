@@ -198,6 +198,20 @@ pat-contexts	patterns	patterns/contexts.hs	xfail	pattern matching contexts unsup
 types-context	types	types/context.hs	xfail	roundtrip mismatch against oracle AST
 types-tuple-list	types	types/tuple-list-types.hs	xfail	roundtrip mismatch against oracle AST
 types-newtype-record	types	types/newtype-record.hs	xfail	roundtrip mismatch against oracle AST
+types-multi-vars-signature	types	types/multi-vars-signature.hs	xfail	roundtrip mismatch against oracle AST
+types-context-multi-vars	types	types/context-multi-vars.hs	xfail	roundtrip mismatch against oracle AST
+types-signature-where	types	types/signature-where.hs	xfail	local type signatures in where bindings unsupported
+types-inline-signature-basic	types	types/inline-signature-basic.hs	xfail	expression type signatures in declarations unsupported
+types-inline-signature-context	types	types/inline-signature-context.hs	xfail	expression type signatures with contexts unsupported
+types-inline-signature-lambda	types	types/inline-signature-lambda.hs	xfail	inline lambda body type signatures unsupported
+types-let-signature	types	types/let-signature.hs	xfail	local let type signatures unsupported
+types-guard-inline-signature	types	types/guard-inline-signature.hs	xfail	inline type signatures in guards unsupported
+types-list-type-constructor	types	types/list-type-constructor.hs	xfail	roundtrip mismatch against oracle AST
+types-maybe-type-constructor	types	types/maybe-type-constructor.hs	xfail	roundtrip mismatch against oracle AST
+types-function-type-constructor	types	types/function-type-constructor.hs	xfail	roundtrip mismatch against oracle AST
+types-function-type-constructor-partial	types	types/function-type-constructor-partial.hs	xfail	roundtrip mismatch against oracle AST
+types-tuple-type-constructor	types	types/tuple-type-constructor.hs	xfail	roundtrip mismatch against oracle AST
+types-nested-maybe-list	types	types/nested-maybe-list.hs	xfail	roundtrip mismatch against oracle AST
 
 layout-let	layout	layout/let-layout.hs	xfail	layout-sensitive let unsupported
 layout-where	layout	layout/where-layout.hs	xfail	roundtrip mismatch against oracle AST
