@@ -136,9 +136,27 @@
               | xargs -0 -r ormolu --mode check
             touch "$out"
           '';
+          parserProgressStrict = pkgs.runCommand "aihc-parser-progress-strict" {
+            src = ./.;
+            nativeBuildInputs = [ hsPkgs.aihc-parser ];
+          } ''
+            cd "$src/components/haskell-parser"
+            h2010-progress --strict
+            touch "$out"
+          '';
+          nameResolutionProgressStrict = pkgs.runCommand "aihc-name-resolution-progress-strict" {
+            src = ./.;
+            nativeBuildInputs = [ hsPkgs.aihc-name-resolution ];
+          } ''
+            cd "$src/components/haskell-name-resolution"
+            name-resolution-progress --strict
+            touch "$out"
+          '';
         in {
           parser-tests = parserTests;
           name-resolution-tests = nameResolutionTests;
+          parser-progress-strict = parserProgressStrict;
+          name-resolution-progress-strict = nameResolutionProgressStrict;
           nix-lint = nixLint;
           haskell-lint = haskellLint;
           haskell-format = haskellFormat;
@@ -146,6 +164,8 @@
             pkgs.linkFarm "aihc-all-tests" [
               { name = "parser-tests"; path = parserTests; }
               { name = "name-resolution-tests"; path = nameResolutionTests; }
+              { name = "parser-progress-strict"; path = parserProgressStrict; }
+              { name = "name-resolution-progress-strict"; path = nameResolutionProgressStrict; }
               { name = "nix-lint"; path = nixLint; }
               { name = "haskell-lint"; path = haskellLint; }
               { name = "haskell-format"; path = haskellFormat; }
