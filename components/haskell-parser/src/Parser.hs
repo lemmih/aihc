@@ -201,7 +201,11 @@ identTailChar =
     <|> C.char '\''
 
 integer :: MParser () -> MParser Integer
-integer sc = lexeme sc L.decimal
+integer sc = lexeme sc (try hexadecimal <|> L.decimal)
+  where
+    hexadecimal = do
+      _ <- C.string "0x" <|> C.string "0X"
+      L.hexadecimal
 
 floating :: MParser () -> MParser Double
 floating sc = lexeme sc $ do

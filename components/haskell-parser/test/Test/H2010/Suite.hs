@@ -146,7 +146,7 @@ classify expected oursResult oracleParses oracleResult =
           | otherwise -> OutcomeFail
         (ParseOk ours, Right oracleCanon)
           | normalizeModule ours == oracleCanon -> OutcomeXPass
-          | otherwise -> OutcomeXPass
+          | otherwise -> OutcomeFail
         (ParseOk _, Left _)
           | oracleParses -> OutcomeXPass
           | otherwise -> OutcomeFail
