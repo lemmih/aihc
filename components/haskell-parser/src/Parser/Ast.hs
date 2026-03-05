@@ -21,15 +21,39 @@ data Decl
       { declName :: Text,
         declExpr :: Expr
       }
+  | PatternDecl
+      { patternLhs :: Text
+      }
   | TypeSigDecl
       { typeSigName :: Text
       }
   | FunctionDecl
       { functionName :: Text
       }
+  | TypeDecl
+      { typeName :: Text
+      }
   | DataDecl
       { dataTypeName :: Text,
         dataConstructors :: [Text]
+      }
+  | NewtypeDecl
+      { newtypeName :: Text,
+        newtypeConstructor :: Maybe Text
+      }
+  | ClassDecl
+      { className :: Text
+      }
+  | InstanceDecl
+      { instanceClassName :: Text
+      }
+  | FixityDecl
+      { fixityAssoc :: Text,
+        fixityPrecedence :: Maybe Int,
+        fixityOperator :: Text
+      }
+  | DefaultDecl
+      { defaultTypes :: [Text]
       }
   | ForeignDecl
       { foreignDirection :: ForeignDirection,

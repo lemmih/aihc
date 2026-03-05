@@ -28,15 +28,39 @@ data CanonicalDecl
       { canonicalDeclName :: Text,
         canonicalDeclExpr :: CanonicalExpr
       }
+  | CanonicalPatternDecl
+      { canonicalPatternLhs :: Text
+      }
   | CanonicalTypeSigDecl
       { canonicalTypeSigName :: Text
       }
   | CanonicalFunctionDecl
       { canonicalFunctionName :: Text
       }
+  | CanonicalTypeDecl
+      { canonicalTypeDeclName :: Text
+      }
   | CanonicalDataDecl
       { canonicalTypeName :: Text,
         canonicalConstructors :: [Text]
+      }
+  | CanonicalNewtypeDecl
+      { canonicalNewtypeName :: Text,
+        canonicalNewtypeConstructor :: Maybe Text
+      }
+  | CanonicalClassDecl
+      { canonicalClassName :: Text
+      }
+  | CanonicalInstanceDecl
+      { canonicalInstanceClassName :: Text
+      }
+  | CanonicalFixityDecl
+      { canonicalFixityAssoc :: Text,
+        canonicalFixityPrecedence :: Maybe Int,
+        canonicalFixityOperator :: Text
+      }
+  | CanonicalDefaultDecl
+      { canonicalDefaultTypes :: [Text]
       }
   | CanonicalForeignDecl
       { canonicalForeignDirection :: CanonicalForeignDirection,
@@ -89,6 +113,10 @@ normalizeDecl d =
         { canonicalDeclName = name,
           canonicalDeclExpr = normalizeExpr expr
         }
+    PatternDecl {patternLhs = lhs} ->
+      CanonicalPatternDecl
+        { canonicalPatternLhs = lhs
+        }
     TypeSigDecl {typeSigName = name} ->
       CanonicalTypeSigDecl
         { canonicalTypeSigName = name
@@ -97,10 +125,37 @@ normalizeDecl d =
       CanonicalFunctionDecl
         { canonicalFunctionName = name
         }
+    TypeDecl {typeName = name} ->
+      CanonicalTypeDecl
+        { canonicalTypeDeclName = name
+        }
     DataDecl {dataTypeName = typeName, dataConstructors = ctors} ->
       CanonicalDataDecl
         { canonicalTypeName = typeName,
           canonicalConstructors = ctors
+        }
+    NewtypeDecl {newtypeName = name, newtypeConstructor = ctor} ->
+      CanonicalNewtypeDecl
+        { canonicalNewtypeName = name,
+          canonicalNewtypeConstructor = ctor
+        }
+    ClassDecl {className = name} ->
+      CanonicalClassDecl
+        { canonicalClassName = name
+        }
+    InstanceDecl {instanceClassName = name} ->
+      CanonicalInstanceDecl
+        { canonicalInstanceClassName = name
+        }
+    FixityDecl {fixityAssoc = assoc, fixityPrecedence = prec, fixityOperator = op} ->
+      CanonicalFixityDecl
+        { canonicalFixityAssoc = assoc,
+          canonicalFixityPrecedence = prec,
+          canonicalFixityOperator = op
+        }
+    DefaultDecl {defaultTypes = tys} ->
+      CanonicalDefaultDecl
+        { canonicalDefaultTypes = tys
         }
     ForeignDecl
       { foreignDirection = direction,

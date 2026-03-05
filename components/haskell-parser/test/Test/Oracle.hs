@@ -7,8 +7,9 @@ module Test.Oracle
 where
 
 import Data.Bifunctor (first)
+import Data.Char (isDigit, isUpper)
 import Data.Foldable (toList)
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified GHC.Data.EnumSet as EnumSet
@@ -36,9 +37,9 @@ import GHC.Types.ForeignCall
 import GHC.Types.Name.Occurrence (occNameString)
 import GHC.Types.Name.Reader (RdrName, rdrNameOcc)
 import GHC.Types.SourceText (IntegralLit (..))
-import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
+import GHC.Types.SrcLoc (GenLocated, mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
-import GHC.Utils.Outputable (ppr, showSDocUnsafe)
+import GHC.Utils.Outputable (Outputable, ppr, showSDocUnsafe)
 import Parser.Canonical
 import Text.Read (readMaybe)
 
@@ -79,6 +80,9 @@ toCanonicalDecls locatedDecl =
   case unLoc locatedDecl of
     ValD _ bind -> (: []) <$> toCanonicalValueDecl bind
     SigD _ sig -> toCanonicalSigDecls sig
+    TyClD _ tyClDecl -> (: []) <$> toCanonicalTyClDecl tyClDecl
+    InstD _ instDecl -> (: []) <$> toCanonicalInstanceDecl instDecl
+    DefD _ defDecl -> (: []) <$> toCanonicalDefaultDecl defDecl
     ForD _ foreignDecl -> (: []) <$> toCanonicalForeignDecl foreignDecl
     _ -> Left "unsupported declaration kind"
 
@@ -104,6 +108,11 @@ toCanonicalValueDecl bind =
                 CanonicalFunctionDecl
                   { canonicalFunctionName = name
                   }
+    PatBind {pat_lhs = locatedPat} ->
+      Right
+        CanonicalPatternDecl
+          { canonicalPatternLhs = normalizeSpaceText (renderLocated locatedPat)
+          }
     _ -> Left "unsupported value binding"
   where
     toSimpleBody match =
@@ -130,7 +139,73 @@ toCanonicalSigDecls sig =
             }
         | locatedName <- locatedNames
         ]
+    FixSig _ (FixitySig _ locatedNames fixity) ->
+      let assoc = fixityAssocText fixity
+          precedence = fixityPrecedenceValue fixity
+       in pure
+            [ CanonicalFixityDecl
+                { canonicalFixityAssoc = assoc,
+                  canonicalFixityPrecedence = precedence,
+                  canonicalFixityOperator = occNameText (unLoc locatedName)
+                }
+            | locatedName <- locatedNames
+            ]
     _ -> Left "unsupported signature declaration"
+
+toCanonicalTyClDecl :: TyClDecl GhcPs -> Either String CanonicalDecl
+toCanonicalTyClDecl tyClDecl =
+  case tyClDecl of
+    SynDecl {tcdLName = locatedName} ->
+      Right
+        CanonicalTypeDecl
+          { canonicalTypeDeclName = occNameText (unLoc locatedName)
+          }
+    DataDecl {tcdLName = locatedName, tcdDataDefn = dataDefn} ->
+      let typeName = occNameText (unLoc locatedName)
+          renderedDecl = renderPrinted dataDefn
+          constructors = constructorsFromRendered renderedDecl
+       in if "newtype " `T.isPrefixOf` T.strip renderedDecl
+            then
+              Right
+                CanonicalNewtypeDecl
+                  { canonicalNewtypeName = typeName,
+                    canonicalNewtypeConstructor =
+                      case constructors of
+                        [] -> Nothing
+                        (ctor : _) -> Just ctor
+                  }
+            else
+              Right
+                CanonicalDataDecl
+                  { canonicalTypeName = typeName,
+                    canonicalConstructors = constructors
+                  }
+    ClassDecl {tcdLName = locatedName} ->
+      Right
+        CanonicalClassDecl
+          { canonicalClassName = occNameText (unLoc locatedName)
+          }
+    _ -> Left "unsupported type/class declaration"
+
+toCanonicalInstanceDecl :: InstDecl GhcPs -> Either String CanonicalDecl
+toCanonicalInstanceDecl instDecl =
+  case instDecl of
+    ClsInstD _ clsInst ->
+      let rendered = renderPrinted clsInst
+       in Right
+            CanonicalInstanceDecl
+              { canonicalInstanceClassName = classNameFromRendered rendered
+              }
+    _ -> Left "unsupported instance declaration"
+
+toCanonicalDefaultDecl :: DefaultDecl GhcPs -> Either String CanonicalDecl
+toCanonicalDefaultDecl defDecl =
+  case defDecl of
+    DefaultDecl _ _ tys ->
+      Right
+        CanonicalDefaultDecl
+          { canonicalDefaultTypes = map (normalizeTypeToken . renderLocated) (toList tys)
+          }
 
 toCanonicalForeignDecl :: ForeignDecl GhcPs -> Either String CanonicalDecl
 toCanonicalForeignDecl foreignDecl =
@@ -205,6 +280,87 @@ classifyImportEntity mHeader importSpec =
 
 occNameText :: RdrName -> Text
 occNameText = T.pack . occNameString . rdrNameOcc
+
+constructorsFromRendered :: Text -> [Text]
+constructorsFromRendered rendered =
+  let (_, afterEq) = T.breakOn "=" rendered
+      rhs = if T.null afterEq then "" else T.drop 1 afterEq
+      rhsCore = T.strip (fst (T.breakOn " deriving" rhs))
+      parts = filter (not . T.null) (map (T.strip . fst . T.breakOn "{") (T.splitOn "|" rhsCore))
+   in mapMaybe constructorName parts
+
+constructorName :: Text -> Maybe Text
+constructorName part =
+  let tokens = map normalizeTypeToken (T.words (T.replace "!" "" part))
+      symbolic = filter isSymbolicToken tokens
+   in case tokens of
+        [] -> Nothing
+        (firstToken : _)
+          | isClassToken firstToken -> Just firstToken
+          | otherwise ->
+              case symbolic of
+                (op : _) -> Just op
+                [] -> Nothing
+
+fixityAssocText :: Fixity -> Text
+fixityAssocText fixity =
+  case T.words (renderPrinted fixity) of
+    (assoc : _)
+      | assoc `elem` ["infix", "infixl", "infixr"] -> assoc
+    _ -> "infix"
+
+fixityPrecedenceValue :: Fixity -> Maybe Int
+fixityPrecedenceValue fixity =
+  case T.words (renderPrinted fixity) of
+    (_ : prec : _) | T.all isDigit prec -> Just (read (T.unpack prec))
+    _ -> Nothing
+
+classNameFromRendered :: Text -> Text
+classNameFromRendered rendered =
+  let withoutInstance = T.strip (fromMaybe rendered (T.stripPrefix "instance" (T.strip rendered)))
+      noWhere = T.strip (fst (T.breakOn " where" withoutInstance))
+      noContext =
+        case T.breakOn "=>" noWhere of
+          (lhs, rhs)
+            | T.null rhs -> lhs
+            | otherwise -> T.strip (T.drop 2 rhs)
+      tokens = map normalizeTypeToken (T.words noContext)
+   in case filter isClassToken tokens of
+        (name : _) -> name
+        [] -> "Instance"
+
+isClassToken :: Text -> Bool
+isClassToken token =
+  case T.uncons token of
+    Just (c, _) -> isUpper c
+    Nothing -> False
+
+normalizeTypeToken :: Text -> Text
+normalizeTypeToken =
+  T.dropAround (\c -> c == '(' || c == ')' || c == ',' || c == ' ')
+
+isSymbolicToken :: Text -> Bool
+isSymbolicToken tok =
+  not (T.null tok) && T.all (`elem` (":!#$%&*+./<=>?@\\^|-~" :: String)) tok
+
+normalizeSpaceText :: Text -> Text
+normalizeSpaceText = T.unwords . T.words
+
+renderLocated :: (Outputable a) => GenLocated l a -> Text
+renderLocated = renderPrinted . unLoc
+
+renderPrinted :: (Outputable a) => a -> Text
+renderPrinted = T.pack . showSDocUnsafe . ppr
+
+mapMaybe :: (a -> Maybe b) -> [a] -> [b]
+mapMaybe f =
+  foldr
+    ( \x acc ->
+        case f x of
+          Just y -> y : acc
+          Nothing -> acc
+    )
+    []
 
 toCanonicalExpr :: HsExpr GhcPs -> Either String CanonicalExpr
 toCanonicalExpr expr =
