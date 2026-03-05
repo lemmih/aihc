@@ -1,26 +1,27 @@
 module Parser.Types
-  ( CoverageSlice (..)
-  , Expectation
-  , ParseError (..)
-  , ParseResult (..)
-  , ParserConfig (..)
-  ) where
+  ( CoverageSlice (..),
+    Expectation,
+    ParseError (..),
+    ParseResult (..),
+    ParserConfig (..),
+  )
+where
 
 import Data.Text (Text)
 
 type Expectation = Text
 
-data ParserConfig = ParserConfig
+newtype ParserConfig = ParserConfig
   { allowLineComments :: Bool
   }
   deriving (Eq, Show)
 
 data ParseError = ParseError
-  { offset :: !Int
-  , line :: !Int
-  , col :: !Int
-  , expected :: ![Expectation]
-  , found :: !(Maybe Text)
+  { offset :: !Int,
+    line :: !Int,
+    col :: !Int,
+    expected :: ![Expectation],
+    found :: !(Maybe Text)
   }
   deriving (Eq, Show)
 

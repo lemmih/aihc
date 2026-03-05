@@ -1,8 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.Oracle.Resolve
-  ( oracleResolveFacts
-  ) where
+  ( oracleResolveFacts,
+  )
+where
 
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -21,10 +22,10 @@ resolveCanonical cfg modu =
   let (declMap, dupDiags) = gatherDecls (canonicalDecls modu)
       (varFacts, unboundDiags) = foldMap (resolveDeclExpr declMap) (canonicalDecls modu)
    in ResolveFacts
-        { rfModuleName = canonicalModuleName modu
-        , rfDeclNames = map canonicalDeclName (canonicalDecls modu)
-        , rfVars = varFacts
-        , rfDiagnosticCodes = dupDiags <> unboundDiags
+        { rfModuleName = canonicalModuleName modu,
+          rfDeclNames = map canonicalDeclName (canonicalDecls modu),
+          rfVars = varFacts,
+          rfDiagnosticCodes = dupDiags <> unboundDiags
         }
   where
     resolveDeclExpr declMap decl = resolveExpr declMap (canonicalDeclExpr decl)

@@ -1,9 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Resolver
-  ( defaultResolveConfig
-  , resolveModule
-  ) where
+  ( defaultResolveConfig,
+    resolveModule,
+  )
+where
 
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -15,19 +16,19 @@ import Resolver.Types
 defaultResolveConfig :: ResolveConfig
 defaultResolveConfig =
   ResolveConfig
-    { preludeMode = ImplicitPreludeOn
-    , enabledExtensions = S.empty
+    { preludeMode = ImplicitPreludeOn,
+      enabledExtensions = S.empty
     }
 
 data BindingInfo = BindingInfo
-  { bindingId :: !NameId
-  , bindingClass :: !NameClass
+  { bindingId :: !NameId,
+    bindingClass :: !NameClass
   }
 
 data ResolveState = ResolveState
-  { nextId :: !Int
-  , env :: !(M.Map Text BindingInfo)
-  , diags :: [Diagnostic]
+  { nextId :: !Int,
+    env :: !(M.Map Text BindingInfo),
+    diags :: [Diagnostic]
   }
 
 resolveModule :: ResolveConfig -> Module -> ResolveResult ResolvedModule
@@ -36,17 +37,17 @@ resolveModule cfg modu =
    in ResolveResult
         { resolved =
             ResolvedModule
-              { resolvedModuleName = moduleName modu
-              , resolvedDecls = reverse declsRev
-              }
-        , diagnostics = reverse (diags finalState)
+              { resolvedModuleName = moduleName modu,
+                resolvedDecls = reverse declsRev
+              },
+          diagnostics = reverse (diags finalState)
         }
   where
     emptyState =
       ResolveState
-        { nextId = 0
-        , env = preludeEnv (preludeMode cfg)
-        , diags = []
+        { nextId = 0,
+          env = preludeEnv (preludeMode cfg),
+          diags = []
         }
 
 resolveDecls :: ResolveConfig -> [Decl] -> ResolveState -> ([ResolvedDecl], ResolveState)
@@ -59,9 +60,9 @@ resolveDecls cfg decls st0 =
           (expr', st') = resolveExpr cfg' (declExpr decl) st
           outDecl =
             ResolvedDecl
-              { resolvedDeclName = declName decl
-              , resolvedDeclId = thisId
-              , resolvedDeclExpr = expr'
+              { resolvedDeclName = declName decl,
+                resolvedDeclId = thisId,
+                resolvedDeclExpr = expr'
               }
        in (outDecl : acc, st')
 
@@ -76,10 +77,10 @@ assignTopLevelBinders decls st0 = foldl' step (st0, M.empty) decls
             Just _ ->
               let dupDiag =
                     Diagnostic
-                      { diagCode = EDuplicateBinding
-                      , diagSeverity = Error
-                      , diagMessage = "duplicate top-level binding: " <> name
-                      , diagSpan = NoSpan
+                      { diagCode = EDuplicateBinding,
+                        diagSeverity = Error,
+                        diagMessage = "duplicate top-level binding: " <> name,
+                        diagSpan = NoSpan
                       }
                in (stWithId {diags = dupDiag : diags stWithId}, ids)
             Nothing ->
@@ -99,22 +100,22 @@ resolveExpr cfg expr st =
         Just info ->
           ( RVar
               ResolvedName
-                { rnText = name
-                , rnId = Just (bindingId info)
-                , rnClass = bindingClass info
-                }
-          , st
+                { rnText = name,
+                  rnId = Just (bindingId info),
+                  rnClass = bindingClass info
+                },
+            st
           )
         Nothing ->
           let diag =
                 Diagnostic
-                  { diagCode = EUnboundVariable
-                  , diagSeverity = Error
-                  , diagMessage = "unbound variable: " <> name
-                  , diagSpan = NoSpan
+                  { diagCode = EUnboundVariable,
+                    diagSeverity = Error,
+                    diagMessage = "unbound variable: " <> name,
+                    diagSpan = NoSpan
                   }
-           in ( RVar ResolvedName {rnText = name, rnId = Nothing, rnClass = Unresolved}
-              , st {diags = diag : diags st}
+           in ( RVar ResolvedName {rnText = name, rnId = Nothing, rnClass = Unresolved},
+                st {diags = diag : diags st}
               )
 
 preludeEnv :: PreludeMode -> M.Map Text BindingInfo

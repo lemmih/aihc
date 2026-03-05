@@ -1,17 +1,18 @@
 {-# LANGUAGE DeriveFunctor #-}
 
 module Resolver.Types
-  ( Diagnostic (..)
-  , DiagnosticCode (..)
-  , DiagnosticSeverity (..)
-  , ExtensionTag (..)
-  , NameClass (..)
-  , NameId (..)
-  , PreludeMode (..)
-  , ResolveConfig (..)
-  , ResolveResult (..)
-  , Span (..)
-  ) where
+  ( Diagnostic (..),
+    DiagnosticCode (..),
+    DiagnosticSeverity (..),
+    ExtensionTag (..),
+    NameClass (..),
+    NameId (..),
+    PreludeMode (..),
+    ResolveConfig (..),
+    ResolveResult (..),
+    Span (..),
+  )
+where
 
 import Data.Set (Set)
 import Data.Text (Text)
@@ -42,18 +43,18 @@ data DiagnosticCode
 data Span
   = NoSpan
   | Span
-      { startLine :: !Int
-      , startCol :: !Int
-      , endLine :: !Int
-      , endCol :: !Int
+      { startLine :: !Int,
+        startCol :: !Int,
+        endLine :: !Int,
+        endCol :: !Int
       }
   deriving (Eq, Ord, Show)
 
 data Diagnostic = Diagnostic
-  { diagCode :: !DiagnosticCode
-  , diagSeverity :: !DiagnosticSeverity
-  , diagMessage :: !Text
-  , diagSpan :: !Span
+  { diagCode :: !DiagnosticCode,
+    diagSeverity :: !DiagnosticSeverity,
+    diagMessage :: !Text,
+    diagSpan :: !Span
   }
   deriving (Eq, Show)
 
@@ -68,13 +69,13 @@ data PreludeMode
   deriving (Eq, Ord, Show)
 
 data ResolveConfig = ResolveConfig
-  { preludeMode :: !PreludeMode
-  , enabledExtensions :: !(Set ExtensionTag)
+  { preludeMode :: !PreludeMode,
+    enabledExtensions :: !(Set ExtensionTag)
   }
   deriving (Eq, Show)
 
 data ResolveResult a = ResolveResult
-  { resolved :: a
-  , diagnostics :: [Diagnostic]
+  { resolved :: a,
+    diagnostics :: [Diagnostic]
   }
   deriving (Eq, Show, Functor)

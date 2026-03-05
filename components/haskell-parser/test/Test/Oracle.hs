@@ -1,9 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.Oracle
-  ( oracleCanonicalModule
-  , oracleParsesModule
-  ) where
+  ( oracleCanonicalModule,
+    oracleParsesModule,
+  )
+where
 
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
@@ -16,19 +17,18 @@ import GHC.Hs
 import GHC.LanguageExtensions.Type (Extension)
 import GHC.Parser (parseModule)
 import GHC.Parser.Lexer
-  ( ParseResult (..)
-  , getPsErrorMessages
-  , initParserState
-  , mkParserOpts
-  , unP
+  ( ParseResult (..),
+    getPsErrorMessages,
+    initParserState,
+    mkParserOpts,
+    unP,
   )
+import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
 import GHC.Types.Name.Occurrence (occNameString)
 import GHC.Types.Name.Reader (rdrNameOcc)
-import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
 import GHC.Types.SourceText (IntegralLit (..))
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
-import GHC.Utils.Error (pprMessages)
-import GHC.Utils.Error (emptyDiagOpts)
+import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (showSDocUnsafe)
 import Parser.Canonical
 
@@ -59,39 +59,38 @@ toCanonicalModule modu = do
   decls <- traverse toCanonicalDecl (hsmodDecls modu)
   pure
     CanonicalModule
-      { canonicalModuleName = fmap (T.pack . moduleNameString . unLoc) (hsmodName modu)
-      , canonicalDecls = decls
+      { canonicalModuleName = fmap (T.pack . moduleNameString . unLoc) (hsmodName modu),
+        canonicalDecls = decls
       }
 
 toCanonicalDecl :: LHsDecl GhcPs -> Either String CanonicalDecl
 toCanonicalDecl locatedDecl =
   let decl = unLoc locatedDecl
-   in
-  case decl of
-    ValD _ bind ->
-      case bind of
-        FunBind {fun_id = locatedName, fun_matches = MG {mg_alts = locatedMatches}} -> do
-          let name = unLoc locatedName
-              matches = unLoc locatedMatches
-          match <- case matches of
-            [singleMatch] -> Right (unLoc singleMatch)
-            _ -> Left "unsupported multiple matches"
-          expr <- case m_grhss match of
-            GRHSs _ grhss _ ->
-              case toList grhss of
-                [grhs] ->
-                  case unLoc grhs of
-                    GRHS _ [] body -> toCanonicalExpr (unLoc body)
-                    _ -> Left "unsupported guarded rhs"
+   in case decl of
+        ValD _ bind ->
+          case bind of
+            FunBind {fun_id = locatedName, fun_matches = MG {mg_alts = locatedMatches}} -> do
+              let name = unLoc locatedName
+                  matches = unLoc locatedMatches
+              match <- case matches of
+                [singleMatch] -> Right (unLoc singleMatch)
+                _ -> Left "unsupported multiple matches"
+              expr <- case m_grhss match of
+                GRHSs _ grhss _ ->
+                  case toList grhss of
+                    [grhs] ->
+                      case unLoc grhs of
+                        GRHS _ [] body -> toCanonicalExpr (unLoc body)
+                        _ -> Left "unsupported guarded rhs"
+                    _ -> Left "unsupported function rhs"
                 _ -> Left "unsupported function rhs"
-            _ -> Left "unsupported function rhs"
-          pure
-            CanonicalValueDecl
-              { canonicalDeclName = T.pack (occNameString (rdrNameOcc name))
-              , canonicalDeclExpr = expr
-              }
-        _ -> Left "unsupported value binding"
-    _ -> Left "unsupported declaration kind"
+              pure
+                CanonicalValueDecl
+                  { canonicalDeclName = T.pack (occNameString (rdrNameOcc name)),
+                    canonicalDeclExpr = expr
+                  }
+            _ -> Left "unsupported value binding"
+        _ -> Left "unsupported declaration kind"
 
 toCanonicalExpr :: HsExpr GhcPs -> Either String CanonicalExpr
 toCanonicalExpr expr =

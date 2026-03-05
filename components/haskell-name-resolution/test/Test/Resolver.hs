@@ -1,8 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.Resolver
-  ( resolverTests
-  ) where
+  ( resolverTests,
+  )
+where
 
 import Control.Monad (forM)
 import Data.List (isSuffixOf, sort)
@@ -29,23 +30,23 @@ resolverTests = do
       "resolver"
       [ testGroup
           "unit"
-          [ testCase "resolves top-level references" case_resolvesTopLevel
-          , testCase "reports unbound variables" case_unboundVariable
-          , testCase "reports duplicate top-level bindings" case_duplicateBinding
-          , testCase "respects implicit prelude config" case_preludeToggle
-          , testCase "deterministic output for same module" case_deterministic
-          ]
-      , testGroup
+          [ testCase "resolves top-level references" case_resolvesTopLevel,
+            testCase "reports unbound variables" case_unboundVariable,
+            testCase "reports duplicate top-level bindings" case_duplicateBinding,
+            testCase "respects implicit prelude config" case_preludeToggle,
+            testCase "deterministic output for same module" case_deterministic
+          ],
+        testGroup
           "progress-matrix"
-          [ testGroup "node-var" [testCase "top-level lookup" case_resolvesTopLevel]
-          , testGroup "node-int" [testCase "integer literal" case_intLiteral]
-          , testGroup "node-app" [testCase "application traversal" case_applicationTraversal]
-          , testGroup "scope-shadowing" [testCase "prelude shadowed by top-level binder" case_shadowPreludeByTopLevel]
-          , testGroup "scope-ordering" [testCase "forward reference to later binder" case_forwardReference]
-          , testGroup "scope-errors" [testCase "duplicate and unbound diagnostics" case_duplicateAndUnbound]
-          , testGroup "extension-haskell2010-core" [testCase "minimal module" case_haskell2010Core]
-          ]
-      , testGroup "differential-fixtures" [scenarios]
+          [ testGroup "node-var" [testCase "top-level lookup" case_resolvesTopLevel],
+            testGroup "node-int" [testCase "integer literal" case_intLiteral],
+            testGroup "node-app" [testCase "application traversal" case_applicationTraversal],
+            testGroup "scope-shadowing" [testCase "prelude shadowed by top-level binder" case_shadowPreludeByTopLevel],
+            testGroup "scope-ordering" [testCase "forward reference to later binder" case_forwardReference],
+            testGroup "scope-errors" [testCase "duplicate and unbound diagnostics" case_duplicateAndUnbound],
+            testGroup "extension-haskell2010-core" [testCase "minimal module" case_haskell2010Core]
+          ],
+        testGroup "differential-fixtures" [scenarios]
       ]
 
 case_resolvesTopLevel :: Assertion
@@ -90,11 +91,11 @@ case_intLiteral = do
 case_applicationTraversal :: Assertion
 case_applicationTraversal = do
   res <- resolveFactsFromSource defaultResolveConfig "module M where\nx = f a\nf = a\n"
-  rfVars res @?=
-    [ VarFact {vfName = "f", vfBinding = Just "f", vfClass = TopLevelBinder}
-    , VarFact {vfName = "a", vfBinding = Nothing, vfClass = Unresolved}
-    , VarFact {vfName = "a", vfBinding = Nothing, vfClass = Unresolved}
-    ]
+  rfVars res
+    @?= [ VarFact {vfName = "f", vfBinding = Just "f", vfClass = TopLevelBinder},
+          VarFact {vfName = "a", vfBinding = Nothing, vfClass = Unresolved},
+          VarFact {vfName = "a", vfBinding = Nothing, vfClass = Unresolved}
+        ]
   rfDiagnosticCodes res @?= [EUnboundVariable, EUnboundVariable]
 
 case_haskell2010Core :: Assertion
@@ -111,10 +112,10 @@ case_shadowPreludeByTopLevel = do
 case_forwardReference :: Assertion
 case_forwardReference = do
   res <- resolveFactsFromSource defaultResolveConfig "module M where\nstart = middle\nmiddle = end\nend = 1\n"
-  rfVars res @?=
-    [ VarFact {vfName = "middle", vfBinding = Just "middle", vfClass = TopLevelBinder}
-    , VarFact {vfName = "end", vfBinding = Just "end", vfClass = TopLevelBinder}
-    ]
+  rfVars res
+    @?= [ VarFact {vfName = "middle", vfBinding = Just "middle", vfClass = TopLevelBinder},
+          VarFact {vfName = "end", vfBinding = Just "end", vfClass = TopLevelBinder}
+        ]
   rfDiagnosticCodes res @?= []
 
 case_duplicateAndUnbound :: Assertion
@@ -158,10 +159,10 @@ toFacts rr =
       vars = concatMap (collectVars declById . resolvedDeclExpr) decls
       codes = map diagCode (diagnostics rr)
    in ResolveFacts
-        { rfModuleName = resolvedModuleName modu
-        , rfDeclNames = map resolvedDeclName decls
-        , rfVars = vars
-        , rfDiagnosticCodes = codes
+        { rfModuleName = resolvedModuleName modu,
+          rfDeclNames = map resolvedDeclName decls,
+          rfVars = vars,
+          rfDiagnosticCodes = codes
         }
 
 collectVars :: M.Map NameId Text -> ResolvedExpr -> [VarFact]
@@ -171,15 +172,15 @@ collectVars declById expr =
     RApp f x -> collectVars declById f <> collectVars declById x
     RVar name ->
       [ VarFact
-          { vfName = rnText name
-          , vfBinding =
+          { vfName = rnText name,
+            vfBinding =
               case rnClass name of
                 TopLevelBinder -> rnId name >>= (`M.lookup` declById)
                 PreludeBinder -> Just (rnText name)
                 LocalBinder -> Just (rnText name)
                 ImportedBinder -> Just (rnText name)
-                Unresolved -> Nothing
-          , vfClass = rnClass name
+                Unresolved -> Nothing,
+            vfClass = rnClass name
           }
       ]
 
