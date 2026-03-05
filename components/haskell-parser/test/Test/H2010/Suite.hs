@@ -13,7 +13,7 @@ import qualified GHC.Data.EnumSet as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Hs (GhcPs, HsModule)
-import GHC.LanguageExtensions.Type (Extension)
+import GHC.LanguageExtensions.Type (Extension (ForeignFunctionInterface))
 import qualified GHC.Parser as GHCParser
 import qualified GHC.Parser.Lexer as Lexer
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
@@ -149,7 +149,8 @@ oracleParsesModule input =
 
 parseWithGhc :: Text -> Either String (HsModule GhcPs)
 parseWithGhc input =
-  let opts = Lexer.mkParserOpts (EnumSet.empty :: EnumSet.EnumSet Extension) emptyDiagOpts False False False False
+  let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
+      opts = Lexer.mkParserOpts exts emptyDiagOpts False False False False
       buffer = stringToStringBuffer (T.unpack input)
       start = mkRealSrcLoc (mkFastString "<h2010-oracle>") 1 1
    in case Lexer.unP GHCParser.parseModule (Lexer.initParserState opts buffer start) of
