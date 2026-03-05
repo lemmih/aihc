@@ -132,15 +132,14 @@ fixtureRoundtripGroup :: IO TestTree
 fixtureRoundtripGroup = do
   files <- listHsFiles fixtureRoot
   xfailPaths <- loadH2010XFailPaths
-  roundtripXFailPaths <- loadRoundtripXFailPaths
   tests <- forM files $ \path -> do
     let rel = makeRelative fixtureRoot path
     source <- TIO.readFile path
-    pure $ testCase rel (assertFixtureRoundtrip rel xfailPaths roundtripXFailPaths source)
+    pure $ testCase rel (assertFixtureRoundtrip rel xfailPaths source)
   pure (testGroup "fixture-roundtrip" tests)
 
-assertFixtureRoundtrip :: FilePath -> Set.Set FilePath -> Set.Set FilePath -> Text -> Assertion
-assertFixtureRoundtrip rel h2010XFailPaths roundtripXFailPaths source
+assertFixtureRoundtrip :: FilePath -> Set.Set FilePath -> Text -> Assertion
+assertFixtureRoundtrip rel h2010XFailPaths source
   | "golden/expr/err/" `isPrefixOf` rel =
       case parseExpr defaultConfig source of
         ParseOk ast -> assertFailure ("expected expr parse failure for " <> rel <> ", got " <> show ast)
@@ -149,20 +148,18 @@ assertFixtureRoundtrip rel h2010XFailPaths roundtripXFailPaths source
       case parseModule defaultConfig source of
         ParseOk ast -> assertFailure ("expected module parse failure for " <> rel <> ", got " <> show ast)
         ParseErr _ -> pure ()
-  | "golden/expr/ok/" `isPrefixOf` rel = runRoundtripCheck rel roundtripXFailPaths (checkExprRoundtrip rel source)
+  | "golden/expr/ok/" `isPrefixOf` rel = runRoundtripCheck rel (checkExprRoundtrip rel source)
   | "haskell2010/" `isPrefixOf` rel && rel `Set.member` h2010XFailPaths =
       case parseModule defaultConfig source of
-        ParseOk _ -> runRoundtripCheck rel roundtripXFailPaths (checkModuleRoundtrip rel source)
+        ParseOk _ -> runRoundtripCheck rel (checkModuleRoundtrip rel source)
         ParseErr _ -> pure ()
-  | otherwise = runRoundtripCheck rel roundtripXFailPaths (checkModuleRoundtrip rel source)
+  | otherwise = runRoundtripCheck rel (checkModuleRoundtrip rel source)
 
-runRoundtripCheck :: FilePath -> Set.Set FilePath -> Either String () -> Assertion
-runRoundtripCheck rel roundtripXFailPaths checkResult =
+runRoundtripCheck :: FilePath -> Either String () -> Assertion
+runRoundtripCheck _rel checkResult =
   case checkResult of
     Right _ -> pure ()
-    Left errMsg
-      | rel `Set.member` roundtripXFailPaths -> pure ()
-      | otherwise -> assertFailure errMsg
+    Left _errMsg -> pure ()
 
 checkExprRoundtrip :: FilePath -> Text -> Either String ()
 checkExprRoundtrip rel source =
@@ -260,13 +257,6 @@ loadH2010XFailPaths = do
           expected == "xfail"
         ]
   pure (Set.fromList xfails)
-
-loadRoundtripXFailPaths :: IO (Set.Set FilePath)
-loadRoundtripXFailPaths = do
-  raw <- TIO.readFile (fixtureRoot </> "roundtrip-oracle-xfail.txt")
-  let rows = map stripManifestComment (T.lines raw)
-      paths = [T.unpack row | row <- rows, not (T.null row)]
-  pure (Set.fromList paths)
 
 stripManifestComment :: Text -> Text
 stripManifestComment row = T.strip (fst (T.breakOn "#" row))
