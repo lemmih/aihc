@@ -1,5 +1,9 @@
 # aihc
 
+## Docs
+
+- [Haskell 2010 Language Report (Markdown)](docs/haskell2010-language-report.md)
+
 ## Parser Progress
 
 The from-scratch parser lives in `components/haskell-parser`.
