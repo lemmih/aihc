@@ -12,15 +12,6 @@
   },
   "rules": [
     {
-      "type": "creation"
-    },
-    {
-      "type": "update"
-    },
-    {
-      "type": "deletion"
-    },
-    {
       "type": "pull_request",
       "parameters": {
         "dismiss_stale_reviews_on_push": false,
