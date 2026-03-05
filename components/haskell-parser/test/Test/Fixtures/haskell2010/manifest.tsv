@@ -191,7 +191,7 @@ pat-irrefutable	patterns	patterns/irrefutable.hs	xfail	irrefutable patterns unsu
 pat-guards	patterns	patterns/guards.hs	xfail	guards unsupported
 pat-infix-constructor	patterns	patterns/infix-constructor.hs	xfail	infix constructor patterns unsupported
 pat-negative-literal	patterns	patterns/negative-literal.hs	xfail	negative literal patterns unsupported
-pat-labeled	patterns	patterns/labeled.hs	xfail	labeled patterns unsupported
+pat-labeled	patterns	patterns/labeled.hs	pass
 pat-literal-wildcard-parenthesized	patterns	patterns/literal-wildcard-parenthesized.hs	xfail	literal, wildcard, and parenthesized patterns unsupported
 pat-contexts	patterns	patterns/contexts.hs	xfail	pattern matching contexts unsupported
 
