@@ -114,14 +114,14 @@ expr-arithmetic-seq	expressions	expressions/arithmetic-seq.hs	xfail	arithmetic s
 expr-s3-errors-error	expressions	expressions/errors-error.hs	xfail	section 3 expression variation unsupported
 expr-s3-errors-undefined	expressions	expressions/errors-undefined.hs	pass	
 expr-s3-atoms-qvar	expressions	expressions/atoms-qvar.hs	xfail	section 3 expression variation unsupported
-expr-s3-atoms-gcon-unit	expressions	expressions/atoms-gcon-unit.hs	xfail	section 3 expression variation unsupported
-expr-s3-atoms-gcon-listcon	expressions	expressions/atoms-gcon-listcon.hs	xfail	section 3 expression variation unsupported
-expr-s3-atoms-gcon-tuplecon	expressions	expressions/atoms-gcon-tuplecon.hs	xfail	section 3 expression variation unsupported
+expr-s3-atoms-gcon-unit	expressions	expressions/atoms-gcon-unit.hs	pass	
+expr-s3-atoms-gcon-listcon	expressions	expressions/atoms-gcon-listcon.hs	pass	
+expr-s3-atoms-gcon-tuplecon	expressions	expressions/atoms-gcon-tuplecon.hs	pass	
 expr-s3-atoms-qcon	expressions	expressions/atoms-qcon.hs	pass	
 expr-s3-atoms-literal-int	expressions	expressions/atoms-literal-int.hs	pass	
-expr-s3-atoms-literal-float	expressions	expressions/atoms-literal-float.hs	xfail	section 3 expression variation unsupported
-expr-s3-atoms-literal-char	expressions	expressions/atoms-literal-char.hs	xfail	section 3 expression variation unsupported
-expr-s3-atoms-literal-string	expressions	expressions/atoms-literal-string.hs	xfail	section 3 expression variation unsupported
+expr-s3-atoms-literal-float	expressions	expressions/atoms-literal-float.hs	pass	
+expr-s3-atoms-literal-char	expressions	expressions/atoms-literal-char.hs	pass	
+expr-s3-atoms-literal-string	expressions	expressions/atoms-literal-string.hs	pass	
 expr-s3-operators-varsym-paren	expressions	expressions/operators-varsym-paren.hs	xfail	section 3 expression variation unsupported
 expr-s3-operators-backtick-varid	expressions	expressions/operators-backtick-varid.hs	xfail	section 3 expression variation unsupported
 expr-s3-operators-conop-colon	expressions	expressions/operators-conop-colon.hs	xfail	section 3 expression variation unsupported
@@ -141,10 +141,10 @@ expr-s3-section-backtick-left	expressions	expressions/section-backtick-left.hs	x
 expr-s3-section-backtick-right	expressions	expressions/section-backtick-right.hs	xfail	section 3 expression variation unsupported
 expr-s3-conditional-basic	expressions	expressions/conditional-basic.hs	xfail	section 3 expression variation unsupported
 expr-s3-conditional-semicolons	expressions	expressions/conditional-semicolons.hs	xfail	section 3 expression variation unsupported
-expr-s3-list-empty	expressions	expressions/list-empty.hs	xfail	section 3 expression variation unsupported
-expr-s3-list-singleton	expressions	expressions/list-singleton.hs	xfail	section 3 expression variation unsupported
-expr-s3-list-multiple	expressions	expressions/list-multiple.hs	xfail	section 3 expression variation unsupported
-expr-s3-tuple-pair	expressions	expressions/tuple-pair.hs	xfail	section 3 expression variation unsupported
+expr-s3-list-empty	expressions	expressions/list-empty.hs	pass	
+expr-s3-list-singleton	expressions	expressions/list-singleton.hs	pass	
+expr-s3-list-multiple	expressions	expressions/list-multiple.hs	pass	
+expr-s3-tuple-pair	expressions	expressions/tuple-pair.hs	pass	
 expr-s3-tuple-triple	expressions	expressions/tuple-triple.hs	xfail	section 3 expression variation unsupported
 expr-s3-unit-expression	expressions	expressions/unit-expression.hs	xfail	section 3 expression variation unsupported
 expr-s3-parenthesized-expression	expressions	expressions/parenthesized-expression.hs	xfail	section 3 expression variation unsupported

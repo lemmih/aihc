@@ -25,5 +25,11 @@ data Decl = Decl
 data Expr
   = EVar Text
   | EInt Integer
+  | EFloat Double
+  | EChar Char
+  | EString Text
+  | EList [Expr]
+  | ETuple [Expr]
+  | ETupleCon Int
   | EApp Expr Expr
   deriving (Eq, Show)
