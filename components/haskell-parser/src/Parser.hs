@@ -291,21 +291,24 @@ parseDataDeclaration raw =
   case T.stripPrefix "data" raw of
     Nothing -> NotADataDecl
     Just afterData ->
-      let trimmed = T.strip afterData
-          (typeChunk, constructorsChunkRaw) = T.breakOn "=" trimmed
-          typeWords = T.words (T.strip typeChunk)
-       in case (typeWords, T.stripPrefix "=" constructorsChunkRaw) of
-            ([typeName], Just constructorsChunk)
-              | isValidTypeCtor typeName ->
-                  let constructors = map T.strip (T.splitOn "|" constructorsChunk)
-                   in if null constructors || any T.null constructors
-                        then InvalidDataDecl "missing constructor"
-                        else
-                          case traverse parseNullaryCtor constructors of
-                            Right ctorNames ->
-                              ParsedDataDecl DataDecl {dataTypeName = typeName, dataConstructors = ctorNames}
-                            Left () -> InvalidDataDecl "constructors must be nullary type constructors"
-            _ -> InvalidDataDecl "expected: data <Type> = <Ctor> | <Ctor>"
+      case T.uncons afterData of
+        Just (nextChar, _) | not (isSpace nextChar) -> NotADataDecl
+        _ ->
+          let trimmed = T.strip afterData
+              (typeChunk, constructorsChunkRaw) = T.breakOn "=" trimmed
+              typeWords = T.words (T.strip typeChunk)
+           in case (typeWords, T.stripPrefix "=" constructorsChunkRaw) of
+                ([typeName], Just constructorsChunk)
+                  | isValidTypeCtor typeName ->
+                      let constructors = map T.strip (T.splitOn "|" constructorsChunk)
+                       in if null constructors || any T.null constructors
+                            then InvalidDataDecl "missing constructor"
+                            else
+                              case traverse parseNullaryCtor constructors of
+                                Right ctorNames ->
+                                  ParsedDataDecl DataDecl {dataTypeName = typeName, dataConstructors = ctorNames}
+                                Left () -> InvalidDataDecl "constructors must be nullary type constructors"
+                _ -> InvalidDataDecl "expected: data <Type> = <Ctor> | <Ctor>"
   where
     parseNullaryCtor ctorText =
       case T.words ctorText of
