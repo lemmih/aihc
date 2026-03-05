@@ -17,12 +17,14 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Test.Tasty.QuickCheck as QC
 import Test.Oracle
+import Test.Resolver (resolverTests)
 
 main :: IO ()
 main = buildTests >>= defaultMain
 
 buildTests :: IO TestTree
 buildTests = do
+  resolver <- resolverTests
   exprOk <- goldenGroup "golden/expr/ok" expectExprOk
   exprErr <- goldenGroup "golden/expr/err" expectExprErr
   moduleOk <- goldenGroup "golden/module/ok" expectModuleOk
@@ -35,6 +37,7 @@ buildTests = do
       [ testGroup "golden" [exprOk, exprErr, moduleOk, moduleErr]
       , testGroup "differential-fixtures" [diffModule, regressions]
       , testGroup "properties" [QC.testProperty "generated modules agree with ghc oracle" prop_moduleAgreement]
+      , resolver
       ]
 
 goldenGroup :: FilePath -> (Text -> Assertion) -> IO TestTree
@@ -112,9 +115,35 @@ genIdent = do
   restLen <- chooseInt (0, 8)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   let candidate = T.pack (first : rest)
-  if candidate `elem` ["module", "where", "_"]
+  if candidate `elem` reservedWords
     then genIdent
     else pure candidate
+
+reservedWords :: [Text]
+reservedWords =
+  [ "_"
+  , "case"
+  , "class"
+  , "data"
+  , "default"
+  , "deriving"
+  , "do"
+  , "else"
+  , "if"
+  , "import"
+  , "in"
+  , "infix"
+  , "infixl"
+  , "infixr"
+  , "instance"
+  , "let"
+  , "module"
+  , "newtype"
+  , "of"
+  , "then"
+  , "type"
+  , "where"
+  ]
 
 data GenExpr
   = GVar Text
