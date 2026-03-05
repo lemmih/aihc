@@ -6,7 +6,7 @@ module Test.Oracle
   ) where
 
 import Data.Bifunctor (first)
-import Data.List.NonEmpty (NonEmpty (..))
+import Data.Foldable (toList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified GHC.Data.EnumSet as EnumSet
@@ -77,10 +77,13 @@ toCanonicalDecl locatedDecl =
             [singleMatch] -> Right (unLoc singleMatch)
             _ -> Left "unsupported multiple matches"
           expr <- case m_grhss match of
-            GRHSs _ (grhs :| []) _ ->
-              case unLoc grhs of
-                GRHS _ [] body -> toCanonicalExpr (unLoc body)
-                _ -> Left "unsupported guarded rhs"
+            GRHSs _ grhss _ ->
+              case toList grhss of
+                [grhs] ->
+                  case unLoc grhs of
+                    GRHS _ [] body -> toCanonicalExpr (unLoc body)
+                    _ -> Left "unsupported guarded rhs"
+                _ -> Left "unsupported function rhs"
             _ -> Left "unsupported function rhs"
           pure
             CanonicalDecl
