@@ -12,6 +12,19 @@ decls-type-signature	declarations	declarations/type-signature.hs	xfail	type sign
 decls-multiple-equations	declarations	declarations/multiple-equations.hs	xfail	multiple equations unsupported
 decls-pattern-binding	declarations	declarations/pattern-binding.hs	xfail	pattern bindings unsupported
 decls-data	declarations	declarations/data.hs	pass	
+decls-data-context	declarations	declarations/data-context.hs	xfail	data declaration contexts unsupported
+decls-data-prefix-positional	declarations	declarations/data-prefix-positional.hs	xfail	prefix constructor arguments unsupported
+decls-data-prefix-strict	declarations	declarations/data-prefix-strict.hs	xfail	strict constructor fields unsupported
+decls-data-infix	declarations	declarations/data-infix.hs	xfail	infix data constructors unsupported
+decls-data-infix-strict-left	declarations	declarations/data-infix-strict-left.hs	xfail	strict infix constructor fields unsupported
+decls-data-infix-strict-right	declarations	declarations/data-infix-strict-right.hs	xfail	strict infix constructor fields unsupported
+decls-data-record-empty	declarations	declarations/data-record-empty.hs	xfail	record constructor syntax unsupported
+decls-data-record-fields	declarations	declarations/data-record-fields.hs	xfail	record constructor syntax unsupported
+decls-data-record-grouped-fields	declarations	declarations/data-record-grouped-fields.hs	xfail	record field grouping unsupported
+decls-data-record-strict-field	declarations	declarations/data-record-strict-field.hs	xfail	strict record fields unsupported
+decls-data-deriving-single	declarations	declarations/data-deriving-single.hs	xfail	single-class deriving syntax unsupported
+decls-data-deriving-empty	declarations	declarations/data-deriving-empty.hs	xfail	empty deriving list syntax unsupported
+decls-data-abstract	declarations	declarations/data-abstract.hs	xfail	abstract data declarations unsupported
 decls-newtype	declarations	declarations/newtype.hs	xfail	newtype declarations unsupported
 decls-type-synonym	declarations	declarations/type-synonym.hs	xfail	type synonym declarations unsupported
 decls-class	declarations	declarations/class.hs	xfail	class declarations unsupported
