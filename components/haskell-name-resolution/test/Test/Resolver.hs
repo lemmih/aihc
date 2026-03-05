@@ -5,7 +5,7 @@ module Test.Resolver
   ) where
 
 import Control.Monad (forM)
-import Data.List (sort)
+import Data.List (isSuffixOf, sort)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text.IO as TIO
@@ -23,8 +23,7 @@ import Test.Tasty.HUnit
 
 resolverTests :: IO TestTree
 resolverTests = do
-  diffModuleOk <- resolverFixtureGroup "golden/module/ok"
-  diffRegressions <- resolverFixtureGroup "corpus/regressions"
+  scenarios <- resolverFixtureGroup "resolve"
   pure $
     testGroup
       "resolver"
@@ -41,9 +40,12 @@ resolverTests = do
           [ testGroup "node-var" [testCase "top-level lookup" case_resolvesTopLevel]
           , testGroup "node-int" [testCase "integer literal" case_intLiteral]
           , testGroup "node-app" [testCase "application traversal" case_applicationTraversal]
+          , testGroup "scope-shadowing" [testCase "prelude shadowed by top-level binder" case_shadowPreludeByTopLevel]
+          , testGroup "scope-ordering" [testCase "forward reference to later binder" case_forwardReference]
+          , testGroup "scope-errors" [testCase "duplicate and unbound diagnostics" case_duplicateAndUnbound]
           , testGroup "extension-haskell2010-core" [testCase "minimal module" case_haskell2010Core]
           ]
-      , testGroup "differential-fixtures" [diffModuleOk, diffRegressions]
+      , testGroup "differential-fixtures" [scenarios]
       ]
 
 case_resolvesTopLevel :: Assertion
@@ -100,14 +102,36 @@ case_haskell2010Core = do
   res <- resolveFactsFromSource defaultResolveConfig "module M where\nx = y\ny = 1\n"
   rfDiagnosticCodes res @?= []
 
+case_shadowPreludeByTopLevel :: Assertion
+case_shadowPreludeByTopLevel = do
+  res <- resolveFactsFromSource defaultResolveConfig "module M where\nreturn = 1\nx = return\n"
+  rfVars res @?= [VarFact {vfName = "return", vfBinding = Just "return", vfClass = TopLevelBinder}]
+  rfDiagnosticCodes res @?= []
+
+case_forwardReference :: Assertion
+case_forwardReference = do
+  res <- resolveFactsFromSource defaultResolveConfig "module M where\nstart = middle\nmiddle = end\nend = 1\n"
+  rfVars res @?=
+    [ VarFact {vfName = "middle", vfBinding = Just "middle", vfClass = TopLevelBinder}
+    , VarFact {vfName = "end", vfBinding = Just "end", vfClass = TopLevelBinder}
+    ]
+  rfDiagnosticCodes res @?= []
+
+case_duplicateAndUnbound :: Assertion
+case_duplicateAndUnbound = do
+  res <- resolveFactsFromSource defaultResolveConfig "module M where\nx = missing\nx = 1\n"
+  rfDiagnosticCodes res @?= [EDuplicateBinding, EUnboundVariable]
+
 resolverFixtureGroup :: FilePath -> IO TestTree
 resolverFixtureGroup relDir = do
   let dir = fixtureRoot </> relDir
-  files <- fmap sort (listDirectory dir)
+  files <- fmap (sort . filter isHsFile) (listDirectory dir)
   tests <- forM files $ \name -> do
     let path = dir </> name
     pure $ testCase name (fixtureOracleAgreement path)
   pure (testGroup relDir tests)
+  where
+    isHsFile name = ".hs" `isSuffixOf` name
 
 fixtureOracleAgreement :: FilePath -> Assertion
 fixtureOracleAgreement path = do
