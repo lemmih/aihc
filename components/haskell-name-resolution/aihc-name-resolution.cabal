@@ -1,0 +1,47 @@
+cabal-version:      3.8
+name:               aihc-name-resolution
+version:            0.1.0.0
+build-type:         Simple
+license:            Unlicense
+license-file:       LICENSE
+author:             aihc
+maintainer:         aihc@example.com
+category:           Compilers
+synopsis:           Name resolution component for aihc
+
+library
+  exposed-modules:
+      Resolver
+    , Resolver.Ast
+    , Resolver.Types
+  hs-source-dirs:   src
+  build-depends:
+      base >=4.16 && <5
+    , text >=1.2
+    , containers
+    , aihc-parser
+  ghc-options:        -Wall
+  default-language: Haskell2010
+
+test-suite spec
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Spec.hs
+  other-modules:
+      Test.Oracle
+    , Test.Oracle.Resolve
+    , Test.ResolveFacts
+    , Test.Resolver
+  build-depends:
+      base >=4.16 && <5
+    , aihc-name-resolution
+    , aihc-parser
+    , text
+    , containers
+    , directory
+    , filepath
+    , tasty
+    , tasty-hunit
+    , ghc-lib-parser
+  ghc-options:        -Wall
+  default-language: Haskell2010

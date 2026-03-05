@@ -1,0 +1,105 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+module Test.Oracle
+  ( oracleCanonicalModule
+  , oracleParsesModule
+  ) where
+
+import Data.Bifunctor (first)
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.Text (Text)
+import qualified Data.Text as T
+import qualified GHC.Data.EnumSet as EnumSet
+import GHC.Data.FastString (mkFastString)
+import GHC.Data.StringBuffer (stringToStringBuffer)
+import GHC.Hs
+import GHC.LanguageExtensions.Type (Extension)
+import GHC.Parser (parseModule)
+import GHC.Parser.Lexer
+  ( ParseResult (..)
+  , getPsErrorMessages
+  , initParserState
+  , mkParserOpts
+  , unP
+  )
+import GHC.Types.Name.Occurrence (occNameString)
+import GHC.Types.Name.Reader (rdrNameOcc)
+import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
+import GHC.Types.SourceText (IntegralLit (..))
+import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
+import GHC.Utils.Error (pprMessages)
+import GHC.Utils.Error (emptyDiagOpts)
+import GHC.Utils.Outputable (showSDocUnsafe)
+import Parser.Canonical
+
+oracleParsesModule :: Text -> Bool
+oracleParsesModule input =
+  case parseWithGhc input of
+    Left _ -> False
+    Right _ -> True
+
+oracleCanonicalModule :: Text -> Either Text CanonicalModule
+oracleCanonicalModule input = do
+  parsed <- parseWithGhc input
+  first T.pack (toCanonicalModule parsed)
+
+parseWithGhc :: Text -> Either Text (HsModule GhcPs)
+parseWithGhc input =
+  let opts = mkParserOpts (EnumSet.empty :: EnumSet.EnumSet Extension) emptyDiagOpts False False False False
+      buffer = stringToStringBuffer (T.unpack input)
+      start = mkRealSrcLoc (mkFastString "<oracle>") 1 1
+   in case unP parseModule (initParserState opts buffer start) of
+        POk _ modu -> Right (unLoc modu)
+        PFailed st ->
+          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
+           in Left (T.pack rendered)
+
+toCanonicalModule :: HsModule GhcPs -> Either String CanonicalModule
+toCanonicalModule modu = do
+  decls <- traverse toCanonicalDecl (hsmodDecls modu)
+  pure
+    CanonicalModule
+      { canonicalModuleName = fmap (T.pack . moduleNameString . unLoc) (hsmodName modu)
+      , canonicalDecls = decls
+      }
+
+toCanonicalDecl :: LHsDecl GhcPs -> Either String CanonicalDecl
+toCanonicalDecl locatedDecl =
+  let decl = unLoc locatedDecl
+   in
+  case decl of
+    ValD _ bind ->
+      case bind of
+        FunBind {fun_id = locatedName, fun_matches = MG {mg_alts = locatedMatches}} -> do
+          let name = unLoc locatedName
+              matches = unLoc locatedMatches
+          match <- case matches of
+            [singleMatch] -> Right (unLoc singleMatch)
+            _ -> Left "unsupported multiple matches"
+          expr <- case m_grhss match of
+            GRHSs _ (grhs :| []) _ ->
+              case unLoc grhs of
+                GRHS _ [] body -> toCanonicalExpr (unLoc body)
+                _ -> Left "unsupported guarded rhs"
+            _ -> Left "unsupported function rhs"
+          pure
+            CanonicalDecl
+              { canonicalDeclName = T.pack (occNameString (rdrNameOcc name))
+              , canonicalDeclExpr = expr
+              }
+        _ -> Left "unsupported value binding"
+    _ -> Left "unsupported declaration kind"
+
+toCanonicalExpr :: HsExpr GhcPs -> Either String CanonicalExpr
+toCanonicalExpr expr =
+  case expr of
+    HsVar _ locatedName ->
+      let name = unLoc locatedName
+       in Right (CVar (T.pack (occNameString (rdrNameOcc name))))
+    HsPar _ inner -> toCanonicalExpr (unLoc inner)
+    HsApp _ f x -> CApp <$> toCanonicalExpr (unLoc f) <*> toCanonicalExpr (unLoc x)
+    HsOverLit _ lit ->
+      case ol_val lit of
+        HsIntegral (IL _ _ value) -> Right (CInt value)
+        _ -> Left "unsupported literal"
+    _ -> Left "unsupported expression"

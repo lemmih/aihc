@@ -115,9 +115,35 @@ genIdent = do
   restLen <- chooseInt (0, 8)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   let candidate = T.pack (first : rest)
-  if candidate `elem` ["module", "where", "_"]
+  if candidate `elem` reservedWords
     then genIdent
     else pure candidate
+
+reservedWords :: [Text]
+reservedWords =
+  [ "_"
+  , "case"
+  , "class"
+  , "data"
+  , "default"
+  , "deriving"
+  , "do"
+  , "else"
+  , "if"
+  , "import"
+  , "in"
+  , "infix"
+  , "infixl"
+  , "infixr"
+  , "instance"
+  , "let"
+  , "module"
+  , "newtype"
+  , "of"
+  , "then"
+  , "type"
+  , "where"
+  ]
 
 data GenExpr
   = GVar Text
