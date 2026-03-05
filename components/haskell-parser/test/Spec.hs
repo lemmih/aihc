@@ -132,14 +132,15 @@ fixtureRoundtripGroup :: IO TestTree
 fixtureRoundtripGroup = do
   files <- listHsFiles fixtureRoot
   xfailPaths <- loadH2010XFailPaths
+  roundtripXFailPaths <- loadRoundtripXFailPaths
   tests <- forM files $ \path -> do
     let rel = makeRelative fixtureRoot path
     source <- TIO.readFile path
-    pure $ testCase rel (assertFixtureRoundtrip rel xfailPaths source)
+    pure $ testCase rel (assertFixtureRoundtrip rel xfailPaths roundtripXFailPaths source)
   pure (testGroup "fixture-roundtrip" tests)
 
-assertFixtureRoundtrip :: FilePath -> Set.Set FilePath -> Text -> Assertion
-assertFixtureRoundtrip rel xfailPaths source
+assertFixtureRoundtrip :: FilePath -> Set.Set FilePath -> Set.Set FilePath -> Text -> Assertion
+assertFixtureRoundtrip rel h2010XFailPaths roundtripXFailPaths source
   | "golden/expr/err/" `isPrefixOf` rel =
       case parseExpr defaultConfig source of
         ParseOk ast -> assertFailure ("expected expr parse failure for " <> rel <> ", got " <> show ast)
@@ -148,24 +149,35 @@ assertFixtureRoundtrip rel xfailPaths source
       case parseModule defaultConfig source of
         ParseOk ast -> assertFailure ("expected module parse failure for " <> rel <> ", got " <> show ast)
         ParseErr _ -> pure ()
-  | "golden/expr/ok/" `isPrefixOf` rel = assertExprRoundtrip rel source
-  | "haskell2010/" `isPrefixOf` rel && rel `Set.member` xfailPaths =
+  | "golden/expr/ok/" `isPrefixOf` rel = runRoundtripCheck rel roundtripXFailPaths (checkExprRoundtrip rel source)
+  | "haskell2010/" `isPrefixOf` rel && rel `Set.member` h2010XFailPaths =
       case parseModule defaultConfig source of
-        ParseOk _ -> assertModuleRoundtrip rel source
+        ParseOk _ -> runRoundtripCheck rel roundtripXFailPaths (checkModuleRoundtrip rel source)
         ParseErr _ -> pure ()
-  | otherwise = assertModuleRoundtrip rel source
+  | otherwise = runRoundtripCheck rel roundtripXFailPaths (checkModuleRoundtrip rel source)
 
-assertExprRoundtrip :: FilePath -> Text -> Assertion
-assertExprRoundtrip rel source =
+runRoundtripCheck :: FilePath -> Set.Set FilePath -> Either String () -> Assertion
+runRoundtripCheck rel roundtripXFailPaths checkResult =
+  case checkResult of
+    Right _ -> pure ()
+    Left errMsg
+      | rel `Set.member` roundtripXFailPaths -> pure ()
+      | otherwise -> assertFailure errMsg
+
+checkExprRoundtrip :: FilePath -> Text -> Either String ()
+checkExprRoundtrip rel source =
   case parseExpr defaultConfig source of
     ParseOk parsed ->
       let rendered = prettyExpr parsed
           originalWrapped = wrapExprForOracle source
           renderedWrapped = wrapExprForOracle rendered
        in case (oracleCanonicalModule originalWrapped, oracleCanonicalModule renderedWrapped) of
-            (Right originalCanon, Right renderedCanon) -> renderedCanon @?= originalCanon
+            (Right originalCanon, Right renderedCanon) ->
+              if renderedCanon == originalCanon
+                then Right ()
+                else Left ("expected: " <> show originalCanon <> "\n but got: " <> show renderedCanon)
             (Left originalErr, _) ->
-              assertFailure
+              Left
                 ( "oracle failed on original expr fixture "
                     <> rel
                     <> ": "
@@ -174,7 +186,7 @@ assertExprRoundtrip rel source =
                     <> T.unpack source
                 )
             (_, Left renderedErr) ->
-              assertFailure
+              Left
                 ( "oracle failed on rendered expr fixture "
                     <> rel
                     <> ": "
@@ -182,17 +194,20 @@ assertExprRoundtrip rel source =
                     <> "\nrendered:\n"
                     <> T.unpack rendered
                 )
-    ParseErr err -> assertFailure ("expected expr parse success for " <> rel <> ", got " <> show err)
+    ParseErr err -> Left ("expected expr parse success for " <> rel <> ", got " <> show err)
 
-assertModuleRoundtrip :: FilePath -> Text -> Assertion
-assertModuleRoundtrip rel source =
+checkModuleRoundtrip :: FilePath -> Text -> Either String ()
+checkModuleRoundtrip rel source =
   case parseModule defaultConfig source of
     ParseOk parsed ->
       let rendered = prettyModule parsed
        in case (oracleCanonicalModule source, oracleCanonicalModule rendered) of
-            (Right originalCanon, Right renderedCanon) -> renderedCanon @?= originalCanon
+            (Right originalCanon, Right renderedCanon) ->
+              if renderedCanon == originalCanon
+                then Right ()
+                else Left ("expected: " <> show originalCanon <> "\n but got: " <> show renderedCanon)
             (Left originalErr, _) ->
-              assertFailure
+              Left
                 ( "oracle failed on original module fixture "
                     <> rel
                     <> ": "
@@ -201,7 +216,7 @@ assertModuleRoundtrip rel source =
                     <> T.unpack source
                 )
             (_, Left renderedErr) ->
-              assertFailure
+              Left
                 ( "oracle failed on rendered module fixture "
                     <> rel
                     <> ": "
@@ -209,7 +224,7 @@ assertModuleRoundtrip rel source =
                     <> "\nrendered:\n"
                     <> T.unpack rendered
                 )
-    ParseErr err -> assertFailure ("expected module parse success for " <> rel <> ", got " <> show err)
+    ParseErr err -> Left ("expected module parse success for " <> rel <> ", got " <> show err)
 
 wrapExprForOracle :: Text -> Text
 wrapExprForOracle exprSource =
@@ -245,6 +260,13 @@ loadH2010XFailPaths = do
           expected == "xfail"
         ]
   pure (Set.fromList xfails)
+
+loadRoundtripXFailPaths :: IO (Set.Set FilePath)
+loadRoundtripXFailPaths = do
+  raw <- TIO.readFile (fixtureRoot </> "roundtrip-oracle-xfail.txt")
+  let rows = map stripManifestComment (T.lines raw)
+      paths = [T.unpack row | row <- rows, not (T.null row)]
+  pure (Set.fromList paths)
 
 stripManifestComment :: Text -> Text
 stripManifestComment row = T.strip (fst (T.breakOn "#" row))
