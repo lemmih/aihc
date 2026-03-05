@@ -28,6 +28,17 @@ decls-data-abstract	declarations	declarations/data-abstract.hs	xfail	abstract da
 decls-newtype	declarations	declarations/newtype.hs	xfail	newtype declarations unsupported
 decls-type-synonym	declarations	declarations/type-synonym.hs	xfail	type synonym declarations unsupported
 decls-class	declarations	declarations/class.hs	xfail	class declarations unsupported
+decls-class-minimal	declarations	declarations/class-minimal.hs	xfail	class declarations without where unsupported
+decls-class-where-empty	declarations	declarations/class-where-empty.hs	xfail	class declarations with empty cdecls unsupported
+decls-class-super-simple	declarations	declarations/class-super-simple.hs	xfail	class superclass contexts unsupported
+decls-class-super-paren-empty	declarations	declarations/class-super-paren-empty.hs	xfail	parenthesized superclass contexts unsupported
+decls-class-super-paren-single	declarations	declarations/class-super-paren-single.hs	xfail	parenthesized superclass contexts unsupported
+decls-class-super-paren-multiple	declarations	declarations/class-super-paren-multiple.hs	xfail	multiple superclass constraints unsupported
+decls-class-cdecl-signature	declarations	declarations/class-cdecl-signature.hs	xfail	class method signatures unsupported
+decls-class-cdecl-signature-context	declarations	declarations/class-cdecl-signature-context.hs	xfail	class method signatures with contexts unsupported
+decls-class-cdecl-default-var	declarations	declarations/class-cdecl-default-var.hs	xfail	default class methods unsupported
+decls-class-cdecl-default-funlhs	declarations	declarations/class-cdecl-default-funlhs.hs	xfail	default class methods unsupported
+decls-class-cdecl-fixity	declarations	declarations/class-cdecl-fixity.hs	xfail	fixity declarations in class bodies unsupported
 decls-instance	declarations	declarations/instance.hs	xfail	instance declarations unsupported
 decls-fixity	declarations	declarations/fixity.hs	xfail	fixity declarations unsupported
 decls-default	declarations	declarations/default.hs	xfail	default declarations unsupported
