@@ -13,3 +13,17 @@ Recompute progress with:
 ```bash
 nix run .#parser-progress
 ```
+
+## Name-Resolution Progress
+
+The name-resolution component lives in `components/haskell-name-resolution`.
+
+Current progress:
+- `8/12` capability cases implemented (`66.66%` complete)
+- status breakdown: `PASS=8`, `XFAIL=4`, `XPASS=0`, `FAIL=0`
+
+Recompute progress with:
+
+```bash
+nix run .#name-resolution-progress
+```

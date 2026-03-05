@@ -30,6 +30,7 @@ test-suite spec
   other-modules:
       Test.Oracle
     , Test.Oracle.Resolve
+    , Test.Progress
     , Test.ResolveFacts
     , Test.Resolver
   build-depends:
@@ -42,6 +43,21 @@ test-suite spec
     , filepath
     , tasty
     , tasty-hunit
+    , ghc-lib-parser
+  ghc-options:        -Wall
+  default-language: Haskell2010
+
+executable name-resolution-progress
+  hs-source-dirs:   app/name-resolution-progress
+  main-is:          Main.hs
+  build-depends:
+      base >=4.16 && <5
+    , aihc-name-resolution
+    , aihc-parser
+    , text
+    , containers
+    , directory
+    , filepath
     , ghc-lib-parser
   ghc-options:        -Wall
   default-language: Haskell2010

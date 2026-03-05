@@ -56,6 +56,36 @@
             cabal run h2010-progress -- --strict
           '';
 
+          name-resolution-test = mkApp "name-resolution-test" ''
+            set -euo pipefail
+            test -d components/haskell-name-resolution || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-name-resolution
+            cabal test --test-show-details=direct
+          '';
+
+          name-resolution-progress = mkApp "name-resolution-progress" ''
+            set -euo pipefail
+            test -d components/haskell-name-resolution || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-name-resolution
+            cabal run name-resolution-progress
+          '';
+
+          name-resolution-progress-strict = mkApp "name-resolution-progress-strict" ''
+            set -euo pipefail
+            test -d components/haskell-name-resolution || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-name-resolution
+            cabal run name-resolution-progress -- --strict
+          '';
+
           default = mkApp "default" ''
             set -euo pipefail
             test -d components/haskell-parser || {
