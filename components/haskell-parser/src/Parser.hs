@@ -36,7 +36,6 @@ defaultConfig :: ParserConfig
 defaultConfig =
   ParserConfig
     { allowLineComments = True
-    , enableGhcFallback = False
     }
 
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
