@@ -15,6 +15,9 @@ library
     , Parser.Ast
     , Parser.Canonical
     , Parser.Types
+    , Resolver
+    , Resolver.Ast
+    , Resolver.Types
   hs-source-dirs:   src
   build-depends:
       base >=4.16 && <5
@@ -29,6 +32,9 @@ test-suite spec
   main-is:          Spec.hs
   other-modules:
       Test.Oracle
+    , Test.Oracle.Resolve
+    , Test.ResolveFacts
+    , Test.Resolver
   build-depends:
       base >=4.16 && <5
     , aihc-parser
