@@ -21,3 +21,10 @@ cabal.project.local
 cabal.project.local~
 .HTF/
 .ghc.environment.*
+worktrees/
+
+# Nix / direnv artifacts
+result
+result-*
+.direnv/
+.devenv/
