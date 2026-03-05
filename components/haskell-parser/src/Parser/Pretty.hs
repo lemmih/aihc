@@ -9,7 +9,6 @@ where
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import Parser.Ast
 import Prettyprinter
   ( Doc,
@@ -76,7 +75,7 @@ prettyDecl decl =
             Just "::",
             Just "Int"
           ]
-    GhcDecl decl -> pretty (T.pack (showSDocUnsafe (ppr decl)))
+    StructuredDecl {structuredTokens = toks} -> pretty (renderDeclTokens toks)
 
 functionBinder :: Text -> Doc ann
 functionBinder name
@@ -205,3 +204,34 @@ isOperatorToken tok =
 
 renderDoc :: Doc ann -> Text
 renderDoc = renderStrict . layoutPretty defaultLayoutOptions
+
+renderDeclTokens :: [DeclToken] -> Text
+renderDeclTokens =
+  snd . foldl step (Nothing, T.empty)
+  where
+    step (prevTok, acc) tok =
+      let spaced =
+            case prevTok of
+              Nothing -> acc
+              Just prev ->
+                if needsSpace prev tok
+                  then acc <> " "
+                  else acc
+       in (Just tok, spaced <> tokenText tok)
+
+    tokenText tok =
+      case tok of
+        TokWord txt -> txt
+        TokSymbol txt -> txt
+        TokString txt -> txt
+        TokChar txt -> txt
+        TokPunct c -> T.singleton c
+
+    needsSpace prev curr =
+      case (prev, curr) of
+        (TokPunct p, _) | p `elem` ("([{" :: String) -> False
+        (_, TokPunct c) | c `elem` (")]},;" :: String) -> False
+        (TokPunct ',', _) -> True
+        (TokPunct ';', _) -> True
+        (TokSymbol "!", TokWord _) -> False
+        _ -> True

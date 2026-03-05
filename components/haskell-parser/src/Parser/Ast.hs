@@ -1,31 +1,26 @@
-{-# LANGUAGE LambdaCase #-}
-
 module Parser.Ast
   ( ArithSeq (..),
     CallConv (..),
     CaseAlt (..),
     CompStmt (..),
+    DeclToken (..),
     Decl (..),
     DoStmt (..),
     Expr (..),
     ForeignDirection (..),
     ForeignSafety (..),
     Module (..),
+    StructuredDeclKind (..),
   )
 where
 
 import Data.Text (Text)
-import GHC.Hs (GhcPs, HsDecl)
-import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 
 data Module = Module
   { moduleName :: Maybe Text,
     moduleDecls :: [Decl]
   }
-  deriving (Eq)
-
-instance Show Module where
-  show modu = "Module " <> show (moduleName modu, moduleDecls modu)
+  deriving (Eq, Show)
 
 data Decl
   = Decl
@@ -73,44 +68,32 @@ data Decl
         foreignEntity :: Maybe Text,
         foreignName :: Text
       }
-  | GhcDecl
-      { ghcDecl :: HsDecl GhcPs
+  | StructuredDecl
+      { structuredKind :: StructuredDeclKind,
+        structuredTokens :: [DeclToken]
       }
+  deriving (Eq, Show)
 
-instance Eq Decl where
-  lhs == rhs =
-    case (lhs, rhs) of
-      (Decl n1 e1, Decl n2 e2) -> n1 == n2 && e1 == e2
-      (PatternDecl l1, PatternDecl l2) -> l1 == l2
-      (TypeSigDecl n1, TypeSigDecl n2) -> n1 == n2
-      (FunctionDecl n1, FunctionDecl n2) -> n1 == n2
-      (TypeDecl n1, TypeDecl n2) -> n1 == n2
-      (DataDecl t1 c1, DataDecl t2 c2) -> t1 == t2 && c1 == c2
-      (NewtypeDecl n1 c1, NewtypeDecl n2 c2) -> n1 == n2 && c1 == c2
-      (ClassDecl c1, ClassDecl c2) -> c1 == c2
-      (InstanceDecl c1, InstanceDecl c2) -> c1 == c2
-      (FixityDecl a1 p1 o1, FixityDecl a2 p2 o2) -> a1 == a2 && p1 == p2 && o1 == o2
-      (DefaultDecl t1, DefaultDecl t2) -> t1 == t2
-      (ForeignDecl d1 c1 s1 e1 n1, ForeignDecl d2 c2 s2 e2 n2) ->
-        d1 == d2 && c1 == c2 && s1 == s2 && e1 == e2 && n1 == n2
-      (GhcDecl d1, GhcDecl d2) -> showSDocUnsafe (ppr d1) == showSDocUnsafe (ppr d2)
-      _ -> False
+data StructuredDeclKind
+  = StructuredTypeSig
+  | StructuredEquation
+  | StructuredPatternBind
+  | StructuredTypeDecl
+  | StructuredDataDecl
+  | StructuredNewtypeDecl
+  | StructuredClassDecl
+  | StructuredInstanceDecl
+  | StructuredFixityDecl
+  | StructuredDefaultDecl
+  deriving (Eq, Show)
 
-instance Show Decl where
-  show = \case
-    Decl n e -> "Decl " <> show (n, e)
-    PatternDecl lhs -> "PatternDecl " <> show lhs
-    TypeSigDecl n -> "TypeSigDecl " <> show n
-    FunctionDecl n -> "FunctionDecl " <> show n
-    TypeDecl n -> "TypeDecl " <> show n
-    DataDecl t cs -> "DataDecl " <> show (t, cs)
-    NewtypeDecl n c -> "NewtypeDecl " <> show (n, c)
-    ClassDecl n -> "ClassDecl " <> show n
-    InstanceDecl n -> "InstanceDecl " <> show n
-    FixityDecl a p o -> "FixityDecl " <> show (a, p, o)
-    DefaultDecl ts -> "DefaultDecl " <> show ts
-    ForeignDecl d c s e n -> "ForeignDecl " <> show (d, c, s, e, n)
-    GhcDecl d -> "GhcDecl " <> showSDocUnsafe (ppr d)
+data DeclToken
+  = TokWord Text
+  | TokSymbol Text
+  | TokString Text
+  | TokChar Text
+  | TokPunct Char
+  deriving (Eq, Show)
 
 data ForeignDirection
   = ForeignImport

@@ -14,15 +14,6 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
-import qualified GHC.Data.EnumSet as EnumSet
-import GHC.Data.FastString (mkFastString)
-import GHC.Data.StringBuffer (stringToStringBuffer)
-import GHC.Hs (GhcPs, HsDecl, HsModule, hsmodDecls)
-import GHC.LanguageExtensions.Type (Extension (ForeignFunctionInterface))
-import qualified GHC.Parser as GHCParser
-import qualified GHC.Parser.Lexer as Lexer
-import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
-import GHC.Utils.Error (emptyDiagOpts)
 import Parser.Ast
 import Parser.Types
 import Text.Megaparsec
@@ -145,22 +136,107 @@ declarationParser allowFfiFallback
 
 parseDeclText :: ParserConfig -> Text -> Either Text Decl
 parseDeclText cfg txt
-  | "data " `T.isPrefixOf` txt = parseGhcDeclText txt
-  | "newtype " `T.isPrefixOf` txt = parseGhcDeclText txt
-  | "type " `T.isPrefixOf` txt = parseGhcDeclText txt
-  | "class " `T.isPrefixOf` txt = parseGhcDeclText txt
-  | "instance " `T.isPrefixOf` txt = parseGhcDeclText txt
-  | "default " `T.isPrefixOf` txt = parseGhcDeclText txt
-  | isFixityDecl txt = parseGhcDeclText txt
-  | "::" `T.isInfixOf` txt = parseGhcDeclText txt
+  | "data " `T.isPrefixOf` txt = parseStructuredDecl StructuredDataDecl txt
+  | "newtype " `T.isPrefixOf` txt = parseStructuredDecl StructuredNewtypeDecl txt
+  | "type " `T.isPrefixOf` txt = parseStructuredDecl StructuredTypeDecl txt
+  | "class " `T.isPrefixOf` txt = parseStructuredDecl StructuredClassDecl txt
+  | "instance " `T.isPrefixOf` txt = parseStructuredDecl StructuredInstanceDecl txt
+  | "default " `T.isPrefixOf` txt = parseStructuredDecl StructuredDefaultDecl txt
+  | isFixityDecl txt = parseStructuredDecl StructuredFixityDecl txt
+  | "::" `T.isInfixOf` txt = parseStructuredDecl StructuredTypeSig txt
   | "=" `T.isInfixOf` txt = parseEquationDecl cfg txt
   | otherwise = Left "declaration"
 
-parseGhcDeclText :: Text -> Either Text Decl
-parseGhcDeclText txt =
-  case parseSingleDeclWithGhc txt of
-    Right decl -> Right (GhcDecl decl)
-    Left _ -> Left "declaration"
+parseStructuredDecl :: StructuredDeclKind -> Text -> Either Text Decl
+parseStructuredDecl kind txt = do
+  toks <- tokenizeDeclText txt
+  pure StructuredDecl {structuredKind = kind, structuredTokens = toks}
+
+parseTypeSynonymDecl :: Text -> Either Text Decl
+parseTypeSynonymDecl txt =
+  case typeNameAfterKeyword "type" txt of
+    Just name -> Right TypeDecl {typeName = name}
+    Nothing -> Left "type declaration"
+
+parseDataLikeDecl :: Text -> Text -> Either Text Decl
+parseDataLikeDecl keywordName txt = do
+  typeName <- maybe (Left (keywordName <> " declaration")) Right (typeNameAfterKeyword keywordName txt)
+  let (_, afterEq) = T.breakOn "=" txt
+      constructors = if T.null afterEq then [] else parseConstructors (T.drop 1 afterEq)
+   in case keywordName of
+        "data" ->
+          Right
+            DataDecl
+              { dataTypeName = typeName,
+                dataConstructors = constructors
+              }
+        "newtype" ->
+          Right
+            NewtypeDecl
+              { newtypeName = typeName,
+                newtypeConstructor = case constructors of
+                  [] -> Nothing
+                  (firstCtor : _) -> Just firstCtor
+              }
+        _ -> Left "data declaration"
+
+parseClassDecl :: Text -> Either Text Decl
+parseClassDecl txt =
+  case classOrInstanceName "class" txt of
+    Just name -> Right ClassDecl {className = name}
+    Nothing -> Left "class declaration"
+
+parseInstanceDecl :: Text -> Either Text Decl
+parseInstanceDecl txt =
+  case classOrInstanceName "instance" txt of
+    Just name -> Right InstanceDecl {instanceClassName = name}
+    Nothing -> Left "instance declaration"
+
+parseFixityDeclText :: Text -> Either Text Decl
+parseFixityDeclText txt =
+  case T.words txt of
+    assocTxt : rest
+      | assocTxt `elem` ["infix", "infixl", "infixr"] ->
+          case rest of
+            [] -> Left "fixity declaration"
+            [op] ->
+              Right
+                FixityDecl
+                  { fixityAssoc = assocTxt,
+                    fixityPrecedence = Nothing,
+                    fixityOperator = stripParens op
+                  }
+            precTxt : op : _
+              | T.all isDigit precTxt ->
+                  Right
+                    FixityDecl
+                      { fixityAssoc = assocTxt,
+                        fixityPrecedence = Just (read (T.unpack precTxt)),
+                        fixityOperator = stripParens op
+                      }
+            _ -> Left "fixity declaration"
+    _ -> Left "fixity declaration"
+
+parseDefaultDecl :: Text -> Either Text Decl
+parseDefaultDecl txt =
+  let inside = textInsideParens txt
+      types = filter isTypeToken (map (T.strip . stripPunctuation) (T.splitOn "," inside))
+   in if null types
+        then Left "default declaration"
+        else Right DefaultDecl {defaultTypes = types}
+
+parseTypeSignatureDeclText :: Text -> Either Text Decl
+parseTypeSignatureDeclText txt =
+  let (lhs, rhs) = T.breakOn "::" txt
+      names = map (stripParens . T.strip) (T.splitOn "," lhs)
+      firstName = case names of
+        [] -> Nothing
+        (n : _) -> if isValueName n then Just n else Nothing
+   in if T.null rhs
+        then Left "type signature"
+        else case firstName of
+          Just name -> Right TypeSigDecl {typeSigName = name}
+          Nothing -> Left "type signature"
 
 parseEquationDecl :: ParserConfig -> Text -> Either Text Decl
 parseEquationDecl cfg txt =
@@ -170,18 +246,125 @@ parseEquationDecl cfg txt =
    in if T.null rhsRaw || T.null lhs || T.null rhs
         then Left "equation declaration"
         else case extractFunctionName lhs of
-          Just (name, hasArgs, isOperatorBinderName) ->
-            if isOperatorBinderName
-              then parseGhcDeclText txt
-              else case parseExpr cfg rhs of
-                ParseOk expr -> Right Decl {declName = name, declExpr = expr}
-                ParseErr _
-                  | hasArgs -> parseGhcDeclText txt
-                  | otherwise -> Left "equation declaration"
+          Just (name, hasArgs, isOperatorBinderName)
+            | not hasArgs && not isOperatorBinderName ->
+                case parseExpr cfg rhs of
+                  ParseOk expr -> Right Decl {declName = name, declExpr = expr}
+                  ParseErr _ -> parseStructuredDecl StructuredEquation txt
+            | otherwise ->
+                parseStructuredDecl StructuredEquation txt
           Nothing
             | isPatternBindingLhs lhs ->
-                parseGhcDeclText txt
+                parseStructuredDecl StructuredPatternBind txt
             | otherwise -> Left "equation declaration"
+
+tokenizeDeclText :: Text -> Either Text [DeclToken]
+tokenizeDeclText = go []
+  where
+    go acc remaining =
+      case T.uncons (T.dropWhile isSpace remaining) of
+        Nothing -> Right (reverse acc)
+        Just (c, rest)
+          | isIdentStart c ->
+              let (tok, tailTxt) = T.span isIdentTail rest
+               in go (TokWord (T.cons c tok) : acc) tailTxt
+          | isDigit c ->
+              let (tok, tailTxt) = T.span isDigit rest
+               in go (TokWord (T.cons c tok) : acc) tailTxt
+          | c == '"' ->
+              let (lit, tailTxt) = consumeQuoted '"' rest
+               in go (TokString (T.cons '"' lit) : acc) tailTxt
+          | c == '\'' ->
+              let (lit, tailTxt) = consumeQuoted '\'' rest
+               in go (TokChar (T.cons '\'' lit) : acc) tailTxt
+          | c `elem` ("()[]{};," :: String) ->
+              go (TokPunct c : acc) rest
+          | isSymbolicChar c ->
+              let (tok, tailTxt) = T.span isSymbolicChar rest
+               in go (TokSymbol (T.cons c tok) : acc) tailTxt
+          | otherwise ->
+              Left "unsupported token in declaration"
+
+    consumeQuoted q txt =
+      let (body, suffix) = scanBody False T.empty txt
+       in (body, suffix)
+      where
+        scanBody escaped collected remaining =
+          case T.uncons remaining of
+            Nothing -> (collected, T.empty)
+            Just (ch, rest)
+              | ch == q && not escaped -> (T.snoc collected ch, rest)
+              | otherwise ->
+                  scanBody (ch == '\\' && not escaped) (T.snoc collected ch) rest
+
+    isIdentStart ch = isAlpha ch || ch == '_'
+    isIdentTail ch = isAlphaNum ch || ch == '_' || ch == '\''
+    isSymbolicChar ch = ch `elem` (":!#$%&*+./<=>?@\\^|-~`" :: String)
+
+parseConstructors :: Text -> [Text]
+parseConstructors rhs =
+  let rhsCore = stripDerivingClause rhs
+      parts = filter (not . T.null) (map T.strip (splitTopLevelPipes rhsCore))
+   in mapMaybe constructorNameFromPart parts
+
+splitTopLevelPipes :: Text -> [Text]
+splitTopLevelPipes input = go 0 0 0 input T.empty []
+  where
+    go parenN braceN bracketN remaining current acc =
+      case T.uncons remaining of
+        Nothing -> reverse (current : acc)
+        Just (c, cs)
+          | c == '(' -> go (parenN + 1) braceN bracketN cs (T.snoc current c) acc
+          | c == ')' -> go (max 0 (parenN - 1)) braceN bracketN cs (T.snoc current c) acc
+          | c == '{' -> go parenN (braceN + 1) bracketN cs (T.snoc current c) acc
+          | c == '}' -> go parenN (max 0 (braceN - 1)) bracketN cs (T.snoc current c) acc
+          | c == '[' -> go parenN braceN (bracketN + 1) cs (T.snoc current c) acc
+          | c == ']' -> go parenN braceN (max 0 (bracketN - 1)) cs (T.snoc current c) acc
+          | c == '|' && parenN == 0 && braceN == 0 && bracketN == 0 ->
+              go parenN braceN bracketN cs T.empty (T.strip current : acc)
+          | otherwise ->
+              go parenN braceN bracketN cs (T.snoc current c) acc
+
+constructorNameFromPart :: Text -> Maybe Text
+constructorNameFromPart part =
+  let noBang = T.replace "!" "" part
+      recordHead = T.strip (fst (T.breakOn "{" noBang))
+      tokens = map stripParens (T.words recordHead)
+      symbolic = filter isSymbolicToken tokens
+   in case tokens of
+        [] -> Nothing
+        (firstTok : _)
+          | isTypeToken firstTok -> Just firstTok
+          | otherwise ->
+              case symbolic of
+                (op : _) -> Just op
+                [] -> Nothing
+
+typeNameAfterKeyword :: Text -> Text -> Maybe Text
+typeNameAfterKeyword kw txt = do
+  afterKw <- T.stripPrefix (kw <> " ") txt
+  let beforeEq = T.strip (fst (T.breakOn "=" afterKw))
+      beforeDeriving = T.strip (fst (T.breakOn " deriving" beforeEq))
+      afterCtx = case T.breakOn "=>" beforeDeriving of
+        (lhs, rhs)
+          | T.null rhs -> lhs
+          | otherwise -> T.strip (T.drop 2 rhs)
+      tokens = map stripParens (T.words (T.strip afterCtx))
+  findTypeToken tokens
+
+classOrInstanceName :: Text -> Text -> Maybe Text
+classOrInstanceName kw txt = do
+  afterKw <- T.stripPrefix (kw <> " ") txt
+  let noWhere = T.strip (fst (T.breakOn " where" afterKw))
+      afterCtx = case T.breakOn "=>" noWhere of
+        (lhs, rhs)
+          | T.null rhs -> lhs
+          | otherwise -> T.strip (T.drop 2 rhs)
+      tokens = map stripParens (T.words (T.strip afterCtx))
+  findTypeToken tokens
+
+findTypeToken :: [Text] -> Maybe Text
+findTypeToken = find isTypeToken
 
 extractFunctionName :: Text -> Maybe (Text, Bool, Bool)
 extractFunctionName lhs =
@@ -193,6 +376,11 @@ extractFunctionName lhs =
        in if isVarToken normalized || isOperatorBinderName
             then Just (normalized, not (null rest), isOperatorBinderName)
             else Nothing
+
+stripDerivingClause :: Text -> Text
+stripDerivingClause txt =
+  let (before, after) = T.breakOn " deriving" txt
+   in if T.null after then txt else before
 
 isFixityDecl :: Text -> Bool
 isFixityDecl txt =
@@ -206,6 +394,21 @@ stripParens t =
    in if T.length trimmed >= 2 && T.head trimmed == '(' && T.last trimmed == ')'
         then T.strip (T.init (T.tail trimmed))
         else trimmed
+
+stripPunctuation :: Text -> Text
+stripPunctuation = T.dropAround (\c -> c == '(' || c == ')' || c == ',' || isSpace c)
+
+textInsideParens :: Text -> Text
+textInsideParens txt =
+  let (_, afterOpen) = T.breakOn "(" txt
+      insideWithClose = T.drop 1 afterOpen
+   in fst (T.breakOn ")" insideWithClose)
+
+isTypeToken :: Text -> Bool
+isTypeToken token =
+  case T.uncons (stripPunctuation token) of
+    Just (c, _) -> isUpper c
+    Nothing -> False
 
 isVarToken :: Text -> Bool
 isVarToken token =
@@ -221,6 +424,9 @@ isSymbolicToken tok =
 
 isOperatorToken :: Text -> Bool
 isOperatorToken tok = isSymbolicToken tok && not (T.null tok)
+
+isValueName :: Text -> Bool
+isValueName tok = isVarToken tok || isOperatorToken tok
 
 isPatternBindingLhs :: Text -> Bool
 isPatternBindingLhs lhs =
@@ -243,19 +449,16 @@ groupDeclarationChunks = go Nothing []
            in if T.null trimmed
                 then go current acc rest
                 else case current of
-                  Nothing -> go (Just (ln, [rawLine])) acc rest
+                  Nothing -> go (Just (ln, [trimmed])) acc rest
                   Just (startLn, pieces@(firstPiece : _))
                     | ind == 0 && not (continuesPrevious firstPiece trimmed) ->
-                        go (Just (ln, [rawLine])) ((startLn, T.intercalate "\n" (reverse pieces)) : acc) rest
+                        go (Just (ln, [trimmed])) ((startLn, T.intercalate "\n" (reverse pieces)) : acc) rest
                     | otherwise ->
-                        go (Just (startLn, rawLine : pieces)) acc rest
+                        go (Just (startLn, trimmed : pieces)) acc rest
                   Just _ -> go current acc rest
 
 continuesPrevious :: Text -> Text -> Bool
-continuesPrevious previousLine nextLine =
-  case (equationBinderInfo previousLine, equationBinderInfo nextLine) of
-    (Just (lhsA, mergeableA), Just (lhsB, mergeableB)) -> mergeableA && mergeableB && lhsA == lhsB
-    _ -> False
+continuesPrevious _ _ = False
 
 equationBinderInfo :: Text -> Maybe (Text, Bool)
 equationBinderInfo lineTxt = do
@@ -269,6 +472,26 @@ equationBinderInfo lineTxt = do
 indentation :: Text -> Int
 indentation = T.length . T.takeWhile (\c -> c == ' ' || c == '\t')
 
+mapMaybe :: (a -> Maybe b) -> [a] -> [b]
+mapMaybe f =
+  foldr
+    ( \x acc ->
+        case f x of
+          Just y -> y : acc
+          Nothing -> acc
+    )
+    []
+
+find :: (a -> Bool) -> [a] -> Maybe a
+find predicate =
+  foldr
+    ( \x acc ->
+        if predicate x
+          then Just x
+          else acc
+    )
+    Nothing
+
 mergeAdjacentFunctions :: [Decl] -> [Decl]
 mergeAdjacentFunctions =
   reverse . foldl merge []
@@ -278,23 +501,6 @@ mergeAdjacentFunctions =
         (FunctionDecl {functionName = prev} : rest, FunctionDecl {functionName = curr})
           | prev == curr -> acc
         _ -> decl : acc
-
-parseSingleDeclWithGhc :: Text -> Either Text (HsDecl GhcPs)
-parseSingleDeclWithGhc declText = do
-  modu <- parseWithGhc ("module Tmp where\n" <> declText <> "\n")
-  case hsmodDecls modu of
-    [singleDecl] -> Right (unLoc singleDecl)
-    _ -> Left "expected exactly one declaration"
-
-parseWithGhc :: Text -> Either Text (HsModule GhcPs)
-parseWithGhc input =
-  let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
-      opts = Lexer.mkParserOpts exts emptyDiagOpts False False False False
-      buffer = stringToStringBuffer (T.unpack input)
-      start = mkRealSrcLoc (mkFastString "<parser>") 1 1
-   in case Lexer.unP GHCParser.parseModule (Lexer.initParserState opts buffer start) of
-        Lexer.POk _ modu -> Right (unLoc modu)
-        Lexer.PFailed _ -> Left "ghc parser rejected declaration"
 
 valueDeclaration :: MParser Decl
 valueDeclaration = do

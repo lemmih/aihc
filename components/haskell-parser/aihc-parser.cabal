@@ -23,7 +23,6 @@ library
     , containers
     , megaparsec
     , prettyprinter
-    , ghc-lib-parser
   ghc-options:        -Wall
   default-language: Haskell2010
 
