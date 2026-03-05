@@ -19,7 +19,7 @@ Runtime outcomes are reported as:
 
 Current progress baseline:
 - `119/194` implemented (`61.34%` complete)
-- `PASS=77`, `XFAIL=75`, `XPASS=42`, `FAIL=0`
+- `PASS=119`, `XFAIL=75`, `XPASS=0`, `FAIL=0`
 
 ## Commands
 
