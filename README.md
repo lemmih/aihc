@@ -3,6 +3,7 @@
 ## Docs
 
 - [Haskell 2010 Language Report (Markdown)](docs/haskell2010-language-report.md)
+- [Compiler Pipeline Overview](PIPELINE.md)
 
 ## Parser Progress
 
