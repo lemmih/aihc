@@ -12,6 +12,7 @@ type Expectation = Text
 
 data ParserConfig = ParserConfig
   { allowLineComments :: Bool
+  , enableGhcFallback :: Bool
   }
   deriving (Eq, Show)
 

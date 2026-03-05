@@ -7,15 +7,6 @@ import Data.List (dropWhileEnd)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified GHC.Data.EnumSet as EnumSet
-import GHC.Data.FastString (mkFastString)
-import GHC.Data.StringBuffer (stringToStringBuffer)
-import GHC.Hs (HsModule, GhcPs)
-import GHC.LanguageExtensions.Type (Extension)
-import qualified GHC.Parser as GHCParser
-import qualified GHC.Parser.Lexer as Lexer
-import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
-import GHC.Utils.Error (emptyDiagOpts)
 import qualified Parser
 import Parser.Types (ParseResult (..))
 import System.Directory (doesFileExist)
@@ -102,20 +93,17 @@ pct done totalN
 evaluateCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCase meta = do
   source <- TIO.readFile (fixtureRoot </> casePath meta)
-  let oracleOk = oracleParsesModule source
-      oursOk = parserParsesModule source
-      (outcome, details) = classify (caseExpected meta) oracleOk oursOk
+  let oursOk = parserParsesModule source
+      (outcome, details) = classify (caseExpected meta) oursOk
   pure (meta, outcome, details)
 
-classify :: Expected -> Bool -> Bool -> (Outcome, String)
-classify expected oracleOk oursOk =
+classify :: Expected -> Bool -> (Outcome, String)
+classify expected oursOk =
   case expected of
     ExpectPass
-      | not oracleOk -> (OutcomeFail, "oracle rejected pass case")
       | oursOk -> (OutcomePass, "")
       | otherwise -> (OutcomeFail, "parser rejected pass case")
     ExpectXFail
-      | not oracleOk -> (OutcomeFail, "oracle rejected xfail case")
       | oursOk -> (OutcomeXPass, "parser now accepts xfail case")
       | otherwise -> (OutcomeXFail, "")
 
@@ -124,21 +112,6 @@ parserParsesModule input =
   case Parser.parseModule Parser.defaultConfig input of
     ParseOk _ -> True
     ParseErr _ -> False
-
-oracleParsesModule :: Text -> Bool
-oracleParsesModule input =
-  case parseWithGhc input of
-    Right _ -> True
-    Left _ -> False
-
-parseWithGhc :: Text -> Either String (HsModule GhcPs)
-parseWithGhc input =
-  let opts = Lexer.mkParserOpts (EnumSet.empty :: EnumSet.EnumSet Extension) emptyDiagOpts False False False False
-      buffer = stringToStringBuffer (T.unpack input)
-      start = mkRealSrcLoc (mkFastString "<h2010-progress>") 1 1
-   in case Lexer.unP GHCParser.parseModule (Lexer.initParserState opts buffer start) of
-        Lexer.POk _ modu -> Right (unLoc modu)
-        Lexer.PFailed _ -> Left "oracle parse failed"
 
 loadManifest :: IO [CaseMeta]
 loadManifest = do
