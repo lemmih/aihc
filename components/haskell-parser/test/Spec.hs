@@ -8,7 +8,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Parser
-import Parser.Ast (Decl (..), Expr (..), Module (..))
+import Parser.Ast
 import Parser.Canonical
 import Parser.Pretty (prettyExpr, prettyModule)
 import Parser.Types (ParseResult (..))
@@ -101,7 +101,7 @@ prop_exprPrettyRoundTrip generated =
         case parseExpr defaultConfig source of
           ParseOk reparsed ->
             counterexample ("reparsed: " <> show reparsed) $
-              reparsed === expr .&&. prettyExpr reparsed === source
+              stripExprParens reparsed === stripExprParens expr .&&. prettyExpr reparsed === source
           ParseErr err -> counterexample (show err) False
 
 prop_modulePrettyRoundTrip :: GenModule -> Property
@@ -112,7 +112,7 @@ prop_modulePrettyRoundTrip generated =
         case parseModule defaultConfig source of
           ParseOk reparsed ->
             counterexample ("reparsed: " <> show reparsed) $
-              reparsed === modu .&&. prettyModule reparsed === source
+              stripModuleParens reparsed === stripModuleParens modu .&&. prettyModule reparsed === source
           ParseErr err -> counterexample (show err) False
 
 prop_moduleAgreement :: GenModule -> Property
@@ -231,8 +231,96 @@ toModule :: GenModule -> Module
 toModule (GenModule decls) =
   Module
     { moduleName = Just "Generated",
-      moduleDecls = [Decl {declName = name, declExpr = toExpr expr} | (name, expr) <- decls]
+      moduleDecls =
+        [ DeclValue
+            ( FunctionBind
+                name
+                [ Match
+                    { matchPats = [],
+                      matchRhs = UnguardedRhs (toExpr expr)
+                    }
+                ]
+            )
+        | (name, expr) <- decls
+        ]
     }
+
+stripModuleParens :: Module -> Module
+stripModuleParens modu =
+  modu {moduleDecls = map stripDeclParens (moduleDecls modu)}
+
+stripDeclParens :: Decl -> Decl
+stripDeclParens decl =
+  case decl of
+    DeclValue valueDecl -> DeclValue (stripValueDeclParens valueDecl)
+    _ -> decl
+
+stripValueDeclParens :: ValueDecl -> ValueDecl
+stripValueDeclParens valueDecl =
+  case valueDecl of
+    FunctionBind name matches -> FunctionBind name [m {matchRhs = stripRhsParens (matchRhs m)} | m <- matches]
+    PatternBind pat rhs -> PatternBind pat (stripRhsParens rhs)
+
+stripRhsParens :: Rhs -> Rhs
+stripRhsParens rhs =
+  case rhs of
+    UnguardedRhs expr -> UnguardedRhs (stripExprParens expr)
+    GuardedRhss guards ->
+      GuardedRhss
+        [ grhs {guardedRhsGuards = map stripExprParens (guardedRhsGuards grhs), guardedRhsBody = stripExprParens (guardedRhsBody grhs)}
+        | grhs <- guards
+        ]
+
+stripExprParens :: Expr -> Expr
+stripExprParens expr =
+  case expr of
+    EParen inner -> stripExprParens inner
+    EApp f x -> EApp (stripExprParens f) (stripExprParens x)
+    EInfix l op r -> EInfix (stripExprParens l) op (stripExprParens r)
+    ENegate x -> ENegate (stripExprParens x)
+    ESectionL l op -> ESectionL (stripExprParens l) op
+    ESectionR op r -> ESectionR op (stripExprParens r)
+    EIf c t f -> EIf (stripExprParens c) (stripExprParens t) (stripExprParens f)
+    ELambda ps b -> ELambda ps (stripExprParens b)
+    ELet binds body -> ELet [(n, stripExprParens v) | (n, v) <- binds] (stripExprParens body)
+    ECase scrut alts ->
+      ECase
+        (stripExprParens scrut)
+        [ alt {caseAltRhs = stripRhsParens (caseAltRhs alt)}
+        | alt <- alts
+        ]
+    EDo stmts ->
+      EDo
+        [ case stmt of
+            DoBind p e -> DoBind p (stripExprParens e)
+            DoLet binds -> DoLet [(n, stripExprParens v) | (n, v) <- binds]
+            DoExpr e -> DoExpr (stripExprParens e)
+        | stmt <- stmts
+        ]
+    EListComp body quals ->
+      EListComp
+        (stripExprParens body)
+        [ case q of
+            CompGen p e -> CompGen p (stripExprParens e)
+            CompGuard e -> CompGuard (stripExprParens e)
+            CompLet binds -> CompLet [(n, stripExprParens v) | (n, v) <- binds]
+        | q <- quals
+        ]
+    EArithSeq seqInfo ->
+      EArithSeq
+        ( case seqInfo of
+            ArithSeqFrom a -> ArithSeqFrom (stripExprParens a)
+            ArithSeqFromThen a b -> ArithSeqFromThen (stripExprParens a) (stripExprParens b)
+            ArithSeqFromTo a b -> ArithSeqFromTo (stripExprParens a) (stripExprParens b)
+            ArithSeqFromThenTo a b c -> ArithSeqFromThenTo (stripExprParens a) (stripExprParens b) (stripExprParens c)
+        )
+    ERecordCon n fields -> ERecordCon n [(f, stripExprParens v) | (f, v) <- fields]
+    ERecordUpd base fields -> ERecordUpd (stripExprParens base) [(f, stripExprParens v) | (f, v) <- fields]
+    ETypeSig inner ty -> ETypeSig (stripExprParens inner) ty
+    EWhere body binds -> EWhere (stripExprParens body) [(n, stripExprParens v) | (n, v) <- binds]
+    EList xs -> EList (map stripExprParens xs)
+    ETuple xs -> ETuple (map stripExprParens xs)
+    _ -> expr
 
 renderModule :: GenModule -> Text
 renderModule (GenModule decls) =

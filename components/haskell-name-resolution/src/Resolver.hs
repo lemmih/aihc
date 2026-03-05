@@ -56,36 +56,76 @@ resolveDecls cfg decls st0 =
    in foldl' (resolveOne cfg binders) ([], binderState) decls
   where
     resolveOne cfg' binders (acc, st) decl =
-      let thisId = binders M.! declName decl
-          (expr', st') = resolveExpr cfg' (declExpr decl) st
-          outDecl =
-            ResolvedDecl
-              { resolvedDeclName = declName decl,
-                resolvedDeclId = thisId,
-                resolvedDeclExpr = expr'
-              }
-       in (outDecl : acc, st')
+      case decl of
+        DeclValue valueDecl ->
+          case valueDeclBinderName valueDecl of
+            Nothing ->
+              let (resolvedExprs, st') = resolveDeclValueExprs cfg' valueDecl st
+               in case resolvedExprs of
+                    (_ : _) -> (acc, st')
+                    [] -> (acc, st')
+            Just name ->
+              let thisId = binders M.! name
+                  (resolvedExprs, st') = resolveDeclValueExprs cfg' valueDecl st
+                  pickedExpr =
+                    case resolvedExprs of
+                      [] -> RInt 0
+                      (firstExpr : _) -> firstExpr
+                  outDecl =
+                    ResolvedDecl
+                      { resolvedDeclName = name,
+                        resolvedDeclId = thisId,
+                        resolvedDeclExpr = pickedExpr
+                      }
+               in (outDecl : acc, st')
+        _ -> (acc, st)
 
 assignTopLevelBinders :: [Decl] -> ResolveState -> (ResolveState, M.Map Text NameId)
 assignTopLevelBinders decls st0 = foldl' step (st0, M.empty) decls
   where
     step (st, ids) decl =
-      let name = declName decl
-          thisId = NameId (nextId st)
-          stWithId = st {nextId = nextId st + 1}
-       in case M.lookup name ids of
-            Just _ ->
-              let dupDiag =
-                    Diagnostic
-                      { diagCode = EDuplicateBinding,
-                        diagSeverity = Error,
-                        diagMessage = "duplicate top-level binding: " <> name,
-                        diagSpan = NoSpan
-                      }
-               in (stWithId {diags = dupDiag : diags stWithId}, ids)
-            Nothing ->
-              let binding = BindingInfo {bindingId = thisId, bindingClass = TopLevelBinder}
-               in (stWithId {env = M.insert name binding (env stWithId)}, M.insert name thisId ids)
+      case declValueBinderNames decl of
+        [] -> (st, ids)
+        [name] ->
+          let thisId = NameId (nextId st)
+              stWithId = st {nextId = nextId st + 1}
+           in case M.lookup name ids of
+                Just _ ->
+                  let dupDiag =
+                        Diagnostic
+                          { diagCode = EDuplicateBinding,
+                            diagSeverity = Error,
+                            diagMessage = "duplicate top-level binding: " <> name,
+                            diagSpan = NoSpan
+                          }
+                   in (stWithId {diags = dupDiag : diags stWithId}, ids)
+                Nothing ->
+                  let binding = BindingInfo {bindingId = thisId, bindingClass = TopLevelBinder}
+                   in (stWithId {env = M.insert name binding (env stWithId)}, M.insert name thisId ids)
+        _ -> (st, ids)
+
+resolveDeclValueExprs :: ResolveConfig -> ValueDecl -> ResolveState -> ([ResolvedExpr], ResolveState)
+resolveDeclValueExprs cfg valueDecl st0 =
+  foldl' step ([], st0) (valueDeclExprs valueDecl)
+  where
+    step (acc, st) expr =
+      let (expr', st') = resolveExpr cfg expr st
+       in (acc <> [expr'], st')
+
+valueDeclExprs :: ValueDecl -> [Expr]
+valueDeclExprs valueDecl =
+  case valueDecl of
+    FunctionBind _ matches -> concatMap matchExprs matches
+    PatternBind _ rhs -> rhsExprs rhs
+
+matchExprs :: Match -> [Expr]
+matchExprs match = rhsExprs (matchRhs match)
+
+rhsExprs :: Rhs -> [Expr]
+rhsExprs rhs =
+  case rhs of
+    UnguardedRhs expr -> [expr]
+    GuardedRhss grhss -> map guardedRhsBody grhss
 
 resolveExpr :: ResolveConfig -> Expr -> ResolveState -> (ResolvedExpr, ResolveState)
 resolveExpr cfg expr st =
@@ -95,6 +135,19 @@ resolveExpr cfg expr st =
       let (f', st1) = resolveExpr cfg f st
           (x', st2) = resolveExpr cfg x st1
        in (RApp f' x', st2)
+    EParen inner -> resolveExpr cfg inner st
+    EWhere body binds ->
+      let (binds', st1) =
+            foldl'
+              ( \(acc, stAcc) (_, bindExpr) ->
+                  let (resolvedBind, stNext) = resolveExpr cfg bindExpr stAcc
+                   in (acc <> [resolvedBind], stNext)
+              )
+              ([], st)
+              binds
+          (body', st2) = resolveExpr cfg body st1
+          combined = foldl' RApp body' binds'
+       in (combined, st2)
     EVar name ->
       case M.lookup name (env st) of
         Just info ->

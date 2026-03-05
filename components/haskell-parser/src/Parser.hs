@@ -8,8 +8,10 @@ module Parser
 where
 
 import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isSpace, isUpper)
+import Data.List (foldl')
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
+import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -18,19 +20,13 @@ import Parser.Ast
 import Parser.Types
 import Text.Megaparsec
   ( Parsec,
-    choice,
     eof,
     errorOffset,
     many,
-    manyTill,
     notFollowedBy,
-    optional,
     parse,
     runParser,
-    sepBy,
-    sepBy1,
     some,
-    takeRest,
     try,
     (<|>),
   )
@@ -47,10 +43,18 @@ defaultConfig =
     }
 
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
-parseExpr cfg input =
-  case parse (scExpr cfg *> expression cfg <* eof) "<expr>" input of
+parseExpr _cfg input =
+  case parseExprText input of
     Right ast -> ParseOk ast
-    Left bundle -> ParseErr (bundleToError input bundle)
+    Left msg ->
+      ParseErr
+        ParseError
+          { offset = 0,
+            line = 1,
+            col = 1,
+            expected = [msg],
+            found = if T.null (T.strip input) then Nothing else Just (T.strip input)
+          }
 
 parseModule :: ParserConfig -> Text -> ParseResult Module
 parseModule cfg input =
@@ -64,17 +68,16 @@ parseModuleLines cfg input = do
       cleaned = [(ln, stripComment cfg txtLine) | (ln, txtLine) <- sourceLines]
       nonEmpty = filter (not . T.null . T.strip . snd) cleaned
       meaningful = filter (not . isLanguagePragma . T.strip . snd) nonEmpty
-      allowFfiFallback = any (isForeignDeclarationLine . T.strip . snd) meaningful
   case meaningful of
     [] -> Right Module {moduleName = Nothing, moduleDecls = []}
     ((firstLineNo, firstLine) : rest) ->
       case parseModuleHeader (T.strip firstLine) of
         Right modName -> do
-          decls <- traverse (uncurry (parseDeclarationChunk cfg allowFfiFallback)) (groupDeclarationChunks rest)
+          decls <- traverse (uncurry (parseDeclarationChunk cfg)) (groupDeclarationChunks rest)
           Right Module {moduleName = Just modName, moduleDecls = mergeAdjacentFunctions decls}
         Left _ -> do
           let chunks = groupDeclarationChunks ((firstLineNo, firstLine) : rest)
-          parsed <- traverse (uncurry (parseDeclarationChunk cfg allowFfiFallback)) chunks
+          parsed <- traverse (uncurry (parseDeclarationChunk cfg)) chunks
           let merged = mergeAdjacentFunctions parsed
           Right Module {moduleName = Nothing, moduleDecls = merged}
 
@@ -89,31 +92,1459 @@ parseModuleHeader =
       eof
       pure modName
 
-parseDeclarationChunk :: ParserConfig -> Bool -> Int -> Text -> Either ParseError Decl
-parseDeclarationChunk cfg allowFfiFallback lineNo raw =
+parseDeclarationChunk :: ParserConfig -> Int -> Text -> Either ParseError Decl
+parseDeclarationChunk cfg lineNo raw =
   let txt = T.strip raw
-      parseWith parser =
-        case parseLineWith parser txt of
-          Right decl -> Right decl
-          Left err ->
-            Left
-              err
-                { line = lineNo,
-                  offset = 0
-                }
-   in if "foreign import" `T.isPrefixOf` txt || "foreign export" `T.isPrefixOf` txt
-        then parseWith (declarationParser allowFfiFallback)
-        else case parseDeclText cfg txt of
-          Right decl -> Right decl
-          Left expectedText ->
-            Left
-              ParseError
-                { offset = 0,
-                  line = lineNo,
-                  col = 1,
-                  expected = [expectedText],
-                  found = if T.null txt then Nothing else Just txt
-                }
+   in case parseDeclText cfg txt of
+        Right decl -> Right decl
+        Left expectedText ->
+          Left
+            ParseError
+              { offset = 0,
+                line = lineNo,
+                col = 1,
+                expected = [expectedText],
+                found = if T.null txt then Nothing else Just txt
+              }
+
+parseDeclText :: ParserConfig -> Text -> Either Text Decl
+parseDeclText cfg txt
+  | "foreign import" `T.isPrefixOf` txt = parseForeignDeclText ForeignImport txt
+  | "foreign export" `T.isPrefixOf` txt = parseForeignDeclText ForeignExport txt
+  | "data " `T.isPrefixOf` txt = parseDataDeclText txt
+  | "newtype " `T.isPrefixOf` txt = parseNewtypeDeclText txt
+  | "type " `T.isPrefixOf` txt = parseTypeSynonymDecl txt
+  | "class " `T.isPrefixOf` txt = parseClassDeclText cfg txt
+  | "instance " `T.isPrefixOf` txt = parseInstanceDeclText cfg txt
+  | "default " `T.isPrefixOf` txt = parseDefaultDeclText txt
+  | isFixityDecl txt = parseFixityDeclText txt
+  | hasTopLevelTypeSig txt = parseTypeSignatureDeclText txt
+  | hasTopLevelEquals txt = parseEquationDecl cfg txt
+  | otherwise = Left "declaration"
+
+parseTypeSignatureDeclText :: Text -> Either Text Decl
+parseTypeSignatureDeclText txt = do
+  (lhs, rhs) <- splitTopLevelOnce "::" txt
+  let names = filter (not . T.null) (map (stripParens . T.strip) (splitTopLevel ',' lhs))
+  if null names || not (all isValueName names)
+    then Left "type signature"
+    else do
+      ty <- parseTypeText (T.strip rhs)
+      Right (DeclTypeSig names ty)
+
+parseFixityDeclText :: Text -> Either Text Decl
+parseFixityDeclText txt =
+  case T.words txt of
+    assocTxt : rest -> do
+      assoc <- parseAssoc assocTxt
+      case rest of
+        [] -> Left "fixity declaration"
+        (x : xs)
+          | T.all isDigit x ->
+              case xs of
+                [] -> Left "fixity declaration"
+                _ -> Right (DeclFixity assoc (Just (read (T.unpack x))) (map stripParens xs))
+          | otherwise -> Right (DeclFixity assoc Nothing (map stripParens rest))
+    _ -> Left "fixity declaration"
+  where
+    parseAssoc token =
+      case token of
+        "infix" -> Right Infix
+        "infixl" -> Right InfixL
+        "infixr" -> Right InfixR
+        _ -> Left "fixity declaration"
+
+parseTypeSynonymDecl :: Text -> Either Text Decl
+parseTypeSynonymDecl txt = do
+  raw <- maybe (Left "type declaration") Right (T.stripPrefix "type" (T.stripStart txt))
+  (lhs, rhs) <- splitTopLevelOnce "=" raw
+  let lhsToks = splitTopLevelWords lhs
+  case lhsToks of
+    [] -> Left "type declaration"
+    (name : params)
+      | isTypeToken name -> do
+          ty <- parseTypeText rhs
+          Right
+            ( DeclTypeSyn
+                TypeSynDecl
+                  { typeSynName = name,
+                    typeSynParams = params,
+                    typeSynBody = ty
+                  }
+            )
+      | otherwise -> Left "type declaration"
+
+parseDataDeclText :: Text -> Either Text Decl
+parseDataDeclText txt = do
+  raw <- maybe (Left "data declaration") Right (T.stripPrefix "data" (T.stripStart txt))
+  parseDataLike False (T.strip raw)
+
+parseNewtypeDeclText :: Text -> Either Text Decl
+parseNewtypeDeclText txt = do
+  raw <- maybe (Left "newtype declaration") Right (T.stripPrefix "newtype" (T.stripStart txt))
+  parseDataLike True (T.strip raw)
+
+parseDataLike :: Bool -> Text -> Either Text Decl
+parseDataLike isNewtype raw = do
+  let (noDeriving, derivingClauseText) = splitDerivingClause raw
+  (lhs, rhsMaybe) <-
+    case splitTopLevelMaybe "=" noDeriving of
+      Just (a, b) -> Right (a, Just b)
+      Nothing -> Right (noDeriving, Nothing)
+  (ctx, headText) <- parseContextPrefix lhs
+  let toks = splitTopLevelWords headText
+  case toks of
+    [] -> Left "data declaration"
+    (typeName : params)
+      | isTypeToken typeName -> do
+          ctors <-
+            case rhsMaybe of
+              Nothing -> Right []
+              Just rhsText -> parseConstructorsText rhsText
+          derivingClause <- traverse parseDerivingClauseText derivingClauseText
+          if isNewtype
+            then
+              Right
+                ( DeclNewtype
+                    NewtypeDecl
+                      { newtypeDeclContext = ctx,
+                        newtypeDeclName = typeName,
+                        newtypeDeclParams = params,
+                        newtypeDeclConstructor =
+                          case ctors of
+                            [] -> Nothing
+                            (firstCtor : _) -> Just firstCtor,
+                        newtypeDeclDeriving = derivingClause
+                      }
+                )
+            else
+              Right
+                ( DeclData
+                    DataDecl
+                      { dataDeclContext = ctx,
+                        dataDeclName = typeName,
+                        dataDeclParams = params,
+                        dataDeclConstructors = ctors,
+                        dataDeclDeriving = derivingClause
+                      }
+                )
+      | otherwise -> Left "data declaration"
+
+splitDerivingClause :: Text -> (Text, Maybe Text)
+splitDerivingClause txt =
+  case splitTopLevelMaybe " deriving" txt of
+    Nothing -> (T.strip txt, Nothing)
+    Just (before, after) -> (T.strip before, Just (T.strip after))
+
+parseDerivingClauseText :: Text -> Either Text DerivingClause
+parseDerivingClauseText txt
+  | T.null txt = Right (DerivingClause [])
+  | otherwise =
+      let stripped = T.strip txt
+       in if stripped == "()"
+            then Right (DerivingClause [])
+            else
+              let inner =
+                    if hasOuterParens stripped
+                      then T.drop 1 (T.dropEnd 1 stripped)
+                      else stripped
+                  classes = filter (not . T.null) (map (stripParens . T.strip) (splitTopLevel ',' inner))
+               in Right (DerivingClause classes)
+
+parseConstructorsText :: Text -> Either Text [DataConDecl]
+parseConstructorsText rhs =
+  traverse parseConstructorText (filter (not . T.null) (map T.strip (splitTopLevel '|' rhs)))
+
+parseConstructorText :: Text -> Either Text DataConDecl
+parseConstructorText txt
+  | T.null txt = Left "constructor"
+  | "{" `T.isInfixOf` txt = parseRecordConstructor txt
+  | otherwise =
+      case parseInfixConstructor txt of
+        Just ctor -> Right ctor
+        Nothing -> parsePrefixConstructor txt
+
+parsePrefixConstructor :: Text -> Either Text DataConDecl
+parsePrefixConstructor txt =
+  case splitTopLevelWords txt of
+    [] -> Left "constructor"
+    (name : args)
+      | isTypeToken name || isOperatorToken name -> do
+          bangTypes <- traverse parseBangTypeText args
+          Right (PrefixCon (stripParens name) bangTypes)
+      | otherwise -> Left "constructor"
+
+parseInfixConstructor :: Text -> Maybe DataConDecl
+parseInfixConstructor txt =
+  case splitTopLevelWords txt of
+    [lhs, op, rhs]
+      | isOperatorToken op -> do
+          lhsTy <- either (const Nothing) Just (parseBangTypeText lhs)
+          rhsTy <- either (const Nothing) Just (parseBangTypeText rhs)
+          Just (InfixCon lhsTy op rhsTy)
+    _ -> Nothing
+
+parseRecordConstructor :: Text -> Either Text DataConDecl
+parseRecordConstructor txt = do
+  (beforeBrace, insideBrace) <- splitOuterBraces txt
+  let ctorName = T.strip beforeBrace
+  if T.null ctorName
+    then Left "record constructor"
+    else do
+      fields <-
+        if T.null (T.strip insideBrace)
+          then Right []
+          else
+            let rawChunks = filter (not . T.null) (map T.strip (splitTopLevel ',' insideBrace))
+                merged = mergeFieldChunks rawChunks
+             in traverse parseFieldDeclText merged
+      Right (RecordCon ctorName fields)
+
+parseFieldDeclText :: Text -> Either Text FieldDecl
+parseFieldDeclText txt = do
+  (lhs, rhs) <- splitTopLevelOnce "::" txt
+  let names = filter (not . T.null) (map (stripParens . T.strip) (splitTopLevel ',' lhs))
+  if null names
+    then Left "field declaration"
+    else do
+      bt <- parseBangTypeText rhs
+      Right FieldDecl {fieldNames = names, fieldType = bt}
+
+mergeFieldChunks :: [Text] -> [Text]
+mergeFieldChunks chunks = go chunks []
+  where
+    go remaining acc =
+      case remaining of
+        [] -> reverse acc
+        (c : cs)
+          | "::" `T.isInfixOf` c -> go cs (c : acc)
+          | otherwise ->
+              case cs of
+                [] -> reverse (c : acc)
+                (next : rest) ->
+                  let merged = c <> ", " <> next
+                   in go (merged : rest) acc
+
+parseBangTypeText :: Text -> Either Text BangType
+parseBangTypeText txt =
+  let stripped = T.strip txt
+   in if T.null stripped
+        then Left "type"
+        else
+          let (strict, rest) =
+                case T.uncons stripped of
+                  Just ('!', xs) -> (True, T.strip xs)
+                  _ -> (False, stripped)
+           in do
+                ty <- parseTypeText rest
+                Right BangType {bangStrict = strict, bangType = ty}
+
+parseClassDeclText :: ParserConfig -> Text -> Either Text Decl
+parseClassDeclText cfg txt = do
+  raw <- maybe (Left "class declaration") Right (T.stripPrefix "class" (T.stripStart txt))
+  let (headText, bodyText) =
+        case splitTopLevelMaybe "where" raw of
+          Just (a, b) -> (a, Just b)
+          Nothing -> (raw, Nothing)
+  (ctx, clsHead) <- parseContextPrefix headText
+  let toks = splitTopLevelWords clsHead
+  case toks of
+    [clsName, param]
+      | isTypeToken clsName -> do
+          items <- maybe (Right []) (parseClassItems cfg) bodyText
+          Right
+            ( DeclClass
+                ClassDecl
+                  { classDeclContext = ctx,
+                    classDeclName = clsName,
+                    classDeclParam = param,
+                    classDeclItems = items
+                  }
+            )
+    _ -> Left "class declaration"
+
+parseClassItems :: ParserConfig -> Text -> Either Text [ClassDeclItem]
+parseClassItems cfg txt =
+  let body = stripBracesIfAny (T.strip txt)
+      itemTexts = splitDeclItems body
+   in traverse (parseClassItem cfg) itemTexts
+
+parseClassItem :: ParserConfig -> Text -> Either Text ClassDeclItem
+parseClassItem cfg txt
+  | T.null (T.strip txt) = Left "class item"
+  | hasTopLevelTypeSig txt = do
+      decl <- parseTypeSignatureDeclText txt
+      case decl of
+        DeclTypeSig names ty -> Right (ClassItemTypeSig names ty)
+        _ -> Left "class item"
+  | isFixityDecl txt = do
+      decl <- parseFixityDeclText txt
+      case decl of
+        DeclFixity assoc prec ops -> Right (ClassItemFixity assoc prec ops)
+        _ -> Left "class item"
+  | hasTopLevelEquals txt = do
+      decl <- parseEquationDecl cfg txt
+      case decl of
+        DeclValue v -> Right (ClassItemDefault v)
+        _ -> Left "class item"
+  | otherwise = Left "class item"
+
+parseInstanceDeclText :: ParserConfig -> Text -> Either Text Decl
+parseInstanceDeclText cfg txt = do
+  raw <- maybe (Left "instance declaration") Right (T.stripPrefix "instance" (T.stripStart txt))
+  let (headText, bodyText) =
+        case splitTopLevelMaybe "where" raw of
+          Just (a, b) -> (a, Just b)
+          Nothing -> (raw, Nothing)
+  (ctx, instHead) <- parseContextPrefix headText
+  let toks = splitTopLevelWords instHead
+  case toks of
+    [] -> Left "instance declaration"
+    (clsName : typeToks)
+      | isTypeToken clsName -> do
+          tys <- traverse parseTypeText typeToks
+          items <- maybe (Right []) (parseInstanceItems cfg) bodyText
+          Right
+            ( DeclInstance
+                InstanceDecl
+                  { instanceDeclContext = ctx,
+                    instanceDeclClassName = clsName,
+                    instanceDeclTypes = tys,
+                    instanceDeclItems = items
+                  }
+            )
+      | otherwise -> Left "instance declaration"
+
+parseInstanceItems :: ParserConfig -> Text -> Either Text [InstanceDeclItem]
+parseInstanceItems cfg txt =
+  let body = stripBracesIfAny (T.strip txt)
+      itemTexts = splitDeclItems body
+   in traverse (parseInstanceItem cfg) itemTexts
+
+parseInstanceItem :: ParserConfig -> Text -> Either Text InstanceDeclItem
+parseInstanceItem cfg txt
+  | T.null (T.strip txt) = Left "instance item"
+  | hasTopLevelTypeSig txt = do
+      decl <- parseTypeSignatureDeclText txt
+      case decl of
+        DeclTypeSig names ty -> Right (InstanceItemTypeSig names ty)
+        _ -> Left "instance item"
+  | isFixityDecl txt = do
+      decl <- parseFixityDeclText txt
+      case decl of
+        DeclFixity assoc prec ops -> Right (InstanceItemFixity assoc prec ops)
+        _ -> Left "instance item"
+  | hasTopLevelEquals txt = do
+      decl <- parseEquationDecl cfg txt
+      case decl of
+        DeclValue v -> Right (InstanceItemBind v)
+        _ -> Left "instance item"
+  | otherwise = Left "instance item"
+
+parseDefaultDeclText :: Text -> Either Text Decl
+parseDefaultDeclText txt = do
+  raw <- maybe (Left "default declaration") Right (T.stripPrefix "default" (T.stripStart txt))
+  let inner = stripParens (T.strip raw)
+  tys <- traverse parseTypeText (filter (not . T.null) (map T.strip (splitTopLevel ',' inner)))
+  if null tys
+    then Left "default declaration"
+    else Right (DeclDefault tys)
+
+parseForeignDeclText :: ForeignDirection -> Text -> Either Text Decl
+parseForeignDeclText direction txt =
+  case parseLineWith (foreignDeclParser direction) txt of
+    Right decl -> Right decl
+    Left _ -> Left "foreign declaration"
+
+foreignDeclParser :: ForeignDirection -> MParser Decl
+foreignDeclParser direction = do
+  _ <- keyword "foreign"
+  case direction of
+    ForeignImport -> keyword "import"
+    ForeignExport -> keyword "export"
+  callConv <- callConvParser
+  safety <-
+    case direction of
+      ForeignImport -> MP.optional (try safetyParser)
+      ForeignExport -> pure Nothing
+  entity <- MP.optional (try foreignEntityParser)
+  name <- identifierOrOperator
+  _ <- symbol "::"
+  typeTxt <- T.strip <$> MP.takeRest
+  if T.null typeTxt
+    then fail "expected foreign type"
+    else do
+      ty <-
+        case parseTypeText typeTxt of
+          Right t -> pure t
+          Left _ -> fail "foreign type"
+      pure
+        ( DeclForeign
+            ForeignDecl
+              { foreignDirection = direction,
+                foreignCallConv = callConv,
+                foreignSafety = safety,
+                foreignEntity = classifyForeignEntitySpec entity,
+                foreignName = name,
+                foreignType = ty
+              }
+        )
+
+classifyForeignEntitySpec :: Maybe Text -> ForeignEntitySpec
+classifyForeignEntitySpec mEntity =
+  case fmap T.strip mEntity of
+    Nothing -> ForeignEntityOmitted
+    Just "dynamic" -> ForeignEntityDynamic
+    Just "wrapper" -> ForeignEntityWrapper
+    Just raw
+      | "static" `T.isPrefixOf` raw ->
+          let namePart = T.strip (fromMaybeText "" (T.stripPrefix "static" raw))
+           in if T.null namePart
+                then ForeignEntityStatic Nothing
+                else ForeignEntityStatic (Just namePart)
+      | "&" `T.isPrefixOf` raw ->
+          let namePart = T.strip (T.drop 1 raw)
+           in if T.null namePart
+                then ForeignEntityAddress Nothing
+                else ForeignEntityAddress (Just namePart)
+      | otherwise -> ForeignEntityNamed raw
+
+parseEquationDecl :: ParserConfig -> Text -> Either Text Decl
+parseEquationDecl cfg txt = do
+  case parseGuardedEquationDecl cfg txt of
+    Right guardedDecl -> Right guardedDecl
+    Left _ -> do
+      (lhsRaw, rhsRaw) <- splitTopLevelOnce "=" txt
+      let lhs = T.strip lhsRaw
+          rhs0 = T.strip rhsRaw
+      if T.null lhs || T.null rhs0
+        then Left "equation declaration"
+        else do
+          rhsExpr <- parseRhsExpr cfg rhs0
+          case parseFunctionLhs lhs of
+            Just (name, pats) ->
+              Right
+                ( DeclValue
+                    ( FunctionBind
+                        name
+                        [ Match
+                            { matchPats = pats,
+                              matchRhs = UnguardedRhs rhsExpr
+                            }
+                        ]
+                    )
+                )
+            Nothing -> do
+              pat <- parsePatternText lhs
+              Right (DeclValue (PatternBind pat (UnguardedRhs rhsExpr)))
+
+parseGuardedEquationDecl :: ParserConfig -> Text -> Either Text Decl
+parseGuardedEquationDecl cfg txt = do
+  let rows = filter (not . T.null) (map T.strip (T.lines txt))
+  case rows of
+    [] -> Left "equation declaration"
+    (headRow : guardRows)
+      | null guardRows -> Left "equation declaration"
+      | hasTopLevelEquals headRow -> Left "equation declaration"
+      | otherwise ->
+          case parseFunctionLhs headRow of
+            Nothing -> Left "equation declaration"
+            Just (name, pats) -> do
+              grhss <- traverse parseGuardRow guardRows
+              Right
+                ( DeclValue
+                    ( FunctionBind
+                        name
+                        [ Match
+                            { matchPats = pats,
+                              matchRhs = GuardedRhss grhss
+                            }
+                        ]
+                    )
+                )
+  where
+    parseGuardRow row = do
+      guardBody <- maybe (Left "guarded equation") Right (T.stripPrefix "|" row)
+      (guardTxt, exprTxt) <- splitTopLevelOnce "=" guardBody
+      guardExpr <-
+        case parseExpr cfg guardTxt of
+          ParseOk expr -> Right expr
+          ParseErr _ -> Left "guarded equation"
+      bodyExpr <- parseRhsExpr cfg exprTxt
+      case bodyExpr of
+        EWhere body whereBinds ->
+          Right GuardedRhs {guardedRhsGuards = [guardExpr], guardedRhsBody = EWhere body whereBinds}
+        _ -> Right GuardedRhs {guardedRhsGuards = [guardExpr], guardedRhsBody = bodyExpr}
+
+parseRhsExpr :: ParserConfig -> Text -> Either Text Expr
+parseRhsExpr cfg rhs0 =
+  case splitTopLevelMaybe "where" rhs0 of
+    Nothing ->
+      case parseExpr cfg rhs0 of
+        ParseOk expr -> Right expr
+        ParseErr _ -> Left "expression"
+    Just (bodyTxt, whereTxt) -> do
+      bodyExpr <-
+        case parseExpr cfg bodyTxt of
+          ParseOk expr -> Right expr
+          ParseErr _ -> Left "expression"
+      binds <- parseWhereBindings cfg whereTxt
+      Right (EWhere bodyExpr binds)
+
+parseWhereBindings :: ParserConfig -> Text -> Either Text [(Text, Expr)]
+parseWhereBindings cfg txt =
+  let entries = splitDeclItems (stripBracesIfAny (T.strip txt))
+   in traverse parseOne entries
+  where
+    parseOne row = do
+      (lhs, rhs) <- splitTopLevelOnce "=" row
+      let name = T.strip lhs
+      if not (isVarToken name)
+        then Left "where binding"
+        else case parseExpr cfg rhs of
+          ParseOk expr -> Right (name, expr)
+          ParseErr _ -> Left "where binding"
+
+parseFunctionLhs :: Text -> Maybe (Text, [Pattern])
+parseFunctionLhs lhs =
+  case splitTopLevelWords lhs of
+    [] -> Nothing
+    toks ->
+      case parseInfixFunctionLhs toks of
+        Just parsed -> Just parsed
+        Nothing -> parsePrefixFunctionLhs toks
+
+parsePrefixFunctionLhs :: [Text] -> Maybe (Text, [Pattern])
+parsePrefixFunctionLhs toks =
+  case toks of
+    [] -> Nothing
+    (firstTok : rest)
+      | isVarToken firstTok -> do
+          pats <- mapM (either (const Nothing) Just . parsePatternText) rest
+          Just (firstTok, pats)
+      | isParenthesizedOperator firstTok ->
+          let op = stripParens firstTok
+           in do
+                pats <- mapM (either (const Nothing) Just . parsePatternText) rest
+                Just (op, pats)
+      | otherwise -> Nothing
+
+parseInfixFunctionLhs :: [Text] -> Maybe (Text, [Pattern])
+parseInfixFunctionLhs toks =
+  case break isOperatorToken toks of
+    ([], _) -> Nothing
+    (_lhsToks, []) -> Nothing
+    (lhsToks, opTok : rhsToks)
+      | null lhsToks || null rhsToks -> Nothing
+      | otherwise -> do
+          lhsPat <- either (const Nothing) Just (parsePatternText (T.unwords lhsToks))
+          rhsPat <- either (const Nothing) Just (parsePatternText (T.unwords rhsToks))
+          Just (opTok, [lhsPat, rhsPat])
+
+mergeAdjacentFunctions :: [Decl] -> [Decl]
+mergeAdjacentFunctions = reverse . foldl' merge []
+  where
+    merge acc decl =
+      case (acc, decl) of
+        (DeclValue (FunctionBind prevName prevMatches) : rest, DeclValue (FunctionBind currName currMatches))
+          | prevName == currName && shouldMerge prevMatches currMatches ->
+              DeclValue (FunctionBind prevName (prevMatches <> currMatches)) : rest
+        _ -> decl : acc
+
+    shouldMerge prevMatches currMatches =
+      not (all (null . matchPats) (prevMatches <> currMatches))
+
+parseTypeText :: Text -> Either Text Type
+parseTypeText input =
+  parseTypeContext (T.strip input)
+  where
+    parseTypeContext txt =
+      case splitTopLevelMaybe "=>" txt of
+        Just (ctxTxt, tailTxt) -> do
+          constraints <- parseConstraints ctxTxt
+          rhsTy <- parseFunType (T.strip tailTxt)
+          Right (TContext constraints rhsTy)
+        Nothing -> parseFunType txt
+
+    parseFunType txt =
+      let parts = map T.strip (splitTopLevelToken "->" txt)
+       in case parts of
+            [] -> Left "type"
+            [single] -> parseTypeApp single
+            manyParts -> do
+              tys <- traverse parseTypeApp manyParts
+              pure (foldr1 TFun tys)
+
+    parseTypeApp txt =
+      let atoms = splitTopLevelWords txt
+       in case atoms of
+            [] -> Left "type"
+            (firstAtom : restAtoms) -> do
+              firstTy <- parseTypeAtom firstAtom
+              foldl' applyTy (Right firstTy) restAtoms
+
+    applyTy acc atomTxt = do
+      fn <- acc
+      arg <- parseTypeAtom atomTxt
+      Right (TApp fn arg)
+
+    parseTypeAtom atomTxt =
+      let stripped = T.strip atomTxt
+       in if T.null stripped
+            then Left "type"
+            else case T.uncons stripped of
+              Just ('[', _) | T.last stripped == ']' -> do
+                inner <- parseTypeText (T.init (T.tail stripped))
+                Right (TList inner)
+              Just ('(', _)
+                | T.last stripped == ')' ->
+                    let inner = T.strip (T.init (T.tail stripped))
+                        tupleParts = splitTopLevel ',' inner
+                        tupleCtorLike = not (T.null inner) && T.all (== ',') inner
+                     in if inner == "->"
+                          then Right (TCon "(->)")
+                          else
+                            if tupleCtorLike
+                              then Right (TCon ("(" <> inner <> ")"))
+                              else
+                                if T.null inner
+                                  then Right (TTuple [])
+                                  else
+                                    if length tupleParts > 1
+                                      then TTuple <$> traverse parseTypeText tupleParts
+                                      else parseTypeText inner
+              _
+                | isTypeToken stripped -> Right (TCon stripped)
+                | otherwise -> Right (TVar stripped)
+
+parseConstraints :: Text -> Either Text [Constraint]
+parseConstraints txt =
+  let stripped = T.strip txt
+   in if stripped == "()"
+        then Right [Constraint {constraintClass = "()", constraintArgs = [], constraintParen = False}]
+        else
+          let inner = if hasOuterParens stripped then T.drop 1 (T.dropEnd 1 stripped) else stripped
+              parts = filter (not . T.null) (map T.strip (splitTopLevel ',' inner))
+              parenthesizedSingle = hasOuterParens stripped && length parts == 1
+           in do
+                parsed <- traverse parseConstraint parts
+                if parenthesizedSingle
+                  then case parsed of
+                    [single] -> Right [single {constraintParen = True}]
+                    _ -> Right parsed
+                  else Right parsed
+
+parseConstraint :: Text -> Either Text Constraint
+parseConstraint txt =
+  case splitTopLevelWords txt of
+    [] -> Left "constraint"
+    (cls : args)
+      | isTypeToken cls -> do
+          argTypes <- traverse parseTypeText args
+          Right Constraint {constraintClass = cls, constraintArgs = argTypes, constraintParen = False}
+      | otherwise -> Left "constraint"
+
+parsePatternText :: Text -> Either Text Pattern
+parsePatternText input =
+  let txt = T.strip input
+   in if T.null txt
+        then Left "pattern"
+        else case T.uncons txt of
+          Just ('~', rest) -> PIrrefutable <$> parsePatternText rest
+          _ -> parsePatternCore txt
+
+parsePatternCore :: Text -> Either Text Pattern
+parsePatternCore txt
+  | txt == "_" = Right PWildcard
+  | otherwise =
+      case parseLiteralText txt of
+        Just lit -> Right (PLit lit)
+        Nothing ->
+          case parseAsPattern txt of
+            Just pat -> Right pat
+            Nothing ->
+              case parseParenedPattern txt of
+                Just pat -> Right pat
+                Nothing ->
+                  case parseListPattern txt of
+                    Just pat -> Right pat
+                    Nothing ->
+                      case parseRecordPattern txt of
+                        Just pat -> Right pat
+                        Nothing ->
+                          case parseInfixPattern txt of
+                            Just pat -> Right pat
+                            Nothing -> parseConOrVarPattern txt
+
+parseAsPattern :: Text -> Maybe Pattern
+parseAsPattern txt = do
+  (name, rest) <- splitTopLevelMaybe "@" txt
+  if isVarToken (T.strip name)
+    then case parsePatternText rest of
+      Right pat -> Just (PAs (T.strip name) pat)
+      Left _ -> Nothing
+    else Nothing
+
+parseParenedPattern :: Text -> Maybe Pattern
+parseParenedPattern txt
+  | hasOuterParens txt =
+      let inner = T.strip (T.drop 1 (T.dropEnd 1 txt))
+          parts = splitTopLevel ',' inner
+       in if T.null inner
+            then Just (PTuple [])
+            else
+              if length parts > 1
+                then case traverse parsePatternText parts of
+                  Right pats -> Just (PTuple pats)
+                  Left _ -> Nothing
+                else case parsePatternText inner of
+                  Right pat -> Just (PParen pat)
+                  Left _ -> Nothing
+  | otherwise = Nothing
+
+parseListPattern :: Text -> Maybe Pattern
+parseListPattern txt
+  | T.length txt >= 2 && T.head txt == '[' && T.last txt == ']' =
+      let inner = T.strip (T.init (T.tail txt))
+       in if T.null inner
+            then Just (PList [])
+            else case traverse parsePatternText (splitTopLevel ',' inner) of
+              Right pats -> Just (PList pats)
+              Left _ -> Nothing
+  | otherwise = Nothing
+
+parseRecordPattern :: Text -> Maybe Pattern
+parseRecordPattern txt = do
+  (ctor, fieldsTxt) <- either (const Nothing) Just (splitOuterBraces txt)
+  let ctorName = T.strip ctor
+  if T.null ctorName
+    then Nothing
+    else
+      let fields = filter (not . T.null) (map T.strip (splitTopLevel ',' fieldsTxt))
+       in case traverse parseField fields of
+            Right parsed -> Just (PRecord ctorName parsed)
+            Left _ -> Nothing
+  where
+    parseField fieldTxt =
+      case splitTopLevelMaybe "=" fieldTxt of
+        Just (nameTxt, patTxt) -> do
+          pat <- parsePatternText patTxt
+          Right (T.strip nameTxt, pat)
+        Nothing -> do
+          pat <- parsePatternText fieldTxt
+          case pat of
+            PVar fieldName -> Right (fieldName, PVar fieldName)
+            _ -> Left "field pattern"
+
+parseInfixPattern :: Text -> Maybe Pattern
+parseInfixPattern txt = do
+  (lhs, op, rhs) <- findTopLevelOperatorTriple txt
+  lhsPat <- either (const Nothing) Just (parsePatternText lhs)
+  rhsPat <- either (const Nothing) Just (parsePatternText rhs)
+  Just (PInfix lhsPat op rhsPat)
+
+parseConOrVarPattern :: Text -> Either Text Pattern
+parseConOrVarPattern txt =
+  case splitTopLevelWords txt of
+    [] -> Left "pattern"
+    (firstTok : rest)
+      | isTypeToken firstTok -> do
+          args <- traverse parsePatternText rest
+          Right (PCon firstTok args)
+      | isVarToken firstTok && null rest -> Right (PVar firstTok)
+      | otherwise -> Left "pattern"
+
+parseLiteralText :: Text -> Maybe Literal
+parseLiteralText txt
+  | T.length txt >= 2 && T.head txt == '\'' && T.last txt == '\'' =
+      case T.unpack txt of
+        ['\'', c, '\''] -> Just (LitChar c)
+        _ -> Nothing
+  | T.length txt >= 2 && T.head txt == '"' && T.last txt == '"' =
+      Just (LitString (readStringLiteral txt))
+  | T.all isDigit txt = Just (LitInt (read (T.unpack txt)))
+  | T.count "." txt == 1 && T.all (\c -> isDigit c || c == '.') txt =
+      Just (LitFloat (read (T.unpack txt)))
+  | otherwise = Nothing
+
+readStringLiteral :: Text -> Text
+readStringLiteral txt =
+  case reads (T.unpack txt) of
+    [(str, "")] -> T.pack str
+    _ -> T.init (T.tail txt)
+
+parseExprText :: Text -> Either Text Expr
+parseExprText input =
+  let txt = T.strip input
+   in if T.null txt
+        then Left "expression"
+        else parseExprCore txt
+
+parseExprCore :: Text -> Either Text Expr
+parseExprCore txt
+  | "if " `T.isPrefixOf` txt = parseIfExpr txt
+  | "\\" `T.isPrefixOf` txt = parseLambdaExpr txt
+  | "let " `T.isPrefixOf` txt = parseLetExpr txt
+  | "case " `T.isPrefixOf` txt = parseCaseExpr txt
+  | hasLeadingDoKeyword txt = parseDoExpr txt
+  | T.length txt >= 2 && T.head txt == '[' && T.last txt == ']' = parseListExpr txt
+  | otherwise =
+      case splitTopLevelMaybe "::" txt of
+        Just (lhs, rhs) -> do
+          lhsExpr <- parseExprCore lhs
+          rhsTy <- parseTypeText rhs
+          Right (ETypeSig lhsExpr rhsTy)
+        Nothing ->
+          case parseRecordExpr txt of
+            Right expr -> Right expr
+            Left _ -> parseInfixAndAppExpr txt
+
+hasLeadingDoKeyword :: Text -> Bool
+hasLeadingDoKeyword txt
+  | not ("do" `T.isPrefixOf` txt) = False
+  | otherwise =
+      case T.uncons (T.drop 2 txt) of
+        Nothing -> True
+        Just (c, _) -> isSpace c || c == '{'
+
+parseIfExpr :: Text -> Either Text Expr
+parseIfExpr txt = do
+  rest <- maybe (Left "if expression") Right (T.stripPrefix "if" (T.stripStart txt))
+  (condTxt, afterThen) <- splitTopLevelOnce "then" rest
+  (thenTxt, elseTxt) <- splitTopLevelOnce "else" afterThen
+  condExpr <- parseExprCore (stripOptionalSemi condTxt)
+  thenExpr <- parseExprCore (stripOptionalSemi thenTxt)
+  elseExpr <- parseExprCore elseTxt
+  Right (EIf condExpr thenExpr elseExpr)
+
+stripOptionalSemi :: Text -> Text
+stripOptionalSemi txt =
+  let stripped = T.strip txt
+   in if ";" `T.isSuffixOf` stripped
+        then T.strip (T.dropEnd 1 stripped)
+        else stripped
+
+parseLambdaExpr :: Text -> Either Text Expr
+parseLambdaExpr txt = do
+  rest <- maybe (Left "lambda") Right (T.stripPrefix "\\" txt)
+  (paramsTxt, bodyTxt) <- splitTopLevelOnce "->" rest
+  let paramTokens = filter (not . T.null) (splitTopLevelWords paramsTxt)
+  if null paramTokens
+    then Left "lambda"
+    else do
+      body <- parseExprCore bodyTxt
+      Right (ELambda (map renderLambdaParam paramTokens) body)
+
+renderLambdaParam :: Text -> Text
+renderLambdaParam tok =
+  case parsePatternText tok of
+    Right pat -> renderPatternText pat
+    Left _ -> tok
+
+parseLetExpr :: Text -> Either Text Expr
+parseLetExpr txt = do
+  rest <- maybe (Left "let expression") Right (T.stripPrefix "let" (T.stripStart txt))
+  (bindsTxt, bodyTxt) <- splitTopLevelOnce "in" rest
+  binds <- parseLetBindings bindsTxt
+  body <- parseExprCore bodyTxt
+  Right (ELet binds body)
+
+parseLetBindings :: Text -> Either Text [(Text, Expr)]
+parseLetBindings txt =
+  let body = stripBracesIfAny (T.strip txt)
+      entries = splitDeclItems body
+   in traverse parseBinding entries
+  where
+    parseBinding row = do
+      (lhs, rhs) <- splitTopLevelOnce "=" row
+      let name = T.strip lhs
+      if not (isVarToken name)
+        then Left "let binding"
+        else do
+          expr <- parseExprCore rhs
+          Right (name, expr)
+
+parseCaseExpr :: Text -> Either Text Expr
+parseCaseExpr txt = do
+  rest <- maybe (Left "case expression") Right (T.stripPrefix "case" (T.stripStart txt))
+  (scrutTxt, altsTxt) <- splitTopLevelOnce "of" rest
+  scrut <- parseExprCore scrutTxt
+  alts <- parseCaseAlts altsTxt
+  Right (ECase scrut alts)
+
+parseCaseAlts :: Text -> Either Text [CaseAlt]
+parseCaseAlts txt =
+  let stripped = T.strip txt
+      altRows =
+        if hasOuterBraces stripped
+          then splitDeclItems (T.drop 1 (T.dropEnd 1 stripped))
+          else filter (not . T.null) (map T.strip (T.lines stripped))
+   in traverse parseCaseAlt altRows
+
+parseCaseAlt :: Text -> Either Text CaseAlt
+parseCaseAlt txt =
+  case splitTopLevelMaybe "|" txt of
+    Just (patTxt, guardTail) -> parseGuardedCaseAlt patTxt guardTail
+    Nothing -> do
+      (patTxt, bodyTxt) <- splitTopLevelOnce "->" txt
+      pat <- parsePatternText patTxt
+      body <- parseExprCore bodyTxt
+      Right (CaseAlt pat (UnguardedRhs body))
+
+parseGuardedCaseAlt :: Text -> Text -> Either Text CaseAlt
+parseGuardedCaseAlt patTxt guardTail = do
+  pat <- parsePatternText patTxt
+  grhss <- traverse parseOne (splitDeclItems guardTail)
+  Right (CaseAlt pat (GuardedRhss grhss))
+  where
+    parseOne entry = do
+      row <- maybe (Right entry) Right (T.stripPrefix "|" (T.stripStart entry))
+      (guardTxt, bodyTxt) <- splitTopLevelOnce "->" row
+      guardExpr <- parseExprCore guardTxt
+      bodyExpr <- parseExprCore bodyTxt
+      Right GuardedRhs {guardedRhsGuards = [guardExpr], guardedRhsBody = bodyExpr}
+
+parseDoExpr :: Text -> Either Text Expr
+parseDoExpr txt = do
+  rest <- maybe (Left "do expression") Right (T.stripPrefix "do" (T.stripStart txt))
+  let body = T.strip rest
+      rows =
+        if hasOuterBraces body
+          then splitDeclItems (T.drop 1 (T.dropEnd 1 body))
+          else filter (not . T.null) (map T.strip (T.lines body))
+  stmts <- traverse parseDoStmtText rows
+  Right (EDo stmts)
+
+parseDoStmtText :: Text -> Either Text DoStmt
+parseDoStmtText txt
+  | "let " `T.isPrefixOf` T.strip txt =
+      let rest = T.strip (fromMaybeText txt (T.stripPrefix "let" (T.stripStart txt)))
+       in DoLet <$> parseLetBindings rest
+  | otherwise =
+      case splitTopLevelMaybe "<-" txt of
+        Just (lhs, rhs) -> do
+          pat <- parsePatternText lhs
+          expr <- parseExprCore rhs
+          Right (DoBind pat expr)
+        Nothing -> DoExpr <$> parseExprCore txt
+
+parseListExpr :: Text -> Either Text Expr
+parseListExpr txt = do
+  let inner = T.strip (T.init (T.tail txt))
+  if T.null inner
+    then Right (EList [])
+    else case splitTopLevelMaybe "|" inner of
+      Just (bodyTxt, qualsTxt) -> do
+        body <- parseExprCore bodyTxt
+        qualifiers <- traverse parseCompStmtText (splitTopLevel ',' qualsTxt)
+        Right (EListComp body qualifiers)
+      Nothing ->
+        case splitTopLevelMaybe ".." inner of
+          Just _ -> parseArithSeq inner
+          Nothing -> EList <$> traverse parseExprCore (splitTopLevel ',' inner)
+
+parseCompStmtText :: Text -> Either Text CompStmt
+parseCompStmtText txt
+  | "let " `T.isPrefixOf` T.strip txt =
+      let rest = T.strip (fromMaybeText txt (T.stripPrefix "let" (T.stripStart txt)))
+       in CompLet <$> parseLetBindings rest
+  | otherwise =
+      case splitTopLevelMaybe "<-" txt of
+        Just (patTxt, exprTxt) -> do
+          pat <- parsePatternText patTxt
+          expr <- parseExprCore exprTxt
+          Right (CompGen pat expr)
+        Nothing -> CompGuard <$> parseExprCore txt
+
+parseArithSeq :: Text -> Either Text Expr
+parseArithSeq inner =
+  case splitTopLevelMaybe ".." inner of
+    Nothing -> Left "arithmetic sequence"
+    Just (lhs, rhs) ->
+      case splitTopLevel ',' lhs of
+        [fromTxt] -> do
+          fromExpr <- parseExprCore fromTxt
+          if T.null (T.strip rhs)
+            then Right (EArithSeq (ArithSeqFrom fromExpr))
+            else do
+              toExpr <- parseExprCore rhs
+              Right (EArithSeq (ArithSeqFromTo fromExpr toExpr))
+        [fromTxt, thenTxt] -> do
+          fromExpr <- parseExprCore fromTxt
+          thenExpr <- parseExprCore thenTxt
+          if T.null (T.strip rhs)
+            then Right (EArithSeq (ArithSeqFromThen fromExpr thenExpr))
+            else do
+              toExpr <- parseExprCore rhs
+              Right (EArithSeq (ArithSeqFromThenTo fromExpr thenExpr toExpr))
+        _ -> Left "arithmetic sequence"
+
+parseRecordExpr :: Text -> Either Text Expr
+parseRecordExpr txt =
+  case splitOuterBraces txt of
+    Left _ -> Left "record expression"
+    Right (baseTxt, fieldsTxt) -> do
+      let fieldsRows =
+            if T.null (T.strip fieldsTxt)
+              then []
+              else splitTopLevel ',' fieldsTxt
+      fields <- traverse parseRecordField fieldsRows
+      let base = T.strip baseTxt
+      if isTypeToken base
+        then Right (ERecordCon base fields)
+        else do
+          baseExpr <- parseExprCore base
+          Right (ERecordUpd baseExpr fields)
+
+parseRecordField :: Text -> Either Text (Text, Expr)
+parseRecordField txt = do
+  (nameTxt, exprTxt) <- splitTopLevelOnce "=" txt
+  let name = T.strip nameTxt
+  expr <- parseExprCore exprTxt
+  Right (name, expr)
+
+parseInfixAndAppExpr :: Text -> Either Text Expr
+parseInfixAndAppExpr txt = do
+  tokens <- tokenizeExpr txt
+  buildExprFromTokens tokens
+
+buildExprFromTokens :: [ExprToken] -> Either Text Expr
+buildExprFromTokens tokens =
+  case tokens of
+    [] -> Left "expression"
+    (TokOp "-" : rest) -> ENegate <$> buildExprFromTokens rest
+    _ -> do
+      (firstSeg, rest) <- takeSegment tokens
+      firstExpr <- buildApp firstSeg
+      foldSegments firstExpr rest
+  where
+    foldSegments acc ts =
+      case ts of
+        [] -> Right acc
+        (TokOp op : remain) -> do
+          (seg, tailTs) <- takeSegment remain
+          rhs <- buildApp seg
+          foldSegments (EInfix acc op rhs) tailTs
+        _ -> Left "expression"
+
+    buildApp seg =
+      case seg of
+        [] -> Left "expression"
+        _ -> do
+          atoms <- traverse parseExprAtom seg
+          Right (foldl1 EApp atoms)
+
+    parseExprAtom tok =
+      case tok of
+        TokAtom atomTxt -> parseAtomicExpression atomTxt
+        TokOp op -> Right (EVar op)
+
+    takeSegment ts =
+      let (seg, restSeg) = break isOp ts
+       in if null seg then Left "expression" else Right (seg, restSeg)
+
+    isOp t =
+      case t of
+        TokOp _ -> True
+        _ -> False
+
+parseAtomicExpression :: Text -> Either Text Expr
+parseAtomicExpression atomTxt =
+  let txt = T.strip atomTxt
+   in if T.null txt
+        then Left "expression"
+        else case parseLiteralText txt of
+          Just lit ->
+            case lit of
+              LitInt n -> Right (EInt n)
+              LitFloat n -> Right (EFloat n)
+              LitChar c -> Right (EChar c)
+              LitString s -> Right (EString s)
+          Nothing ->
+            if hasOuterParens txt
+              then parseParenExpr txt
+              else
+                if T.length txt >= 2 && T.head txt == '[' && T.last txt == ']'
+                  then parseListExpr txt
+                  else Right (EVar txt)
+
+parseParenExpr :: Text -> Either Text Expr
+parseParenExpr txt =
+  let inner = T.strip (T.drop 1 (T.dropEnd 1 txt))
+   in if T.null inner
+        then Right (ETuple [])
+        else
+          if isOperatorToken inner || isVarToken inner
+            then Right (EVar inner)
+            else case parseTupleConstructor inner of
+              Just arity -> Right (ETupleCon arity)
+              Nothing ->
+                case parseSection inner of
+                  Just expr -> Right expr
+                  Nothing ->
+                    let parts = splitTopLevel ',' inner
+                     in if length parts > 1
+                          then ETuple <$> traverse parseExprCore parts
+                          else EParen <$> parseExprCore inner
+
+parseTupleConstructor :: Text -> Maybe Int
+parseTupleConstructor inner =
+  if T.all (== ',') inner && not (T.null inner)
+    then Just (T.length inner + 1)
+    else Nothing
+
+parseSection :: Text -> Maybe Expr
+parseSection inner =
+  case tokenizeExpr inner of
+    Right [TokOp op, TokAtom rhs] ->
+      case parseExprCore rhs of
+        Right rhsExpr -> Just (ESectionR op rhsExpr)
+        Left _ -> Nothing
+    Right [TokAtom lhs, TokOp op] ->
+      case parseExprCore lhs of
+        Right lhsExpr -> Just (ESectionL lhsExpr op)
+        Left _ -> Nothing
+    _ -> Nothing
+
+data ExprToken
+  = TokAtom Text
+  | TokOp Text
+  deriving (Eq, Show)
+
+tokenizeExpr :: Text -> Either Text [ExprToken]
+tokenizeExpr input = go (T.strip input) []
+  where
+    go txt acc
+      | T.null txt = Right (reverse acc)
+      | otherwise =
+          case T.uncons txt of
+            Nothing -> Right (reverse acc)
+            Just (c, rest)
+              | isSpace c -> go (T.dropWhile isSpace rest) acc
+              | isDigit c ->
+                  let (numTok, tailTxt) = consumeNumber txt
+                   in go tailTxt (TokAtom numTok : acc)
+              | c == '`' ->
+                  let (name, tailTxt) = T.breakOn "`" rest
+                   in if T.null tailTxt
+                        then Left "expression"
+                        else go (T.drop 1 tailTxt) (TokOp (T.strip name) : acc)
+              | isSymbolicOpChar c ->
+                  let (opTxt, tailTxt) = T.span isSymbolicOpChar txt
+                   in if opTxt `elem` ["=", "->", "<-", "=>", "::", "|"]
+                        then Left "expression"
+                        else go tailTxt (TokOp opTxt : acc)
+              | c == '@' -> Left "expression"
+              | otherwise -> do
+                  (atom, tailTxt) <- consumeAtom txt
+                  go tailTxt (TokAtom atom : acc)
+
+    consumeAtom txt =
+      case T.uncons txt of
+        Nothing -> Left "expression"
+        Just (c, _)
+          | c == '(' -> consumeBalanced '(' ')' txt
+          | c == '[' -> consumeBalanced '[' ']' txt
+          | c == '{' -> consumeBalanced '{' '}' txt
+          | c == '"' -> consumeQuoted '"' txt
+          | c == '\'' -> consumeQuoted '\'' txt
+          | otherwise ->
+              let (atom, tailTxt) = T.break isAtomStop txt
+               in Right (atom, tailTxt)
+
+    isAtomStop ch = isSpace ch || ch == '`' || (isSymbolicOpChar ch && ch /= '.')
+
+    consumeNumber txt =
+      let (whole, rest) = T.span isDigit txt
+       in case T.uncons rest of
+            Just ('.', afterDot)
+              | not (T.null afterDot) && isDigit (T.head afterDot) ->
+                  let (frac, tailTxt) = T.span isDigit afterDot
+                   in (whole <> "." <> frac, tailTxt)
+            _ -> (whole, rest)
+
+consumeBalanced :: Char -> Char -> Text -> Either Text (Text, Text)
+consumeBalanced open close txt =
+  let (chunk, rest, ok) = scan 0 False False T.empty txt
+   in if ok then Right (chunk, rest) else Left "expression"
+  where
+    scan depth inStr inChr acc remaining =
+      case T.uncons remaining of
+        Nothing -> (acc, T.empty, False)
+        Just (c, cs)
+          | inStr ->
+              if c == '"'
+                then scan depth False inChr (T.snoc acc c) cs
+                else scan depth True inChr (T.snoc acc c) cs
+          | inChr ->
+              if c == '\''
+                then scan depth inStr False (T.snoc acc c) cs
+                else scan depth inStr True (T.snoc acc c) cs
+          | c == '"' -> scan depth True inChr (T.snoc acc c) cs
+          | c == '\'' -> scan depth inStr inChr (T.snoc acc c) cs
+          | c == open -> scan (depth + 1) inStr inChr (T.snoc acc c) cs
+          | c == close ->
+              let depth' = depth - 1
+                  acc' = T.snoc acc c
+               in if depth' == 0
+                    then (acc', cs, True)
+                    else scan depth' inStr inChr acc' cs
+          | otherwise -> scan depth inStr inChr (T.snoc acc c) cs
+
+consumeQuoted :: Char -> Text -> Either Text (Text, Text)
+consumeQuoted quote txt =
+  let (chunk, rest, ok) = scan False T.empty txt
+   in if ok then Right (chunk, rest) else Left "expression"
+  where
+    scan escaped acc remaining =
+      case T.uncons remaining of
+        Nothing -> (acc, T.empty, False)
+        Just (c, cs) ->
+          let acc' = T.snoc acc c
+           in if escaped
+                then scan False acc' cs
+                else
+                  if c == '\\'
+                    then scan True acc' cs
+                    else
+                      if c == quote && T.length acc > 0
+                        then (acc', cs, True)
+                        else scan False acc' cs
+
+parseContextPrefix :: Text -> Either Text ([Constraint], Text)
+parseContextPrefix txt =
+  case splitTopLevelMaybe "=>" txt of
+    Nothing -> Right ([], T.strip txt)
+    Just (ctxTxt, restTxt) -> do
+      constraints <- parseConstraints ctxTxt
+      Right (constraints, T.strip restTxt)
+
+splitDeclItems :: Text -> [Text]
+splitDeclItems txt =
+  let semicolonSplit = filter (not . T.null) (map T.strip (splitTopLevel ';' txt))
+   in if length semicolonSplit > 1
+        then semicolonSplit
+        else filter (not . T.null) (map T.strip (T.lines txt))
+
+stripBracesIfAny :: Text -> Text
+stripBracesIfAny txt
+  | hasOuterBraces txt = T.strip (T.drop 1 (T.dropEnd 1 txt))
+  | otherwise = txt
+
+splitOuterBraces :: Text -> Either Text (Text, Text)
+splitOuterBraces txt =
+  case findTopLevelChar '{' txt of
+    Nothing -> Left "braces"
+    Just openIx ->
+      let before = T.strip (T.take openIx txt)
+          afterOpen = T.drop (openIx + 1) txt
+       in case findMatchingBrace afterOpen of
+            Nothing -> Left "braces"
+            Just closeIx ->
+              let inside = T.take closeIx afterOpen
+                  rest = T.strip (T.drop (closeIx + 1) afterOpen)
+               in if T.null rest then Right (before, inside) else Left "braces"
+
+findMatchingBrace :: Text -> Maybe Int
+findMatchingBrace = go 0 0 False False
+  where
+    go ix depth inStr inChr remaining =
+      case T.uncons remaining of
+        Nothing -> Nothing
+        Just (c, cs)
+          | inStr ->
+              if c == '"' then go (ix + 1) depth False inChr cs else go (ix + 1) depth True inChr cs
+          | inChr ->
+              if c == '\'' then go (ix + 1) depth inStr False cs else go (ix + 1) depth inStr True cs
+          | c == '"' -> go (ix + 1) depth True inChr cs
+          | c == '\'' -> go (ix + 1) depth inStr True cs
+          | c == '{' -> go (ix + 1) (depth + 1) inStr inChr cs
+          | c == '}' ->
+              if depth == 0
+                then Just ix
+                else go (ix + 1) (depth - 1) inStr inChr cs
+          | otherwise -> go (ix + 1) depth inStr inChr cs
+
+hasTopLevelTypeSig :: Text -> Bool
+hasTopLevelTypeSig = hasTopLevelToken "::"
+
+hasTopLevelEquals :: Text -> Bool
+hasTopLevelEquals = hasTopLevelToken "="
+
+hasTopLevelToken :: Text -> Text -> Bool
+hasTopLevelToken token txt =
+  case splitTopLevelMaybe token txt of
+    Just _ -> True
+    Nothing -> False
+
+splitTopLevelOnce :: Text -> Text -> Either Text (Text, Text)
+splitTopLevelOnce token txt =
+  case splitTopLevelMaybe token txt of
+    Just (lhs, rhs) -> Right (T.strip lhs, T.strip rhs)
+    Nothing -> Left token
+
+splitTopLevelMaybe :: Text -> Text -> Maybe (Text, Text)
+splitTopLevelMaybe token txt =
+  case finder token txt of
+    Nothing -> Nothing
+    Just ix ->
+      let lhs = T.take ix txt
+          rhs = T.drop (ix + T.length token) txt
+       in Just (lhs, rhs)
+  where
+    finder tok
+      | tok == "=" = findTopLevelEqualsIndex
+      | otherwise = findTopLevelToken tok
+
+splitTopLevelToken :: Text -> Text -> [Text]
+splitTopLevelToken token txt =
+  case splitTopLevelMaybe token txt of
+    Nothing -> [T.strip txt]
+    Just (lhs, rhs) -> T.strip lhs : splitTopLevelToken token rhs
+
+splitTopLevel :: Char -> Text -> [Text]
+splitTopLevel delim input = reverse (go 0 0 0 False False T.empty input [])
+  where
+    go parenN braceN bracketN inStr inChr current remaining acc =
+      case T.uncons remaining of
+        Nothing -> T.strip current : acc
+        Just (c, cs)
+          | inStr ->
+              if c == '"'
+                then go parenN braceN bracketN False inChr (T.snoc current c) cs acc
+                else go parenN braceN bracketN True inChr (T.snoc current c) cs acc
+          | inChr ->
+              if c == '\''
+                then go parenN braceN bracketN inStr False (T.snoc current c) cs acc
+                else go parenN braceN bracketN inStr True (T.snoc current c) cs acc
+          | c == '"' -> go parenN braceN bracketN True inChr (T.snoc current c) cs acc
+          | c == '\'' -> go parenN braceN bracketN inStr True (T.snoc current c) cs acc
+          | c == '(' -> go (parenN + 1) braceN bracketN inStr inChr (T.snoc current c) cs acc
+          | c == ')' -> go (max 0 (parenN - 1)) braceN bracketN inStr inChr (T.snoc current c) cs acc
+          | c == '{' -> go parenN (braceN + 1) bracketN inStr inChr (T.snoc current c) cs acc
+          | c == '}' -> go parenN (max 0 (braceN - 1)) bracketN inStr inChr (T.snoc current c) cs acc
+          | c == '[' -> go parenN braceN (bracketN + 1) inStr inChr (T.snoc current c) cs acc
+          | c == ']' -> go parenN braceN (max 0 (bracketN - 1)) inStr inChr (T.snoc current c) cs acc
+          | c == delim && parenN == 0 && braceN == 0 && bracketN == 0 ->
+              go parenN braceN bracketN inStr inChr T.empty cs (T.strip current : acc)
+          | otherwise -> go parenN braceN bracketN inStr inChr (T.snoc current c) cs acc
+
+splitTopLevelWords :: Text -> [Text]
+splitTopLevelWords txt = reverse (go (T.strip txt) [] T.empty 0 0 0 False False)
+  where
+    flushToken token acc =
+      if T.null (T.strip token)
+        then acc
+        else T.strip token : acc
+
+    go remaining acc token parenN braceN bracketN inStr inChr =
+      case T.uncons remaining of
+        Nothing -> flushToken token acc
+        Just (c, cs)
+          | inStr ->
+              if c == '"'
+                then go cs acc (T.snoc token c) parenN braceN bracketN False inChr
+                else go cs acc (T.snoc token c) parenN braceN bracketN True inChr
+          | inChr ->
+              if c == '\''
+                then go cs acc (T.snoc token c) parenN braceN bracketN inStr False
+                else go cs acc (T.snoc token c) parenN braceN bracketN inStr True
+          | c == '"' -> go cs acc (T.snoc token c) parenN braceN bracketN True inChr
+          | c == '\'' -> go cs acc (T.snoc token c) parenN braceN bracketN inStr True
+          | c == '(' -> go cs acc (T.snoc token c) (parenN + 1) braceN bracketN inStr inChr
+          | c == ')' -> go cs acc (T.snoc token c) (max 0 (parenN - 1)) braceN bracketN inStr inChr
+          | c == '{' -> go cs acc (T.snoc token c) parenN (braceN + 1) bracketN inStr inChr
+          | c == '}' -> go cs acc (T.snoc token c) parenN (max 0 (braceN - 1)) bracketN inStr inChr
+          | c == '[' -> go cs acc (T.snoc token c) parenN braceN (bracketN + 1) inStr inChr
+          | c == ']' -> go cs acc (T.snoc token c) parenN braceN (max 0 (bracketN - 1)) inStr inChr
+          | isSpace c && parenN == 0 && braceN == 0 && bracketN == 0 ->
+              go (T.dropWhile isSpace cs) (flushToken token acc) T.empty parenN braceN bracketN inStr inChr
+          | otherwise -> go cs acc (T.snoc token c) parenN braceN bracketN inStr inChr
+
+findTopLevelToken :: Text -> Text -> Maybe Int
+findTopLevelToken token txt
+  | T.null token = Nothing
+  | otherwise = go 0 0 0 False False 0 txt
+  where
+    go parenN braceN bracketN inStr inChr ix remaining =
+      case T.uncons remaining of
+        Nothing -> Nothing
+        Just (c, cs)
+          | inStr ->
+              if c == '"'
+                then go parenN braceN bracketN False inChr (ix + 1) cs
+                else go parenN braceN bracketN True inChr (ix + 1) cs
+          | inChr ->
+              if c == '\''
+                then go parenN braceN bracketN inStr False (ix + 1) cs
+                else go parenN braceN bracketN inStr True (ix + 1) cs
+          | parenN == 0 && braceN == 0 && bracketN == 0 && T.isPrefixOf token remaining -> Just ix
+          | c == '"' -> go parenN braceN bracketN True inChr (ix + 1) cs
+          | c == '\'' -> go parenN braceN bracketN inStr True (ix + 1) cs
+          | c == '(' -> go (parenN + 1) braceN bracketN inStr inChr (ix + 1) cs
+          | c == ')' -> go (max 0 (parenN - 1)) braceN bracketN inStr inChr (ix + 1) cs
+          | c == '{' -> go parenN (braceN + 1) bracketN inStr inChr (ix + 1) cs
+          | c == '}' -> go parenN (max 0 (braceN - 1)) bracketN inStr inChr (ix + 1) cs
+          | c == '[' -> go parenN braceN (bracketN + 1) inStr inChr (ix + 1) cs
+          | c == ']' -> go parenN braceN (max 0 (bracketN - 1)) inStr inChr (ix + 1) cs
+          | otherwise -> go parenN braceN bracketN inStr inChr (ix + 1) cs
+
+findTopLevelEqualsIndex :: Text -> Maybe Int
+findTopLevelEqualsIndex txt = go 0 0 0 False 0 txt
+  where
+    go parenN braceN bracketN inStr ix remaining =
+      case T.uncons remaining of
+        Nothing -> Nothing
+        Just (c, cs)
+          | inStr ->
+              if c == '"'
+                then go parenN braceN bracketN False (ix + 1) cs
+                else go parenN braceN bracketN True (ix + 1) cs
+          | c == '"' -> go parenN braceN bracketN True (ix + 1) cs
+          | c == '(' -> go (parenN + 1) braceN bracketN inStr (ix + 1) cs
+          | c == ')' -> go (max 0 (parenN - 1)) braceN bracketN inStr (ix + 1) cs
+          | c == '{' -> go parenN (braceN + 1) bracketN inStr (ix + 1) cs
+          | c == '}' -> go parenN (max 0 (braceN - 1)) bracketN inStr (ix + 1) cs
+          | c == '[' -> go parenN braceN (bracketN + 1) inStr (ix + 1) cs
+          | c == ']' -> go parenN braceN (max 0 (bracketN - 1)) inStr (ix + 1) cs
+          | parenN == 0 && braceN == 0 && bracketN == 0 && isAssignment remaining ix txt -> Just ix
+          | otherwise -> go parenN braceN bracketN inStr (ix + 1) cs
+
+    isAssignment remaining ix whole =
+      case T.uncons remaining of
+        Just ('=', afterEq) ->
+          let prev = if ix <= 0 then Nothing else Just (T.index whole (ix - 1))
+              next = fmap fst (T.uncons afterEq)
+           in next /= Just '>'
+                && next /= Just '='
+                && prev /= Just '<'
+                && prev /= Just ':'
+                && prev /= Just '='
+        _ -> False
+
+findTopLevelChar :: Char -> Text -> Maybe Int
+findTopLevelChar ch = findTopLevelToken (T.singleton ch)
+
+findTopLevelOperatorTriple :: Text -> Maybe (Text, Text, Text)
+findTopLevelOperatorTriple txt =
+  case tokenizeExpr txt of
+    Right toks ->
+      case break isOp toks of
+        (_, []) -> Nothing
+        (lhsSeg, TokOp op : rhsSeg)
+          | null lhsSeg || null rhsSeg -> Nothing
+          | otherwise ->
+              let lhsTxt = T.unwords [a | TokAtom a <- lhsSeg]
+                  rhsTxt = T.unwords [a | TokAtom a <- rhsSeg]
+               in if T.null lhsTxt || T.null rhsTxt
+                    then Nothing
+                    else Just (lhsTxt, op, rhsTxt)
+    Left _ -> Nothing
+  where
+    isOp token =
+      case token of
+        TokOp _ -> True
+        _ -> False
 
 parseLineWith :: MParser a -> Text -> Either ParseError a
 parseLineWith parser input =
@@ -121,266 +1552,101 @@ parseLineWith parser input =
     Right value -> Right value
     Left bundle -> Left (bundleToError input bundle)
 
-declarationParser :: Bool -> MParser Decl
-declarationParser allowFfiFallback
-  | allowFfiFallback =
-      choice
-        [ try foreignImportDeclaration,
-          try foreignExportDeclaration,
-          try dataDeclaration,
-          try typeSignatureDeclaration,
-          try functionDeclaration,
-          valueDeclaration
-        ]
-  | otherwise = try dataDeclaration <|> valueDeclaration
+callConvParser :: MParser CallConv
+callConvParser =
+  (keyword "ccall" >> pure CCall)
+    <|> (keyword "stdcall" >> pure StdCall)
 
-parseDeclText :: ParserConfig -> Text -> Either Text Decl
-parseDeclText cfg txt
-  | "data " `T.isPrefixOf` txt = parseStructuredDecl StructuredDataDecl txt
-  | "newtype " `T.isPrefixOf` txt = parseStructuredDecl StructuredNewtypeDecl txt
-  | "type " `T.isPrefixOf` txt = parseStructuredDecl StructuredTypeDecl txt
-  | "class " `T.isPrefixOf` txt = parseStructuredDecl StructuredClassDecl txt
-  | "instance " `T.isPrefixOf` txt = parseStructuredDecl StructuredInstanceDecl txt
-  | "default " `T.isPrefixOf` txt = parseStructuredDecl StructuredDefaultDecl txt
-  | isFixityDecl txt = parseStructuredDecl StructuredFixityDecl txt
-  | "::" `T.isInfixOf` txt = parseStructuredDecl StructuredTypeSig txt
-  | "=" `T.isInfixOf` txt = parseEquationDecl cfg txt
-  | otherwise = Left "declaration"
+safetyParser :: MParser ForeignSafety
+safetyParser =
+  (keyword "safe" >> pure Safe)
+    <|> (keyword "unsafe" >> pure Unsafe)
 
-parseStructuredDecl :: StructuredDeclKind -> Text -> Either Text Decl
-parseStructuredDecl kind txt = do
-  toks <- tokenizeDeclText txt
-  pure StructuredDecl {structuredKind = kind, structuredTokens = toks}
+foreignEntityParser :: MParser Text
+foreignEntityParser = lexeme scLine $ do
+  _ <- C.char '"'
+  txt <- manyTillChar '"'
+  pure (T.pack txt)
 
-parseTypeSynonymDecl :: Text -> Either Text Decl
-parseTypeSynonymDecl txt =
-  case typeNameAfterKeyword "type" txt of
-    Just name -> Right TypeDecl {typeName = name}
-    Nothing -> Left "type declaration"
-
-parseDataLikeDecl :: Text -> Text -> Either Text Decl
-parseDataLikeDecl keywordName txt = do
-  typeName <- maybe (Left (keywordName <> " declaration")) Right (typeNameAfterKeyword keywordName txt)
-  let (_, afterEq) = T.breakOn "=" txt
-      constructors = if T.null afterEq then [] else parseConstructors (T.drop 1 afterEq)
-   in case keywordName of
-        "data" ->
-          Right
-            DataDecl
-              { dataTypeName = typeName,
-                dataConstructors = constructors
-              }
-        "newtype" ->
-          Right
-            NewtypeDecl
-              { newtypeName = typeName,
-                newtypeConstructor = case constructors of
-                  [] -> Nothing
-                  (firstCtor : _) -> Just firstCtor
-              }
-        _ -> Left "data declaration"
-
-parseClassDecl :: Text -> Either Text Decl
-parseClassDecl txt =
-  case classOrInstanceName "class" txt of
-    Just name -> Right ClassDecl {className = name}
-    Nothing -> Left "class declaration"
-
-parseInstanceDecl :: Text -> Either Text Decl
-parseInstanceDecl txt =
-  case classOrInstanceName "instance" txt of
-    Just name -> Right InstanceDecl {instanceClassName = name}
-    Nothing -> Left "instance declaration"
-
-parseFixityDeclText :: Text -> Either Text Decl
-parseFixityDeclText txt =
-  case T.words txt of
-    assocTxt : rest
-      | assocTxt `elem` ["infix", "infixl", "infixr"] ->
-          case rest of
-            [] -> Left "fixity declaration"
-            [op] ->
-              Right
-                FixityDecl
-                  { fixityAssoc = assocTxt,
-                    fixityPrecedence = Nothing,
-                    fixityOperator = stripParens op
-                  }
-            precTxt : op : _
-              | T.all isDigit precTxt ->
-                  Right
-                    FixityDecl
-                      { fixityAssoc = assocTxt,
-                        fixityPrecedence = Just (read (T.unpack precTxt)),
-                        fixityOperator = stripParens op
-                      }
-            _ -> Left "fixity declaration"
-    _ -> Left "fixity declaration"
-
-parseDefaultDecl :: Text -> Either Text Decl
-parseDefaultDecl txt =
-  let inside = textInsideParens txt
-      types = filter isTypeToken (map (T.strip . stripPunctuation) (T.splitOn "," inside))
-   in if null types
-        then Left "default declaration"
-        else Right DefaultDecl {defaultTypes = types}
-
-parseTypeSignatureDeclText :: Text -> Either Text Decl
-parseTypeSignatureDeclText txt =
-  let (lhs, rhs) = T.breakOn "::" txt
-      names = map (stripParens . T.strip) (T.splitOn "," lhs)
-      firstName = case names of
-        [] -> Nothing
-        (n : _) -> if isValueName n then Just n else Nothing
-   in if T.null rhs
-        then Left "type signature"
-        else case firstName of
-          Just name -> Right TypeSigDecl {typeSigName = name}
-          Nothing -> Left "type signature"
-
-parseEquationDecl :: ParserConfig -> Text -> Either Text Decl
-parseEquationDecl cfg txt =
-  let (lhsRaw, rhsRaw) = T.breakOn "=" txt
-      lhs = T.strip lhsRaw
-      rhs = T.strip (T.drop 1 rhsRaw)
-   in if T.null rhsRaw || T.null lhs || T.null rhs
-        then Left "equation declaration"
-        else case extractFunctionName lhs of
-          Just (name, hasArgs, isOperatorBinderName)
-            | not hasArgs && not isOperatorBinderName ->
-                case parseExpr cfg rhs of
-                  ParseOk expr -> Right Decl {declName = name, declExpr = expr}
-                  ParseErr _ -> parseStructuredDecl StructuredEquation txt
-            | otherwise ->
-                parseStructuredDecl StructuredEquation txt
-          Nothing
-            | isPatternBindingLhs lhs ->
-                parseStructuredDecl StructuredPatternBind txt
-            | otherwise -> Left "equation declaration"
-
-tokenizeDeclText :: Text -> Either Text [DeclToken]
-tokenizeDeclText = go []
+manyTillChar :: Char -> MParser String
+manyTillChar endCh = go []
   where
-    go acc remaining =
-      case T.uncons (T.dropWhile isSpace remaining) of
-        Nothing -> Right (reverse acc)
-        Just (c, rest)
-          | isIdentStart c ->
-              let (tok, tailTxt) = T.span isIdentTail rest
-               in go (TokWord (T.cons c tok) : acc) tailTxt
-          | isDigit c ->
-              let (tok, tailTxt) = T.span isDigit rest
-               in go (TokWord (T.cons c tok) : acc) tailTxt
-          | c == '"' ->
-              let (lit, tailTxt) = consumeQuoted '"' rest
-               in go (TokString (T.cons '"' lit) : acc) tailTxt
-          | c == '\'' ->
-              let (lit, tailTxt) = consumeQuoted '\'' rest
-               in go (TokChar (T.cons '\'' lit) : acc) tailTxt
-          | c `elem` ("()[]{};," :: String) ->
-              go (TokPunct c : acc) rest
-          | isSymbolicChar c ->
-              let (tok, tailTxt) = T.span isSymbolicChar rest
-               in go (TokSymbol (T.cons c tok) : acc) tailTxt
-          | otherwise ->
-              Left "unsupported token in declaration"
+    go acc =
+      (C.char endCh >> pure (reverse acc))
+        <|> do
+          ch <- C.printChar
+          go (ch : acc)
 
-    consumeQuoted q txt =
-      let (body, suffix) = scanBody False T.empty txt
-       in (body, suffix)
-      where
-        scanBody escaped collected remaining =
-          case T.uncons remaining of
-            Nothing -> (collected, T.empty)
-            Just (ch, rest)
-              | ch == q && not escaped -> (T.snoc collected ch, rest)
-              | otherwise ->
-                  scanBody (ch == '\\' && not escaped) (T.snoc collected ch) rest
+identifier :: MParser Text
+identifier = identifierLexeme scLine
 
-    isIdentStart ch = isAlpha ch || ch == '_'
-    isIdentTail ch = isAlphaNum ch || ch == '_' || ch == '\''
-    isSymbolicChar ch = ch `elem` (":!#$%&*+./<=>?@\\^|-~`" :: String)
+identifierOrOperator :: MParser Text
+identifierOrOperator =
+  identifier
+    <|> do
+      _ <- symbol "("
+      op <- operatorTokenLexeme scLine
+      _ <- symbol ")"
+      pure op
 
-parseConstructors :: Text -> [Text]
-parseConstructors rhs =
-  let rhsCore = stripDerivingClause rhs
-      parts = filter (not . T.null) (map T.strip (splitTopLevelPipes rhsCore))
-   in mapMaybe constructorNameFromPart parts
+identifierLexeme :: MParser () -> MParser Text
+identifierLexeme sc = lexeme sc $ do
+  notFollowedBy reservedWord
+  first <- C.letterChar <|> C.char '_'
+  rest <- many identTailChar
+  more <- many (C.char '.' *> ((:) <$> C.letterChar <*> many identTailChar))
+  let base = first : rest
+      chunks = base : more
+  pure (T.intercalate "." (map T.pack chunks))
 
-splitTopLevelPipes :: Text -> [Text]
-splitTopLevelPipes input = go 0 0 0 input T.empty []
-  where
-    go parenN braceN bracketN remaining current acc =
-      case T.uncons remaining of
-        Nothing -> reverse (current : acc)
-        Just (c, cs)
-          | c == '(' -> go (parenN + 1) braceN bracketN cs (T.snoc current c) acc
-          | c == ')' -> go (max 0 (parenN - 1)) braceN bracketN cs (T.snoc current c) acc
-          | c == '{' -> go parenN (braceN + 1) bracketN cs (T.snoc current c) acc
-          | c == '}' -> go parenN (max 0 (braceN - 1)) bracketN cs (T.snoc current c) acc
-          | c == '[' -> go parenN braceN (bracketN + 1) cs (T.snoc current c) acc
-          | c == ']' -> go parenN braceN (max 0 (bracketN - 1)) cs (T.snoc current c) acc
-          | c == '|' && parenN == 0 && braceN == 0 && bracketN == 0 ->
-              go parenN braceN bracketN cs T.empty (T.strip current : acc)
-          | otherwise ->
-              go parenN braceN bracketN cs (T.snoc current c) acc
+operatorTokenLexeme :: MParser () -> MParser Text
+operatorTokenLexeme sc =
+  lexeme sc $ do
+    tok <- some (MP.satisfy isSymbolicOpChar)
+    let t = T.pack tok
+    if t `elem` ["=", "->", "<-", "=>", "::", "|"]
+      then fail "operator"
+      else pure t
 
-constructorNameFromPart :: Text -> Maybe Text
-constructorNameFromPart part =
-  let noBang = T.replace "!" "" part
-      recordHead = T.strip (fst (T.breakOn "{" noBang))
-      tokens = map stripParens (T.words recordHead)
-      symbolic = filter isSymbolicToken tokens
-   in case tokens of
-        [] -> Nothing
-        (firstTok : _)
-          | isTypeToken firstTok -> Just firstTok
-          | otherwise ->
-              case symbolic of
-                (op : _) -> Just op
-                [] -> Nothing
+identTailChar :: MParser Char
+identTailChar =
+  C.alphaNumChar
+    <|> C.char '_'
+    <|> C.char '\''
 
-typeNameAfterKeyword :: Text -> Text -> Maybe Text
-typeNameAfterKeyword kw txt = do
-  afterKw <- T.stripPrefix (kw <> " ") txt
-  let beforeEq = T.strip (fst (T.breakOn "=" afterKw))
-      beforeDeriving = T.strip (fst (T.breakOn " deriving" beforeEq))
-      afterCtx = case T.breakOn "=>" beforeDeriving of
-        (lhs, rhs)
-          | T.null rhs -> lhs
-          | otherwise -> T.strip (T.drop 2 rhs)
-      tokens = map stripParens (T.words (T.strip afterCtx))
-  findTypeToken tokens
+symbol :: Text -> MParser Text
+symbol = L.symbol scLine
 
-classOrInstanceName :: Text -> Text -> Maybe Text
-classOrInstanceName kw txt = do
-  afterKw <- T.stripPrefix (kw <> " ") txt
-  let noWhere = T.strip (fst (T.breakOn " where" afterKw))
-      afterCtx = case T.breakOn "=>" noWhere of
-        (lhs, rhs)
-          | T.null rhs -> lhs
-          | otherwise -> T.strip (T.drop 2 rhs)
-      tokens = map stripParens (T.words (T.strip afterCtx))
-  findTypeToken tokens
+keyword :: Text -> MParser Text
+keyword kw = lexeme scLine (C.string kw <* notFollowedBy identTailOrStartChar)
 
-findTypeToken :: [Text] -> Maybe Text
-findTypeToken = find isTypeToken
+identTailOrStartChar :: MParser Char
+identTailOrStartChar = MP.satisfy isIdentTailOrStart
 
-extractFunctionName :: Text -> Maybe (Text, Bool, Bool)
-extractFunctionName lhs =
-  case T.words lhs of
-    [] -> Nothing
-    (firstTok : rest) ->
-      let normalized = stripParens firstTok
-          isOperatorBinderName = isOperatorToken normalized && T.isPrefixOf "(" (T.strip firstTok)
-       in if isVarToken normalized || isOperatorBinderName
-            then Just (normalized, not (null rest), isOperatorBinderName)
-            else Nothing
+isIdentTailOrStart :: Char -> Bool
+isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
 
-stripDerivingClause :: Text -> Text
-stripDerivingClause txt =
-  let (before, after) = T.breakOn " deriving" txt
-   in if T.null after then txt else before
+isSymbolicOpChar :: Char -> Bool
+isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?\\^|-~" :: String)
+
+lexeme :: MParser () -> MParser a -> MParser a
+lexeme = L.lexeme
+
+scLine :: MParser ()
+scLine = L.space C.space1 MP.empty MP.empty
+
+stripComment :: ParserConfig -> Text -> Text
+stripComment cfg txtLine
+  | not (allowLineComments cfg) = txtLine
+  | otherwise =
+      case T.breakOn "--" txtLine of
+        (before, after)
+          | T.null after -> txtLine
+          | otherwise -> T.stripEnd before
+
+isLanguagePragma :: Text -> Bool
+isLanguagePragma txt =
+  "{-#" `T.isPrefixOf` txt && "#-}" `T.isSuffixOf` txt
 
 isFixityDecl :: Text -> Bool
 isFixityDecl txt =
@@ -395,18 +1661,9 @@ stripParens t =
         then T.strip (T.init (T.tail trimmed))
         else trimmed
 
-stripPunctuation :: Text -> Text
-stripPunctuation = T.dropAround (\c -> c == '(' || c == ')' || c == ',' || isSpace c)
-
-textInsideParens :: Text -> Text
-textInsideParens txt =
-  let (_, afterOpen) = T.breakOn "(" txt
-      insideWithClose = T.drop 1 afterOpen
-   in fst (T.breakOn ")" insideWithClose)
-
 isTypeToken :: Text -> Bool
 isTypeToken token =
-  case T.uncons (stripPunctuation token) of
+  case T.uncons (stripParens token) of
     Just (c, _) -> isUpper c
     Nothing -> False
 
@@ -418,21 +1675,21 @@ isVarToken token =
         && T.all isIdentTailOrStart rest
     Nothing -> False
 
-isSymbolicToken :: Text -> Bool
-isSymbolicToken tok =
-  not (T.null tok) && T.all (`elem` (":!#$%&*+./<=>?@\\^|-~" :: String)) tok
-
-isOperatorToken :: Text -> Bool
-isOperatorToken tok = isSymbolicToken tok && not (T.null tok)
-
 isValueName :: Text -> Bool
 isValueName tok = isVarToken tok || isOperatorToken tok
 
-isPatternBindingLhs :: Text -> Bool
-isPatternBindingLhs lhs =
-  case T.uncons (T.strip lhs) of
-    Just ('(', _) -> True
-    _ -> False
+isOperatorToken :: Text -> Bool
+isOperatorToken tok =
+  let inner = stripParens tok
+   in not (T.null inner) && T.all isSymbolicOpChar inner
+
+isParenthesizedOperator :: Text -> Bool
+isParenthesizedOperator tok =
+  let trimmed = T.strip tok
+   in T.length trimmed >= 3
+        && T.head trimmed == '('
+        && T.last trimmed == ')'
+        && isOperatorToken (stripParens trimmed)
 
 groupDeclarationChunks :: [(Int, Text)] -> [(Int, Text)]
 groupDeclarationChunks = go Nothing []
@@ -450,296 +1707,79 @@ groupDeclarationChunks = go Nothing []
                 then go current acc rest
                 else case current of
                   Nothing -> go (Just (ln, [trimmed])) acc rest
-                  Just (startLn, pieces@(firstPiece : _))
-                    | ind == 0 && not (continuesPrevious firstPiece trimmed) ->
+                  Just (startLn, pieces)
+                    | ind == 0 ->
                         go (Just (ln, [trimmed])) ((startLn, T.intercalate "\n" (reverse pieces)) : acc) rest
                     | otherwise ->
                         go (Just (startLn, trimmed : pieces)) acc rest
-                  Just _ -> go current acc rest
-
-continuesPrevious :: Text -> Text -> Bool
-continuesPrevious _ _ = False
-
-equationBinderInfo :: Text -> Maybe (Text, Bool)
-equationBinderInfo lineTxt = do
-  let (lhs, rhs) = T.breakOn "=" lineTxt
-  if T.null rhs
-    then Nothing
-    else do
-      (name, hasArgs, isOperatorBinderName) <- extractFunctionName (T.strip lhs)
-      pure (name, hasArgs || isOperatorBinderName)
 
 indentation :: Text -> Int
 indentation = T.length . T.takeWhile (\c -> c == ' ' || c == '\t')
 
-mapMaybe :: (a -> Maybe b) -> [a] -> [b]
-mapMaybe f =
-  foldr
-    ( \x acc ->
-        case f x of
-          Just y -> y : acc
-          Nothing -> acc
-    )
-    []
+hasOuterParens :: Text -> Bool
+hasOuterParens txt =
+  T.length txt >= 2
+    && T.head txt == '('
+    && T.last txt == ')'
+    && outerWraps txt '(' ')'
 
-find :: (a -> Bool) -> [a] -> Maybe a
-find predicate =
-  foldr
-    ( \x acc ->
-        if predicate x
-          then Just x
-          else acc
-    )
-    Nothing
+hasOuterBraces :: Text -> Bool
+hasOuterBraces txt =
+  T.length txt >= 2
+    && T.head txt == '{'
+    && T.last txt == '}'
+    && outerWraps txt '{' '}'
 
-mergeAdjacentFunctions :: [Decl] -> [Decl]
-mergeAdjacentFunctions =
-  reverse . foldl merge []
+outerWraps :: Text -> Char -> Char -> Bool
+outerWraps txt open close =
+  go 0 False False (T.unpack txt)
   where
-    merge acc decl =
-      case (acc, decl) of
-        (FunctionDecl {functionName = prev} : rest, FunctionDecl {functionName = curr})
-          | prev == curr -> acc
-        _ -> decl : acc
+    go _ _ _ [] = False
+    go depth inStr inChr (c : cs)
+      | inStr =
+          if c == '"'
+            then go depth False inChr cs
+            else go depth True inChr cs
+      | inChr =
+          if c == '\''
+            then go depth inStr False cs
+            else go depth inStr True cs
+      | c == '"' = go depth True inChr cs
+      | c == '\'' = go depth inStr inChr cs
+      | c == open = go (depth + 1) inStr inChr cs
+      | c == close =
+          let depth' = depth - 1
+           in if depth' == 0
+                then null cs
+                else go depth' inStr inChr cs
+      | otherwise = go depth inStr inChr cs
 
-valueDeclaration :: MParser Decl
-valueDeclaration = do
-  name <- identifier
-  _ <- symbol "="
-  rhs <- expressionLine
-  eof
-  pure Decl {declName = name, declExpr = rhs}
+renderPatternText :: Pattern -> Text
+renderPatternText pat =
+  case pat of
+    PVar name -> name
+    PWildcard -> "_"
+    PLit lit ->
+      case lit of
+        LitInt n -> T.pack (show n)
+        LitFloat n -> T.pack (show n)
+        LitChar c -> T.pack (show c)
+        LitString s -> T.pack (show (T.unpack s))
+    PTuple pats -> "(" <> T.intercalate ", " (map renderPatternText pats) <> ")"
+    PList pats -> "[" <> T.intercalate ", " (map renderPatternText pats) <> "]"
+    PCon con args -> T.unwords (con : map renderPatternText args)
+    PInfix lhs op rhs -> renderPatternText lhs <> " " <> op <> " " <> renderPatternText rhs
+    PAs name inner -> name <> "@" <> renderPatternText inner
+    PIrrefutable inner -> "~" <> renderPatternText inner
+    PParen inner -> "(" <> renderPatternText inner <> ")"
+    PRecord con fields ->
+      con
+        <> " { "
+        <> T.intercalate ", " [name <> " = " <> renderPatternText p | (name, p) <- fields]
+        <> " }"
 
-dataDeclaration :: MParser Decl
-dataDeclaration = do
-  _ <- keyword "data"
-  typeName <- typeConstructor
-  _ <- symbol "="
-  constructors <- sepBy1 typeConstructor (symbol "|")
-  eof
-  pure DataDecl {dataTypeName = typeName, dataConstructors = constructors}
-
-typeSignatureDeclaration :: MParser Decl
-typeSignatureDeclaration = do
-  name <- identifier
-  _ <- symbol "::"
-  sigTail <- T.strip <$> takeRest
-  if T.null sigTail
-    then fail "expected type signature"
-    else pure TypeSigDecl {typeSigName = name}
-
-functionDeclaration :: MParser Decl
-functionDeclaration = do
-  name <- identifier
-  _ <- some identifier
-  _ <- symbol "="
-  rhs <- T.strip <$> takeRest
-  if T.null rhs
-    then fail "expected function body"
-    else pure FunctionDecl {functionName = name}
-
-foreignImportDeclaration :: MParser Decl
-foreignImportDeclaration = do
-  _ <- keyword "foreign"
-  _ <- keyword "import"
-  callConv <- callConvParser
-  safety <- optional (try safetyParser)
-  entity <- optional (try foreignEntityParser)
-  name <- identifier
-  _ <- symbol "::"
-  ftype <- T.strip <$> takeRest
-  if T.null ftype
-    then fail "expected foreign import type"
-    else
-      pure
-        ForeignDecl
-          { foreignDirection = ForeignImport,
-            foreignCallConv = callConv,
-            foreignSafety = safety,
-            foreignEntity = entity,
-            foreignName = name
-          }
-
-foreignExportDeclaration :: MParser Decl
-foreignExportDeclaration = do
-  _ <- keyword "foreign"
-  _ <- keyword "export"
-  callConv <- callConvParser
-  entity <- optional (try foreignEntityParser)
-  name <- identifier
-  _ <- symbol "::"
-  etype <- T.strip <$> takeRest
-  if T.null etype
-    then fail "expected foreign export type"
-    else
-      pure
-        ForeignDecl
-          { foreignDirection = ForeignExport,
-            foreignCallConv = callConv,
-            foreignSafety = Nothing,
-            foreignEntity = entity,
-            foreignName = name
-          }
-
-callConvParser :: MParser CallConv
-callConvParser =
-  (keyword "ccall" >> pure CCall)
-    <|> (keyword "stdcall" >> pure StdCall)
-
-safetyParser :: MParser ForeignSafety
-safetyParser =
-  (keyword "safe" >> pure Safe)
-    <|> (keyword "unsafe" >> pure Unsafe)
-
-foreignEntityParser :: MParser Text
-foreignEntityParser = lexeme scLine $ do
-  _ <- C.char '"'
-  txt <- manyTill C.printChar (C.char '"')
-  pure (T.pack txt)
-
-expression :: ParserConfig -> MParser Expr
-expression cfg = expressionWith (scExpr cfg)
-
-expressionLine :: MParser Expr
-expressionLine = expressionWith scLine
-
-expressionWith :: MParser () -> MParser Expr
-expressionWith sc = do
-  atoms <- some (atomWith sc)
-  pure (foldl1 EApp atoms)
-
-atomWith :: MParser () -> MParser Expr
-atomWith sc =
-  listLiteral sc
-    <|> parenExpression sc
-    <|> try (EFloat <$> floating sc)
-    <|> (EInt <$> integer sc)
-    <|> (EChar <$> charLiteral sc)
-    <|> (EString <$> stringLiteral sc)
-    <|> (EVar <$> identifierLexeme sc)
-
-listLiteral :: MParser () -> MParser Expr
-listLiteral sc = do
-  _ <- symbolWith sc "["
-  elems <- expressionWith sc `sepBy` symbolWith sc ","
-  _ <- symbolWith sc "]"
-  pure (EList elems)
-
-parenExpression :: MParser () -> MParser Expr
-parenExpression sc =
-  try (tupleConstructor sc)
-    <|> do
-      _ <- symbolWith sc "("
-      ( do
-          _ <- symbolWith sc ")"
-          pure (ETuple [])
-        )
-        <|> do
-          firstExpr <- expressionWith sc
-          ( do
-              _ <- symbolWith sc ","
-              rest <- expressionWith sc `sepBy1` symbolWith sc ","
-              _ <- symbolWith sc ")"
-              pure (ETuple (firstExpr : rest))
-            )
-            <|> do
-              _ <- symbolWith sc ")"
-              pure firstExpr
-
-tupleConstructor :: MParser () -> MParser Expr
-tupleConstructor sc = do
-  _ <- symbolWith sc "("
-  commas <- some (lexeme sc (C.char ','))
-  _ <- symbolWith sc ")"
-  pure (ETupleCon (length commas + 1))
-
-identifier :: MParser Text
-identifier = identifierLexeme scLine
-
-typeConstructor :: MParser Text
-typeConstructor = lexeme scLine $ do
-  first <- C.upperChar
-  rest <- many identTailChar
-  pure (T.pack (first : rest))
-
-identifierLexeme :: MParser () -> MParser Text
-identifierLexeme sc = lexeme sc $ do
-  notFollowedBy reservedWord
-  first <- C.letterChar <|> C.char '_'
-  rest <- many identTailChar
-  pure (T.pack (first : rest))
-
-identTailChar :: MParser Char
-identTailChar =
-  C.alphaNumChar
-    <|> C.char '_'
-    <|> C.char '\''
-
-integer :: MParser () -> MParser Integer
-integer sc = lexeme sc (try hexadecimal <|> L.decimal)
-  where
-    hexadecimal = do
-      _ <- C.string "0x" <|> C.string "0X"
-      L.hexadecimal
-
-floating :: MParser () -> MParser Double
-floating sc = lexeme sc $ do
-  whole <- some C.digitChar
-  _ <- C.char '.'
-  frac <- some C.digitChar
-  pure (read (whole <> "." <> frac))
-
-charLiteral :: MParser () -> MParser Char
-charLiteral sc = lexeme sc (C.char '\'' *> L.charLiteral <* C.char '\'')
-
-stringLiteral :: MParser () -> MParser Text
-stringLiteral sc = lexeme sc $ do
-  _ <- C.char '"'
-  chars <- manyTill L.charLiteral (C.char '"')
-  pure (T.pack chars)
-
-symbol :: Text -> MParser Text
-symbol = L.symbol scLine
-
-keyword :: Text -> MParser Text
-keyword kw = lexeme scLine (C.string kw <* notFollowedBy identTailOrStartChar)
-
-symbolWith :: MParser () -> Text -> MParser Text
-symbolWith = L.symbol
-
-identTailOrStartChar :: MParser Char
-identTailOrStartChar = MP.satisfy isIdentTailOrStart
-
-isIdentTailOrStart :: Char -> Bool
-isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
-
-lexeme :: MParser () -> MParser a -> MParser a
-lexeme = L.lexeme
-
-scLine :: MParser ()
-scLine = L.space C.space1 MP.empty MP.empty
-
-scExpr :: ParserConfig -> MParser ()
-scExpr cfg
-  | allowLineComments cfg = L.space C.space1 (L.skipLineComment "--") MP.empty
-  | otherwise = L.space C.space1 MP.empty MP.empty
-
-stripComment :: ParserConfig -> Text -> Text
-stripComment cfg txtLine
-  | not (allowLineComments cfg) = txtLine
-  | otherwise =
-      case T.breakOn "--" txtLine of
-        (before, after)
-          | T.null after -> txtLine
-          | otherwise -> T.stripEnd before
-
-isLanguagePragma :: Text -> Bool
-isLanguagePragma txt =
-  "{-#" `T.isPrefixOf` txt && "#-}" `T.isSuffixOf` txt
-
-isForeignDeclarationLine :: Text -> Bool
-isForeignDeclarationLine txt =
-  "foreign import" `T.isPrefixOf` txt || "foreign export" `T.isPrefixOf` txt
+fromMaybeText :: Text -> Maybe Text -> Text
+fromMaybeText = fromMaybe
 
 bundleToError :: Text -> MP.ParseErrorBundle Text Void -> ParseError
 bundleToError input bundle =
@@ -793,10 +1833,30 @@ tokenAt input off
   | otherwise = Just (T.singleton (T.index input off))
 
 reservedWords :: [Text]
-reservedWords = ["module", "where", "data", "foreign", "import", "export"]
+reservedWords =
+  [ "module",
+    "where",
+    "data",
+    "class",
+    "instance",
+    "type",
+    "newtype",
+    "default",
+    "foreign",
+    "import",
+    "export",
+    "if",
+    "then",
+    "else",
+    "let",
+    "in",
+    "case",
+    "of",
+    "do"
+  ]
 
 reservedWord :: MParser ()
 reservedWord =
-  choice (map oneReservedWord reservedWords)
+  foldr1 (<|>) (map oneReservedWord reservedWords)
   where
     oneReservedWord kw = try (C.string kw *> notFollowedBy identTailOrStartChar)

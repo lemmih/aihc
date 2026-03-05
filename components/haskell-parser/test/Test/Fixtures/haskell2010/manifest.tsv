@@ -40,29 +40,29 @@ modules-s5-module-empty-exports	modules	modules/s5-module-empty-exports.hs	xfail
 modules-s5-module-explicit-no-exports	modules	modules/s5-module-explicit-no-exports.hs	pass	
 modules-s5-module-exports-trailing-comma	modules	modules/s5-module-exports-trailing-comma.hs	xfail	section 5 module variation unsupported
 
-ffi-s8-export-ccall-named	ffi	ffi/s8-export-ccall-named.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-export-ccall-omitted-entity	ffi	ffi/s8-export-ccall-omitted-entity.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-export-stdcall-named	ffi	ffi/s8-export-stdcall-named.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-address-header-cid	ffi	ffi/s8-import-address-header-cid.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-address-only	ffi	ffi/s8-import-address-only.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-ccall-basic	ffi	ffi/s8-import-ccall-basic.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-ccall-safe	ffi	ffi/s8-import-ccall-safe.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-ccall-unsafe	ffi	ffi/s8-import-ccall-unsafe.hs	xfail	roundtrip mismatch against oracle AST
+ffi-s8-export-ccall-named	ffi	ffi/s8-export-ccall-named.hs	pass	
+ffi-s8-export-ccall-omitted-entity	ffi	ffi/s8-export-ccall-omitted-entity.hs	pass	
+ffi-s8-export-stdcall-named	ffi	ffi/s8-export-stdcall-named.hs	pass	
+ffi-s8-import-address-header-cid	ffi	ffi/s8-import-address-header-cid.hs	pass	
+ffi-s8-import-address-only	ffi	ffi/s8-import-address-only.hs	pass	
+ffi-s8-import-ccall-basic	ffi	ffi/s8-import-ccall-basic.hs	pass	
+ffi-s8-import-ccall-safe	ffi	ffi/s8-import-ccall-safe.hs	pass	
+ffi-s8-import-ccall-unsafe	ffi	ffi/s8-import-ccall-unsafe.hs	pass	
 ffi-s8-import-dynamic	ffi	ffi/s8-import-dynamic.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-ftype-arrow	ffi	ffi/s8-import-ftype-arrow.hs	xfail	roundtrip mismatch against oracle AST
+ffi-s8-import-ftype-arrow	ffi	ffi/s8-import-ftype-arrow.hs	pass	
 ffi-s8-import-ftype-frtype-only	ffi	ffi/s8-import-ftype-frtype-only.hs	pass	
-ffi-s8-import-ftype-multi-arg	ffi	ffi/s8-import-ftype-multi-arg.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-ftype-result-unit	ffi	ffi/s8-import-ftype-result-unit.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-impent-omitted	ffi	ffi/s8-import-impent-omitted.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-static-dynamic-name	ffi	ffi/s8-import-static-dynamic-name.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-static-header-cid	ffi	ffi/s8-import-static-header-cid.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-static-header-default-cid	ffi	ffi/s8-import-static-header-default-cid.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-static-wrapper-name	ffi	ffi/s8-import-static-wrapper-name.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-stdcall-basic	ffi	ffi/s8-import-stdcall-basic.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-wrapper	ffi	ffi/s8-import-wrapper.hs	xfail	roundtrip mismatch against oracle AST
+ffi-s8-import-ftype-multi-arg	ffi	ffi/s8-import-ftype-multi-arg.hs	pass	
+ffi-s8-import-ftype-result-unit	ffi	ffi/s8-import-ftype-result-unit.hs	pass	
+ffi-s8-import-impent-omitted	ffi	ffi/s8-import-impent-omitted.hs	pass	
+ffi-s8-import-static-dynamic-name	ffi	ffi/s8-import-static-dynamic-name.hs	pass	
+ffi-s8-import-static-header-cid	ffi	ffi/s8-import-static-header-cid.hs	pass	
+ffi-s8-import-static-header-default-cid	ffi	ffi/s8-import-static-header-default-cid.hs	pass	
+ffi-s8-import-static-wrapper-name	ffi	ffi/s8-import-static-wrapper-name.hs	pass	
+ffi-s8-import-stdcall-basic	ffi	ffi/s8-import-stdcall-basic.hs	pass	
+ffi-s8-import-wrapper	ffi	ffi/s8-import-wrapper.hs	pass	
 ffi-s8-lexical-identifiers	ffi	ffi/s8-lexical-identifiers.hs	pass	
-ffi-s8-mixed-import-export	ffi	ffi/s8-mixed-import-export.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-multiple-foreign-decls	ffi	ffi/s8-multiple-foreign-decls.hs	xfail	roundtrip mismatch against oracle AST
+ffi-s8-mixed-import-export	ffi	ffi/s8-mixed-import-export.hs	pass	
+ffi-s8-multiple-foreign-decls	ffi	ffi/s8-multiple-foreign-decls.hs	pass	
 
 decls-type-signature	declarations	declarations/type-signature.hs	pass	
 decls-multiple-equations	declarations	declarations/multiple-equations.hs	pass	
@@ -101,19 +101,19 @@ decls-default	declarations	declarations/default.hs	pass	default declarations uns
 decls-deriving	declarations	declarations/deriving.hs	pass	
 
 expr-if-then-else	expressions	expressions/if-then-else.hs	pass	
-expr-case-of	expressions	expressions/case-of.hs	xfail	roundtrip mismatch against oracle AST
+expr-case-of	expressions	expressions/case-of.hs	pass	
 expr-let-in	expressions	expressions/let-in.hs	pass	
 expr-lambda	expressions	expressions/lambda.hs	pass	
 expr-list-tuple	expressions	expressions/list-tuple.hs	pass	list and tuple expressions unsupported
 expr-sections	expressions	expressions/sections.hs	pass	
-expr-do-notation	expressions	expressions/do-notation.hs	xfail	do notation unsupported
+expr-do-notation	expressions	expressions/do-notation.hs	pass	
 expr-where-clause	expressions	expressions/where-clause.hs	pass	
 expr-list-comprehension	expressions	expressions/list-comprehension.hs	pass	
 expr-arithmetic-seq	expressions	expressions/arithmetic-seq.hs	pass	
 
 expr-s3-errors-error	expressions	expressions/errors-error.hs	pass	section 3 expression variation unsupported
 expr-s3-errors-undefined	expressions	expressions/errors-undefined.hs	pass	
-expr-s3-atoms-qvar	expressions	expressions/atoms-qvar.hs	xfail	section 3 expression variation unsupported
+expr-s3-atoms-qvar	expressions	expressions/atoms-qvar.hs	pass	
 expr-s3-atoms-gcon-unit	expressions	expressions/atoms-gcon-unit.hs	pass	
 expr-s3-atoms-gcon-listcon	expressions	expressions/atoms-gcon-listcon.hs	pass	
 expr-s3-atoms-gcon-tuplecon	expressions	expressions/atoms-gcon-tuplecon.hs	pass	
@@ -174,7 +174,7 @@ expr-s3-expr-type-signature-context	expressions	expressions/expr-type-signature-
 expr-s3-pattern-infix-constructor	expressions	expressions/pattern-infix-constructor.hs	pass	
 expr-s3-pattern-negative-literal	expressions	expressions/pattern-negative-literal.hs	xfail	roundtrip mismatch against oracle AST
 expr-s3-pattern-constructor-application	expressions	expressions/pattern-constructor-application.hs	pass	
-expr-s3-pattern-as-pattern	expressions	expressions/pattern-as-pattern.hs	xfail	roundtrip mismatch against oracle AST
+expr-s3-pattern-as-pattern	expressions	expressions/pattern-as-pattern.hs	pass	
 expr-s3-pattern-nullary-constructor	expressions	expressions/pattern-nullary-constructor.hs	pass	
 expr-s3-pattern-labeled	expressions	expressions/pattern-labeled.hs	pass	
 expr-s3-pattern-literal	expressions	expressions/pattern-literal.hs	pass	
@@ -186,8 +186,8 @@ expr-s3-pattern-irrefutable	expressions	expressions/pattern-irrefutable.hs	xfail
 
 pat-constructor	patterns	patterns/constructor.hs	pass	
 pat-tuple-list	patterns	patterns/tuple-list.hs	pass	
-pat-as-pattern	patterns	patterns/as-pattern.hs	xfail	roundtrip mismatch against oracle AST
-pat-irrefutable	patterns	patterns/irrefutable.hs	xfail	roundtrip mismatch against oracle AST
+pat-as-pattern	patterns	patterns/as-pattern.hs	pass	
+pat-irrefutable	patterns	patterns/irrefutable.hs	pass	
 pat-guards	patterns	patterns/guards.hs	pass	
 pat-infix-constructor	patterns	patterns/infix-constructor.hs	pass	
 pat-negative-literal	patterns	patterns/negative-literal.hs	xfail	roundtrip mismatch against oracle AST
@@ -207,14 +207,14 @@ types-inline-signature-lambda	types	types/inline-signature-lambda.hs	pass
 types-let-signature	types	types/let-signature.hs	xfail	local let type signatures unsupported
 types-guard-inline-signature	types	types/guard-inline-signature.hs	pass	
 types-list-type-constructor	types	types/list-type-constructor.hs	pass	
-types-maybe-type-constructor	types	types/maybe-type-constructor.hs	xfail	roundtrip mismatch against oracle AST
+types-maybe-type-constructor	types	types/maybe-type-constructor.hs	pass	
 types-function-type-constructor	types	types/function-type-constructor.hs	pass	
 types-function-type-constructor-partial	types	types/function-type-constructor-partial.hs	pass	
 types-tuple-type-constructor	types	types/tuple-type-constructor.hs	pass	
-types-nested-maybe-list	types	types/nested-maybe-list.hs	xfail	roundtrip mismatch against oracle AST
+types-nested-maybe-list	types	types/nested-maybe-list.hs	pass	
 
-layout-let	layout	layout/let-layout.hs	xfail	layout-sensitive let unsupported
-layout-where	layout	layout/where-layout.hs	xfail	roundtrip mismatch against oracle AST
+layout-let	layout	layout/let-layout.hs	pass	
+layout-where	layout	layout/where-layout.hs	pass	
 
 lexical-block-comments	lexical	lexical/block-comments.hs	xfail	block comments unsupported
 lexical-strings-chars	lexical	lexical/strings-chars.hs	pass	string and char literals unsupported

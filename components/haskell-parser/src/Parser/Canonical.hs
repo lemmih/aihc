@@ -145,79 +145,100 @@ normalizeModule :: Module -> CanonicalModule
 normalizeModule m =
   CanonicalModule
     { canonicalModuleName = moduleName m,
-      canonicalDecls = fmap normalizeDecl (moduleDecls m)
+      canonicalDecls = concatMap normalizeDecls (moduleDecls m)
     }
 
 normalizeDecl :: Decl -> CanonicalDecl
-normalizeDecl d =
+normalizeDecl decl =
+  case normalizeDecls decl of
+    (firstDecl : _) -> firstDecl
+    [] -> CanonicalPatternDecl ""
+
+normalizeDecls :: Decl -> [CanonicalDecl]
+normalizeDecls d =
   case d of
-    Decl {declName = name, declExpr = expr} ->
-      CanonicalValueDecl
-        { canonicalDeclName = name,
-          canonicalDeclExpr = normalizeExpr expr
-        }
-    PatternDecl {patternLhs = lhs} ->
-      CanonicalPatternDecl
-        { canonicalPatternLhs = lhs
-        }
-    TypeSigDecl {typeSigName = name} ->
-      CanonicalTypeSigDecl
-        { canonicalTypeSigName = name
-        }
-    FunctionDecl {functionName = name} ->
-      CanonicalFunctionDecl
-        { canonicalFunctionName = name
-        }
-    TypeDecl {typeName = name} ->
-      CanonicalTypeDecl
-        { canonicalTypeDeclName = name
-        }
-    DataDecl {dataTypeName = typeName, dataConstructors = ctors} ->
-      CanonicalDataDecl
-        { canonicalTypeName = typeName,
-          canonicalConstructors = ctors
-        }
-    NewtypeDecl {newtypeName = name, newtypeConstructor = ctor} ->
-      CanonicalNewtypeDecl
-        { canonicalNewtypeName = name,
-          canonicalNewtypeConstructor = ctor
-        }
-    ClassDecl {className = name} ->
-      CanonicalClassDecl
-        { canonicalClassName = name
-        }
-    InstanceDecl {instanceClassName = name} ->
-      CanonicalInstanceDecl
-        { canonicalInstanceClassName = name
-        }
-    FixityDecl {fixityAssoc = assoc, fixityPrecedence = prec, fixityOperator = op} ->
-      CanonicalFixityDecl
-        { canonicalFixityAssoc = assoc,
-          canonicalFixityPrecedence = prec,
-          canonicalFixityOperator = op
-        }
-    DefaultDecl {defaultTypes = tys} ->
-      CanonicalDefaultDecl
-        { canonicalDefaultTypes = tys
-        }
-    ForeignDecl
-      { foreignDirection = direction,
-        foreignCallConv = callConv,
-        foreignSafety = safety,
-        foreignEntity = entity,
-        foreignName = name
-      } ->
-        CanonicalForeignDecl
-          { canonicalForeignDirection = normalizeDirection direction,
-            canonicalForeignCallConv = normalizeCallConv callConv,
-            canonicalForeignSafety = fmap normalizeSafety safety,
-            canonicalForeignEntity = fmap classifyForeignEntity entity,
-            canonicalForeignName = name
+    DeclValue valueDecl ->
+      case valueDecl of
+        FunctionBind name matches ->
+          case matches of
+            [Match {matchPats = [], matchRhs = UnguardedRhs expr}] ->
+              [ CanonicalValueDecl
+                  { canonicalDeclName = name,
+                    canonicalDeclExpr = normalizeExpr expr
+                  }
+              ]
+            _ ->
+              [ CanonicalFunctionDecl
+                  { canonicalFunctionName = name
+                  }
+              ]
+        PatternBind pat _ ->
+          [ CanonicalPatternDecl
+              { canonicalPatternLhs = renderPattern pat
+              }
+          ]
+    DeclTypeSig names _ ->
+      [ CanonicalTypeSigDecl
+          { canonicalTypeSigName = name
           }
-    StructuredDecl {structuredTokens = toks} ->
-      CanonicalPatternDecl
-        { canonicalPatternLhs = renderDeclTokens toks
-        }
+      | name <- names
+      ]
+    DeclFixity assoc prec ops ->
+      [ CanonicalFixityDecl
+          { canonicalFixityAssoc = fixityAssocText assoc,
+            canonicalFixityPrecedence = prec,
+            canonicalFixityOperator = op
+          }
+      | op <- ops
+      ]
+    DeclTypeSyn synDecl ->
+      [ CanonicalTypeDecl
+          { canonicalTypeDeclName = typeSynName synDecl
+          }
+      ]
+    DeclData dataDecl ->
+      [ CanonicalDataDecl
+          { canonicalTypeName = dataDeclName dataDecl,
+            canonicalConstructors = map constructorName (dataDeclConstructors dataDecl)
+          }
+      ]
+    DeclNewtype newtypeDecl ->
+      [ CanonicalNewtypeDecl
+          { canonicalNewtypeName = newtypeDeclName newtypeDecl,
+            canonicalNewtypeConstructor = constructorName <$> newtypeDeclConstructor newtypeDecl
+          }
+      ]
+    DeclClass classDecl ->
+      [ CanonicalClassDecl
+          { canonicalClassName = classDeclName classDecl
+          }
+      ]
+    DeclInstance instanceDecl ->
+      [ CanonicalInstanceDecl
+          { canonicalInstanceClassName = instanceDeclClassName instanceDecl
+          }
+      ]
+    DeclDefault tys ->
+      [ CanonicalDefaultDecl
+          { canonicalDefaultTypes = map renderTypeToken tys
+          }
+      ]
+    DeclForeign foreignDecl ->
+      [ CanonicalForeignDecl
+          { canonicalForeignDirection = normalizeDirection (foreignDirection foreignDecl),
+            canonicalForeignCallConv = normalizeCallConv (foreignCallConv foreignDecl),
+            canonicalForeignSafety = fmap normalizeSafety (foreignSafety foreignDecl),
+            canonicalForeignEntity = classifyForeignEntity (foreignEntity foreignDecl),
+            canonicalForeignName = foreignName foreignDecl
+          }
+      ]
+
+constructorName :: DataConDecl -> Text
+constructorName conDecl =
+  case conDecl of
+    PrefixCon name _ -> name
+    InfixCon _ op _ -> op
+    RecordCon name _ -> name
 
 normalizeExpr :: Expr -> CanonicalExpr
 normalizeExpr expr =
@@ -245,7 +266,10 @@ normalizeExpr expr =
       CRecordCon name [(fieldName, normalizeExpr fieldExpr) | (fieldName, fieldExpr) <- fields]
     ERecordUpd base fields ->
       CRecordUpd (normalizeExpr base) [(fieldName, normalizeExpr fieldExpr) | (fieldName, fieldExpr) <- fields]
-    ETypeSig inner sigText -> CTypeSig (normalizeExpr inner) sigText
+    ETypeSig inner sigType -> CTypeSig (normalizeExpr inner) (renderTypeToken sigType)
+    EParen inner -> normalizeExpr inner
+    EWhere body binds ->
+      CLet [(name, normalizeExpr value) | (name, value) <- binds] (normalizeExpr body)
     EList values -> CList (fmap normalizeExpr values)
     ETuple values -> CTuple (fmap normalizeExpr values)
     ETupleCon arity -> CTupleCon arity
@@ -253,22 +277,30 @@ normalizeExpr expr =
 
 normalizeCaseAlt :: CaseAlt -> CanonicalCaseAlt
 normalizeCaseAlt alt =
-  CanonicalCaseAlt
-    { canonicalCaseAltPattern = caseAltPattern alt,
-      canonicalCaseAltExpr = normalizeExpr (caseAltExpr alt)
-    }
+  case caseAltRhs alt of
+    UnguardedRhs expr ->
+      CanonicalCaseAlt
+        { canonicalCaseAltPattern = renderPattern (caseAltPattern alt),
+          canonicalCaseAltExpr = normalizeExpr expr
+        }
+    GuardedRhss grhss ->
+      let fallbackExpr =
+            case grhss of
+              [] -> CInt 0
+              (firstGuard : _) -> normalizeExpr (guardedRhsBody firstGuard)
+       in CanonicalCaseAlt {canonicalCaseAltPattern = renderPattern (caseAltPattern alt), canonicalCaseAltExpr = fallbackExpr}
 
 normalizeDoStmt :: DoStmt -> CanonicalDoStmt
 normalizeDoStmt stmt =
   case stmt of
-    DoBind pat expr -> CDoBind pat (normalizeExpr expr)
+    DoBind pat expr -> CDoBind (renderPattern pat) (normalizeExpr expr)
     DoLet binds -> CDoLet [(name, normalizeExpr value) | (name, value) <- binds]
     DoExpr expr -> CDoExpr (normalizeExpr expr)
 
 normalizeCompStmt :: CompStmt -> CanonicalCompStmt
 normalizeCompStmt stmt =
   case stmt of
-    CompGen pat expr -> CCompGen pat (normalizeExpr expr)
+    CompGen pat expr -> CCompGen (renderPattern pat) (normalizeExpr expr)
     CompGuard expr -> CCompGuard (normalizeExpr expr)
     CompLet binds -> CCompLet [(name, normalizeExpr value) | (name, value) <- binds]
 
@@ -299,41 +331,88 @@ normalizeSafety safety =
     Safe -> CanonicalSafe
     Unsafe -> CanonicalUnsafe
 
-classifyForeignEntity :: Text -> Text
-classifyForeignEntity entity
-  | entity == "dynamic" = "dynamic"
-  | entity == "wrapper" = "wrapper"
-  | "static " `T.isPrefixOf` entity = "static"
-  | "&" `T.isPrefixOf` entity = "address"
-  | otherwise = "named"
+classifyForeignEntity :: ForeignEntitySpec -> Maybe Text
+classifyForeignEntity entity =
+  case entity of
+    ForeignEntityOmitted -> Nothing
+    ForeignEntityDynamic -> Just "dynamic"
+    ForeignEntityWrapper -> Just "wrapper"
+    ForeignEntityStatic _ -> Just "static"
+    ForeignEntityAddress _ -> Just "address"
+    ForeignEntityNamed _ -> Just "named"
 
-renderDeclTokens :: [DeclToken] -> Text
-renderDeclTokens =
-  snd . foldl step (Nothing, T.empty)
-  where
-    step (prevTok, acc) tok =
-      let spaced =
-            case prevTok of
-              Nothing -> acc
-              Just prev ->
-                if needsSpace prev tok
-                  then acc <> " "
-                  else acc
-       in (Just tok, spaced <> tokenText tok)
+fixityAssocText :: FixityAssoc -> Text
+fixityAssocText assoc =
+  case assoc of
+    Infix -> "infix"
+    InfixL -> "infixl"
+    InfixR -> "infixr"
 
-    tokenText tok =
-      case tok of
-        TokWord txt -> txt
-        TokSymbol txt -> txt
-        TokString txt -> txt
-        TokChar txt -> txt
-        TokPunct c -> T.singleton c
+renderTypeToken :: Type -> Text
+renderTypeToken ty =
+  case ty of
+    TVar n -> n
+    TCon n -> n
+    TApp f x -> renderTypeToken f <> " " <> renderTypeTokenAtom x
+    TFun a b -> renderTypeTokenAtom a <> " -> " <> renderTypeToken b
+    TTuple elems -> "(" <> T.intercalate ", " (map renderTypeToken elems) <> ")"
+    TList inner -> "[" <> renderTypeToken inner <> "]"
+    TParen inner -> "(" <> renderTypeToken inner <> ")"
+    TContext constraints inner -> renderConstraints constraints <> " => " <> renderTypeToken inner
 
-    needsSpace prev curr =
-      case (prev, curr) of
-        (TokPunct p, _) | p `elem` ("([{" :: String) -> False
-        (_, TokPunct c) | c `elem` (")]},;" :: String) -> False
-        (TokPunct ',', _) -> True
-        (TokPunct ';', _) -> True
-        (TokSymbol "!", TokWord _) -> False
-        _ -> True
+renderTypeTokenAtom :: Type -> Text
+renderTypeTokenAtom ty =
+  case ty of
+    TVar _ -> renderTypeToken ty
+    TCon _ -> renderTypeToken ty
+    TList _ -> renderTypeToken ty
+    TTuple _ -> renderTypeToken ty
+    _ -> "(" <> renderTypeToken ty <> ")"
+
+renderConstraints :: [Constraint] -> Text
+renderConstraints constraints =
+  case constraints of
+    [single] -> renderConstraint single
+    _ -> "(" <> T.intercalate ", " (map renderConstraint constraints) <> ")"
+
+renderConstraint :: Constraint -> Text
+renderConstraint constraint =
+  T.unwords (constraintClass constraint : map renderTypeTokenAtom (constraintArgs constraint))
+
+renderPattern :: Pattern -> Text
+renderPattern pat =
+  case pat of
+    PVar name -> name
+    PWildcard -> "_"
+    PLit lit -> renderLiteral lit
+    PTuple elems -> "(" <> T.intercalate ", " (map renderPattern elems) <> ")"
+    PList elems -> "[" <> T.intercalate ", " (map renderPattern elems) <> "]"
+    PCon con args -> T.unwords (con : map renderPatternAtom args)
+    PInfix lhs op rhs -> renderPatternAtom lhs <> " " <> op <> " " <> renderPatternAtom rhs
+    PAs name inner -> name <> "@" <> renderPatternAtom inner
+    PIrrefutable inner -> "~" <> renderPatternAtom inner
+    PParen inner -> "(" <> renderPattern inner <> ")"
+    PRecord con fields ->
+      con
+        <> " { "
+        <> T.intercalate ", " [n <> " = " <> renderPattern p | (n, p) <- fields]
+        <> " }"
+
+renderPatternAtom :: Pattern -> Text
+renderPatternAtom pat =
+  case pat of
+    PVar _ -> renderPattern pat
+    PWildcard -> renderPattern pat
+    PLit _ -> renderPattern pat
+    PTuple _ -> renderPattern pat
+    PList _ -> renderPattern pat
+    PParen _ -> renderPattern pat
+    _ -> "(" <> renderPattern pat <> ")"
+
+renderLiteral :: Literal -> Text
+renderLiteral lit =
+  case lit of
+    LitInt n -> T.pack (show n)
+    LitFloat n -> T.pack (show n)
+    LitChar c -> T.pack (show c)
+    LitString s -> T.pack (show (T.unpack s))

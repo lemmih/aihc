@@ -1,20 +1,48 @@
 module Parser.Ast
   ( ArithSeq (..),
+    BangType (..),
+    BinderName,
     CallConv (..),
     CaseAlt (..),
+    ClassDecl (..),
+    ClassDeclItem (..),
     CompStmt (..),
-    DeclToken (..),
+    Constraint (..),
+    DataConDecl (..),
+    DataDecl (..),
     Decl (..),
+    DerivingClause (..),
     DoStmt (..),
     Expr (..),
+    FieldDecl (..),
+    FixityAssoc (..),
+    ForeignDecl (..),
     ForeignDirection (..),
+    ForeignEntitySpec (..),
     ForeignSafety (..),
+    GuardedRhs (..),
+    InstanceDecl (..),
+    InstanceDeclItem (..),
+    Literal (..),
+    Match (..),
     Module (..),
-    StructuredDeclKind (..),
+    NewtypeDecl (..),
+    OperatorName,
+    Pattern (..),
+    Rhs (..),
+    Type (..),
+    TypeSynDecl (..),
+    ValueDecl (..),
+    declValueBinderNames,
+    valueDeclBinderName,
   )
 where
 
 import Data.Text (Text)
+
+type BinderName = Text
+
+type OperatorName = Text
 
 data Module = Module
   { moduleName :: Maybe Text,
@@ -23,76 +51,178 @@ data Module = Module
   deriving (Eq, Show)
 
 data Decl
-  = Decl
-      { declName :: Text,
-        declExpr :: Expr
-      }
-  | PatternDecl
-      { patternLhs :: Text
-      }
-  | TypeSigDecl
-      { typeSigName :: Text
-      }
-  | FunctionDecl
-      { functionName :: Text
-      }
-  | TypeDecl
-      { typeName :: Text
-      }
-  | DataDecl
-      { dataTypeName :: Text,
-        dataConstructors :: [Text]
-      }
-  | NewtypeDecl
-      { newtypeName :: Text,
-        newtypeConstructor :: Maybe Text
-      }
-  | ClassDecl
-      { className :: Text
-      }
-  | InstanceDecl
-      { instanceClassName :: Text
-      }
-  | FixityDecl
-      { fixityAssoc :: Text,
-        fixityPrecedence :: Maybe Int,
-        fixityOperator :: Text
-      }
-  | DefaultDecl
-      { defaultTypes :: [Text]
-      }
-  | ForeignDecl
-      { foreignDirection :: ForeignDirection,
-        foreignCallConv :: CallConv,
-        foreignSafety :: Maybe ForeignSafety,
-        foreignEntity :: Maybe Text,
-        foreignName :: Text
-      }
-  | StructuredDecl
-      { structuredKind :: StructuredDeclKind,
-        structuredTokens :: [DeclToken]
-      }
+  = DeclValue ValueDecl
+  | DeclTypeSig [BinderName] Type
+  | DeclFixity FixityAssoc (Maybe Int) [OperatorName]
+  | DeclTypeSyn TypeSynDecl
+  | DeclData DataDecl
+  | DeclNewtype NewtypeDecl
+  | DeclClass ClassDecl
+  | DeclInstance InstanceDecl
+  | DeclDefault [Type]
+  | DeclForeign ForeignDecl
   deriving (Eq, Show)
 
-data StructuredDeclKind
-  = StructuredTypeSig
-  | StructuredEquation
-  | StructuredPatternBind
-  | StructuredTypeDecl
-  | StructuredDataDecl
-  | StructuredNewtypeDecl
-  | StructuredClassDecl
-  | StructuredInstanceDecl
-  | StructuredFixityDecl
-  | StructuredDefaultDecl
+data ValueDecl
+  = FunctionBind BinderName [Match]
+  | PatternBind Pattern Rhs
   deriving (Eq, Show)
 
-data DeclToken
-  = TokWord Text
-  | TokSymbol Text
-  | TokString Text
-  | TokChar Text
-  | TokPunct Char
+data Match = Match
+  { matchPats :: [Pattern],
+    matchRhs :: Rhs
+  }
+  deriving (Eq, Show)
+
+data Rhs
+  = UnguardedRhs Expr
+  | GuardedRhss [GuardedRhs]
+  deriving (Eq, Show)
+
+data GuardedRhs = GuardedRhs
+  { guardedRhsGuards :: [Expr],
+    guardedRhsBody :: Expr
+  }
+  deriving (Eq, Show)
+
+data Literal
+  = LitInt Integer
+  | LitFloat Double
+  | LitChar Char
+  | LitString Text
+  deriving (Eq, Show)
+
+data Pattern
+  = PVar Text
+  | PWildcard
+  | PLit Literal
+  | PTuple [Pattern]
+  | PList [Pattern]
+  | PCon Text [Pattern]
+  | PInfix Pattern Text Pattern
+  | PAs Text Pattern
+  | PIrrefutable Pattern
+  | PParen Pattern
+  | PRecord Text [(Text, Pattern)]
+  deriving (Eq, Show)
+
+data Type
+  = TVar Text
+  | TCon Text
+  | TApp Type Type
+  | TFun Type Type
+  | TTuple [Type]
+  | TList Type
+  | TParen Type
+  | TContext [Constraint] Type
+  deriving (Eq, Show)
+
+data Constraint = Constraint
+  { constraintClass :: Text,
+    constraintArgs :: [Type],
+    constraintParen :: Bool
+  }
+  deriving (Eq, Show)
+
+data TypeSynDecl = TypeSynDecl
+  { typeSynName :: Text,
+    typeSynParams :: [Text],
+    typeSynBody :: Type
+  }
+  deriving (Eq, Show)
+
+data DataDecl = DataDecl
+  { dataDeclContext :: [Constraint],
+    dataDeclName :: Text,
+    dataDeclParams :: [Text],
+    dataDeclConstructors :: [DataConDecl],
+    dataDeclDeriving :: Maybe DerivingClause
+  }
+  deriving (Eq, Show)
+
+data NewtypeDecl = NewtypeDecl
+  { newtypeDeclContext :: [Constraint],
+    newtypeDeclName :: Text,
+    newtypeDeclParams :: [Text],
+    newtypeDeclConstructor :: Maybe DataConDecl,
+    newtypeDeclDeriving :: Maybe DerivingClause
+  }
+  deriving (Eq, Show)
+
+data DataConDecl
+  = PrefixCon Text [BangType]
+  | InfixCon BangType Text BangType
+  | RecordCon Text [FieldDecl]
+  deriving (Eq, Show)
+
+data BangType = BangType
+  { bangStrict :: Bool,
+    bangType :: Type
+  }
+  deriving (Eq, Show)
+
+data FieldDecl = FieldDecl
+  { fieldNames :: [Text],
+    fieldType :: BangType
+  }
+  deriving (Eq, Show)
+
+newtype DerivingClause = DerivingClause
+  { derivingClasses :: [Text]
+  }
+  deriving (Eq, Show)
+
+data ClassDecl = ClassDecl
+  { classDeclContext :: [Constraint],
+    classDeclName :: Text,
+    classDeclParam :: Text,
+    classDeclItems :: [ClassDeclItem]
+  }
+  deriving (Eq, Show)
+
+data ClassDeclItem
+  = ClassItemTypeSig [BinderName] Type
+  | ClassItemFixity FixityAssoc (Maybe Int) [OperatorName]
+  | ClassItemDefault ValueDecl
+  deriving (Eq, Show)
+
+data InstanceDecl = InstanceDecl
+  { instanceDeclContext :: [Constraint],
+    instanceDeclClassName :: Text,
+    instanceDeclTypes :: [Type],
+    instanceDeclItems :: [InstanceDeclItem]
+  }
+  deriving (Eq, Show)
+
+data InstanceDeclItem
+  = InstanceItemBind ValueDecl
+  | InstanceItemTypeSig [BinderName] Type
+  | InstanceItemFixity FixityAssoc (Maybe Int) [OperatorName]
+  deriving (Eq, Show)
+
+data FixityAssoc
+  = Infix
+  | InfixL
+  | InfixR
+  deriving (Eq, Show)
+
+data ForeignDecl = ForeignDecl
+  { foreignDirection :: ForeignDirection,
+    foreignCallConv :: CallConv,
+    foreignSafety :: Maybe ForeignSafety,
+    foreignEntity :: ForeignEntitySpec,
+    foreignName :: Text,
+    foreignType :: Type
+  }
+  deriving (Eq, Show)
+
+data ForeignEntitySpec
+  = ForeignEntityDynamic
+  | ForeignEntityWrapper
+  | ForeignEntityStatic (Maybe Text)
+  | ForeignEntityAddress (Maybe Text)
+  | ForeignEntityNamed Text
+  | ForeignEntityOmitted
   deriving (Eq, Show)
 
 data ForeignDirection
@@ -129,7 +259,9 @@ data Expr
   | EArithSeq ArithSeq
   | ERecordCon Text [(Text, Expr)]
   | ERecordUpd Expr [(Text, Expr)]
-  | ETypeSig Expr Text
+  | ETypeSig Expr Type
+  | EParen Expr
+  | EWhere Expr [(Text, Expr)]
   | EList [Expr]
   | ETuple [Expr]
   | ETupleCon Int
@@ -137,19 +269,19 @@ data Expr
   deriving (Eq, Show)
 
 data CaseAlt = CaseAlt
-  { caseAltPattern :: Text,
-    caseAltExpr :: Expr
+  { caseAltPattern :: Pattern,
+    caseAltRhs :: Rhs
   }
   deriving (Eq, Show)
 
 data DoStmt
-  = DoBind Text Expr
+  = DoBind Pattern Expr
   | DoLet [(Text, Expr)]
   | DoExpr Expr
   deriving (Eq, Show)
 
 data CompStmt
-  = CompGen Text Expr
+  = CompGen Pattern Expr
   | CompGuard Expr
   | CompLet [(Text, Expr)]
   deriving (Eq, Show)
@@ -160,3 +292,21 @@ data ArithSeq
   | ArithSeqFromTo Expr Expr
   | ArithSeqFromThenTo Expr Expr Expr
   deriving (Eq, Show)
+
+valueDeclBinderName :: ValueDecl -> Maybe Text
+valueDeclBinderName vdecl =
+  case vdecl of
+    FunctionBind name _ -> Just name
+    PatternBind pat _ ->
+      case pat of
+        PVar name -> Just name
+        _ -> Nothing
+
+declValueBinderNames :: Decl -> [Text]
+declValueBinderNames decl =
+  case decl of
+    DeclValue vdecl ->
+      case valueDeclBinderName vdecl of
+        Just name -> [name]
+        Nothing -> []
+    _ -> []
