@@ -1,0 +1,50 @@
+modules-minimal	modules	modules/minimal.hs	pass	
+modules-implicit	modules	modules/implicit.hs	pass	
+modules-application	modules	modules/application.hs	pass	
+modules-comments	modules	modules/comments.hs	pass	
+modules-exports	modules	modules/exports.hs	xfail	export lists unsupported
+modules-import-qualified	modules	modules/import-qualified.hs	xfail	imports unsupported
+modules-import-hiding	modules	modules/import-hiding.hs	xfail	imports unsupported
+modules-multi-imports	modules	modules/multi-imports.hs	xfail	imports unsupported
+modules-import-as	modules	modules/import-as.hs	xfail	imports unsupported
+
+decls-type-signature	declarations	declarations/type-signature.hs	xfail	type signatures unsupported
+decls-multiple-equations	declarations	declarations/multiple-equations.hs	xfail	multiple equations unsupported
+decls-pattern-binding	declarations	declarations/pattern-binding.hs	xfail	pattern bindings unsupported
+decls-data	declarations	declarations/data.hs	xfail	data declarations unsupported
+decls-newtype	declarations	declarations/newtype.hs	xfail	newtype declarations unsupported
+decls-type-synonym	declarations	declarations/type-synonym.hs	xfail	type synonym declarations unsupported
+decls-class	declarations	declarations/class.hs	xfail	class declarations unsupported
+decls-instance	declarations	declarations/instance.hs	xfail	instance declarations unsupported
+decls-fixity	declarations	declarations/fixity.hs	xfail	fixity declarations unsupported
+decls-default	declarations	declarations/default.hs	xfail	default declarations unsupported
+decls-deriving	declarations	declarations/deriving.hs	xfail	deriving declarations unsupported
+
+expr-if-then-else	expressions	expressions/if-then-else.hs	xfail	if expressions unsupported
+expr-case-of	expressions	expressions/case-of.hs	xfail	case expressions unsupported
+expr-let-in	expressions	expressions/let-in.hs	xfail	let expressions unsupported
+expr-lambda	expressions	expressions/lambda.hs	xfail	lambda expressions unsupported
+expr-list-tuple	expressions	expressions/list-tuple.hs	xfail	list and tuple expressions unsupported
+expr-sections	expressions	expressions/sections.hs	xfail	sections unsupported
+expr-do-notation	expressions	expressions/do-notation.hs	xfail	do notation unsupported
+expr-where-clause	expressions	expressions/where-clause.hs	xfail	where clauses unsupported
+expr-list-comprehension	expressions	expressions/list-comprehension.hs	xfail	list comprehensions unsupported
+expr-arithmetic-seq	expressions	expressions/arithmetic-seq.hs	xfail	arithmetic sequences unsupported
+
+pat-constructor	patterns	patterns/constructor.hs	xfail	constructor patterns unsupported
+pat-tuple-list	patterns	patterns/tuple-list.hs	xfail	tuple and list patterns unsupported
+pat-as-pattern	patterns	patterns/as-pattern.hs	xfail	as-patterns unsupported
+pat-irrefutable	patterns	patterns/irrefutable.hs	xfail	irrefutable patterns unsupported
+pat-guards	patterns	patterns/guards.hs	xfail	guards unsupported
+
+types-context	types	types/context.hs	xfail	type contexts unsupported
+types-tuple-list	types	types/tuple-list-types.hs	xfail	complex type signatures unsupported
+types-newtype-record	types	types/newtype-record.hs	xfail	record syntax unsupported
+
+layout-let	layout	layout/let-layout.hs	xfail	layout-sensitive let unsupported
+layout-where	layout	layout/where-layout.hs	xfail	layout-sensitive where unsupported
+
+lexical-block-comments	lexical	lexical/block-comments.hs	xfail	block comments unsupported
+lexical-strings-chars	lexical	lexical/strings-chars.hs	xfail	string and char literals unsupported
+lexical-numeric-literals	lexical	lexical/numeric-literals.hs	xfail	hex/floating literals unsupported
+lexical-operators	lexical	lexical/operators.hs	xfail	operators unsupported

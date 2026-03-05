@@ -29,6 +29,7 @@ test-suite spec
   main-is:          Spec.hs
   other-modules:
       Test.Oracle
+    , Test.H2010.Suite
   build-depends:
       base >=4.16 && <5
     , aihc-parser
@@ -40,6 +41,19 @@ test-suite spec
     , tasty-hunit
     , tasty-quickcheck
     , QuickCheck
+    , ghc-lib-parser
+  ghc-options:        -Wall
+  default-language: Haskell2010
+
+executable h2010-progress
+  hs-source-dirs:   app/h2010-progress
+  main-is:          Main.hs
+  build-depends:
+      base >=4.16 && <5
+    , aihc-parser
+    , text
+    , directory
+    , filepath
     , ghc-lib-parser
   ghc-options:        -Wall
   default-language: Haskell2010

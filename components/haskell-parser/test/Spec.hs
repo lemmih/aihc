@@ -16,6 +16,7 @@ import Test.QuickCheck
 import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Test.Tasty.QuickCheck as QC
+import Test.H2010.Suite (h2010Tests)
 import Test.Oracle
 
 main :: IO ()
@@ -29,12 +30,14 @@ buildTests = do
   moduleErr <- goldenGroup "golden/module/err" expectModuleErr
   diffModule <- goldenGroup "golden/module/ok" oracleEquivalent
   regressions <- goldenGroup "corpus/regressions" oracleEquivalent
+  h2010 <- h2010Tests
   pure $
     testGroup
       "aihc-parser"
       [ testGroup "golden" [exprOk, exprErr, moduleOk, moduleErr]
       , testGroup "differential-fixtures" [diffModule, regressions]
       , testGroup "properties" [QC.testProperty "generated modules agree with ghc oracle" prop_moduleAgreement]
+      , h2010
       ]
 
 goldenGroup :: FilePath -> (Text -> Assertion) -> IO TestTree
