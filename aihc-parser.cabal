@@ -1,0 +1,45 @@
+cabal-version:      3.8
+name:               aihc-parser
+version:            0.1.0.0
+build-type:         Simple
+license:            MIT
+license-file:       LICENSE
+author:             aihc
+maintainer:         aihc@example.com
+category:           Compilers
+synopsis:           From-scratch Haskell parser with differential tests
+
+library
+  exposed-modules:
+      Parser
+    , Parser.Ast
+    , Parser.Canonical
+    , Parser.Types
+  hs-source-dirs:   src
+  build-depends:
+      base >=4.16 && <5
+    , text >=1.2
+    , containers
+  ghc-options:        -Wall
+  default-language: Haskell2010
+
+test-suite spec
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Spec.hs
+  other-modules:
+      Test.Oracle
+  build-depends:
+      base >=4.16 && <5
+    , aihc-parser
+    , text
+    , containers
+    , directory
+    , filepath
+    , tasty
+    , tasty-hunit
+    , tasty-quickcheck
+    , QuickCheck
+    , ghc-lib-parser
+  ghc-options:        -Wall
+  default-language: Haskell2010
