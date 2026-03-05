@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -133,7 +134,12 @@ oracleParsesModule input =
 
 parseWithGhc :: Text -> Either String (HsModule GhcPs)
 parseWithGhc input =
-  let opts = Lexer.mkParserOpts (EnumSet.empty :: EnumSet.EnumSet Extension) emptyDiagOpts False False False False
+  let opts =
+#if MIN_VERSION_ghc_lib_parser(9,10,0)
+        Lexer.mkParserOpts (EnumSet.empty :: EnumSet.EnumSet Extension) emptyDiagOpts [] False False False False
+#else
+        Lexer.mkParserOpts (EnumSet.empty :: EnumSet.EnumSet Extension) emptyDiagOpts False False False False
+#endif
       buffer = stringToStringBuffer (T.unpack input)
       start = mkRealSrcLoc (mkFastString "<h2010-progress>") 1 1
    in case Lexer.unP GHCParser.parseModule (Lexer.initParserState opts buffer start) of

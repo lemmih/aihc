@@ -66,5 +66,19 @@
             cabal test --test-show-details=direct
           '';
         });
+
+      checks = forAllSystems (pkgs:
+        let
+          hsPkgs = pkgs.haskellPackages.override {
+            overrides = final: prev: {
+              aihc-parser = final.callCabal2nix "aihc-parser" ./components/haskell-parser { };
+              aihc-name-resolution =
+                final.callCabal2nix "aihc-name-resolution" ./components/haskell-name-resolution { };
+            };
+          };
+        in {
+          parser-tests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-parser);
+          name-resolution-tests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-name-resolution);
+        });
     };
 }
