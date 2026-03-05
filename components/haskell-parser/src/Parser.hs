@@ -6,233 +6,52 @@ module Parser
   , defaultConfig
   ) where
 
-import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace, toUpper)
+import Data.Char (isAlphaNum)
+import Data.List.NonEmpty (NonEmpty ((:|)))
+import qualified Data.List.NonEmpty as NE
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Void (Void)
 import Parser.Ast
 import Parser.Types
+import Text.Megaparsec
+  ( Parsec
+  , choice
+  , errorOffset
+  , eof
+  , many
+  , notFollowedBy
+  , parse
+  , runParser
+  , sepBy1
+  , some
+  , try
+  , (<|>)
+  )
+import qualified Text.Megaparsec as MP
+import qualified Text.Megaparsec.Char as C
+import qualified Text.Megaparsec.Char.Lexer as L
+
+type MParser = Parsec Void Text
 
 defaultConfig :: ParserConfig
-defaultConfig = ParserConfig {allowLineComments = True}
-
-data Token
-  = TkIdent Text
-  | TkInt Integer
-  | TkEquals
-  | TkLParen
-  | TkRParen
-  | TkModule
-  | TkWhere
-  | TkEOF
-  deriving (Eq, Show)
-
-data PositionedToken = PositionedToken
-  { ptToken :: !Token
-  , ptOffset :: !Int
-  , ptLine :: !Int
-  , ptCol :: !Int
-  }
-  deriving (Eq, Show)
-
-data PState = PState
-  { inputTokens :: [PositionedToken]
-  }
-
-data DataParseResult
-  = NotADataDecl
-  | InvalidDataDecl Text
-  | ParsedDataDecl Decl
-
-newtype P a = P
-  { unP :: PState -> Either ParseError (a, PState)
-  }
-
-instance Functor P where
-  fmap f (P parser) = P $ \st -> do
-    (a, st') <- parser st
-    Right (f a, st')
-
-instance Applicative P where
-  pure a = P (\st -> Right (a, st))
-  P pf <*> P pa = P $ \st -> do
-    (f, st') <- pf st
-    (a, st'') <- pa st'
-    Right (f a, st'')
-
-instance Monad P where
-  P pa >>= f = P $ \st -> do
-    (a, st') <- pa st
-    unP (f a) st'
+defaultConfig =
+  ParserConfig
+    { allowLineComments = True
+    }
 
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
 parseExpr cfg input =
-  case lexInput cfg input of
-    Left err -> ParseErr err
-    Right toks ->
-      case runParser expression toks of
-        Left err -> ParseErr err
-        Right ast -> ParseOk ast
+  case parse (scExpr cfg *> expression cfg <* eof) "<expr>" input of
+    Right ast -> ParseOk ast
+    Left bundle -> ParseErr (bundleToError input bundle)
 
 parseModule :: ParserConfig -> Text -> ParseResult Module
 parseModule cfg input =
   case parseModuleLines cfg input of
-    Left err -> ParseErr err
     Right ast -> ParseOk ast
-
-runParser :: P a -> [PositionedToken] -> Either ParseError a
-runParser parser toks = do
-  (ast, st) <- unP parser (PState toks)
-  case inputTokens st of
-    (tok : _)
-      | ptToken tok /= TkEOF -> Left (unexpectedToken ["<eof>"] tok)
-    _ -> Right ast
-
-expression :: P Expr
-expression = do
-  firstAtom <- atom
-  rest <- atomList
-  pure (foldl EApp firstAtom rest)
-
-atom :: P Expr
-atom = do
-  token <- peekToken
-  case ptToken token of
-    TkIdent name -> advance *> pure (EVar name)
-    TkInt value -> advance *> pure (EInt value)
-    TkLParen -> do
-      _ <- advance
-      inner <- expression
-      _ <- satisfyToken (== TkRParen) [")"]
-      pure inner
-    _ -> failAt ["identifier", "integer", "("] token
-
-atomList :: P [Expr]
-atomList = do
-  token <- peekToken
-  case ptToken token of
-    TkIdent _ -> do
-      x <- atom
-      xs <- atomList
-      pure (x : xs)
-    TkInt _ -> do
-      x <- atom
-      xs <- atomList
-      pure (x : xs)
-    TkLParen -> do
-      x <- atom
-      xs <- atomList
-      pure (x : xs)
-    _ -> pure []
-
-peekToken :: P PositionedToken
-peekToken = P $ \st ->
-  case inputTokens st of
-    [] -> Left (ParseError 0 1 1 ["token"] Nothing)
-    (tok : _) -> Right (tok, st)
-
-advance :: P PositionedToken
-advance = P $ \st ->
-  case inputTokens st of
-    [] -> Left (ParseError 0 1 1 ["token"] Nothing)
-    (tok : toks) -> Right (tok, st {inputTokens = toks})
-
-satisfyToken :: (Token -> Bool) -> [Expectation] -> P PositionedToken
-satisfyToken predicate exps = do
-  token <- peekToken
-  if predicate (ptToken token)
-    then advance
-    else failAt exps token
-
-failAt :: [Expectation] -> PositionedToken -> P a
-failAt exps token = P $ \_ -> Left (unexpectedToken exps token)
-
-unexpectedToken :: [Expectation] -> PositionedToken -> ParseError
-unexpectedToken exps token =
-  ParseError
-    { offset = ptOffset token
-    , line = ptLine token
-    , col = ptCol token
-    , expected = exps
-    , found = Just (renderToken (ptToken token))
-    }
-
-renderToken :: Token -> Text
-renderToken token =
-  case token of
-    TkIdent t -> T.append "identifier:" t
-    TkInt n -> T.pack (show n)
-    TkEquals -> "="
-    TkLParen -> "("
-    TkRParen -> ")"
-    TkModule -> "module"
-    TkWhere -> "where"
-    TkEOF -> "<eof>"
-
-lexInput :: ParserConfig -> Text -> Either ParseError [PositionedToken]
-lexInput cfg input = go 0 1 1 (T.unpack input)
-  where
-    go off ln cl chars =
-      case chars of
-        [] -> Right [PositionedToken TkEOF off ln cl]
-        c : cs
-          | isSpace c ->
-              let (ln', cl') =
-                    if c == '\n' then (ln + 1, 1) else (ln, cl + 1)
-               in go (off + 1) ln' cl' cs
-          | allowLineComments cfg && c == '-' ->
-              case cs of
-                '-' : tailChars ->
-                  let rest = dropWhile (/= '\n') tailChars
-                      consumed = length tailChars - length rest + 2
-                      off' = off + consumed
-                   in case rest of
-                        [] -> Right [PositionedToken TkEOF off' ln cl]
-                        (_ : rs) -> go (off' + 1) (ln + 1) 1 rs
-                _ -> Left
-                  ParseError
-                    { offset = off
-                    , line = ln
-                    , col = cl
-                    , expected = ["valid token"]
-                    , found = Just "-"
-                    }
-          | c == '=' -> consToken TkEquals off ln cl cs
-          | c == '(' -> consToken TkLParen off ln cl cs
-          | c == ')' -> consToken TkRParen off ln cl cs
-          | isDigit c ->
-              let (ds, rest) = span isDigit cs
-                  raw = c : ds
-                  val = read raw
-               in consTokenLen (TkInt val) off ln cl (length raw) rest
-          | isIdentStart c ->
-              let (tailChars, rest) = span isIdentChar cs
-                  raw = c : tailChars
-                  tok = keywordOrIdent (T.pack raw)
-               in consTokenLen tok off ln cl (length raw) rest
-          | otherwise ->
-              Left
-                ParseError
-                  { offset = off
-                  , line = ln
-                  , col = cl
-                  , expected = ["valid token"]
-                  , found = Just (T.singleton c)
-                  }
-
-    consToken token off ln cl rest = consTokenLen token off ln cl 1 rest
-
-    consTokenLen token off ln cl len rest = do
-      toks <- go (off + len) ln (cl + len) rest
-      Right (PositionedToken token off ln cl : toks)
-
-    isIdentStart c = isAlpha c || c == '_'
-    isIdentChar c = isAlphaNum c || c == '_' || c == '\''
-
-    keywordOrIdent :: Text -> Token
-    keywordOrIdent name
-      | name == "module" = TkModule
-      | name == "where" = TkWhere
-      | otherwise = TkIdent name
+    Left err -> ParseErr err
 
 parseModuleLines :: ParserConfig -> Text -> Either ParseError Module
 parseModuleLines cfg input = do
@@ -243,87 +62,139 @@ parseModuleLines cfg input = do
     [] -> Right Module {moduleName = Nothing, moduleDecls = []}
     ((firstLineNo, firstLine) : rest) ->
       case parseModuleHeader firstLine of
-        Just modName -> do
-          decls <- traverse (\(lineNo, lineText) -> parseDeclarationLine cfg lineNo lineText) rest
+        Right modName -> do
+          decls <- traverse (\(lineNo, lineText) -> parseDeclarationLine lineNo lineText) rest
           Right Module {moduleName = Just modName, moduleDecls = decls}
-        Nothing -> do
-          firstDecl <- parseDeclarationLine cfg firstLineNo firstLine
-          otherDecls <- traverse (\(lineNo, lineText) -> parseDeclarationLine cfg lineNo lineText) rest
+        Left _ -> do
+          firstDecl <- parseDeclarationLine firstLineNo firstLine
+          otherDecls <- traverse (\(lineNo, lineText) -> parseDeclarationLine lineNo lineText) rest
           Right Module {moduleName = Nothing, moduleDecls = firstDecl : otherDecls}
 
-parseModuleHeader :: Text -> Maybe Text
-parseModuleHeader headerLine =
-  case T.words headerLine of
-    ["module", modName, "where"] | isValidIdent modName -> Just modName
-    _ -> Nothing
-
-parseDeclarationLine :: ParserConfig -> Int -> Text -> Either ParseError Decl
-parseDeclarationLine cfg lineNo raw =
-  case parseDataDeclaration raw of
-    ParsedDataDecl decl -> Right decl
-    NotADataDecl ->
-      let (lhs, rhsRaw) = T.breakOn "=" raw
-       in if T.null rhsRaw
-            then Left (lineError lineNo 1 ["declaration (<name> = <expr>)"] raw)
-            else
-              let name = T.strip lhs
-                  rhs = T.strip (T.drop 1 rhsRaw)
-                  rhsOffset = T.length lhs + 2
-               in if not (isValidIdent name)
-                    then Left (lineError lineNo 1 ["identifier"] raw)
-                    else
-                      case parseExpr cfg rhs of
-                        ParseOk expr -> Right Decl {declName = name, declExpr = expr}
-                        ParseErr err ->
-                          Left
-                            ParseError
-                              { offset = offset err
-                              , line = lineNo
-                              , col = rhsOffset + col err
-                              , expected = expected err
-                              , found = found err
-                              }
-    InvalidDataDecl reason ->
-      Left (lineError lineNo 1 [T.append "data declaration (" (T.append reason ")")] raw)
-
-parseDataDeclaration :: Text -> DataParseResult
-parseDataDeclaration raw =
-  case T.stripPrefix "data" raw of
-    Nothing -> NotADataDecl
-    Just afterData ->
-      case T.uncons afterData of
-        Just (nextChar, _) | not (isSpace nextChar) -> NotADataDecl
-        _ ->
-          let trimmed = T.strip afterData
-              (typeChunk, constructorsChunkRaw) = T.breakOn "=" trimmed
-              typeWords = T.words (T.strip typeChunk)
-           in case (typeWords, T.stripPrefix "=" constructorsChunkRaw) of
-                ([typeName], Just constructorsChunk)
-                  | isValidTypeCtor typeName ->
-                      let constructors = map T.strip (T.splitOn "|" constructorsChunk)
-                       in if null constructors || any T.null constructors
-                            then InvalidDataDecl "missing constructor"
-                            else
-                              case traverse parseNullaryCtor constructors of
-                                Right ctorNames ->
-                                  ParsedDataDecl DataDecl {dataTypeName = typeName, dataConstructors = ctorNames}
-                                Left () -> InvalidDataDecl "constructors must be nullary type constructors"
-                _ -> InvalidDataDecl "expected: data <Type> = <Ctor> | <Ctor>"
+parseModuleHeader :: Text -> Either ParseError Text
+parseModuleHeader =
+  parseLineWith headerParser
   where
-    parseNullaryCtor ctorText =
-      case T.words ctorText of
-        [ctorName] | isValidTypeCtor ctorName -> Right ctorName
-        _ -> Left ()
+    headerParser = do
+      _ <- keyword "module"
+      modName <- identifier
+      _ <- keyword "where"
+      eof
+      pure modName
 
-lineError :: Int -> Int -> [Expectation] -> Text -> ParseError
-lineError lineNo colNo exps foundText =
-  ParseError
-    { offset = 0
-    , line = lineNo
-    , col = colNo
-    , expected = exps
-    , found = if T.null foundText then Nothing else Just foundText
-    }
+parseDeclarationLine :: Int -> Text -> Either ParseError Decl
+parseDeclarationLine lineNo raw =
+  case parseLineWith declarationParser raw of
+    Right decl -> Right decl
+    Left err ->
+      Left
+        err
+          { line = lineNo
+          , offset = 0
+          }
+
+parseLineWith :: MParser a -> Text -> Either ParseError a
+parseLineWith parser input =
+  case runParser parser "<line>" input of
+    Right value -> Right value
+    Left bundle -> Left (bundleToError input bundle)
+
+declarationParser :: MParser Decl
+declarationParser =
+  try dataDeclaration <|> valueDeclaration
+
+valueDeclaration :: MParser Decl
+valueDeclaration = do
+  name <- identifier
+  _ <- symbol "="
+  rhs <- expressionLine
+  eof
+  pure Decl {declName = name, declExpr = rhs}
+
+dataDeclaration :: MParser Decl
+dataDeclaration = do
+  _ <- keyword "data"
+  typeName <- typeConstructor
+  _ <- symbol "="
+  constructors <- sepBy1 typeConstructor (symbol "|")
+  eof
+  pure DataDecl {dataTypeName = typeName, dataConstructors = constructors}
+
+expression :: ParserConfig -> MParser Expr
+expression cfg = do
+  atoms <- some (atom cfg)
+  pure (foldl1 EApp atoms)
+
+expressionLine :: MParser Expr
+expressionLine = do
+  atoms <- some atomLine
+  pure (foldl1 EApp atoms)
+
+atom :: ParserConfig -> MParser Expr
+atom cfg =
+  parens (expression cfg)
+    <|> (EInt <$> integer (scExpr cfg))
+    <|> (EVar <$> identifierLexeme (scExpr cfg))
+
+atomLine :: MParser Expr
+atomLine =
+  parens expressionLine
+    <|> (EInt <$> integer scLine)
+    <|> (EVar <$> identifierLexeme scLine)
+
+identifier :: MParser Text
+identifier = identifierLexeme scLine
+
+typeConstructor :: MParser Text
+typeConstructor = lexeme scLine $ do
+  first <- C.upperChar
+  rest <- many identTailChar
+  pure (T.pack (first : rest))
+
+identifierLexeme :: MParser () -> MParser Text
+identifierLexeme sc = lexeme sc $ do
+  notFollowedBy reservedWord
+  first <- C.letterChar <|> C.char '_'
+  rest <- many identTailChar
+  pure (T.pack (first : rest))
+
+identTailChar :: MParser Char
+identTailChar =
+  C.alphaNumChar
+    <|> C.char '_'
+    <|> C.char '\''
+
+integer :: MParser () -> MParser Integer
+integer sc = lexeme sc L.decimal
+
+symbol :: Text -> MParser Text
+symbol = L.symbol scLine
+
+parens :: MParser a -> MParser a
+parens parser = do
+  _ <- symbol "("
+  value <- parser
+  _ <- symbol ")"
+  pure value
+
+keyword :: Text -> MParser Text
+keyword kw = lexeme scLine (C.string kw <* notFollowedBy identTailOrStartChar)
+
+identTailOrStartChar :: MParser Char
+identTailOrStartChar = MP.satisfy isIdentTailOrStart
+
+isIdentTailOrStart :: Char -> Bool
+isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
+
+lexeme :: MParser () -> MParser a -> MParser a
+lexeme = L.lexeme
+
+scLine :: MParser ()
+scLine = L.space C.space1 MP.empty MP.empty
+
+scExpr :: ParserConfig -> MParser ()
+scExpr cfg
+  | allowLineComments cfg = L.space C.space1 (L.skipLineComment "--") MP.empty
+  | otherwise = L.space C.space1 MP.empty MP.empty
 
 stripComment :: ParserConfig -> Text -> Text
 stripComment cfg txtLine
@@ -334,30 +205,62 @@ stripComment cfg txtLine
           | T.null after -> txtLine
           | otherwise -> T.stripEnd before
 
-isValidIdent :: Text -> Bool
-isValidIdent ident =
-  case T.uncons ident of
-    Nothing -> False
-    Just (firstChar, rest) ->
-      validStart firstChar
-        && T.all validTail rest
-        && ident /= "module"
-        && ident /= "where"
-        && ident /= "data"
-  where
-    validStart c = isAlpha c || c == '_'
-    validTail c = isAlphaNum c || c == '_' || c == '\''
+bundleToError :: Text -> MP.ParseErrorBundle Text Void -> ParseError
+bundleToError input bundle =
+  case MP.bundleErrors bundle of
+    firstErr :| _ ->
+      let off = errorOffset firstErr
+          (ln, cl) = offsetToLineCol input off
+          foundTok = tokenAt input off
+          expectedItems = toExpectations firstErr
+       in ParseError
+            { offset = off
+            , line = ln
+            , col = cl
+            , expected =
+                if null expectedItems
+                  then ["valid syntax"]
+                  else expectedItems
+            , found = foundTok
+            }
 
-isValidTypeCtor :: Text -> Bool
-isValidTypeCtor ident =
-  case T.uncons ident of
-    Nothing -> False
-    Just (firstChar, rest) ->
-      isAlpha firstChar
-        && firstChar == toUpper firstChar
-        && T.all validTail rest
-        && ident /= "module"
-        && ident /= "where"
-        && ident /= "data"
+toExpectations :: MP.ParseError Text Void -> [Text]
+toExpectations parseErr =
+  case parseErr of
+    MP.TrivialError _ _ expectedItems ->
+      map renderErrorItem (Set.toList expectedItems)
+    MP.FancyError _ _ -> []
+
+renderErrorItem :: MP.ErrorItem Char -> Text
+renderErrorItem item =
+  case item of
+    MP.Tokens chars -> T.pack (NE.toList chars)
+    MP.Label labelChars -> T.pack (NE.toList labelChars)
+    MP.EndOfInput -> "<eof>"
+
+offsetToLineCol :: Text -> Int -> (Int, Int)
+offsetToLineCol input rawOffset =
+  let len = T.length input
+      off
+        | rawOffset < 0 = 0
+        | rawOffset > len = len
+        | otherwise = rawOffset
+      prefix = T.take off input
+      lineNo = 1 + T.count "\n" prefix
+      colNo = T.length (T.takeWhileEnd (/= '\n') prefix) + 1
+   in (lineNo, colNo)
+
+tokenAt :: Text -> Int -> Maybe Text
+tokenAt input off
+  | off < 0 = Nothing
+  | off >= T.length input = Just "<eof>"
+  | otherwise = Just (T.singleton (T.index input off))
+
+reservedWords :: [Text]
+reservedWords = ["module", "where", "data"]
+
+reservedWord :: MParser ()
+reservedWord =
+  choice (map oneReservedWord reservedWords)
   where
-    validTail c = isAlphaNum c || c == '_' || c == '\''
+    oneReservedWord kw = try (C.string kw *> notFollowedBy identTailOrStartChar)
