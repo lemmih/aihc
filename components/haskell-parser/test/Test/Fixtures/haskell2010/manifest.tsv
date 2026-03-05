@@ -8,6 +8,38 @@ modules-import-hiding	modules	modules/import-hiding.hs	xfail	imports unsupported
 modules-multi-imports	modules	modules/multi-imports.hs	xfail	imports unsupported
 modules-import-as	modules	modules/import-as.hs	xfail	imports unsupported
 
+modules-s5-export-module-modid	modules	modules/s5-export-module-modid.hs	xfail	section 5 module variation unsupported
+modules-s5-export-qtycls-abstract	modules	modules/s5-export-qtycls-abstract.hs	xfail	section 5 module variation unsupported
+modules-s5-export-qtycls-all	modules	modules/s5-export-qtycls-all.hs	xfail	section 5 module variation unsupported
+modules-s5-export-qtycls-methods	modules	modules/s5-export-qtycls-methods.hs	xfail	section 5 module variation unsupported
+modules-s5-export-qtycon-abstract	modules	modules/s5-export-qtycon-abstract.hs	xfail	section 5 module variation unsupported
+modules-s5-export-qtycon-all	modules	modules/s5-export-qtycon-all.hs	xfail	section 5 module variation unsupported
+modules-s5-export-qtycon-cnames	modules	modules/s5-export-qtycon-cnames.hs	xfail	section 5 module variation unsupported
+modules-s5-export-qvar	modules	modules/s5-export-qvar.hs	xfail	section 5 module variation unsupported
+modules-s5-import-as-explicit-list	modules	modules/s5-import-as-explicit-list.hs	xfail	section 5 module variation unsupported
+modules-s5-import-as-hiding	modules	modules/s5-import-as-hiding.hs	xfail	section 5 module variation unsupported
+modules-s5-import-as	modules	modules/s5-import-as.hs	xfail	section 5 module variation unsupported
+modules-s5-import-empty-list	modules	modules/s5-import-empty-list.hs	xfail	section 5 module variation unsupported
+modules-s5-import-explicit-tycls-all	modules	modules/s5-import-explicit-tycls-all.hs	xfail	section 5 module variation unsupported
+modules-s5-import-explicit-tycls-methods	modules	modules/s5-import-explicit-tycls-methods.hs	xfail	section 5 module variation unsupported
+modules-s5-import-explicit-tycls	modules	modules/s5-import-explicit-tycls.hs	xfail	section 5 module variation unsupported
+modules-s5-import-explicit-tycon-all	modules	modules/s5-import-explicit-tycon-all.hs	xfail	section 5 module variation unsupported
+modules-s5-import-explicit-tycon-cnames	modules	modules/s5-import-explicit-tycon-cnames.hs	xfail	section 5 module variation unsupported
+modules-s5-import-explicit-tycon	modules	modules/s5-import-explicit-tycon.hs	xfail	section 5 module variation unsupported
+modules-s5-import-explicit-var	modules	modules/s5-import-explicit-var.hs	xfail	section 5 module variation unsupported
+modules-s5-import-hiding-empty	modules	modules/s5-import-hiding-empty.hs	xfail	section 5 module variation unsupported
+modules-s5-import-hiding-var	modules	modules/s5-import-hiding-var.hs	xfail	section 5 module variation unsupported
+modules-s5-import-plain	modules	modules/s5-import-plain.hs	xfail	section 5 module variation unsupported
+modules-s5-import-qualified-as	modules	modules/s5-import-qualified-as.hs	xfail	section 5 module variation unsupported
+modules-s5-import-qualified-hiding-var	modules	modules/s5-import-qualified-hiding-var.hs	xfail	section 5 module variation unsupported
+modules-s5-import-qualified	modules	modules/s5-import-qualified.hs	xfail	section 5 module variation unsupported
+modules-s5-module-body-impdecls-topdecls-braces	modules	modules/s5-module-body-impdecls-topdecls-braces.hs	xfail	section 5 module variation unsupported
+modules-s5-module-body-imports-only-braces	modules	modules/s5-module-body-imports-only-braces.hs	xfail	section 5 module variation unsupported
+modules-s5-module-body-topdecls-only-braces	modules	modules/s5-module-body-topdecls-only-braces.hs	xfail	section 5 module variation unsupported
+modules-s5-module-empty-exports	modules	modules/s5-module-empty-exports.hs	xfail	section 5 module variation unsupported
+modules-s5-module-explicit-no-exports	modules	modules/s5-module-explicit-no-exports.hs	pass	
+modules-s5-module-exports-trailing-comma	modules	modules/s5-module-exports-trailing-comma.hs	xfail	section 5 module variation unsupported
+
 decls-type-signature	declarations	declarations/type-signature.hs	xfail	type signatures unsupported
 decls-multiple-equations	declarations	declarations/multiple-equations.hs	xfail	multiple equations unsupported
 decls-pattern-binding	declarations	declarations/pattern-binding.hs	xfail	pattern bindings unsupported
