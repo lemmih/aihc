@@ -160,16 +160,25 @@ assertExprRoundtrip rel source =
   case parseExpr defaultConfig source of
     ParseOk parsed ->
       let rendered = prettyExpr parsed
-       in case parseExpr defaultConfig rendered of
-            ParseOk reparsed -> do
-              reparsed @?= parsed
-              prettyExpr reparsed @?= rendered
-            ParseErr err ->
+          originalWrapped = wrapExprForOracle source
+          renderedWrapped = wrapExprForOracle rendered
+       in case (oracleCanonicalModule originalWrapped, oracleCanonicalModule renderedWrapped) of
+            (Right originalCanon, Right renderedCanon) -> renderedCanon @?= originalCanon
+            (Left originalErr, _) ->
               assertFailure
-                ( "expr round-trip parse failed for "
+                ( "oracle failed on original expr fixture "
                     <> rel
                     <> ": "
-                    <> show err
+                    <> T.unpack originalErr
+                    <> "\nsource:\n"
+                    <> T.unpack source
+                )
+            (_, Left renderedErr) ->
+              assertFailure
+                ( "oracle failed on rendered expr fixture "
+                    <> rel
+                    <> ": "
+                    <> T.unpack renderedErr
                     <> "\nrendered:\n"
                     <> T.unpack rendered
                 )
@@ -180,20 +189,34 @@ assertModuleRoundtrip rel source =
   case parseModule defaultConfig source of
     ParseOk parsed ->
       let rendered = prettyModule parsed
-       in case parseModule defaultConfig rendered of
-            ParseOk reparsed -> do
-              reparsed @?= parsed
-              prettyModule reparsed @?= rendered
-            ParseErr err ->
+       in case (oracleCanonicalModule source, oracleCanonicalModule rendered) of
+            (Right originalCanon, Right renderedCanon) -> renderedCanon @?= originalCanon
+            (Left originalErr, _) ->
               assertFailure
-                ( "module round-trip parse failed for "
+                ( "oracle failed on original module fixture "
                     <> rel
                     <> ": "
-                    <> show err
+                    <> T.unpack originalErr
+                    <> "\nsource:\n"
+                    <> T.unpack source
+                )
+            (_, Left renderedErr) ->
+              assertFailure
+                ( "oracle failed on rendered module fixture "
+                    <> rel
+                    <> ": "
+                    <> T.unpack renderedErr
                     <> "\nrendered:\n"
                     <> T.unpack rendered
                 )
     ParseErr err -> assertFailure ("expected module parse success for " <> rel <> ", got " <> show err)
+
+wrapExprForOracle :: Text -> Text
+wrapExprForOracle exprSource =
+  T.unlines
+    [ "module ExprFixture where",
+      "x = " <> exprSource
+    ]
 
 listHsFiles :: FilePath -> IO [FilePath]
 listHsFiles dir = do

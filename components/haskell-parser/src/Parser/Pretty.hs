@@ -43,14 +43,14 @@ prettyDecl :: Decl -> Doc ann
 prettyDecl decl =
   case decl of
     Decl {declName = name, declExpr = expr} -> pretty name <+> "=" <+> prettyExprPrec 0 expr
-    PatternDecl {patternLhs = lhs} -> pretty lhs <+> "=" <+> "0"
+    PatternDecl {patternLhs = lhs} -> pretty lhs <+> "=" <+> "undefined"
     TypeSigDecl {typeSigName = name} -> pretty name <+> "::" <+> "T"
-    FunctionDecl {functionName = name} -> functionBinder name <+> "_x" <+> "=" <+> "?"
+    FunctionDecl {functionName = name} -> functionBinder name <+> "_x" <+> "=" <+> "undefined"
     TypeDecl {typeName = name} -> "type" <+> pretty name <+> "=" <+> pretty name
     DataDecl {dataTypeName = dataType, dataConstructors = ctors} ->
       if null ctors
         then "data" <+> pretty dataType
-        else "data" <+> pretty dataType <+> "=" <+> hsep (punctuate "|" (map pretty ctors))
+        else "data" <+> pretty dataType <+> "=" <+> hsep (punctuate "|" (map prettyConstructor ctors))
     NewtypeDecl {newtypeName = name, newtypeConstructor = ctor} ->
       "newtype" <+> pretty name <+> "=" <+> pretty (fromMaybe ("Mk" <> name) ctor)
     ClassDecl {className = name} -> "class" <+> pretty name <+> "where"
@@ -78,6 +78,11 @@ prettyDecl decl =
 
 functionBinder :: Text -> Doc ann
 functionBinder name
+  | isOperatorToken name = parens (pretty name)
+  | otherwise = pretty name
+
+prettyConstructor :: Text -> Doc ann
+prettyConstructor name
   | isOperatorToken name = parens (pretty name)
   | otherwise = pretty name
 
