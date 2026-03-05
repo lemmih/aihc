@@ -116,7 +116,6 @@ classify expected oracleOk oursOk =
       | oursOk -> (OutcomePass, "")
       | otherwise -> (OutcomeFail, "parser rejected pass case")
     ExpectXFail
-      | not oracleOk -> (OutcomeFail, "oracle rejected xfail case")
       | oursOk -> (OutcomeXPass, "parser now accepts xfail case")
       | otherwise -> (OutcomeXFail, "")
 

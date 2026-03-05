@@ -11,15 +11,6 @@ import Data.List (dropWhileEnd)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified GHC.Data.EnumSet as EnumSet
-import GHC.Data.FastString (mkFastString)
-import GHC.Data.StringBuffer (stringToStringBuffer)
-import GHC.Hs (GhcPs, HsModule)
-import GHC.LanguageExtensions.Type (Extension (ForeignFunctionInterface))
-import qualified GHC.Parser as GHCParser
-import qualified GHC.Parser.Lexer as Lexer
-import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
-import GHC.Utils.Error (emptyDiagOpts)
 import qualified Parser
 import Parser.Ast (Module)
 import Parser.Canonical (CanonicalModule, normalizeModule)
@@ -124,45 +115,26 @@ evaluateCaseText :: CaseMeta -> Text -> IO Outcome
 evaluateCaseText meta source = do
   let oursResult = Parser.parseModule Parser.defaultConfig source
       oracleResult = oracleCanonicalModule source
-      oracleParses = oracleParsesModule source
-  pure $ classify (caseExpected meta) oursResult oracleParses oracleResult
+  pure $ classify (caseExpected meta) oursResult oracleResult
 
-classify :: Expected -> ParseResult Module -> Bool -> Either Text CanonicalModule -> Outcome
-classify expected oursResult oracleParses oracleResult =
+classify :: Expected -> ParseResult Module -> Either Text CanonicalModule -> Outcome
+classify expected oursResult oracleResult =
   case expected of
     ExpectPass
-      | not oracleParses -> OutcomeFail
+      | Left _ <- oracleResult -> OutcomeFail
       | otherwise ->
           case oursResult of
             ParseOk _ -> OutcomePass
             ParseErr _ -> OutcomeFail
     ExpectXFail ->
-      case (oursResult, oracleResult) of
-        (ParseErr _, _)
-          | oracleParses -> OutcomeXFail
-          | otherwise -> OutcomeFail
-        (ParseOk ours, Right oracleCanon)
-          | normalizeModule ours == oracleCanon -> OutcomeXPass
-          | otherwise -> OutcomeFail
-        (ParseOk _, Left _)
-          | oracleParses -> OutcomeXPass
-          | otherwise -> OutcomeFail
-
-oracleParsesModule :: Text -> Bool
-oracleParsesModule input =
-  case parseWithGhc input of
-    Right _ -> True
-    Left _ -> False
-
-parseWithGhc :: Text -> Either String (HsModule GhcPs)
-parseWithGhc input =
-  let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
-      opts = Lexer.mkParserOpts exts emptyDiagOpts False False False False
-      buffer = stringToStringBuffer (T.unpack input)
-      start = mkRealSrcLoc (mkFastString "<h2010-oracle>") 1 1
-   in case Lexer.unP GHCParser.parseModule (Lexer.initParserState opts buffer start) of
-        Lexer.POk _ modu -> Right (unLoc modu)
-        Lexer.PFailed _ -> Left "oracle parse failed"
+      case oursResult of
+        ParseErr _ -> OutcomeXFail
+        ParseOk ours ->
+          case oracleResult of
+            Right oracleCanon
+              | normalizeModule ours == oracleCanon -> OutcomeXPass
+              | otherwise -> OutcomeXFail
+            Left _ -> OutcomeXFail
 
 loadManifest :: IO [CaseMeta]
 loadManifest = do

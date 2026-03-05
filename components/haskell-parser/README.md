@@ -24,8 +24,8 @@ Each case is marked with one expected status:
 
 Runtime outcomes are reported as:
 - `PASS`: expected `pass`, parser accepted, oracle accepted
-- `XFAIL`: expected `xfail`, parser rejected, oracle accepted
-- `XPASS`: expected `xfail`, parser accepted (feature implemented; manifest can be promoted)
+- `XFAIL`: expected `xfail`, parser still rejects or remains non-canonical vs oracle
+- `XPASS`: expected `xfail`, parser accepted and matches oracle canonical output
 - `FAIL`: regression or invalid case/manifest (for example oracle rejects a `pass` case)
 
 Current progress baseline:
