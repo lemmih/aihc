@@ -1,24 +1,26 @@
 module Parser.Ast
-  ( Decl (..)
-  , Expr (..)
-  , Module (..)
-  ) where
+  ( Decl (..),
+    Expr (..),
+    Module (..),
+  )
+where
 
 import Data.Text (Text)
 
 data Module = Module
-  { moduleName :: Maybe Text
-  , moduleDecls :: [Decl]
+  { moduleName :: Maybe Text,
+    moduleDecls :: [Decl]
   }
   deriving (Eq, Show)
 
-data Decl = Decl
-  { declName :: Text
-  , declExpr :: Expr
-  }
+data Decl
+  = Decl
+      { declName :: Text,
+        declExpr :: Expr
+      }
   | DataDecl
-      { dataTypeName :: Text
-      , dataConstructors :: [Text]
+      { dataTypeName :: Text,
+        dataConstructors :: [Text]
       }
   deriving (Eq, Show)
 

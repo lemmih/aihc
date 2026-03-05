@@ -12,12 +12,12 @@ import Parser.Canonical
 import Parser.Types (ParseResult (..))
 import System.Directory (listDirectory)
 import System.FilePath ((</>))
+import Test.H2010.Suite (h2010Tests)
+import Test.Oracle
 import Test.QuickCheck
 import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Test.Tasty.QuickCheck as QC
-import Test.H2010.Suite (h2010Tests)
-import Test.Oracle
 
 main :: IO ()
 main = buildTests >>= defaultMain
@@ -34,10 +34,10 @@ buildTests = do
   pure $
     testGroup
       "aihc-parser"
-      [ testGroup "golden" [exprOk, exprErr, moduleOk, moduleErr]
-      , testGroup "differential-fixtures" [diffModule, regressions]
-      , testGroup "properties" [QC.testProperty "generated modules agree with ghc oracle" prop_moduleAgreement]
-      , h2010
+      [ testGroup "golden" [exprOk, exprErr, moduleOk, moduleErr],
+        testGroup "differential-fixtures" [diffModule, regressions],
+        testGroup "properties" [QC.testProperty "generated modules agree with ghc oracle" prop_moduleAgreement],
+        h2010
       ]
 
 goldenGroup :: FilePath -> (Text -> Assertion) -> IO TestTree
@@ -121,28 +121,28 @@ genIdent = do
 
 reservedWords :: [Text]
 reservedWords =
-  [ "_"
-  , "case"
-  , "class"
-  , "data"
-  , "default"
-  , "deriving"
-  , "do"
-  , "else"
-  , "if"
-  , "import"
-  , "in"
-  , "infix"
-  , "infixl"
-  , "infixr"
-  , "instance"
-  , "let"
-  , "module"
-  , "newtype"
-  , "of"
-  , "then"
-  , "type"
-  , "where"
+  [ "_",
+    "case",
+    "class",
+    "data",
+    "default",
+    "deriving",
+    "do",
+    "else",
+    "if",
+    "import",
+    "in",
+    "infix",
+    "infixl",
+    "infixr",
+    "instance",
+    "let",
+    "module",
+    "newtype",
+    "of",
+    "then",
+    "type",
+    "where"
   ]
 
 data GenExpr
@@ -156,9 +156,9 @@ genExpr depth
   | depth <= 0 = oneof [GVar <$> genIdent, GInt <$> chooseInteger (0, 999)]
   | otherwise =
       frequency
-        [ (3, GVar <$> genIdent)
-        , (3, GInt <$> chooseInteger (0, 999))
-        , (4, GApp <$> genExpr (depth - 1) <*> genExpr (depth - 1))
+        [ (3, GVar <$> genIdent),
+          (3, GInt <$> chooseInteger (0, 999)),
+          (4, GApp <$> genExpr (depth - 1) <*> genExpr (depth - 1))
         ]
 
 renderModule :: GenModule -> Text

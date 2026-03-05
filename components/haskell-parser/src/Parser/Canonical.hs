@@ -1,29 +1,30 @@
 module Parser.Canonical
-  ( CanonicalDecl (..)
-  , CanonicalExpr (..)
-  , CanonicalModule (..)
-  , normalizeDecl
-  , normalizeExpr
-  , normalizeModule
-  ) where
+  ( CanonicalDecl (..),
+    CanonicalExpr (..),
+    CanonicalModule (..),
+    normalizeDecl,
+    normalizeExpr,
+    normalizeModule,
+  )
+where
 
 import Data.Text (Text)
 import Parser.Ast
 
 data CanonicalModule = CanonicalModule
-  { canonicalModuleName :: Maybe Text
-  , canonicalDecls :: [CanonicalDecl]
+  { canonicalModuleName :: Maybe Text,
+    canonicalDecls :: [CanonicalDecl]
   }
   deriving (Eq, Show)
 
 data CanonicalDecl
   = CanonicalValueDecl
-      { canonicalDeclName :: Text
-      , canonicalDeclExpr :: CanonicalExpr
+      { canonicalDeclName :: Text,
+        canonicalDeclExpr :: CanonicalExpr
       }
   | CanonicalDataDecl
-      { canonicalTypeName :: Text
-      , canonicalConstructors :: [Text]
+      { canonicalTypeName :: Text,
+        canonicalConstructors :: [Text]
       }
   deriving (Eq, Show)
 
@@ -42,8 +43,8 @@ data CanonicalExpr
 normalizeModule :: Module -> CanonicalModule
 normalizeModule m =
   CanonicalModule
-    { canonicalModuleName = moduleName m
-    , canonicalDecls = fmap normalizeDecl (moduleDecls m)
+    { canonicalModuleName = moduleName m,
+      canonicalDecls = fmap normalizeDecl (moduleDecls m)
     }
 
 normalizeDecl :: Decl -> CanonicalDecl
@@ -51,13 +52,13 @@ normalizeDecl d =
   case d of
     Decl {declName = name, declExpr = expr} ->
       CanonicalValueDecl
-        { canonicalDeclName = name
-        , canonicalDeclExpr = normalizeExpr expr
+        { canonicalDeclName = name,
+          canonicalDeclExpr = normalizeExpr expr
         }
     DataDecl {dataTypeName = typeName, dataConstructors = ctors} ->
       CanonicalDataDecl
-        { canonicalTypeName = typeName
-        , canonicalConstructors = ctors
+        { canonicalTypeName = typeName,
+          canonicalConstructors = ctors
         }
 
 normalizeExpr :: Expr -> CanonicalExpr

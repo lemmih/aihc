@@ -110,13 +110,45 @@
           parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-parser);
           nameResolutionTests =
             pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-name-resolution);
+          nixLint = pkgs.runCommand "aihc-nix-lint" {
+            src = ./.;
+            nativeBuildInputs = [ pkgs.statix ];
+          } ''
+            cd "$src"
+            statix check flake.nix
+            touch "$out"
+          '';
+          haskellLint = pkgs.runCommand "aihc-haskell-lint" {
+            src = ./.;
+            nativeBuildInputs = [ pkgs.haskellPackages.hlint ];
+          } ''
+            cd "$src"
+            find components -type f -name '*.hs' ! -path '*/test/Test/Fixtures/*' -print0 \
+              | xargs -0 -r hlint
+            touch "$out"
+          '';
+          haskellFormat = pkgs.runCommand "aihc-haskell-format" {
+            src = ./.;
+            nativeBuildInputs = [ pkgs.haskellPackages.ormolu ];
+          } ''
+            cd "$src"
+            find components -type f -name '*.hs' ! -path '*/test/Test/Fixtures/*' -print0 \
+              | xargs -0 -r ormolu --mode check
+            touch "$out"
+          '';
         in {
           parser-tests = parserTests;
           name-resolution-tests = nameResolutionTests;
+          nix-lint = nixLint;
+          haskell-lint = haskellLint;
+          haskell-format = haskellFormat;
           all-tests =
             pkgs.linkFarm "aihc-all-tests" [
               { name = "parser-tests"; path = parserTests; }
               { name = "name-resolution-tests"; path = nameResolutionTests; }
+              { name = "nix-lint"; path = nixLint; }
+              { name = "haskell-lint"; path = haskellLint; }
+              { name = "haskell-format"; path = haskellFormat; }
             ];
         });
     };

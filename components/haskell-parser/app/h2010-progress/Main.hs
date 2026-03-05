@@ -10,7 +10,7 @@ import qualified Data.Text.IO as TIO
 import qualified GHC.Data.EnumSet as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
-import GHC.Hs (HsModule, GhcPs)
+import GHC.Hs (GhcPs, HsModule)
 import GHC.LanguageExtensions.Type (Extension (ForeignFunctionInterface))
 import qualified GHC.Parser as GHCParser
 import qualified GHC.Parser.Lexer as Lexer
@@ -24,14 +24,15 @@ import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
 
 data Expected = ExpectPass | ExpectXFail deriving (Eq, Show)
+
 data Outcome = OutcomePass | OutcomeXFail | OutcomeXPass | OutcomeFail deriving (Eq, Show)
 
 data CaseMeta = CaseMeta
-  { caseId :: !String
-  , caseCategory :: !String
-  , casePath :: !FilePath
-  , caseExpected :: !Expected
-  , caseReason :: !String
+  { caseId :: !String,
+    caseCategory :: !String,
+    casePath :: !FilePath,
+    caseExpected :: !Expected,
+    caseReason :: !String
   }
   deriving (Eq, Show)
 
@@ -163,28 +164,28 @@ parseRow row =
 
 parseRowWithReason :: Text -> Text -> Text -> Text -> Text -> IO CaseMeta
 parseRowWithReason cid cat pathTxt expectedTxt reasonTxt = do
-      let path = T.unpack pathTxt
-      exists <- doesFileExist (fixtureRoot </> path)
-      if not exists
-        then fail ("Manifest references missing case file: " <> path)
-        else do
-          expected <-
-            case expectedTxt of
-              "pass" -> pure ExpectPass
-              "xfail" -> pure ExpectXFail
-              _ -> fail ("Unknown expected value in manifest: " <> T.unpack expectedTxt)
-          let reason = trim (T.unpack reasonTxt)
-          case expected of
-            ExpectXFail | null reason -> fail ("xfail case requires a reason: " <> T.unpack cid)
-            _ -> pure ()
-          pure
-            CaseMeta
-              { caseId = T.unpack cid
-              , caseCategory = T.unpack cat
-              , casePath = path
-              , caseExpected = expected
-              , caseReason = reason
-              }
+  let path = T.unpack pathTxt
+  exists <- doesFileExist (fixtureRoot </> path)
+  if not exists
+    then fail ("Manifest references missing case file: " <> path)
+    else do
+      expected <-
+        case expectedTxt of
+          "pass" -> pure ExpectPass
+          "xfail" -> pure ExpectXFail
+          _ -> fail ("Unknown expected value in manifest: " <> T.unpack expectedTxt)
+      let reason = trim (T.unpack reasonTxt)
+      case expected of
+        ExpectXFail | null reason -> fail ("xfail case requires a reason: " <> T.unpack cid)
+        _ -> pure ()
+      pure
+        CaseMeta
+          { caseId = T.unpack cid,
+            caseCategory = T.unpack cat,
+            casePath = path,
+            caseExpected = expected,
+            caseReason = reason
+          }
 
 trim :: String -> String
 trim = dropWhile isSpace . dropWhileEnd isSpace

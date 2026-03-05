@@ -1,9 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.H2010.Suite
-  ( h2010Tests
-  ) where
+  ( h2010Tests,
+  )
+where
 
+import Control.Monad (when)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd)
 import Data.Text (Text)
@@ -33,11 +35,11 @@ data Expected = ExpectPass | ExpectXFail deriving (Eq, Show)
 data Outcome = OutcomePass | OutcomeXFail | OutcomeXPass | OutcomeFail deriving (Eq, Show)
 
 data CaseMeta = CaseMeta
-  { caseId :: !String
-  , caseCategory :: !String
-  , casePath :: !FilePath
-  , caseExpected :: !Expected
-  , caseReason :: !String
+  { caseId :: !String,
+    caseCategory :: !String,
+    casePath :: !FilePath,
+    caseExpected :: !Expected,
+    caseReason :: !String
   }
   deriving (Eq, Show)
 
@@ -67,23 +69,21 @@ mkSummaryTest cases = do
       let (passN, xfailN, xpassN, failN) = foldr countOutcome (0, 0, 0, 0) outcomes
           totalN = passN + xfailN + xpassN + failN
           completion = pct (passN + xpassN) totalN
-      if failN > 0
-        then
-          assertFailure
-            ( "Haskell2010 regressions found. "
-                <> "pass="
-                <> show passN
-                <> " xfail="
-                <> show xfailN
-                <> " xpass="
-                <> show xpassN
-                <> " fail="
-                <> show failN
-                <> " completion="
-                <> show completion
-                <> "%"
-            )
-        else pure ()
+      when (failN > 0) $
+        assertFailure
+          ( "Haskell2010 regressions found. "
+              <> "pass="
+              <> show passN
+              <> " xfail="
+              <> show xfailN
+              <> " xpass="
+              <> show xpassN
+              <> " fail="
+              <> show failN
+              <> " completion="
+              <> show completion
+              <> "%"
+          )
 
 countOutcome :: Outcome -> (Int, Int, Int, Int) -> (Int, Int, Int, Int)
 countOutcome outcome (passN, xfailN, xpassN, failN) =
@@ -189,28 +189,28 @@ parseRow row =
 
 parseRowWithReason :: Text -> Text -> Text -> Text -> Text -> IO CaseMeta
 parseRowWithReason cid cat pathTxt expectedTxt reasonTxt = do
-      let path = T.unpack pathTxt
-      exists <- doesFileExist (fixtureRoot </> path)
-      if not exists
-        then fail ("Manifest references missing case file: " <> path)
-        else do
-          expected <-
-            case expectedTxt of
-              "pass" -> pure ExpectPass
-              "xfail" -> pure ExpectXFail
-              _ -> fail ("Unknown expected value in manifest: " <> T.unpack expectedTxt)
-          let reason = trim (T.unpack reasonTxt)
-          case expected of
-            ExpectXFail | null reason -> fail ("xfail case requires a reason: " <> T.unpack cid)
-            _ -> pure ()
-          pure
-            CaseMeta
-              { caseId = T.unpack cid
-              , caseCategory = T.unpack cat
-              , casePath = path
-              , caseExpected = expected
-              , caseReason = reason
-              }
+  let path = T.unpack pathTxt
+  exists <- doesFileExist (fixtureRoot </> path)
+  if not exists
+    then fail ("Manifest references missing case file: " <> path)
+    else do
+      expected <-
+        case expectedTxt of
+          "pass" -> pure ExpectPass
+          "xfail" -> pure ExpectXFail
+          _ -> fail ("Unknown expected value in manifest: " <> T.unpack expectedTxt)
+      let reason = trim (T.unpack reasonTxt)
+      case expected of
+        ExpectXFail | null reason -> fail ("xfail case requires a reason: " <> T.unpack cid)
+        _ -> pure ()
+      pure
+        CaseMeta
+          { caseId = T.unpack cid,
+            caseCategory = T.unpack cat,
+            casePath = path,
+            caseExpected = expected,
+            caseReason = reason
+          }
 
 trim :: String -> String
 trim = dropWhile isSpace . dropWhileEnd isSpace

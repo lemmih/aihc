@@ -1,10 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Parser
-  ( parseExpr
-  , parseModule
-  , defaultConfig
-  ) where
+  ( parseExpr,
+    parseModule,
+    defaultConfig,
+  )
+where
 
 import Data.Char (isAlphaNum)
 import Data.List.NonEmpty (NonEmpty ((:|)))
@@ -16,20 +17,20 @@ import Data.Void (Void)
 import Parser.Ast
 import Parser.Types
 import Text.Megaparsec
-  ( Parsec
-  , choice
-  , errorOffset
-  , eof
-  , many
-  , manyTill
-  , notFollowedBy
-  , parse
-  , runParser
-  , sepBy
-  , sepBy1
-  , some
-  , try
-  , (<|>)
+  ( Parsec,
+    choice,
+    eof,
+    errorOffset,
+    many,
+    manyTill,
+    notFollowedBy,
+    parse,
+    runParser,
+    sepBy,
+    sepBy1,
+    some,
+    try,
+    (<|>),
   )
 import qualified Text.Megaparsec as MP
 import qualified Text.Megaparsec.Char as C
@@ -65,11 +66,11 @@ parseModuleLines cfg input = do
     ((firstLineNo, firstLine) : rest) ->
       case parseModuleHeader firstLine of
         Right modName -> do
-          decls <- traverse (\(lineNo, lineText) -> parseDeclarationLine lineNo lineText) rest
+          decls <- traverse (uncurry parseDeclarationLine) rest
           Right Module {moduleName = Just modName, moduleDecls = decls}
         Left _ -> do
           firstDecl <- parseDeclarationLine firstLineNo firstLine
-          otherDecls <- traverse (\(lineNo, lineText) -> parseDeclarationLine lineNo lineText) rest
+          otherDecls <- traverse (uncurry parseDeclarationLine) rest
           Right Module {moduleName = Nothing, moduleDecls = firstDecl : otherDecls}
 
 parseModuleHeader :: Text -> Either ParseError Text
@@ -90,8 +91,8 @@ parseDeclarationLine lineNo raw =
     Left err ->
       Left
         err
-          { line = lineNo
-          , offset = 0
+          { line = lineNo,
+            offset = 0
           }
 
 parseLineWith :: MParser a -> Text -> Either ParseError a
@@ -225,7 +226,7 @@ keyword :: Text -> MParser Text
 keyword kw = lexeme scLine (C.string kw <* notFollowedBy identTailOrStartChar)
 
 symbolWith :: MParser () -> Text -> MParser Text
-symbolWith sc = L.symbol sc
+symbolWith = L.symbol
 
 identTailOrStartChar :: MParser Char
 identTailOrStartChar = MP.satisfy isIdentTailOrStart
@@ -262,14 +263,14 @@ bundleToError input bundle =
           foundTok = tokenAt input off
           expectedItems = toExpectations firstErr
        in ParseError
-            { offset = off
-            , line = ln
-            , col = cl
-            , expected =
+            { offset = off,
+              line = ln,
+              col = cl,
+              expected =
                 if null expectedItems
                   then ["valid syntax"]
-                  else expectedItems
-            , found = foundTok
+                  else expectedItems,
+              found = foundTok
             }
 
 toExpectations :: MP.ParseError Text Void -> [Text]

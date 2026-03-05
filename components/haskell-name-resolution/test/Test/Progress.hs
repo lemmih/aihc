@@ -1,9 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.Progress
-  ( progressTests
-  ) where
+  ( progressTests,
+  )
+where
 
+import Control.Monad (when)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd)
 import qualified Data.Text as T
@@ -25,11 +27,11 @@ data Expected = ExpectPass | ExpectXFail deriving (Eq, Show)
 data Outcome = OutcomePass | OutcomeXFail | OutcomeXPass | OutcomeFail deriving (Eq, Show)
 
 data CaseMeta = CaseMeta
-  { caseId :: !String
-  , caseCategory :: !String
-  , casePath :: !FilePath
-  , caseExpected :: !Expected
-  , caseReason :: !String
+  { caseId :: !String,
+    caseCategory :: !String,
+    casePath :: !FilePath,
+    caseExpected :: !Expected,
+    caseReason :: !String
   }
   deriving (Eq, Show)
 
@@ -74,9 +76,8 @@ summaryTest cases = do
 assertNoFailures :: [(CaseMeta, Outcome, String)] -> Assertion
 assertNoFailures outcomes = do
   let failN = length [() | (_, OutcomeFail, _) <- outcomes]
-  if failN > 0
-    then assertFailure ("resolver progress summary contains " <> show failN <> " failure(s)")
-    else pure ()
+  when (failN > 0) $
+    assertFailure ("resolver progress summary contains " <> show failN <> " failure(s)")
 
 evaluateCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCase meta = do
@@ -101,8 +102,8 @@ classify expected oursEither oracleFacts =
         Right oursFacts
           | oursFacts == oracleFacts -> (OutcomePass, "")
           | otherwise ->
-              ( OutcomeFail
-              , "facts differ from oracle"
+              ( OutcomeFail,
+                "facts differ from oracle"
               )
     ExpectXFail ->
       case oursEither of
@@ -122,10 +123,10 @@ resolveFacts input =
           vars = concatMap collectVars decls
        in Right
             ResolveFacts
-              { rfModuleName = resolvedModuleName resolvedMod
-              , rfDeclNames = map resolvedDeclName decls
-              , rfVars = vars
-              , rfDiagnosticCodes = map diagCode (diagnostics rr)
+              { rfModuleName = resolvedModuleName resolvedMod,
+                rfDeclNames = map resolvedDeclName decls,
+                rfVars = vars,
+                rfDiagnosticCodes = map diagCode (diagnostics rr)
               }
   where
     collectVars decl = collectExpr (resolvedDeclExpr decl)
@@ -135,9 +136,9 @@ resolveFacts input =
         RApp f x -> collectExpr f <> collectExpr x
         RVar name ->
           [ VarFact
-              { vfName = rnText name
-              , vfBinding = fmap (const (rnText name)) (rnId name)
-              , vfClass = rnClass name
+              { vfName = rnText name,
+                vfBinding = fmap (const (rnText name)) (rnId name),
+                vfClass = rnClass name
               }
           ]
 
@@ -177,11 +178,11 @@ parseRowWithReason cid cat pathTxt expectedTxt reasonTxt = do
         _ -> pure ()
       pure
         CaseMeta
-          { caseId = T.unpack cid
-          , caseCategory = T.unpack cat
-          , casePath = path
-          , caseExpected = expected
-          , caseReason = reason
+          { caseId = T.unpack cid,
+            caseCategory = T.unpack cat,
+            casePath = path,
+            caseExpected = expected,
+            caseReason = reason
           }
 
 trim :: String -> String

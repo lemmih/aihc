@@ -2,11 +2,11 @@
 
 module Main (main) where
 
-import Data.Char (isSpace)
 import Data.Bifunctor (first)
-import qualified Data.Map.Strict as M
+import Data.Char (isSpace)
 import Data.List (dropWhileEnd)
 import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified GHC.Data.EnumSet as EnumSet
@@ -21,41 +21,42 @@ import GHC.Types.Name.Reader (rdrNameOcc)
 import GHC.Types.SourceText (IntegralLit (..))
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts)
-import Parser.Canonical
 import Parser (defaultConfig, parseModule)
+import Parser.Canonical
 import Parser.Types (ParseResult (..))
 import Resolver (defaultResolveConfig, resolveModule)
 import Resolver.Ast
-import Resolver.Types (DiagnosticCode (..), NameClass (..), diagCode, diagnostics, preludeMode, resolved, ResolveConfig (..), PreludeMode (..))
+import Resolver.Types (DiagnosticCode (..), NameClass (..), PreludeMode (..), ResolveConfig (..), diagCode, diagnostics, preludeMode, resolved)
 import System.Directory (doesFileExist)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
 
 data Expected = ExpectPass | ExpectXFail deriving (Eq, Show)
+
 data Outcome = OutcomePass | OutcomeXFail | OutcomeXPass | OutcomeFail deriving (Eq, Show)
 
 data CaseMeta = CaseMeta
-  { caseId :: !String
-  , caseCategory :: !String
-  , casePath :: !FilePath
-  , caseExpected :: !Expected
-  , _caseReason :: !String
+  { caseId :: !String,
+    caseCategory :: !String,
+    casePath :: !FilePath,
+    caseExpected :: !Expected,
+    _caseReason :: !String
   }
   deriving (Eq, Show)
 
 data VarFact = VarFact
-  { vfName :: T.Text
-  , vfBinding :: Maybe T.Text
-  , vfClass :: NameClass
+  { vfName :: T.Text,
+    vfBinding :: Maybe T.Text,
+    vfClass :: NameClass
   }
   deriving (Eq, Show)
 
 data ResolveFacts = ResolveFacts
-  { rfModuleName :: Maybe T.Text
-  , rfDeclNames :: [T.Text]
-  , rfVars :: [VarFact]
-  , rfDiagnosticCodes :: [DiagnosticCode]
+  { rfModuleName :: Maybe T.Text,
+    rfDeclNames :: [T.Text],
+    rfVars :: [VarFact],
+    rfDiagnosticCodes :: [DiagnosticCode]
   }
   deriving (Eq, Show)
 
@@ -146,10 +147,10 @@ resolveFacts input =
           vars = concatMap (collectExpr . resolvedDeclExpr) decls
        in Right
             ResolveFacts
-              { rfModuleName = resolvedModuleName resolvedMod
-              , rfDeclNames = map resolvedDeclName decls
-              , rfVars = vars
-              , rfDiagnosticCodes = map diagCode (diagnostics rr)
+              { rfModuleName = resolvedModuleName resolvedMod,
+                rfDeclNames = map resolvedDeclName decls,
+                rfVars = vars,
+                rfDiagnosticCodes = map diagCode (diagnostics rr)
               }
   where
     collectExpr expr =
@@ -158,9 +159,9 @@ resolveFacts input =
         RApp f x -> collectExpr f <> collectExpr x
         RVar name ->
           [ VarFact
-              { vfName = rnText name
-              , vfBinding = fmap (const (rnText name)) (rnId name)
-              , vfClass = rnClass name
+              { vfName = rnText name,
+                vfBinding = fmap (const (rnText name)) (rnId name),
+                vfClass = rnClass name
               }
           ]
 
@@ -198,11 +199,11 @@ parseRowWithReason cid cat pathTxt expectedTxt reasonTxt = do
         _ -> pure ()
       pure
         CaseMeta
-          { caseId = T.unpack cid
-          , caseCategory = T.unpack cat
-          , casePath = path
-          , caseExpected = expected
-          , _caseReason = reason
+          { caseId = T.unpack cid,
+            caseCategory = T.unpack cat,
+            casePath = path,
+            caseExpected = expected,
+            _caseReason = reason
           }
 
 trim :: String -> String
@@ -218,10 +219,10 @@ resolveCanonical cfg modu =
   let (declMap, dupDiags) = gatherDecls (canonicalDecls modu)
       (varFacts, unboundDiags) = foldMap (resolveDeclExpr declMap) (canonicalDecls modu)
    in ResolveFacts
-        { rfModuleName = canonicalModuleName modu
-        , rfDeclNames = map canonicalDeclName (canonicalDecls modu)
-        , rfVars = varFacts
-        , rfDiagnosticCodes = dupDiags <> unboundDiags
+        { rfModuleName = canonicalModuleName modu,
+          rfDeclNames = map canonicalDeclName (canonicalDecls modu),
+          rfVars = varFacts,
+          rfDiagnosticCodes = dupDiags <> unboundDiags
         }
   where
     resolveDeclExpr declMap decl = resolveExpr declMap (canonicalDeclExpr decl)
@@ -279,8 +280,8 @@ toCanonicalModule modu = do
   decls <- traverse toCanonicalDecl (hsmodDecls modu)
   pure
     CanonicalModule
-      { canonicalModuleName = fmap (T.pack . moduleNameString . unLoc) (hsmodName modu)
-      , canonicalDecls = decls
+      { canonicalModuleName = fmap (T.pack . moduleNameString . unLoc) (hsmodName modu),
+        canonicalDecls = decls
       }
 
 toCanonicalDecl :: LHsDecl GhcPs -> Either String CanonicalDecl
@@ -303,8 +304,8 @@ toCanonicalDecl locatedDecl =
                 _ -> Left "unsupported function rhs"
               pure
                 CanonicalValueDecl
-                  { canonicalDeclName = T.pack (occNameString (rdrNameOcc name))
-                  , canonicalDeclExpr = expr
+                  { canonicalDeclName = T.pack (occNameString (rdrNameOcc name)),
+                    canonicalDeclExpr = expr
                   }
             _ -> Left "unsupported value binding"
         _ -> Left "unsupported declaration kind"
