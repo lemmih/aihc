@@ -18,8 +18,8 @@ Runtime outcomes are reported as:
 - `FAIL`: regression or invalid case/manifest (for example oracle rejects a `pass` case)
 
 Current progress baseline:
-- `5/68` implemented (`7.35%` complete)
-- `PASS=5`, `XFAIL=63`, `XPASS=0`, `FAIL=0`
+- `8/140` implemented (`5.71%` complete)
+- `PASS=8`, `XFAIL=132`, `XPASS=0`, `FAIL=0`
 
 ## Commands
 

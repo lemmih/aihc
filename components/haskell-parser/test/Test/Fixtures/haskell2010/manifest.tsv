@@ -55,6 +55,79 @@ expr-where-clause	expressions	expressions/where-clause.hs	xfail	where clauses un
 expr-list-comprehension	expressions	expressions/list-comprehension.hs	xfail	list comprehensions unsupported
 expr-arithmetic-seq	expressions	expressions/arithmetic-seq.hs	xfail	arithmetic sequences unsupported
 
+expr-s3-errors-error	expressions	expressions/errors-error.hs	xfail	section 3 expression variation unsupported
+expr-s3-errors-undefined	expressions	expressions/errors-undefined.hs	pass	
+expr-s3-atoms-qvar	expressions	expressions/atoms-qvar.hs	xfail	section 3 expression variation unsupported
+expr-s3-atoms-gcon-unit	expressions	expressions/atoms-gcon-unit.hs	xfail	section 3 expression variation unsupported
+expr-s3-atoms-gcon-listcon	expressions	expressions/atoms-gcon-listcon.hs	xfail	section 3 expression variation unsupported
+expr-s3-atoms-gcon-tuplecon	expressions	expressions/atoms-gcon-tuplecon.hs	xfail	section 3 expression variation unsupported
+expr-s3-atoms-qcon	expressions	expressions/atoms-qcon.hs	pass	
+expr-s3-atoms-literal-int	expressions	expressions/atoms-literal-int.hs	pass	
+expr-s3-atoms-literal-float	expressions	expressions/atoms-literal-float.hs	xfail	section 3 expression variation unsupported
+expr-s3-atoms-literal-char	expressions	expressions/atoms-literal-char.hs	xfail	section 3 expression variation unsupported
+expr-s3-atoms-literal-string	expressions	expressions/atoms-literal-string.hs	xfail	section 3 expression variation unsupported
+expr-s3-operators-varsym-paren	expressions	expressions/operators-varsym-paren.hs	xfail	section 3 expression variation unsupported
+expr-s3-operators-backtick-varid	expressions	expressions/operators-backtick-varid.hs	xfail	section 3 expression variation unsupported
+expr-s3-operators-conop-colon	expressions	expressions/operators-conop-colon.hs	xfail	section 3 expression variation unsupported
+expr-s3-operators-backtick-conid	expressions	expressions/operators-backtick-conid.hs	xfail	section 3 expression variation unsupported
+expr-s3-application-left-assoc	expressions	expressions/application-left-assoc.hs	xfail	section 3 expression variation unsupported
+expr-s3-application-constructor-partial	expressions	expressions/application-constructor-partial.hs	xfail	section 3 expression variation unsupported
+expr-s3-lambda-single-apat	expressions	expressions/lambda-single-apat.hs	xfail	section 3 expression variation unsupported
+expr-s3-lambda-multi-apat	expressions	expressions/lambda-multi-apat.hs	xfail	section 3 expression variation unsupported
+expr-s3-lambda-pattern-apat	expressions	expressions/lambda-pattern-apat.hs	xfail	section 3 expression variation unsupported
+expr-s3-infix-qvarop	expressions	expressions/infix-qvarop.hs	xfail	section 3 expression variation unsupported
+expr-s3-infix-qconop	expressions	expressions/infix-qconop.hs	xfail	section 3 expression variation unsupported
+expr-s3-prefix-negation	expressions	expressions/prefix-negation.hs	xfail	section 3 expression variation unsupported
+expr-s3-minus-with-parenthesized-negation	expressions	expressions/minus-with-parenthesized-negation.hs	xfail	section 3 expression variation unsupported
+expr-s3-section-left	expressions	expressions/section-left.hs	xfail	section 3 expression variation unsupported
+expr-s3-section-right	expressions	expressions/section-right.hs	xfail	section 3 expression variation unsupported
+expr-s3-section-backtick-left	expressions	expressions/section-backtick-left.hs	xfail	section 3 expression variation unsupported
+expr-s3-section-backtick-right	expressions	expressions/section-backtick-right.hs	xfail	section 3 expression variation unsupported
+expr-s3-conditional-basic	expressions	expressions/conditional-basic.hs	xfail	section 3 expression variation unsupported
+expr-s3-conditional-semicolons	expressions	expressions/conditional-semicolons.hs	xfail	section 3 expression variation unsupported
+expr-s3-list-empty	expressions	expressions/list-empty.hs	xfail	section 3 expression variation unsupported
+expr-s3-list-singleton	expressions	expressions/list-singleton.hs	xfail	section 3 expression variation unsupported
+expr-s3-list-multiple	expressions	expressions/list-multiple.hs	xfail	section 3 expression variation unsupported
+expr-s3-tuple-pair	expressions	expressions/tuple-pair.hs	xfail	section 3 expression variation unsupported
+expr-s3-tuple-triple	expressions	expressions/tuple-triple.hs	xfail	section 3 expression variation unsupported
+expr-s3-unit-expression	expressions	expressions/unit-expression.hs	xfail	section 3 expression variation unsupported
+expr-s3-parenthesized-expression	expressions	expressions/parenthesized-expression.hs	xfail	section 3 expression variation unsupported
+expr-s3-arithseq-from	expressions	expressions/arithseq-from.hs	xfail	section 3 expression variation unsupported
+expr-s3-arithseq-from-then	expressions	expressions/arithseq-from-then.hs	xfail	section 3 expression variation unsupported
+expr-s3-arithseq-from-to	expressions	expressions/arithseq-from-to.hs	xfail	section 3 expression variation unsupported
+expr-s3-arithseq-from-then-to	expressions	expressions/arithseq-from-then-to.hs	xfail	section 3 expression variation unsupported
+expr-s3-listcomp-generator	expressions	expressions/listcomp-generator.hs	xfail	section 3 expression variation unsupported
+expr-s3-listcomp-guards	expressions	expressions/listcomp-guards.hs	xfail	section 3 expression variation unsupported
+expr-s3-listcomp-let-qualifier	expressions	expressions/listcomp-let-qualifier.hs	xfail	section 3 expression variation unsupported
+expr-s3-listcomp-multi-generator	expressions	expressions/listcomp-multi-generator.hs	xfail	section 3 expression variation unsupported
+expr-s3-let-basic	expressions	expressions/let-basic.hs	xfail	section 3 expression variation unsupported
+expr-s3-let-multiple-decls	expressions	expressions/let-multiple-decls.hs	xfail	section 3 expression variation unsupported
+expr-s3-case-basic	expressions	expressions/case-basic.hs	xfail	section 3 expression variation unsupported
+expr-s3-case-guarded-alts	expressions	expressions/case-guarded-alts.hs	xfail	section 3 expression variation unsupported
+expr-s3-do-single-expression	expressions	expressions/do-single-expression.hs	xfail	section 3 expression variation unsupported
+expr-s3-do-bind-stmt	expressions	expressions/do-bind-stmt.hs	xfail	section 3 expression variation unsupported
+expr-s3-do-let-stmt	expressions	expressions/do-let-stmt.hs	xfail	section 3 expression variation unsupported
+expr-s3-do-sequence-stmts	expressions	expressions/do-sequence-stmts.hs	xfail	section 3 expression variation unsupported
+expr-s3-record-field-selection	expressions	expressions/record-field-selection.hs	xfail	section 3 expression variation unsupported
+expr-s3-record-construction-empty	expressions	expressions/record-construction-empty.hs	xfail	section 3 expression variation unsupported
+expr-s3-record-construction-fields	expressions	expressions/record-construction-fields.hs	xfail	section 3 expression variation unsupported
+expr-s3-record-update-single	expressions	expressions/record-update-single.hs	xfail	section 3 expression variation unsupported
+expr-s3-record-update-multiple	expressions	expressions/record-update-multiple.hs	xfail	section 3 expression variation unsupported
+expr-s3-expr-type-signature-basic	expressions	expressions/expr-type-signature-basic.hs	xfail	section 3 expression variation unsupported
+expr-s3-expr-type-signature-context	expressions	expressions/expr-type-signature-context.hs	xfail	section 3 expression variation unsupported
+expr-s3-pattern-infix-constructor	expressions	expressions/pattern-infix-constructor.hs	xfail	section 3 expression variation unsupported
+expr-s3-pattern-negative-literal	expressions	expressions/pattern-negative-literal.hs	xfail	section 3 expression variation unsupported
+expr-s3-pattern-constructor-application	expressions	expressions/pattern-constructor-application.hs	xfail	section 3 expression variation unsupported
+expr-s3-pattern-as-pattern	expressions	expressions/pattern-as-pattern.hs	xfail	section 3 expression variation unsupported
+expr-s3-pattern-nullary-constructor	expressions	expressions/pattern-nullary-constructor.hs	xfail	section 3 expression variation unsupported
+expr-s3-pattern-labeled	expressions	expressions/pattern-labeled.hs	xfail	section 3 expression variation unsupported
+expr-s3-pattern-literal	expressions	expressions/pattern-literal.hs	xfail	section 3 expression variation unsupported
+expr-s3-pattern-wildcard	expressions	expressions/pattern-wildcard.hs	xfail	section 3 expression variation unsupported
+expr-s3-pattern-parenthesized	expressions	expressions/pattern-parenthesized.hs	xfail	section 3 expression variation unsupported
+expr-s3-pattern-tuple	expressions	expressions/pattern-tuple.hs	xfail	section 3 expression variation unsupported
+expr-s3-pattern-list	expressions	expressions/pattern-list.hs	xfail	section 3 expression variation unsupported
+expr-s3-pattern-irrefutable	expressions	expressions/pattern-irrefutable.hs	xfail	section 3 expression variation unsupported
+
 pat-constructor	patterns	patterns/constructor.hs	xfail	constructor patterns unsupported
 pat-tuple-list	patterns	patterns/tuple-list.hs	xfail	tuple and list patterns unsupported
 pat-as-pattern	patterns	patterns/as-pattern.hs	xfail	as-patterns unsupported
