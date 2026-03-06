@@ -32,12 +32,60 @@ prettyExpr = renderDoc . prettyExprPrec 0
 
 prettyModule :: Module -> Text
 prettyModule modu =
-  renderDoc (vsep (headerLines <> concatMap prettyDeclLines (moduleDecls modu)))
+  renderDoc (vsep (headerLines <> importLines <> declLines))
   where
     headerLines =
       case moduleName modu of
-        Just name -> ["module" <+> pretty name <+> "where"]
+        Just name ->
+          [ hsep
+              ( ["module", pretty name]
+                  <> maybe [] (\specs -> [prettyExportSpecList specs]) (moduleExports modu)
+                  <> ["where"]
+              )
+          ]
         Nothing -> []
+    importLines = map prettyImportDecl (moduleImports modu)
+    declLines = concatMap prettyDeclLines (moduleDecls modu)
+
+prettyExportSpecList :: [ExportSpec] -> Doc ann
+prettyExportSpecList specs =
+  parens (hsep (punctuate comma (map prettyExportSpec specs)))
+
+prettyExportSpec :: ExportSpec -> Doc ann
+prettyExportSpec spec =
+  case spec of
+    ExportModule modName -> "module" <+> pretty modName
+    ExportVar name -> prettyBinderName name
+    ExportAbs name -> pretty name
+    ExportAll name -> pretty name <> "(..)"
+    ExportWith name members ->
+      pretty name <> parens (hsep (punctuate comma (map prettyBinderName members)))
+
+prettyImportDecl :: ImportDecl -> Doc ann
+prettyImportDecl decl =
+  hsep
+    ( ["import"]
+        <> ["qualified" | importDeclQualified decl]
+        <> [pretty (importDeclModule decl)]
+        <> maybe [] (\alias -> ["as", pretty alias]) (importDeclAs decl)
+        <> maybe [] (\spec -> [prettyImportSpec spec]) (importDeclSpec decl)
+    )
+
+prettyImportSpec :: ImportSpec -> Doc ann
+prettyImportSpec spec =
+  hsep
+    ( ["hiding" | importSpecHiding spec]
+        <> [parens (hsep (punctuate comma (map prettyImportItem (importSpecItems spec))))]
+    )
+
+prettyImportItem :: ImportItem -> Doc ann
+prettyImportItem item =
+  case item of
+    ImportItemVar name -> prettyBinderName name
+    ImportItemAbs name -> pretty name
+    ImportItemAll name -> pretty name <> "(..)"
+    ImportItemWith name members ->
+      pretty name <> parens (hsep (punctuate comma (map prettyBinderName members)))
 
 prettyDeclLines :: Decl -> [Doc ann]
 prettyDeclLines decl =
@@ -174,6 +222,7 @@ prettyTypeAtom ty =
     TCon _ -> prettyType ty
     TList _ -> prettyType ty
     TTuple _ -> prettyType ty
+    TParen _ -> prettyType ty
     _ -> parens (prettyType ty)
 
 prettyPattern :: Pattern -> Doc ann
@@ -188,6 +237,7 @@ prettyPattern pat =
     PInfix lhs op rhs -> prettyPatternAtom lhs <+> pretty op <+> prettyPatternAtom rhs
     PAs name inner -> pretty name <> "@" <> prettyPatternAtom inner
     PIrrefutable inner -> "~" <> prettyPatternAtom inner
+    PNegLit lit -> "-" <> prettyLiteral lit
     PParen inner -> parens (prettyPattern inner)
     PRecord con fields ->
       pretty con
@@ -207,6 +257,7 @@ prettyPatternAtom pat =
     PVar _ -> prettyPattern pat
     PWildcard -> prettyPattern pat
     PLit _ -> prettyPattern pat
+    PNegLit _ -> prettyPattern pat
     PList _ -> prettyPattern pat
     PTuple _ -> prettyPattern pat
     PParen _ -> prettyPattern pat
@@ -216,6 +267,7 @@ prettyLiteral :: Literal -> Doc ann
 prettyLiteral lit =
   case lit of
     LitInt n -> pretty (show n)
+    LitIntBase _ repr -> pretty repr
     LitFloat n -> pretty (show n)
     LitChar c -> pretty (show c)
     LitString s -> pretty (show (T.unpack s))
@@ -444,6 +496,7 @@ prettyExprPrec prec expr =
       | isOperatorToken name -> parens (pretty name)
       | otherwise -> pretty name
     EInt value -> pretty (show value)
+    EIntBase _ repr -> pretty repr
     EFloat value -> pretty (show value)
     EChar value -> pretty (show value)
     EString value -> pretty (show value)
@@ -453,6 +506,8 @@ prettyExprPrec prec expr =
         ("if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyExprPrec 0 yes <+> "else" <+> prettyExprPrec 0 no)
     ELambda params body ->
       parenthesize (prec > 0) ("\\" <> hsep (map pretty params) <+> "->" <+> prettyExprPrec 0 body)
+    ELambdaPats pats body ->
+      parenthesize (prec > 0) ("\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyExprPrec 0 body)
     EInfix lhs op rhs -> parenthesize (prec > 1) (prettyExprPrec 1 lhs <+> prettyExprOperator op <+> prettyExprPrec 1 rhs)
     ENegate inner -> parenthesize (prec > 2) ("-" <> prettyExprPrec 3 inner)
     ESectionL lhs op -> parens (prettyExprPrec 0 lhs <+> prettyExprOperator op)
@@ -462,6 +517,14 @@ prettyExprPrec prec expr =
         (prec > 0)
         ( "let"
             <+> hsep (punctuate semi (map prettyBinding bindings))
+            <+> "in"
+            <+> prettyExprPrec 0 body
+        )
+    ELetDecls decls body ->
+      parenthesize
+        (prec > 0)
+        ( "let"
+            <+> braces (prettyInlineDecls decls)
             <+> "in"
             <+> prettyExprPrec 0 body
         )
@@ -494,6 +557,10 @@ prettyExprPrec prec expr =
       parenthesize
         (prec > 0)
         (prettyExprPrec 0 body <+> "where" <+> braces (hsep (punctuate semi (map prettyBinding binds))))
+    EWhereDecls body decls ->
+      parenthesize
+        (prec > 0)
+        (prettyExprPrec 0 body <+> "where" <+> braces (prettyInlineDecls decls))
     EList values -> brackets (hsep (punctuate comma (map (prettyExprPrec 0) values)))
     ETuple values -> parens (hsep (punctuate comma (map (prettyExprPrec 0) values)))
     ETupleCon arity -> parens (pretty (T.replicate (max 1 (arity - 1)) ","))
@@ -525,6 +592,7 @@ prettyDoStmt stmt =
   case stmt of
     DoBind pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
     DoLet bindings -> "let" <+> braces (hsep (punctuate semi (map prettyBinding bindings)))
+    DoLetDecls decls -> "let" <+> braces (prettyInlineDecls decls)
     DoExpr expr -> prettyExprPrec 0 expr
 
 prettyCompStmt :: CompStmt -> Doc ann
@@ -533,6 +601,11 @@ prettyCompStmt stmt =
     CompGen pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
     CompGuard expr -> prettyExprPrec 0 expr
     CompLet bindings -> "let" <+> hsep (punctuate semi (map prettyBinding bindings))
+    CompLetDecls decls -> "let" <+> braces (prettyInlineDecls decls)
+
+prettyInlineDecls :: [Decl] -> Doc ann
+prettyInlineDecls decls =
+  hsep (punctuate semi (concatMap prettyDeclLines decls))
 
 prettyArithSeq :: ArithSeq -> Doc ann
 prettyArithSeq seqInfo =

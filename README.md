@@ -10,8 +10,8 @@
 The from-scratch parser lives in `components/haskell-parser`.
 
 Current Haskell2010 progress:
-- `169/213` syntax cases implemented (`79.34%` complete)
-- status breakdown: `PASS=169`, `XFAIL=44`, `XPASS=0`, `FAIL=0`
+- `213/213` syntax cases implemented (`100.00%` complete)
+- status breakdown: `PASS=213`, `XFAIL=0`, `XPASS=0`, `FAIL=0`
 
 Recompute progress with:
 
@@ -24,8 +24,8 @@ nix run .#parser-progress
 The name-resolution component lives in `components/haskell-name-resolution`.
 
 Current progress:
-- `8/12` capability cases implemented (`66.66%` complete)
-- status breakdown: `PASS=8`, `XFAIL=4`, `XPASS=0`, `FAIL=0`
+- `10/12` capability cases implemented (`83.33%` complete)
+- status breakdown: `PASS=10`, `XFAIL=2`, `XPASS=0`, `FAIL=0`
 
 Recompute progress with:
 

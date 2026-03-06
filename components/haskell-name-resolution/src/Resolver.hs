@@ -131,6 +131,7 @@ resolveExpr :: ResolveConfig -> Expr -> ResolveState -> (ResolvedExpr, ResolveSt
 resolveExpr cfg expr st =
   case expr of
     EInt n -> (RInt n, st)
+    EIntBase n _ -> (RInt n, st)
     EApp f x ->
       let (f', st1) = resolveExpr cfg f st
           (x', st2) = resolveExpr cfg x st1
@@ -148,6 +149,8 @@ resolveExpr cfg expr st =
           (body', st2) = resolveExpr cfg body st1
           combined = foldl' RApp body' binds'
        in (combined, st2)
+    EWhereDecls body _decls ->
+      resolveExpr cfg body st
     EVar name ->
       case M.lookup name (env st) of
         Just info ->
@@ -170,6 +173,7 @@ resolveExpr cfg expr st =
            in ( RVar ResolvedName {rnText = name, rnId = Nothing, rnClass = Unresolved},
                 st {diags = diag : diags st}
               )
+    _ -> (RInt 0, st)
 
 preludeEnv :: PreludeMode -> M.Map Text BindingInfo
 preludeEnv mode =
