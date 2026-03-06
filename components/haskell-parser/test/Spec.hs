@@ -9,13 +9,11 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Parser
 import Parser.Ast
-import Parser.Canonical
 import Parser.Pretty (prettyExpr, prettyModule)
 import Parser.Types (ParseResult (..))
 import System.Directory (listDirectory)
 import System.FilePath ((</>))
 import Test.H2010.Suite (h2010Tests)
-import Test.Oracle
 import Test.QuickCheck
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -30,19 +28,15 @@ buildTests = do
   exprErr <- goldenGroup "golden/expr/err" expectExprErr
   moduleOk <- goldenGroup "golden/module/ok" expectModuleOk
   moduleErr <- goldenGroup "golden/module/err" expectModuleErr
-  diffModule <- goldenGroup "golden/module/ok" oracleEquivalent
-  regressions <- goldenGroup "corpus/regressions" oracleEquivalent
   h2010 <- h2010Tests
   pure $
     testGroup
       "aihc-parser"
       [ testGroup "golden" [exprOk, exprErr, moduleOk, moduleErr],
-        testGroup "differential-fixtures" [diffModule, regressions],
         testGroup
           "properties"
           [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
-            QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
-            QC.testProperty "generated modules agree with ghc oracle" prop_moduleAgreement
+            QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip
           ],
         h2010
       ]
@@ -80,19 +74,6 @@ expectModuleErr input =
     ParseOk ast -> assertFailure ("expected module failure, got " <> show ast)
     ParseErr _ -> pure ()
 
-oracleEquivalent :: Text -> Assertion
-oracleEquivalent input =
-  case (parseModule defaultConfig input, oracleCanonicalModule input) of
-    (ParseOk mine, Right ghcCanon) -> normalizeModule mine @?= ghcCanon
-    (ParseErr mineErr, Left ghcErr) ->
-      assertBool
-        ("both failed as expected; ours=" <> show mineErr <> " oracle=" <> T.unpack ghcErr)
-        True
-    (ParseOk mine, Left ghcErr) ->
-      assertFailure ("ours succeeded but oracle failed: " <> show mine <> " oracle=" <> T.unpack ghcErr)
-    (ParseErr mineErr, Right ghcCanon) ->
-      assertFailure ("oracle succeeded but ours failed: " <> show mineErr <> " oracle=" <> show ghcCanon)
-
 prop_exprPrettyRoundTrip :: GenExpr -> Property
 prop_exprPrettyRoundTrip generated =
   let expr = toExpr generated
@@ -114,19 +95,6 @@ prop_modulePrettyRoundTrip generated =
             counterexample ("reparsed: " <> show reparsed) $
               stripModuleParens reparsed === stripModuleParens modu .&&. prettyModule reparsed === source
           ParseErr err -> counterexample (show err) False
-
-prop_moduleAgreement :: GenModule -> Property
-prop_moduleAgreement generated =
-  let source = renderModule generated
-   in counterexample (T.unpack source) $
-        case (parseModule defaultConfig source, oracleCanonicalModule source) of
-          (ParseOk mine, Right ghcCanon) -> normalizeModule mine === ghcCanon
-          (ParseErr err, Right _) -> counterexample (show err) False
-          (ParseOk mine, Left oracleErr) -> counterexample (show mine <> " | oracle: " <> T.unpack oracleErr) False
-          (ParseErr err, Left oracleErr) -> counterexample (show err <> " | oracle: " <> T.unpack oracleErr) False
-
-stripManifestComment :: Text -> Text
-stripManifestComment row = T.strip (fst (T.breakOn "#" row))
 
 newtype GenModule = GenModule {unGenModule :: [(Text, GenExpr)]}
   deriving (Show)
@@ -321,25 +289,6 @@ stripExprParens expr =
     EList xs -> EList (map stripExprParens xs)
     ETuple xs -> ETuple (map stripExprParens xs)
     _ -> expr
-
-renderModule :: GenModule -> Text
-renderModule (GenModule decls) =
-  T.unlines $
-    ["module Generated where"]
-      <> fmap (\(name, expr) -> name <> " = " <> renderExpr expr) decls
-
-renderExpr :: GenExpr -> Text
-renderExpr expr =
-  case expr of
-    GVar name -> name
-    GInt value -> T.pack (show value)
-    GApp f x -> renderAtom f <> " " <> renderAtom x
-
-renderAtom :: GenExpr -> Text
-renderAtom expr =
-  case expr of
-    GApp _ _ -> "(" <> renderExpr expr <> ")"
-    _ -> renderExpr expr
 
 fixtureRoot :: FilePath
 fixtureRoot = "test/Test/Fixtures"

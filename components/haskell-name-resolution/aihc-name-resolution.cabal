@@ -28,7 +28,6 @@ test-suite spec
   hs-source-dirs:   test
   main-is:          Spec.hs
   other-modules:
-      Test.Oracle
     , Test.Oracle.Resolve
     , Test.Progress
     , Test.ResolveFacts

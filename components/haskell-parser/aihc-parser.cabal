@@ -13,7 +13,6 @@ library
   exposed-modules:
       Parser
     , Parser.Ast
-    , Parser.Canonical
     , Parser.Pretty
     , Parser.Types
   hs-source-dirs:   src

@@ -2,10 +2,10 @@
 
 module Main (main) where
 
-import Data.Bifunctor (first)
+import Control.Monad (foldM)
 import Data.Char (isSpace)
+import Data.Foldable (toList)
 import Data.List (dropWhileEnd)
-import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -16,13 +16,14 @@ import GHC.Hs
 import GHC.LanguageExtensions.Type (Extension)
 import qualified GHC.Parser as GHCParser
 import qualified GHC.Parser.Lexer as Lexer
+import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
 import GHC.Types.Name.Occurrence (occNameString)
 import GHC.Types.Name.Reader (rdrNameOcc)
 import GHC.Types.SourceText (IntegralLit (..))
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
-import GHC.Utils.Error (emptyDiagOpts)
+import GHC.Utils.Error (emptyDiagOpts, pprMessages)
+import GHC.Utils.Outputable (showSDocUnsafe)
 import Parser (defaultConfig, parseModule)
-import Parser.Canonical
 import Parser.Types (ParseResult (..))
 import Resolver (defaultResolveConfig, resolveModule)
 import Resolver.Ast
@@ -59,6 +60,11 @@ data ResolveFacts = ResolveFacts
     rfDiagnosticCodes :: [DiagnosticCode]
   }
   deriving (Eq, Show)
+
+data OracleDecl = OracleDecl
+  { oracleDeclName :: T.Text,
+    oracleDeclExpr :: HsExpr GhcPs
+  }
 
 fixtureRoot :: FilePath
 fixtureRoot = "test/Test/Fixtures/progress"
@@ -211,46 +217,96 @@ trim = dropWhile isSpace . dropWhileEnd isSpace
 
 oracleResolveFacts :: ResolveConfig -> T.Text -> Either T.Text ResolveFacts
 oracleResolveFacts cfg source = do
-  canon <- oracleCanonicalModule source
-  pure (resolveCanonical cfg canon)
+  modu <- parseWithGhc source
+  decls <- extractDecls modu
+  let moduleName = fmap (T.pack . moduleNameString . unLoc) (hsmodName modu)
+  resolveFactsFromDecls cfg moduleName decls
 
-resolveCanonical :: ResolveConfig -> CanonicalModule -> ResolveFacts
-resolveCanonical cfg modu =
-  let (declMap, dupDiags) = gatherDecls (canonicalDecls modu)
-      (varFacts, unboundDiags) = foldMap (resolveDeclExpr declMap) (canonicalDecls modu)
-   in ResolveFacts
-        { rfModuleName = canonicalModuleName modu,
-          rfDeclNames = map canonicalDeclName (canonicalDecls modu),
-          rfVars = varFacts,
-          rfDiagnosticCodes = dupDiags <> unboundDiags
-        }
+resolveFactsFromDecls :: ResolveConfig -> Maybe T.Text -> [OracleDecl] -> Either T.Text ResolveFacts
+resolveFactsFromDecls cfg moduleName decls = do
+  let declNames = map oracleDeclName decls
+      (declMap, dupDiags) = gatherDecls declNames
+  (varFacts, unboundDiags) <- foldM (resolveDeclExpr cfg declMap) ([], []) decls
+  pure
+    ResolveFacts
+      { rfModuleName = moduleName,
+        rfDeclNames = declNames,
+        rfVars = varFacts,
+        rfDiagnosticCodes = dupDiags <> unboundDiags
+      }
   where
-    resolveDeclExpr declMap decl = resolveExpr declMap (canonicalDeclExpr decl)
+    resolveDeclExpr cfg' declMap (accFacts, accDiags) decl = do
+      (facts, diags) <- resolveExpr cfg' declMap (oracleDeclExpr decl)
+      pure (accFacts <> facts, accDiags <> diags)
 
-    resolveExpr declMap expr =
-      case expr of
-        CInt _ -> ([], [])
-        CApp f x ->
-          let (fFacts, fDiags) = resolveExpr declMap f
-              (xFacts, xDiags) = resolveExpr declMap x
-           in (fFacts <> xFacts, fDiags <> xDiags)
-        CVar name ->
-          case M.lookup name declMap of
+resolveExpr :: ResolveConfig -> M.Map T.Text () -> HsExpr GhcPs -> Either T.Text ([VarFact], [DiagnosticCode])
+resolveExpr cfg declMap expr =
+  case expr of
+    HsPar _ inner -> resolveExpr cfg declMap (unLoc inner)
+    HsApp _ f x -> do
+      (fFacts, fDiags) <- resolveExpr cfg declMap (unLoc f)
+      (xFacts, xDiags) <- resolveExpr cfg declMap (unLoc x)
+      pure (fFacts <> xFacts, fDiags <> xDiags)
+    HsVar _ locatedName ->
+      let name = T.pack (occNameString (rdrNameOcc (unLoc locatedName)))
+       in case M.lookup name declMap of
             Just _ ->
-              ([VarFact {vfName = name, vfBinding = Just name, vfClass = TopLevelBinder}], [])
+              pure ([VarFact {vfName = name, vfBinding = Just name, vfClass = TopLevelBinder}], [])
             Nothing ->
               if isPreludeName cfg name
-                then ([VarFact {vfName = name, vfBinding = Just name, vfClass = PreludeBinder}], [])
-                else ([VarFact {vfName = name, vfBinding = Nothing, vfClass = Unresolved}], [EUnboundVariable])
+                then pure ([VarFact {vfName = name, vfBinding = Just name, vfClass = PreludeBinder}], [])
+                else pure ([VarFact {vfName = name, vfBinding = Nothing, vfClass = Unresolved}], [EUnboundVariable])
+    HsOverLit _ lit ->
+      case ol_val lit of
+        HsIntegral IL {} -> pure ([], [])
+        _ -> Left "unsupported literal"
+    _ -> Left "unsupported expression"
 
-gatherDecls :: [CanonicalDecl] -> (M.Map T.Text (), [DiagnosticCode])
+extractDecls :: HsModule GhcPs -> Either T.Text [OracleDecl]
+extractDecls modu = traverse toOracleDecl (hsmodDecls modu)
+
+toOracleDecl :: LHsDecl GhcPs -> Either T.Text OracleDecl
+toOracleDecl locatedDecl =
+  case unLoc locatedDecl of
+    ValD _ bind ->
+      case bind of
+        FunBind {fun_id = locatedName, fun_matches = MG {mg_alts = locatedMatches}} -> do
+          let name = T.pack (occNameString (rdrNameOcc (unLoc locatedName)))
+          match <-
+            case unLoc locatedMatches of
+              [singleMatch] -> Right (unLoc singleMatch)
+              _ -> Left "unsupported multiple matches"
+          expr <-
+            case m_grhss match of
+              GRHSs _ grhss _ ->
+                case toList grhss of
+                  [grhs] ->
+                    case unLoc grhs of
+                      GRHS _ [] body -> Right (unLoc body)
+                      _ -> Left "unsupported guarded rhs"
+                  _ -> Left "unsupported function rhs"
+          pure (OracleDecl {oracleDeclName = name, oracleDeclExpr = expr})
+        _ -> Left "unsupported value binding"
+    _ -> Left "unsupported declaration kind"
+
+parseWithGhc :: T.Text -> Either T.Text (HsModule GhcPs)
+parseWithGhc input =
+  let opts = Lexer.mkParserOpts (EnumSet.empty :: EnumSet.EnumSet Extension) emptyDiagOpts False False False False
+      buffer = stringToStringBuffer (T.unpack input)
+      start = mkRealSrcLoc (mkFastString "<name-resolution-progress-oracle>") 1 1
+   in case Lexer.unP GHCParser.parseModule (Lexer.initParserState opts buffer start) of
+        Lexer.POk _ modu -> Right (unLoc modu)
+        Lexer.PFailed st ->
+          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (Lexer.getPsErrorMessages st))
+           in Left (T.pack rendered)
+
+gatherDecls :: [T.Text] -> (M.Map T.Text (), [DiagnosticCode])
 gatherDecls = foldl step (M.empty, [])
   where
-    step (seen, diags) decl =
-      let name = canonicalDeclName decl
-       in case M.lookup name seen of
-            Just _ -> (seen, diags <> [EDuplicateBinding])
-            Nothing -> (M.insert name () seen, diags)
+    step (seen, diags) name =
+      case M.lookup name seen of
+        Just _ -> (seen, diags <> [EDuplicateBinding])
+        Nothing -> (M.insert name () seen, diags)
 
 isPreludeName :: ResolveConfig -> T.Text -> Bool
 isPreludeName cfg name =
@@ -260,66 +316,3 @@ isPreludeName cfg name =
 
 preludeNames :: [T.Text]
 preludeNames = ["return", ">>=", ">>", "fail", "fromInteger", "ifThenElse"]
-
-oracleCanonicalModule :: T.Text -> Either T.Text CanonicalModule
-oracleCanonicalModule input = do
-  parsed <- parseWithGhc input
-  first T.pack (toCanonicalModule parsed)
-
-parseWithGhc :: T.Text -> Either T.Text (HsModule GhcPs)
-parseWithGhc input =
-  let opts = Lexer.mkParserOpts (EnumSet.empty :: EnumSet.EnumSet Extension) emptyDiagOpts False False False False
-      buffer = stringToStringBuffer (T.unpack input)
-      start = mkRealSrcLoc (mkFastString "<name-resolution-progress-oracle>") 1 1
-   in case Lexer.unP GHCParser.parseModule (Lexer.initParserState opts buffer start) of
-        Lexer.POk _ modu -> Right (unLoc modu)
-        Lexer.PFailed _ -> Left "oracle parse failed"
-
-toCanonicalModule :: HsModule GhcPs -> Either String CanonicalModule
-toCanonicalModule modu = do
-  decls <- traverse toCanonicalDecl (hsmodDecls modu)
-  pure
-    CanonicalModule
-      { canonicalModuleName = fmap (T.pack . moduleNameString . unLoc) (hsmodName modu),
-        canonicalDecls = decls
-      }
-
-toCanonicalDecl :: LHsDecl GhcPs -> Either String CanonicalDecl
-toCanonicalDecl locatedDecl =
-  let decl = unLoc locatedDecl
-   in case decl of
-        ValD _ bind ->
-          case bind of
-            FunBind {fun_id = locatedName, fun_matches = MG {mg_alts = locatedMatches}} -> do
-              let name = unLoc locatedName
-                  matches = unLoc locatedMatches
-              match <- case matches of
-                [singleMatch] -> Right (unLoc singleMatch)
-                _ -> Left "unsupported multiple matches"
-              expr <- case m_grhss match of
-                GRHSs _ (grhs :| []) _ ->
-                  case unLoc grhs of
-                    GRHS _ [] body -> toCanonicalExpr (unLoc body)
-                    _ -> Left "unsupported guarded rhs"
-                _ -> Left "unsupported function rhs"
-              pure
-                CanonicalValueDecl
-                  { canonicalDeclName = T.pack (occNameString (rdrNameOcc name)),
-                    canonicalDeclExpr = expr
-                  }
-            _ -> Left "unsupported value binding"
-        _ -> Left "unsupported declaration kind"
-
-toCanonicalExpr :: HsExpr GhcPs -> Either String CanonicalExpr
-toCanonicalExpr expr =
-  case expr of
-    HsVar _ locatedName ->
-      let name = unLoc locatedName
-       in Right (CVar (T.pack (occNameString (rdrNameOcc name))))
-    HsPar _ inner -> toCanonicalExpr (unLoc inner)
-    HsApp _ f x -> CApp <$> toCanonicalExpr (unLoc f) <*> toCanonicalExpr (unLoc x)
-    HsOverLit _ lit ->
-      case ol_val lit of
-        HsIntegral (IL _ _ value) -> Right (CInt value)
-        _ -> Left "unsupported literal"
-    _ -> Left "unsupported expression"
