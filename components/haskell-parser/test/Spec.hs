@@ -199,6 +199,8 @@ toModule :: GenModule -> Module
 toModule (GenModule decls) =
   Module
     { moduleName = Just "Generated",
+      moduleExports = Nothing,
+      moduleImports = [],
       moduleDecls =
         [ DeclValue
             ( FunctionBind
@@ -250,7 +252,9 @@ stripExprParens expr =
     ESectionR op r -> ESectionR op (stripExprParens r)
     EIf c t f -> EIf (stripExprParens c) (stripExprParens t) (stripExprParens f)
     ELambda ps b -> ELambda ps (stripExprParens b)
+    ELambdaPats ps b -> ELambdaPats ps (stripExprParens b)
     ELet binds body -> ELet [(n, stripExprParens v) | (n, v) <- binds] (stripExprParens body)
+    ELetDecls decls body -> ELetDecls (map stripDeclParens decls) (stripExprParens body)
     ECase scrut alts ->
       ECase
         (stripExprParens scrut)
@@ -262,6 +266,7 @@ stripExprParens expr =
         [ case stmt of
             DoBind p e -> DoBind p (stripExprParens e)
             DoLet binds -> DoLet [(n, stripExprParens v) | (n, v) <- binds]
+            DoLetDecls decls -> DoLetDecls (map stripDeclParens decls)
             DoExpr e -> DoExpr (stripExprParens e)
         | stmt <- stmts
         ]
@@ -272,6 +277,7 @@ stripExprParens expr =
             CompGen p e -> CompGen p (stripExprParens e)
             CompGuard e -> CompGuard (stripExprParens e)
             CompLet binds -> CompLet [(n, stripExprParens v) | (n, v) <- binds]
+            CompLetDecls decls -> CompLetDecls (map stripDeclParens decls)
         | q <- quals
         ]
     EArithSeq seqInfo ->
@@ -286,6 +292,7 @@ stripExprParens expr =
     ERecordUpd base fields -> ERecordUpd (stripExprParens base) [(f, stripExprParens v) | (f, v) <- fields]
     ETypeSig inner ty -> ETypeSig (stripExprParens inner) ty
     EWhere body binds -> EWhere (stripExprParens body) [(n, stripExprParens v) | (n, v) <- binds]
+    EWhereDecls body decls -> EWhereDecls (stripExprParens body) (map stripDeclParens decls)
     EList xs -> EList (map stripExprParens xs)
     ETuple xs -> ETuple (map stripExprParens xs)
     _ -> expr

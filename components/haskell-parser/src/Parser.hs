@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Parser
   ( parseExpr,
@@ -7,15 +8,16 @@ module Parser
   )
 where
 
-import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isSpace, isUpper)
+import Data.Char (isAlpha, isAlphaNum, isDigit, isHexDigit, isLower, isSpace, isUpper)
 import Data.List (foldl')
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
+import Numeric (readHex, readOct)
 import Parser.Ast
 import Parser.Types
 import Text.Megaparsec
@@ -24,8 +26,8 @@ import Text.Megaparsec
     errorOffset,
     many,
     notFollowedBy,
-    parse,
     runParser,
+    sepEndBy,
     some,
     try,
     (<|>),
@@ -64,33 +66,197 @@ parseModule cfg input =
 
 parseModuleLines :: ParserConfig -> Text -> Either ParseError Module
 parseModuleLines cfg input = do
-  let sourceLines = zip [1 ..] (T.lines input)
-      cleaned = [(ln, stripComment cfg txtLine) | (ln, txtLine) <- sourceLines]
-      nonEmpty = filter (not . T.null . T.strip . snd) cleaned
-      meaningful = filter (not . isLanguagePragma . T.strip . snd) nonEmpty
-  case meaningful of
-    [] -> Right Module {moduleName = Nothing, moduleDecls = []}
+  let strippedComments = stripComments cfg input
+      sourceLines = zip [1 ..] (T.lines strippedComments)
+      noPragmas = filter (not . isLanguagePragma . T.strip . snd) sourceLines
+      nonEmpty = filter (not . T.null . T.strip . snd) noPragmas
+      compactText = T.strip (T.unlines (map snd noPragmas))
+  case nonEmpty of
+    [] ->
+      Right
+        Module
+          { moduleName = Nothing,
+            moduleExports = Nothing,
+            moduleImports = [],
+            moduleDecls = []
+          }
     ((firstLineNo, firstLine) : rest) ->
-      case parseModuleHeader (T.strip firstLine) of
-        Right modName -> do
-          decls <- traverse (uncurry (parseDeclarationChunk cfg)) (groupDeclarationChunks rest)
-          Right Module {moduleName = Just modName, moduleDecls = mergeAdjacentFunctions decls}
-        Left _ -> do
-          let chunks = groupDeclarationChunks ((firstLineNo, firstLine) : rest)
-          parsed <- traverse (uncurry (parseDeclarationChunk cfg)) chunks
-          let merged = mergeAdjacentFunctions parsed
-          Right Module {moduleName = Nothing, moduleDecls = merged}
+      case parseModuleBodyBraces cfg firstLineNo compactText of
+        Right modu -> Right modu
+        Left _ ->
+          case parseModuleHeader (T.strip firstLine) of
+            Right (modName, exports) -> do
+              (imports, decls) <- parseTopLevelChunks cfg (groupDeclarationChunks rest)
+              Right
+                Module
+                  { moduleName = Just modName,
+                    moduleExports = exports,
+                    moduleImports = imports,
+                    moduleDecls = mergeAdjacentFunctions decls
+                  }
+            Left _ -> do
+              (imports, decls) <- parseTopLevelChunks cfg (groupDeclarationChunks ((firstLineNo, firstLine) : rest))
+              Right
+                Module
+                  { moduleName = Nothing,
+                    moduleExports = Nothing,
+                    moduleImports = imports,
+                    moduleDecls = mergeAdjacentFunctions decls
+                  }
 
-parseModuleHeader :: Text -> Either ParseError Text
-parseModuleHeader =
-  parseLineWith headerParser
+parseModuleBodyBraces :: ParserConfig -> Int -> Text -> Either ParseError Module
+parseModuleBodyBraces cfg lineNo txt
+  | hasOuterBraces txt =
+      case splitOuterBraces txt of
+        Right (before, inside)
+          | T.null (T.strip before) -> do
+              let chunks = map (lineNo,) (splitDeclItems inside)
+              (imports, decls) <- parseTopLevelChunks cfg chunks
+              Right
+                Module
+                  { moduleName = Nothing,
+                    moduleExports = Nothing,
+                    moduleImports = imports,
+                    moduleDecls = mergeAdjacentFunctions decls
+                  }
+        _ -> Left (mkModuleParseErr lineNo txt)
+  | otherwise = Left (mkModuleParseErr lineNo txt)
+  where
+    mkModuleParseErr ln raw =
+      ParseError
+        { offset = 0,
+          line = ln,
+          col = 1,
+          expected = ["module body"],
+          found = if T.null (T.strip raw) then Nothing else Just (T.strip raw)
+        }
+
+parseModuleHeader :: Text -> Either ParseError (Text, Maybe [ExportSpec])
+parseModuleHeader = parseLineWith headerParser
   where
     headerParser = do
       _ <- keyword "module"
       modName <- identifier
+      exports <- MP.optional (try exportSpecListParser)
       _ <- keyword "where"
       eof
-      pure modName
+      pure (modName, exports)
+
+exportSpecListParser :: MParser [ExportSpec]
+exportSpecListParser = do
+  _ <- symbol "("
+  specs <- exportSpecParser `sepEndBy` symbol ","
+  _ <- symbol ")"
+  pure specs
+
+exportSpecParser :: MParser ExportSpec
+exportSpecParser =
+  try moduleSpecParser <|> entitySpecParser
+  where
+    moduleSpecParser = do
+      _ <- keyword "module"
+      ExportModule <$> identifier
+
+    entitySpecParser = do
+      name <- identifierOrOperator
+      members <- MP.optional (try exportMembersParser)
+      pure $
+        case members of
+          Nothing
+            | isTypeToken name -> ExportAbs name
+            | otherwise -> ExportVar name
+          Just Nothing -> ExportAll name
+          Just (Just xs) -> ExportWith name xs
+
+exportMembersParser :: MParser (Maybe [Text])
+exportMembersParser = do
+  _ <- symbol "("
+  allMembers <- MP.optional (try (symbol ".."))
+  case allMembers of
+    Just _ -> do
+      _ <- symbol ")"
+      pure Nothing
+    Nothing -> do
+      members <- identifierOrOperator `sepEndBy` symbol ","
+      _ <- symbol ")"
+      pure (Just members)
+
+parseTopLevelChunks :: ParserConfig -> [(Int, Text)] -> Either ParseError ([ImportDecl], [Decl])
+parseTopLevelChunks cfg = go [] [] False
+  where
+    go imports decls seenDecl rows =
+      case rows of
+        [] -> Right (reverse imports, reverse decls)
+        (lineNo, raw) : rest ->
+          let txt = T.strip raw
+           in if T.null txt
+                then go imports decls seenDecl rest
+                else
+                  if "import " `T.isPrefixOf` txt
+                    then
+                      if seenDecl
+                        then Left (mkTopLevelErr lineNo txt "declaration")
+                        else case parseImportDeclText txt of
+                          Right imp -> go (imp : imports) decls seenDecl rest
+                          Left _ -> Left (mkTopLevelErr lineNo txt "import declaration")
+                    else case parseDeclText cfg txt of
+                      Right decl -> go imports (decl : decls) True rest
+                      Left _ -> Left (mkTopLevelErr lineNo txt "declaration")
+
+    mkTopLevelErr lineNo txt expectedText =
+      ParseError
+        { offset = 0,
+          line = lineNo,
+          col = 1,
+          expected = [expectedText],
+          found = if T.null txt then Nothing else Just txt
+        }
+
+parseImportDeclText :: Text -> Either Text ImportDecl
+parseImportDeclText txt =
+  case parseLineWith importDeclParser txt of
+    Right decl -> Right decl
+    Left _ -> Left "import declaration"
+
+importDeclParser :: MParser ImportDecl
+importDeclParser = do
+  _ <- keyword "import"
+  qualifiedFlag <- isJust <$> MP.optional (try (keyword "qualified"))
+  modName <- identifier
+  alias <- MP.optional (try (keyword "as" *> identifier))
+  spec <- MP.optional (try importSpecParser)
+  eof
+  pure
+    ImportDecl
+      { importDeclQualified = qualifiedFlag,
+        importDeclModule = modName,
+        importDeclAs = alias,
+        importDeclSpec = spec
+      }
+
+importSpecParser :: MParser ImportSpec
+importSpecParser = do
+  hidingFlag <- isJust <$> MP.optional (try (keyword "hiding"))
+  _ <- symbol "("
+  items <- importItemParser `sepEndBy` symbol ","
+  _ <- symbol ")"
+  pure
+    ImportSpec
+      { importSpecHiding = hidingFlag,
+        importSpecItems = items
+      }
+
+importItemParser :: MParser ImportItem
+importItemParser = do
+  name <- identifierOrOperator
+  members <- MP.optional (try exportMembersParser)
+  pure $
+    case members of
+      Nothing
+        | isTypeToken name -> ImportItemAbs name
+        | otherwise -> ImportItemVar name
+      Just Nothing -> ImportItemAll name
+      Just (Just xs) -> ImportItemWith name xs
 
 parseDeclarationChunk :: ParserConfig -> Int -> Text -> Either ParseError Decl
 parseDeclarationChunk cfg lineNo raw =
@@ -118,8 +284,8 @@ parseDeclText cfg txt
   | "instance " `T.isPrefixOf` txt = parseInstanceDeclText cfg txt
   | "default " `T.isPrefixOf` txt = parseDefaultDeclText txt
   | isFixityDecl txt = parseFixityDeclText txt
-  | hasTopLevelTypeSig txt = parseTypeSignatureDeclText txt
   | hasTopLevelEquals txt = parseEquationDecl cfg txt
+  | hasTopLevelTypeSig txt = parseTypeSignatureDeclText txt
   | otherwise = Left "declaration"
 
 parseTypeSignatureDeclText :: Text -> Either Text Decl
@@ -459,9 +625,10 @@ parseForeignDeclText direction txt =
 foreignDeclParser :: ForeignDirection -> MParser Decl
 foreignDeclParser direction = do
   _ <- keyword "foreign"
-  case direction of
-    ForeignImport -> keyword "import"
-    ForeignExport -> keyword "export"
+  _ <-
+    case direction of
+      ForeignImport -> keyword "import"
+      ForeignExport -> keyword "export"
   callConv <- callConvParser
   safety <-
     case direction of
@@ -571,10 +738,7 @@ parseGuardedEquationDecl cfg txt = do
           ParseOk expr -> Right expr
           ParseErr _ -> Left "guarded equation"
       bodyExpr <- parseRhsExpr cfg exprTxt
-      case bodyExpr of
-        EWhere body whereBinds ->
-          Right GuardedRhs {guardedRhsGuards = [guardExpr], guardedRhsBody = EWhere body whereBinds}
-        _ -> Right GuardedRhs {guardedRhsGuards = [guardExpr], guardedRhsBody = bodyExpr}
+      Right GuardedRhs {guardedRhsGuards = [guardExpr], guardedRhsBody = bodyExpr}
 
 parseRhsExpr :: ParserConfig -> Text -> Either Text Expr
 parseRhsExpr cfg rhs0 =
@@ -588,22 +752,32 @@ parseRhsExpr cfg rhs0 =
         case parseExpr cfg bodyTxt of
           ParseOk expr -> Right expr
           ParseErr _ -> Left "expression"
-      binds <- parseWhereBindings cfg whereTxt
-      Right (EWhere bodyExpr binds)
+      decls <- parseLocalDecls cfg whereTxt
+      case localDeclsToSimpleBindings decls of
+        Just binds -> Right (EWhere bodyExpr binds)
+        Nothing -> Right (EWhereDecls bodyExpr decls)
 
-parseWhereBindings :: ParserConfig -> Text -> Either Text [(Text, Expr)]
-parseWhereBindings cfg txt =
-  let entries = splitDeclItems (stripBracesIfAny (T.strip txt))
-   in traverse parseOne entries
+parseLocalDecls :: ParserConfig -> Text -> Either Text [Decl]
+parseLocalDecls cfg txt =
+  let body = stripBracesIfAny (T.strip txt)
+      entries = splitDeclItems body
+   in traverse (parseLocalDecl cfg) entries
+
+parseLocalDecl :: ParserConfig -> Text -> Either Text Decl
+parseLocalDecl cfg row
+  | T.null (T.strip row) = Left "local declaration"
+  | hasTopLevelTypeSig row = parseTypeSignatureDeclText row
+  | isFixityDecl row = parseFixityDeclText row
+  | hasTopLevelEquals row = parseEquationDecl cfg row
+  | otherwise = Left "local declaration"
+
+localDeclsToSimpleBindings :: [Decl] -> Maybe [(Text, Expr)]
+localDeclsToSimpleBindings = traverse toSimpleBinding
   where
-    parseOne row = do
-      (lhs, rhs) <- splitTopLevelOnce "=" row
-      let name = T.strip lhs
-      if not (isVarToken name)
-        then Left "where binding"
-        else case parseExpr cfg rhs of
-          ParseOk expr -> Right (name, expr)
-          ParseErr _ -> Left "where binding"
+    toSimpleBinding decl =
+      case decl of
+        DeclValue (PatternBind (PVar name) (UnguardedRhs expr)) -> Just (name, expr)
+        _ -> Nothing
 
 parseFunctionLhs :: Text -> Maybe (Text, [Pattern])
 parseFunctionLhs lhs =
@@ -712,7 +886,7 @@ parseTypeText input =
                                   else
                                     if length tupleParts > 1
                                       then TTuple <$> traverse parseTypeText tupleParts
-                                      else parseTypeText inner
+                                      else TParen <$> parseTypeText inner
               _
                 | isTypeToken stripped -> Right (TCon stripped)
                 | otherwise -> Right (TVar stripped)
@@ -751,6 +925,11 @@ parsePatternText input =
         then Left "pattern"
         else case T.uncons txt of
           Just ('~', rest) -> PIrrefutable <$> parsePatternText rest
+          Just ('-', rest) ->
+            case parseLiteralText (T.strip rest) of
+              Just lit
+                | isNumericLiteral lit -> Right (PNegLit lit)
+              _ -> parsePatternCore txt
           _ -> parsePatternCore txt
 
 parsePatternCore :: Text -> Either Text Pattern
@@ -862,10 +1041,49 @@ parseLiteralText txt
         _ -> Nothing
   | T.length txt >= 2 && T.head txt == '"' && T.last txt == '"' =
       Just (LitString (readStringLiteral txt))
+  | isHexLiteral txt =
+      Just (LitIntBase (readHexLiteral txt) txt)
+  | isOctLiteral txt =
+      Just (LitIntBase (readOctLiteral txt) txt)
   | T.all isDigit txt = Just (LitInt (read (T.unpack txt)))
   | T.count "." txt == 1 && T.all (\c -> isDigit c || c == '.') txt =
       Just (LitFloat (read (T.unpack txt)))
   | otherwise = Nothing
+
+isNumericLiteral :: Literal -> Bool
+isNumericLiteral lit =
+  case lit of
+    LitInt _ -> True
+    LitIntBase _ _ -> True
+    LitFloat _ -> True
+    _ -> False
+
+isHexLiteral :: Text -> Bool
+isHexLiteral txt =
+  case T.stripPrefix "0x" txt <|> T.stripPrefix "0X" txt of
+    Just rest -> not (T.null rest) && T.all isHexDigit rest
+    Nothing -> False
+
+isOctLiteral :: Text -> Bool
+isOctLiteral txt =
+  case T.stripPrefix "0o" txt <|> T.stripPrefix "0O" txt of
+    Just rest -> not (T.null rest) && T.all isOctDigit rest
+    Nothing -> False
+
+isOctDigit :: Char -> Bool
+isOctDigit c = c >= '0' && c <= '7'
+
+readHexLiteral :: Text -> Integer
+readHexLiteral txt =
+  case readHex (T.unpack (T.drop 2 txt)) of
+    [(n, "")] -> n
+    _ -> 0
+
+readOctLiteral :: Text -> Integer
+readOctLiteral txt =
+  case readOct (T.unpack (T.drop 2 txt)) of
+    [(n, "")] -> n
+    _ -> 0
 
 readStringLiteral :: Text -> Text
 readStringLiteral txt =
@@ -932,37 +1150,27 @@ parseLambdaExpr txt = do
   if null paramTokens
     then Left "lambda"
     else do
+      pats <- traverse parsePatternText paramTokens
       body <- parseExprCore bodyTxt
-      Right (ELambda (map renderLambdaParam paramTokens) body)
-
-renderLambdaParam :: Text -> Text
-renderLambdaParam tok =
-  case parsePatternText tok of
-    Right pat -> renderPatternText pat
-    Left _ -> tok
+      pure $
+        case traverse simpleVarName pats of
+          Right names -> ELambda names body
+          Left _ -> ELambdaPats pats body
+  where
+    simpleVarName pat =
+      case pat of
+        PVar name -> Right name
+        _ -> Left ()
 
 parseLetExpr :: Text -> Either Text Expr
 parseLetExpr txt = do
   rest <- maybe (Left "let expression") Right (T.stripPrefix "let" (T.stripStart txt))
   (bindsTxt, bodyTxt) <- splitTopLevelOnce "in" rest
-  binds <- parseLetBindings bindsTxt
+  decls <- parseLocalDecls defaultConfig bindsTxt
   body <- parseExprCore bodyTxt
-  Right (ELet binds body)
-
-parseLetBindings :: Text -> Either Text [(Text, Expr)]
-parseLetBindings txt =
-  let body = stripBracesIfAny (T.strip txt)
-      entries = splitDeclItems body
-   in traverse parseBinding entries
-  where
-    parseBinding row = do
-      (lhs, rhs) <- splitTopLevelOnce "=" row
-      let name = T.strip lhs
-      if not (isVarToken name)
-        then Left "let binding"
-        else do
-          expr <- parseExprCore rhs
-          Right (name, expr)
+  case localDeclsToSimpleBindings decls of
+    Just binds -> Right (ELet binds body)
+    Nothing -> Right (ELetDecls decls body)
 
 parseCaseExpr :: Text -> Either Text Expr
 parseCaseExpr txt = do
@@ -1019,7 +1227,11 @@ parseDoStmtText :: Text -> Either Text DoStmt
 parseDoStmtText txt
   | "let " `T.isPrefixOf` T.strip txt =
       let rest = T.strip (fromMaybeText txt (T.stripPrefix "let" (T.stripStart txt)))
-       in DoLet <$> parseLetBindings rest
+       in do
+            decls <- parseLocalDecls defaultConfig rest
+            case localDeclsToSimpleBindings decls of
+              Just binds -> Right (DoLet binds)
+              Nothing -> Right (DoLetDecls decls)
   | otherwise =
       case splitTopLevelMaybe "<-" txt of
         Just (lhs, rhs) -> do
@@ -1047,7 +1259,11 @@ parseCompStmtText :: Text -> Either Text CompStmt
 parseCompStmtText txt
   | "let " `T.isPrefixOf` T.strip txt =
       let rest = T.strip (fromMaybeText txt (T.stripPrefix "let" (T.stripStart txt)))
-       in CompLet <$> parseLetBindings rest
+       in do
+            decls <- parseLocalDecls defaultConfig rest
+            case localDeclsToSimpleBindings decls of
+              Just binds -> Right (CompLet binds)
+              Nothing -> Right (CompLetDecls decls)
   | otherwise =
       case splitTopLevelMaybe "<-" txt of
         Just (patTxt, exprTxt) -> do
@@ -1157,6 +1373,7 @@ parseAtomicExpression atomTxt =
           Just lit ->
             case lit of
               LitInt n -> Right (EInt n)
+              LitIntBase n repr -> Right (EIntBase n repr)
               LitFloat n -> Right (EFloat n)
               LitChar c -> Right (EChar c)
               LitString s -> Right (EString s)
@@ -1255,6 +1472,22 @@ tokenizeExpr input = go (T.strip input) []
     isAtomStop ch = isSpace ch || ch == '`' || (isSymbolicOpChar ch && ch /= '.')
 
     consumeNumber txt =
+      case T.stripPrefix "0x" txt <|> T.stripPrefix "0X" txt of
+        Just afterHex ->
+          let (digits, tailTxt) = T.span isHexDigit afterHex
+           in if T.null digits
+                then consumeDecimal txt
+                else (T.take (2 + T.length digits) txt, tailTxt)
+        Nothing ->
+          case T.stripPrefix "0o" txt <|> T.stripPrefix "0O" txt of
+            Just afterOct ->
+              let (digits, tailTxt) = T.span isOctDigit afterOct
+               in if T.null digits
+                    then consumeDecimal txt
+                    else (T.take (2 + T.length digits) txt, tailTxt)
+            Nothing -> consumeDecimal txt
+
+    consumeDecimal txt =
       let (whole, rest) = T.span isDigit txt
        in case T.uncons rest of
             Just ('.', afterDot)
@@ -1394,7 +1627,48 @@ splitTopLevelMaybe token txt =
   where
     finder tok
       | tok == "=" = findTopLevelEqualsIndex
+      | T.all isAlpha tok = findTopLevelKeyword tok
       | otherwise = findTopLevelToken tok
+
+findTopLevelKeyword :: Text -> Text -> Maybe Int
+findTopLevelKeyword token txt
+  | T.null token = Nothing
+  | otherwise = go 0 0 0 False False 0 txt
+  where
+    tokLen = T.length token
+
+    go parenN braceN bracketN inStr inChr ix remaining =
+      case T.uncons remaining of
+        Nothing -> Nothing
+        Just (c, cs)
+          | inStr ->
+              if c == '"'
+                then go parenN braceN bracketN False inChr (ix + 1) cs
+                else go parenN braceN bracketN True inChr (ix + 1) cs
+          | inChr ->
+              if c == '\''
+                then go parenN braceN bracketN inStr False (ix + 1) cs
+                else go parenN braceN bracketN inStr True (ix + 1) cs
+          | parenN == 0 && braceN == 0 && bracketN == 0 && T.isPrefixOf token remaining ->
+              if matchesBoundary ix
+                then Just ix
+                else go parenN braceN bracketN inStr inChr (ix + 1) cs
+          | c == '"' -> go parenN braceN bracketN True inChr (ix + 1) cs
+          | c == '\'' -> go parenN braceN bracketN inStr True (ix + 1) cs
+          | c == '(' -> go (parenN + 1) braceN bracketN inStr inChr (ix + 1) cs
+          | c == ')' -> go (max 0 (parenN - 1)) braceN bracketN inStr inChr (ix + 1) cs
+          | c == '{' -> go parenN (braceN + 1) bracketN inStr inChr (ix + 1) cs
+          | c == '}' -> go parenN (max 0 (braceN - 1)) bracketN inStr inChr (ix + 1) cs
+          | c == '[' -> go parenN braceN (bracketN + 1) inStr inChr (ix + 1) cs
+          | c == ']' -> go parenN braceN (max 0 (bracketN - 1)) inStr inChr (ix + 1) cs
+          | otherwise -> go parenN braceN bracketN inStr inChr (ix + 1) cs
+
+    matchesBoundary ix =
+      let prevChar = if ix <= 0 then Nothing else Just (T.index txt (ix - 1))
+          nextIx = ix + tokLen
+          nextChar = if nextIx < T.length txt then Just (T.index txt nextIx) else Nothing
+       in maybe True (not . isIdentTailOrStart) prevChar
+            && maybe True (not . isIdentTailOrStart) nextChar
 
 splitTopLevelToken :: Text -> Text -> [Text]
 splitTopLevelToken token txt =
@@ -1635,14 +1909,62 @@ lexeme = L.lexeme
 scLine :: MParser ()
 scLine = L.space C.space1 MP.empty MP.empty
 
-stripComment :: ParserConfig -> Text -> Text
-stripComment cfg txtLine
-  | not (allowLineComments cfg) = txtLine
-  | otherwise =
-      case T.breakOn "--" txtLine of
-        (before, after)
-          | T.null after -> txtLine
-          | otherwise -> T.stripEnd before
+stripComments :: ParserConfig -> Text -> Text
+stripComments cfg = go 0 False False False T.empty
+  where
+    go blockDepth inStr inChr escaped acc remaining =
+      case T.uncons remaining of
+        Nothing -> acc
+        Just (c, cs)
+          | blockDepth > 0 ->
+              case T.stripPrefix "{-" remaining of
+                Just rest -> go (blockDepth + 1) False False False acc rest
+                Nothing ->
+                  case T.stripPrefix "-}" remaining of
+                    Just rest ->
+                      go (max 0 (blockDepth - 1)) False False False acc rest
+                    Nothing ->
+                      if c == '\n'
+                        then go blockDepth False False False (T.snoc acc c) cs
+                        else go blockDepth False False False acc cs
+          | inStr ->
+              if escaped
+                then go blockDepth True False False (T.snoc acc c) cs
+                else
+                  if c == '\\'
+                    then go blockDepth True False True (T.snoc acc c) cs
+                    else
+                      if c == '"'
+                        then go blockDepth False False False (T.snoc acc c) cs
+                        else go blockDepth True False False (T.snoc acc c) cs
+          | inChr ->
+              if escaped
+                then go blockDepth False True False (T.snoc acc c) cs
+                else
+                  if c == '\\'
+                    then go blockDepth False True True (T.snoc acc c) cs
+                    else
+                      if c == '\''
+                        then go blockDepth False False False (T.snoc acc c) cs
+                        else go blockDepth False True False (T.snoc acc c) cs
+          | otherwise ->
+              case T.stripPrefix "{-" remaining of
+                Just rest -> go (blockDepth + 1) False False False acc rest
+                Nothing ->
+                  if allowLineComments cfg && "--" `T.isPrefixOf` remaining
+                    then
+                      let afterComment = T.drop 2 remaining
+                          (_, newlineAndRest) = T.break (== '\n') afterComment
+                       in case T.uncons newlineAndRest of
+                            Just ('\n', rest) -> go blockDepth False False False (T.snoc acc '\n') rest
+                            _ -> acc
+                    else
+                      if c == '"'
+                        then go blockDepth True False False (T.snoc acc c) cs
+                        else
+                          if c == '\''
+                            then go blockDepth False True False (T.snoc acc c) cs
+                            else go blockDepth False False False (T.snoc acc c) cs
 
 isLanguagePragma :: Text -> Bool
 isLanguagePragma txt =
@@ -1762,6 +2084,7 @@ renderPatternText pat =
     PLit lit ->
       case lit of
         LitInt n -> T.pack (show n)
+        LitIntBase _ repr -> repr
         LitFloat n -> T.pack (show n)
         LitChar c -> T.pack (show c)
         LitString s -> T.pack (show (T.unpack s))
@@ -1771,6 +2094,7 @@ renderPatternText pat =
     PInfix lhs op rhs -> renderPatternText lhs <> " " <> op <> " " <> renderPatternText rhs
     PAs name inner -> name <> "@" <> renderPatternText inner
     PIrrefutable inner -> "~" <> renderPatternText inner
+    PNegLit lit -> "-" <> renderPatternText (PLit lit)
     PParen inner -> "(" <> renderPatternText inner <> ")"
     PRecord con fields ->
       con

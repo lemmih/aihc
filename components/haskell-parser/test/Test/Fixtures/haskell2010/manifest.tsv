@@ -2,43 +2,43 @@ modules-minimal	modules	modules/minimal.hs	pass
 modules-implicit	modules	modules/implicit.hs	pass	
 modules-application	modules	modules/application.hs	pass	
 modules-comments	modules	modules/comments.hs	pass	
-modules-exports	modules	modules/exports.hs	xfail	export lists unsupported
-modules-import-qualified	modules	modules/import-qualified.hs	xfail	imports unsupported
-modules-import-hiding	modules	modules/import-hiding.hs	xfail	imports unsupported
-modules-multi-imports	modules	modules/multi-imports.hs	xfail	imports unsupported
-modules-import-as	modules	modules/import-as.hs	xfail	imports unsupported
+modules-exports	modules	modules/exports.hs	pass	export lists unsupported
+modules-import-qualified	modules	modules/import-qualified.hs	pass	imports unsupported
+modules-import-hiding	modules	modules/import-hiding.hs	pass	imports unsupported
+modules-multi-imports	modules	modules/multi-imports.hs	pass	imports unsupported
+modules-import-as	modules	modules/import-as.hs	pass	imports unsupported
 
-modules-s5-export-module-modid	modules	modules/s5-export-module-modid.hs	xfail	section 5 module variation unsupported
-modules-s5-export-qtycls-abstract	modules	modules/s5-export-qtycls-abstract.hs	xfail	section 5 module variation unsupported
-modules-s5-export-qtycls-all	modules	modules/s5-export-qtycls-all.hs	xfail	section 5 module variation unsupported
-modules-s5-export-qtycls-methods	modules	modules/s5-export-qtycls-methods.hs	xfail	section 5 module variation unsupported
-modules-s5-export-qtycon-abstract	modules	modules/s5-export-qtycon-abstract.hs	xfail	section 5 module variation unsupported
-modules-s5-export-qtycon-all	modules	modules/s5-export-qtycon-all.hs	xfail	section 5 module variation unsupported
-modules-s5-export-qtycon-cnames	modules	modules/s5-export-qtycon-cnames.hs	xfail	section 5 module variation unsupported
-modules-s5-export-qvar	modules	modules/s5-export-qvar.hs	xfail	section 5 module variation unsupported
-modules-s5-import-as-explicit-list	modules	modules/s5-import-as-explicit-list.hs	xfail	section 5 module variation unsupported
-modules-s5-import-as-hiding	modules	modules/s5-import-as-hiding.hs	xfail	section 5 module variation unsupported
-modules-s5-import-as	modules	modules/s5-import-as.hs	xfail	section 5 module variation unsupported
-modules-s5-import-empty-list	modules	modules/s5-import-empty-list.hs	xfail	section 5 module variation unsupported
-modules-s5-import-explicit-tycls-all	modules	modules/s5-import-explicit-tycls-all.hs	xfail	section 5 module variation unsupported
-modules-s5-import-explicit-tycls-methods	modules	modules/s5-import-explicit-tycls-methods.hs	xfail	section 5 module variation unsupported
-modules-s5-import-explicit-tycls	modules	modules/s5-import-explicit-tycls.hs	xfail	section 5 module variation unsupported
-modules-s5-import-explicit-tycon-all	modules	modules/s5-import-explicit-tycon-all.hs	xfail	section 5 module variation unsupported
-modules-s5-import-explicit-tycon-cnames	modules	modules/s5-import-explicit-tycon-cnames.hs	xfail	section 5 module variation unsupported
-modules-s5-import-explicit-tycon	modules	modules/s5-import-explicit-tycon.hs	xfail	section 5 module variation unsupported
-modules-s5-import-explicit-var	modules	modules/s5-import-explicit-var.hs	xfail	section 5 module variation unsupported
-modules-s5-import-hiding-empty	modules	modules/s5-import-hiding-empty.hs	xfail	section 5 module variation unsupported
-modules-s5-import-hiding-var	modules	modules/s5-import-hiding-var.hs	xfail	section 5 module variation unsupported
-modules-s5-import-plain	modules	modules/s5-import-plain.hs	xfail	section 5 module variation unsupported
-modules-s5-import-qualified-as	modules	modules/s5-import-qualified-as.hs	xfail	section 5 module variation unsupported
-modules-s5-import-qualified-hiding-var	modules	modules/s5-import-qualified-hiding-var.hs	xfail	section 5 module variation unsupported
-modules-s5-import-qualified	modules	modules/s5-import-qualified.hs	xfail	section 5 module variation unsupported
-modules-s5-module-body-impdecls-topdecls-braces	modules	modules/s5-module-body-impdecls-topdecls-braces.hs	xfail	section 5 module variation unsupported
-modules-s5-module-body-imports-only-braces	modules	modules/s5-module-body-imports-only-braces.hs	xfail	section 5 module variation unsupported
-modules-s5-module-body-topdecls-only-braces	modules	modules/s5-module-body-topdecls-only-braces.hs	xfail	section 5 module variation unsupported
-modules-s5-module-empty-exports	modules	modules/s5-module-empty-exports.hs	xfail	section 5 module variation unsupported
+modules-s5-export-module-modid	modules	modules/s5-export-module-modid.hs	pass	section 5 module variation unsupported
+modules-s5-export-qtycls-abstract	modules	modules/s5-export-qtycls-abstract.hs	pass	section 5 module variation unsupported
+modules-s5-export-qtycls-all	modules	modules/s5-export-qtycls-all.hs	pass	section 5 module variation unsupported
+modules-s5-export-qtycls-methods	modules	modules/s5-export-qtycls-methods.hs	pass	section 5 module variation unsupported
+modules-s5-export-qtycon-abstract	modules	modules/s5-export-qtycon-abstract.hs	pass	section 5 module variation unsupported
+modules-s5-export-qtycon-all	modules	modules/s5-export-qtycon-all.hs	pass	section 5 module variation unsupported
+modules-s5-export-qtycon-cnames	modules	modules/s5-export-qtycon-cnames.hs	pass	section 5 module variation unsupported
+modules-s5-export-qvar	modules	modules/s5-export-qvar.hs	pass	section 5 module variation unsupported
+modules-s5-import-as-explicit-list	modules	modules/s5-import-as-explicit-list.hs	pass	section 5 module variation unsupported
+modules-s5-import-as-hiding	modules	modules/s5-import-as-hiding.hs	pass	section 5 module variation unsupported
+modules-s5-import-as	modules	modules/s5-import-as.hs	pass	section 5 module variation unsupported
+modules-s5-import-empty-list	modules	modules/s5-import-empty-list.hs	pass	section 5 module variation unsupported
+modules-s5-import-explicit-tycls-all	modules	modules/s5-import-explicit-tycls-all.hs	pass	section 5 module variation unsupported
+modules-s5-import-explicit-tycls-methods	modules	modules/s5-import-explicit-tycls-methods.hs	pass	section 5 module variation unsupported
+modules-s5-import-explicit-tycls	modules	modules/s5-import-explicit-tycls.hs	pass	section 5 module variation unsupported
+modules-s5-import-explicit-tycon-all	modules	modules/s5-import-explicit-tycon-all.hs	pass	section 5 module variation unsupported
+modules-s5-import-explicit-tycon-cnames	modules	modules/s5-import-explicit-tycon-cnames.hs	pass	section 5 module variation unsupported
+modules-s5-import-explicit-tycon	modules	modules/s5-import-explicit-tycon.hs	pass	section 5 module variation unsupported
+modules-s5-import-explicit-var	modules	modules/s5-import-explicit-var.hs	pass	section 5 module variation unsupported
+modules-s5-import-hiding-empty	modules	modules/s5-import-hiding-empty.hs	pass	section 5 module variation unsupported
+modules-s5-import-hiding-var	modules	modules/s5-import-hiding-var.hs	pass	section 5 module variation unsupported
+modules-s5-import-plain	modules	modules/s5-import-plain.hs	pass	section 5 module variation unsupported
+modules-s5-import-qualified-as	modules	modules/s5-import-qualified-as.hs	pass	section 5 module variation unsupported
+modules-s5-import-qualified-hiding-var	modules	modules/s5-import-qualified-hiding-var.hs	pass	section 5 module variation unsupported
+modules-s5-import-qualified	modules	modules/s5-import-qualified.hs	pass	section 5 module variation unsupported
+modules-s5-module-body-impdecls-topdecls-braces	modules	modules/s5-module-body-impdecls-topdecls-braces.hs	pass	section 5 module variation unsupported
+modules-s5-module-body-imports-only-braces	modules	modules/s5-module-body-imports-only-braces.hs	pass	section 5 module variation unsupported
+modules-s5-module-body-topdecls-only-braces	modules	modules/s5-module-body-topdecls-only-braces.hs	pass	section 5 module variation unsupported
+modules-s5-module-empty-exports	modules	modules/s5-module-empty-exports.hs	pass	section 5 module variation unsupported
 modules-s5-module-explicit-no-exports	modules	modules/s5-module-explicit-no-exports.hs	pass	
-modules-s5-module-exports-trailing-comma	modules	modules/s5-module-exports-trailing-comma.hs	xfail	section 5 module variation unsupported
+modules-s5-module-exports-trailing-comma	modules	modules/s5-module-exports-trailing-comma.hs	pass	section 5 module variation unsupported
 
 ffi-s8-export-ccall-named	ffi	ffi/s8-export-ccall-named.hs	pass	
 ffi-s8-export-ccall-omitted-entity	ffi	ffi/s8-export-ccall-omitted-entity.hs	pass	
@@ -48,7 +48,7 @@ ffi-s8-import-address-only	ffi	ffi/s8-import-address-only.hs	pass
 ffi-s8-import-ccall-basic	ffi	ffi/s8-import-ccall-basic.hs	pass	
 ffi-s8-import-ccall-safe	ffi	ffi/s8-import-ccall-safe.hs	pass	
 ffi-s8-import-ccall-unsafe	ffi	ffi/s8-import-ccall-unsafe.hs	pass	
-ffi-s8-import-dynamic	ffi	ffi/s8-import-dynamic.hs	xfail	roundtrip mismatch against oracle AST
+ffi-s8-import-dynamic	ffi	ffi/s8-import-dynamic.hs	pass	roundtrip mismatch against oracle AST
 ffi-s8-import-ftype-arrow	ffi	ffi/s8-import-ftype-arrow.hs	pass	
 ffi-s8-import-ftype-frtype-only	ffi	ffi/s8-import-ftype-frtype-only.hs	pass	
 ffi-s8-import-ftype-multi-arg	ffi	ffi/s8-import-ftype-multi-arg.hs	pass	
@@ -172,7 +172,7 @@ expr-s3-record-update-multiple	expressions	expressions/record-update-multiple.hs
 expr-s3-expr-type-signature-basic	expressions	expressions/expr-type-signature-basic.hs	pass	
 expr-s3-expr-type-signature-context	expressions	expressions/expr-type-signature-context.hs	pass	
 expr-s3-pattern-infix-constructor	expressions	expressions/pattern-infix-constructor.hs	pass	
-expr-s3-pattern-negative-literal	expressions	expressions/pattern-negative-literal.hs	xfail	roundtrip mismatch against oracle AST
+expr-s3-pattern-negative-literal	expressions	expressions/pattern-negative-literal.hs	pass	roundtrip mismatch against oracle AST
 expr-s3-pattern-constructor-application	expressions	expressions/pattern-constructor-application.hs	pass	
 expr-s3-pattern-as-pattern	expressions	expressions/pattern-as-pattern.hs	pass	
 expr-s3-pattern-nullary-constructor	expressions	expressions/pattern-nullary-constructor.hs	pass	
@@ -182,7 +182,7 @@ expr-s3-pattern-wildcard	expressions	expressions/pattern-wildcard.hs	pass
 expr-s3-pattern-parenthesized	expressions	expressions/pattern-parenthesized.hs	pass	
 expr-s3-pattern-tuple	expressions	expressions/pattern-tuple.hs	pass	
 expr-s3-pattern-list	expressions	expressions/pattern-list.hs	pass	
-expr-s3-pattern-irrefutable	expressions	expressions/pattern-irrefutable.hs	xfail	roundtrip mismatch against oracle AST
+expr-s3-pattern-irrefutable	expressions	expressions/pattern-irrefutable.hs	pass	roundtrip mismatch against oracle AST
 
 pat-constructor	patterns	patterns/constructor.hs	pass	
 pat-tuple-list	patterns	patterns/tuple-list.hs	pass	
@@ -190,21 +190,21 @@ pat-as-pattern	patterns	patterns/as-pattern.hs	pass
 pat-irrefutable	patterns	patterns/irrefutable.hs	pass	
 pat-guards	patterns	patterns/guards.hs	pass	
 pat-infix-constructor	patterns	patterns/infix-constructor.hs	pass	
-pat-negative-literal	patterns	patterns/negative-literal.hs	xfail	roundtrip mismatch against oracle AST
+pat-negative-literal	patterns	patterns/negative-literal.hs	pass	roundtrip mismatch against oracle AST
 pat-labeled	patterns	patterns/labeled.hs	pass	
 pat-literal-wildcard-parenthesized	patterns	patterns/literal-wildcard-parenthesized.hs	pass	
-pat-contexts	patterns	patterns/contexts.hs	xfail	pattern matching contexts unsupported
+pat-contexts	patterns	patterns/contexts.hs	pass	pattern matching contexts unsupported
 
 types-context	types	types/context.hs	pass	
 types-tuple-list	types	types/tuple-list-types.hs	pass	
 types-newtype-record	types	types/newtype-record.hs	pass	
 types-multi-vars-signature	types	types/multi-vars-signature.hs	pass	
 types-context-multi-vars	types	types/context-multi-vars.hs	pass	
-types-signature-where	types	types/signature-where.hs	xfail	local type signatures in where bindings unsupported
+types-signature-where	types	types/signature-where.hs	pass	local type signatures in where bindings unsupported
 types-inline-signature-basic	types	types/inline-signature-basic.hs	pass	
 types-inline-signature-context	types	types/inline-signature-context.hs	pass	
 types-inline-signature-lambda	types	types/inline-signature-lambda.hs	pass	
-types-let-signature	types	types/let-signature.hs	xfail	local let type signatures unsupported
+types-let-signature	types	types/let-signature.hs	pass	local let type signatures unsupported
 types-guard-inline-signature	types	types/guard-inline-signature.hs	pass	
 types-list-type-constructor	types	types/list-type-constructor.hs	pass	
 types-maybe-type-constructor	types	types/maybe-type-constructor.hs	pass	
@@ -216,7 +216,7 @@ types-nested-maybe-list	types	types/nested-maybe-list.hs	pass
 layout-let	layout	layout/let-layout.hs	pass	
 layout-where	layout	layout/where-layout.hs	pass	
 
-lexical-block-comments	lexical	lexical/block-comments.hs	xfail	block comments unsupported
+lexical-block-comments	lexical	lexical/block-comments.hs	pass	block comments unsupported
 lexical-strings-chars	lexical	lexical/strings-chars.hs	pass	string and char literals unsupported
-lexical-numeric-literals	lexical	lexical/numeric-literals.hs	xfail	roundtrip mismatch against oracle AST
+lexical-numeric-literals	lexical	lexical/numeric-literals.hs	pass	roundtrip mismatch against oracle AST
 lexical-operators	lexical	lexical/operators.hs	pass	

@@ -7,6 +7,6 @@ core-prelude-reference	core	core/prelude-reference.hs	pass
 core-shadow-prelude	core	core/shadow-prelude.hs	pass	
 core-module-comments	core	core/module-comments.hs	pass	
 modules-import-qualified	modules	modules/import-qualified.hs	xfail	imports unsupported by parser
-modules-import-hiding	modules	modules/import-hiding.hs	xfail	imports unsupported by parser
-modules-export-list	modules	modules/export-list.hs	xfail	export lists unsupported by parser
+modules-import-hiding	modules	modules/import-hiding.hs	pass	
+modules-export-list	modules	modules/export-list.hs	pass	
 modules-import-as	modules	modules/import-as.hs	xfail	imports unsupported by parser

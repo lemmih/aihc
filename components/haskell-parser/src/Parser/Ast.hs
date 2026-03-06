@@ -14,6 +14,7 @@ module Parser.Ast
     DerivingClause (..),
     DoStmt (..),
     Expr (..),
+    ExportSpec (..),
     FieldDecl (..),
     FixityAssoc (..),
     ForeignDecl (..),
@@ -21,6 +22,9 @@ module Parser.Ast
     ForeignEntitySpec (..),
     ForeignSafety (..),
     GuardedRhs (..),
+    ImportDecl (..),
+    ImportItem (..),
+    ImportSpec (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
     Literal (..),
@@ -46,8 +50,39 @@ type OperatorName = Text
 
 data Module = Module
   { moduleName :: Maybe Text,
+    moduleExports :: Maybe [ExportSpec],
+    moduleImports :: [ImportDecl],
     moduleDecls :: [Decl]
   }
+  deriving (Eq, Show)
+
+data ExportSpec
+  = ExportModule Text
+  | ExportVar Text
+  | ExportAbs Text
+  | ExportAll Text
+  | ExportWith Text [Text]
+  deriving (Eq, Show)
+
+data ImportDecl = ImportDecl
+  { importDeclQualified :: Bool,
+    importDeclModule :: Text,
+    importDeclAs :: Maybe Text,
+    importDeclSpec :: Maybe ImportSpec
+  }
+  deriving (Eq, Show)
+
+data ImportSpec = ImportSpec
+  { importSpecHiding :: Bool,
+    importSpecItems :: [ImportItem]
+  }
+  deriving (Eq, Show)
+
+data ImportItem
+  = ImportItemVar Text
+  | ImportItemAbs Text
+  | ImportItemAll Text
+  | ImportItemWith Text [Text]
   deriving (Eq, Show)
 
 data Decl
@@ -87,6 +122,7 @@ data GuardedRhs = GuardedRhs
 
 data Literal
   = LitInt Integer
+  | LitIntBase Integer Text
   | LitFloat Double
   | LitChar Char
   | LitString Text
@@ -102,6 +138,7 @@ data Pattern
   | PInfix Pattern Text Pattern
   | PAs Text Pattern
   | PIrrefutable Pattern
+  | PNegLit Literal
   | PParen Pattern
   | PRecord Text [(Text, Pattern)]
   deriving (Eq, Show)
@@ -243,16 +280,19 @@ data ForeignSafety
 data Expr
   = EVar Text
   | EInt Integer
+  | EIntBase Integer Text
   | EFloat Double
   | EChar Char
   | EString Text
   | EIf Expr Expr Expr
   | ELambda [Text] Expr
+  | ELambdaPats [Pattern] Expr
   | EInfix Expr Text Expr
   | ENegate Expr
   | ESectionL Expr Text
   | ESectionR Text Expr
   | ELet [(Text, Expr)] Expr
+  | ELetDecls [Decl] Expr
   | ECase Expr [CaseAlt]
   | EDo [DoStmt]
   | EListComp Expr [CompStmt]
@@ -262,6 +302,7 @@ data Expr
   | ETypeSig Expr Type
   | EParen Expr
   | EWhere Expr [(Text, Expr)]
+  | EWhereDecls Expr [Decl]
   | EList [Expr]
   | ETuple [Expr]
   | ETupleCon Int
@@ -277,6 +318,7 @@ data CaseAlt = CaseAlt
 data DoStmt
   = DoBind Pattern Expr
   | DoLet [(Text, Expr)]
+  | DoLetDecls [Decl]
   | DoExpr Expr
   deriving (Eq, Show)
 
@@ -284,6 +326,7 @@ data CompStmt
   = CompGen Pattern Expr
   | CompGuard Expr
   | CompLet [(Text, Expr)]
+  | CompLetDecls [Decl]
   deriving (Eq, Show)
 
 data ArithSeq
