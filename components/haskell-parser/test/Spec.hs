@@ -292,6 +292,19 @@ stripExprParens expr =
             CompLetDecls s' decls -> CompLetDecls s' (map stripDeclParens decls)
         | q <- quals
         ]
+    EListCompParallel s body qualifierGroups ->
+      EListCompParallel
+        s
+        (stripExprParens body)
+        [ [ case q of
+              CompGen s' p e -> CompGen s' p (stripExprParens e)
+              CompGuard s' e -> CompGuard s' (stripExprParens e)
+              CompLet s' binds -> CompLet s' [(n, stripExprParens v) | (n, v) <- binds]
+              CompLetDecls s' decls -> CompLetDecls s' (map stripDeclParens decls)
+          | q <- quals
+          ]
+        | quals <- qualifierGroups
+        ]
     EArithSeq s seqInfo ->
       EArithSeq
         s

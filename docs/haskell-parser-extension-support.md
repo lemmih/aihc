@@ -5,15 +5,15 @@
 ## Summary
 
 - Total Extensions: 33
-- Supported: 0
-- In Progress: 1
+- Supported: 1
+- In Progress: 0
 - Planned: 32
 
 ## Extension Status
 
 | Extension | Status | Tests Passing | Notes |
 |-----------|--------|---------------|-------|
-| ParallelListComp | In Progress | 0/1 | Parallel list comprehensions |
+| ParallelListComp | Supported | 1/1 | Parallel list comprehensions |
 | TransformListComp | Planned | - | TransformListComp (then clauses in list comprehensions) |
 | ViewPatterns | Planned | - | View patterns |
 | PatternSynonyms | Planned | - | Pattern synonyms |

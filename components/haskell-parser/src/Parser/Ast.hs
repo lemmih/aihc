@@ -323,6 +323,7 @@ data Expr
   | ECase SourceSpan Expr [CaseAlt]
   | EDo SourceSpan [DoStmt]
   | EListComp SourceSpan Expr [CompStmt]
+  | EListCompParallel SourceSpan Expr [[CompStmt]]
   | EArithSeq SourceSpan ArithSeq
   | ERecordCon SourceSpan Text [(Text, Expr)]
   | ERecordUpd SourceSpan Expr [(Text, Expr)]

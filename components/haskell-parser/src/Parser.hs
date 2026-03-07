@@ -1246,12 +1246,20 @@ parseListExpr txt = do
     else case splitTopLevelMaybe "|" inner of
       Just (bodyTxt, qualsTxt) -> do
         body <- parseExprCore bodyTxt
-        qualifiers <- traverse parseCompStmtText (splitTopLevel ',' qualsTxt)
-        Right (EListComp span0 body qualifiers)
+        let groups = splitTopLevel '|' qualsTxt
+        qualifierGroups <- traverse parseCompStmtGroup groups
+        case qualifierGroups of
+          [qualifiers] -> Right (EListComp span0 body qualifiers)
+          _ -> Right (EListCompParallel span0 body qualifierGroups)
       Nothing ->
         case splitTopLevelMaybe ".." inner of
           Just _ -> parseArithSeq inner
           Nothing -> EList span0 <$> traverse parseExprCore (splitTopLevel ',' inner)
+
+parseCompStmtGroup :: Text -> Either Text [CompStmt]
+parseCompStmtGroup groupTxt
+  | T.null (T.strip groupTxt) = Left "expression"
+  | otherwise = traverse parseCompStmtText (splitTopLevel ',' groupTxt)
 
 parseCompStmtText :: Text -> Either Text CompStmt
 parseCompStmtText txt

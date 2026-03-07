@@ -1,1 +1,1 @@
-parallel-list-comp-basic	expressions	parallel-list-comp-basic.hs	xfail	parallel list qualifiers unsupported
+parallel-list-comp-basic	expressions	parallel-list-comp-basic.hs	pass

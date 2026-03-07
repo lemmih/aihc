@@ -536,6 +536,16 @@ prettyExprPrec prec expr =
             <+> "|"
             <+> hsep (punctuate comma (map prettyCompStmt quals))
         )
+    EListCompParallel _ body qualifierGroups ->
+      brackets
+        ( prettyExprPrec 0 body
+            <+> "|"
+            <+> hsep
+              ( punctuate
+                  "|"
+                  (map (\quals -> hsep (punctuate comma (map prettyCompStmt quals))) qualifierGroups)
+              )
+        )
     EArithSeq _ seqInfo -> prettyArithSeq seqInfo
     ERecordCon _ name fields ->
       pretty name <+> braces (hsep (punctuate comma (map prettyBinding fields)))
