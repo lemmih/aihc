@@ -2,7 +2,7 @@
 
 module Main (main) where
 
-import Control.Monad (forM, foldM, when)
+import Control.Monad (foldM, forM, when)
 import Data.List (isPrefixOf, isSuffixOf)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -161,15 +161,14 @@ data FileResult = FileResult
   }
 
 processFiles :: [FilePath] -> IO [FileResult]
-processFiles files = do
-  results <- forM files $ \file -> do
+processFiles files =
+  forM files $ \file -> do
     result <- processFile file
     case (parseError result, roundtripFail result) of
       (True, _) -> putStrLn ("PARSE_ERROR: " ++ file)
       (_, True) -> putStrLn ("ROUNDTRIP_FAIL: " ++ file)
       _ -> pure ()
     pure result
-  pure results
 
 processFile :: FilePath -> IO FileResult
 processFile file = do
