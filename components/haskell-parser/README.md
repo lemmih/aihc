@@ -21,6 +21,23 @@ Current progress baseline:
 - `213/213` implemented (`100.00%` complete)
 - `PASS=213`, `XFAIL=0`, `XPASS=0`, `FAIL=0`
 
+## Extension Coverage Tracking
+
+Tracked extensions are listed in:
+- `test/Test/Fixtures/extensions.tsv`
+
+Each extension can provide a manifest at:
+- `test/Test/Fixtures/<Extension>/manifest.tsv`
+
+Current extension baseline:
+- Total tracked extensions: `33`
+- Supported: `0`
+- In Progress: `1`
+- Planned: `32`
+
+Generated report:
+- `../../docs/haskell-parser-extension-support.md`
+
 ## Commands
 
 Run full tests:
@@ -35,8 +52,20 @@ Run progress summary:
 nix run .#parser-progress
 ```
 
+Run extension support summary:
+
+```bash
+nix run .#parser-extension-progress
+```
+
 Strict mode (non-zero exit on regressions or `XPASS`):
 
 ```bash
 nix run .#parser-progress-strict
+```
+
+Extension strict mode (non-zero exit on regressions or `XPASS`):
+
+```bash
+nix run .#parser-extension-progress-strict
 ```

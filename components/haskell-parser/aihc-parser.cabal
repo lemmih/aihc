@@ -27,11 +27,16 @@ library
 
 test-suite spec
   type:             exitcode-stdio-1.0
-  hs-source-dirs:   test
+  hs-source-dirs:
+      test
+    , common
   main-is:          Spec.hs
   other-modules:
-      Test.Oracle
+      ExtensionSupport
+    , GhcOracle
+    , Test.Oracle
     , Test.H2010.Suite
+    , Test.Extensions.Suite
   build-depends:
       base >=4.16 && <5
     , aihc-parser
@@ -57,5 +62,24 @@ executable h2010-progress
     , directory
     , filepath
     , ghc-lib-parser
+  ghc-options:        -Wall -Werror
+  default-language: Haskell2010
+
+executable extension-progress
+  hs-source-dirs:
+      app/extension-progress
+    , common
+  main-is:          Main.hs
+  other-modules:
+      ExtensionSupport
+    , GhcOracle
+  build-depends:
+      base >=4.16 && <5
+    , aihc-parser
+    , text
+    , directory
+    , filepath
+    , ghc-lib-parser
+    , time
   ghc-options:        -Wall -Werror
   default-language: Haskell2010

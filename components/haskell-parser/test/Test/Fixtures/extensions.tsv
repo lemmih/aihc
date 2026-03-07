@@ -1,0 +1,34 @@
+# extension	fixture_dir	notes
+ParallelListComp	ParallelListComp	Parallel list comprehensions
+TransformListComp	TransformListComp	TransformListComp (then clauses in list comprehensions)
+ViewPatterns	ViewPatterns	View patterns
+PatternSynonyms	PatternSynonyms	Pattern synonyms
+ScopedTypeVariables	ScopedTypeVariables	Scoped type variables
+TypeApplications	TypeApplications	Type applications
+LambdaCase	LambdaCase	LambdaCase
+MultiWayIf	MultiWayIf	MultiWayIf
+RecordWildCards	RecordWildCards	Record wildcards
+RecordPuns	RecordPuns	Record puns
+NamedFieldPuns	NamedFieldPuns	Named field puns (alias for RecordPuns)
+DisambiguateRecordFields	DisambiguateRecordFields	Disambiguate record fields
+OverloadedStrings	OverloadedStrings	Overloaded strings
+OverloadedLists	OverloadedLists	Overloaded lists
+DeriveGeneric	DeriveGeneric	DeriveGeneric
+DeriveFunctor	DeriveFunctor	DeriveFunctor
+DeriveTraversable	DeriveTraversable	DeriveTraversable
+DeriveFoldable	DeriveFoldable	DeriveFoldable
+StandaloneDeriving	StandaloneDeriving	Standalone deriving
+KindSignatures	KindSignatures	Kind signatures
+TypeInType	TypeInType	Type in type
+DataKinds	DataKinds	Data kinds
+GADTs	GADTs	Generalized algebraic data types
+TypeFamilies	TypeFamilies	Type families
+TypeFamilyDependencies	TypeFamilyDependencies	Type family dependencies
+ExplicitForAll	ExplicitForAll	Explicit for all
+ConstraintKinds	ConstraintKinds	Constraint kinds
+PolyKinds	PolyKinds	Polymorphic kinds
+TemplateHaskell	TemplateHaskell	Template Haskell
+QuasiQuotes	QuasiQuotes	Quasi quotes
+Arrows	Arrows	Arrows
+ParallelArrays	ParallelArrays	Parallel arrays
+ExplicitNamespaces	ExplicitNamespaces	Explicit namespaces

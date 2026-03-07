@@ -13,6 +13,7 @@ import Parser.Pretty (prettyExpr, prettyModule)
 import Parser.Types (ParseResult (..))
 import System.Directory (listDirectory)
 import System.FilePath ((</>))
+import Test.Extensions.Suite (extensionTests)
 import Test.H2010.Suite (h2010Tests)
 import Test.QuickCheck
 import Test.Tasty
@@ -29,6 +30,7 @@ buildTests = do
   moduleOk <- goldenGroup "golden/module/ok" expectModuleOk
   moduleErr <- goldenGroup "golden/module/err" expectModuleErr
   h2010 <- h2010Tests
+  extensions <- extensionTests
   pure $
     testGroup
       "aihc-parser"
@@ -38,7 +40,8 @@ buildTests = do
           [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
             QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip
           ],
-        h2010
+        h2010,
+        extensions
       ]
 
 goldenGroup :: FilePath -> (Text -> Assertion) -> IO TestTree

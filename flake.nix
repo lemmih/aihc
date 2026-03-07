@@ -46,6 +46,16 @@
             cabal run h2010-progress
           '';
 
+          parser-extension-progress = mkApp "parser-extension-progress" ''
+            set -euo pipefail
+            test -d components/haskell-parser || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-parser
+            cabal run extension-progress -- "$@"
+          '';
+
           parser-progress-strict = mkApp "parser-progress-strict" ''
             set -euo pipefail
             test -d components/haskell-parser || {
@@ -54,6 +64,16 @@
             }
             cd components/haskell-parser
             cabal run h2010-progress -- --strict
+          '';
+
+          parser-extension-progress-strict = mkApp "parser-extension-progress-strict" ''
+            set -euo pipefail
+            test -d components/haskell-parser || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-parser
+            cabal run extension-progress -- --strict "$@"
           '';
 
           name-resolution-test = mkApp "name-resolution-test" ''
@@ -144,6 +164,14 @@
             h2010-progress --strict
             touch "$out"
           '';
+          parserExtensionProgressStrict = pkgs.runCommand "aihc-parser-extension-progress-strict" {
+            src = ./.;
+            nativeBuildInputs = [ hsPkgs.aihc-parser ];
+          } ''
+            cd "$src/components/haskell-parser"
+            extension-progress --strict
+            touch "$out"
+          '';
           nameResolutionProgressStrict = pkgs.runCommand "aihc-name-resolution-progress-strict" {
             src = ./.;
             nativeBuildInputs = [ hsPkgs.aihc-name-resolution ];
@@ -156,6 +184,7 @@
           parser-tests = parserTests;
           name-resolution-tests = nameResolutionTests;
           parser-progress-strict = parserProgressStrict;
+          parser-extension-progress-strict = parserExtensionProgressStrict;
           name-resolution-progress-strict = nameResolutionProgressStrict;
           nix-lint = nixLint;
           haskell-lint = haskellLint;
@@ -165,6 +194,7 @@
               { name = "parser-tests"; path = parserTests; }
               { name = "name-resolution-tests"; path = nameResolutionTests; }
               { name = "parser-progress-strict"; path = parserProgressStrict; }
+              { name = "parser-extension-progress-strict"; path = parserExtensionProgressStrict; }
               { name = "name-resolution-progress-strict"; path = nameResolutionProgressStrict; }
               { name = "nix-lint"; path = nixLint; }
               { name = "haskell-lint"; path = haskellLint; }
