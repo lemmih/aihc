@@ -1,10 +1,3 @@
-Build profile: -w ghc-9.10.3 -O1
-In order, the following will be built (use -v for more details):
- - aihc-parser-0.1.0.0 (exe:extension-progress) (file app/extension-progress/Main.hs changed)
-Preprocessing executable 'extension-progress' for aihc-parser-0.1.0.0...
-Building executable 'extension-progress' for aihc-parser-0.1.0.0...
-[1 of 1] Compiling Main             ( app/extension-progress/Main.hs, dist-newstyle/build/aarch64-osx/ghc-9.10.3/aihc-parser-0.1.0.0/x/extension-progress/build/extension-progress/extension-progress-tmp/Main.o ) [Source file changed]
-[2 of 2] Linking dist-newstyle/build/aarch64-osx/ghc-9.10.3/aihc-parser-0.1.0.0/x/extension-progress/build/extension-progress/extension-progress [Objects changed]
 # Haskell Parser Extension Support Status
 
 **Generated**: 2026-03-07

@@ -39,7 +39,9 @@ nix run .#parser-extension-progress
 Regenerate the markdown report with:
 
 ```bash
-nix run .#parser-extension-progress -- --markdown > docs/haskell-parser-extension-support.md
+nix run .#parser-extension-progress -- --markdown \
+  | sed -n '/^# Haskell Parser Extension Support Status/,$p' \
+  > docs/haskell-parser-extension-support.md
 ```
 
 ## Name-Resolution Progress
