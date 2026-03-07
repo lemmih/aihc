@@ -63,6 +63,7 @@
               exit 1
             }
             cd components/haskell-parser
+            cabal update 2>/dev/null || true
             cabal run hackage-tester -- "$@"
           '';
 

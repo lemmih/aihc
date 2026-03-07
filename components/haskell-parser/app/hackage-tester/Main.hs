@@ -2,14 +2,11 @@
 
 module Main (main) where
 
-import Control.Monad (forM, foldM, when, unless)
-import Data.List (isPrefixOf, isSuffixOf, isInfixOf)
+import Control.Monad (forM, foldM, when)
+import Data.List (isPrefixOf, isSuffixOf)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified Data.ByteString.Lazy as BSL
-import qualified Codec.Archive.Tar as Tar
-import qualified Codec.Archive.Tar.Entry as TarEntry
 import qualified GHC.Data.EnumSet as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
@@ -27,23 +24,24 @@ import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
-import qualified Network.HTTP.Client as HTTP
-import Network.HTTP.Types.Status (statusCode)
 import qualified Parser
 import Parser.Pretty (prettyModule)
 import Parser.Types (ParseResult (..))
 import System.Directory
-  ( createDirectoryIfMissing,
+  ( XdgDirectory (XdgCache),
+    createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
+    getXdgDirectory,
     listDirectory,
     removeDirectoryRecursive,
+    removeFile,
     renameDirectory,
   )
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import System.FilePath ((</>), isAbsolute, takeDirectory)
-import qualified System.XDG.BaseDir as XDG
+import System.FilePath ((</>))
+import System.Process (callCommand, readProcess)
 
 main :: IO ()
 main = do
@@ -77,22 +75,15 @@ testPackage packageName = do
 getLatestVersion :: String -> IO (Maybe String)
 getLatestVersion packageName = do
   let url = "https://hackage.haskell.org/package/" ++ packageName ++ "/" ++ packageName ++ ".cabal"
-  manager <- HTTP.newManager HTTP.defaultManagerSettings
-  request <- HTTP.parseRequest url
-  response <- HTTP.httpLbs request manager
-  if statusCode (HTTP.responseStatus response) == 200
-    then
-      let cabalContent = T.decodeUtf8 (BSL.toStrict (HTTP.responseBody response))
-          lines' = T.lines cabalContent
-          versionLines = filter (T.isPrefixOf "version:") lines'
-       in case versionLines of
-            [] -> pure Nothing
-            (vline : _) ->
-              let ver = T.strip (T.drop (T.length "version:") vline)
-               in pure (Just (T.unpack ver))
-    else pure Nothing
-  where
-    decodeUtf8 = T.decodeUtf8
+  result <- readProcess "curl" ["-s", "-f", url] ""
+  let cabalContent = T.pack result
+      lines' = T.lines cabalContent
+      versionLines = filter (T.isPrefixOf "version:") lines'
+   in case versionLines of
+        [] -> pure Nothing
+        (vline : _) ->
+          let ver = T.strip (T.drop (T.length "version:") vline)
+           in pure (Just (T.unpack ver))
 
 downloadPackage :: String -> String -> IO FilePath
 downloadPackage packageName version = do
@@ -122,52 +113,19 @@ downloadPackage packageName version = do
 
 downloadFile :: String -> FilePath -> IO ()
 downloadFile url dest = do
-  manager <- HTTP.newManager HTTP.defaultManagerSettings
-  request <- HTTP.parseRequest url
-  response <- HTTP.httpLbs request manager
-  if statusCode (HTTP.responseStatus response) == 200
-    then BSL.writeFile dest (HTTP.responseBody response)
-    else error ("Failed to download: " ++ url ++ " (HTTP " ++ show (statusCode (HTTP.responseStatus response)) ++ ")")
+  callCommand ("curl -s -f -o " ++ show dest ++ " " ++ show url)
 
--- Simplified extraction: assumes uncompressed tar or that OS has tar command
--- Note: Full gzip support requires zlib C library which may not be available
+-- Extract gzip-compressed tarball using system tar command
 extractTarball :: FilePath -> FilePath -> IO ()
 extractTarball tarball destDir = do
   createDirectoryIfMissing True destDir
-  tarData <- BSL.readFile tarball
-  let entries = Tar.read tarData  -- Assumes uncompressed; modify for gzip support
-  extractEntries destDir entries
-  where
-    extractEntries :: FilePath -> Tar.Entries Tar.FormatError -> IO ()
-    extractEntries dest es = case es of
-      Tar.Next entry rest -> do
-        let path = TarEntry.entryPath entry
-        when (not (isUnsafePath path)) $ do
-          case TarEntry.entryContent entry of
-            Tar.NormalFile content _ -> do
-              let targetPath = dest </> dropFirstComponent path
-              createDirectoryIfMissing True (takeDirectory targetPath)
-              BSL.writeFile targetPath content
-            Tar.Directory -> do
-              let targetPath = dest </> dropFirstComponent path
-              createDirectoryIfMissing True targetPath
-            _ -> pure ()
-        extractEntries dest rest
-      Tar.Done -> pure ()
-      Tar.Fail err -> error ("Tar extraction error: " ++ show err)
-    
-    isUnsafePath path =
-      isAbsolute path || ".." `isInfixOf` path
-    
-    dropFirstComponent path =
-      case dropWhile (/= '/') path of
-        "" -> path
-        ('/':rest) -> rest
-        rest -> rest
+  -- Use system tar to extract gzip-compressed tarball
+  -- tar automatically detects compression format
+  callCommand ("tar -xzf " ++ show tarball ++ " -C " ++ show destDir)
 
 getCacheDir :: IO FilePath
 getCacheDir = do
-  cacheBase <- XDG.getCacheDir "aihc"
+  cacheBase <- getXdgDirectory XdgCache "aihc"
   pure (cacheBase </> "hackage")
 
 findHaskellFiles :: FilePath -> IO [FilePath]
@@ -274,10 +232,10 @@ parseWithGhc input =
       buffer = stringToStringBuffer (T.unpack input)
       start = mkRealSrcLoc (mkFastString "<hackage-tester>") 1 1
    in case unP GHCParser.parseModule (initParserState opts buffer start) of
-         POk _ modu -> Right (unLoc modu)
-         PFailed st ->
-           let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
-            in Left rendered
+        POk _ modu -> Right (unLoc modu)
+        PFailed st ->
+          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
+           in Left (T.pack rendered)
 
 printSummary :: [FileResult] -> IO ()
 printSummary results = do
