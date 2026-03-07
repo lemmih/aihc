@@ -7,6 +7,11 @@ modules-import-qualified	modules	modules/import-qualified.hs	pass	imports unsupp
 modules-import-hiding	modules	modules/import-hiding.hs	pass	imports unsupported
 modules-multi-imports	modules	modules/multi-imports.hs	pass	imports unsupported
 modules-import-as	modules	modules/import-as.hs	pass	imports unsupported
+modules-multiline-definition	modules	modules/multiline-definition.hs	xfail	multi-line module definitions unsupported (#48)
+modules-multiline-definition-module-split	modules	modules/multiline-definition-module-split.hs	xfail	multi-line module definitions unsupported (#48)
+modules-multiline-definition-where-split	modules	modules/multiline-definition-where-split.hs	xfail	multi-line module definitions unsupported (#48)
+modules-multiline-definition-export-list-split	modules	modules/multiline-definition-export-list-split.hs	xfail	multi-line module definitions unsupported (#48)
+modules-multiline-definition-export-list-items-split	modules	modules/multiline-definition-export-list-items-split.hs	xfail	multi-line module definitions unsupported (#48)
 
 modules-s5-export-module-modid	modules	modules/s5-export-module-modid.hs	pass	section 5 module variation unsupported
 modules-s5-export-qtycls-abstract	modules	modules/s5-export-qtycls-abstract.hs	pass	section 5 module variation unsupported
