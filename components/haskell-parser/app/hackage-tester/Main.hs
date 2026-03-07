@@ -36,15 +36,14 @@ import System.Directory
   ( createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
-    getHomeDirectory,
     listDirectory,
-    removeFile,
     removeDirectoryRecursive,
     renameDirectory,
   )
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>), isAbsolute, takeDirectory)
+import qualified System.XDG.BaseDir as XDG
 
 main :: IO ()
 main = do
@@ -168,8 +167,8 @@ extractTarball tarball destDir = do
 
 getCacheDir :: IO FilePath
 getCacheDir = do
-  home <- getHomeDirectory
-  pure (home </> ".cache" </> "aihc" </> "hackage")
+  cacheBase <- XDG.getCacheDir "aihc"
+  pure (cacheBase </> "hackage")
 
 findHaskellFiles :: FilePath -> IO [FilePath]
 findHaskellFiles dir = go [] ""

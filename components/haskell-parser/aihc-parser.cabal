@@ -98,5 +98,6 @@ executable hackage-tester
     , http-types
     , bytestring
     , tar >=0.5
+    , xdg-basedir >=0.2
   ghc-options:        -Wall -Werror
   default-language: Haskell2010
