@@ -543,7 +543,7 @@ prettyExprPrec prec expr =
             <+> hsep
               ( punctuate
                   "|"
-                  (map (\quals -> hsep (punctuate comma (map prettyCompStmt quals))) qualifierGroups)
+                  (map (hsep . punctuate comma . map prettyCompStmt) qualifierGroups)
               )
         )
     EArithSeq _ seqInfo -> prettyArithSeq seqInfo
