@@ -1,0 +1,33 @@
+name: Nix Flake Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  flake-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Configure Cloudflare R2 cache
+        uses: lemmih/nix-s3-cache-action@main
+        with:
+          s3-endpoint: ${{ vars.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          bucket: nix-cache
+          public-key: nix-cache:2eICaC37vEBexPk98J0dRt5FzSX7f6hx0vRl9tPaUuM=
+          aws-access-key-id: 27eecebe75df9848eba8023b20ca888b
+          aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - name: Run flake checks
+        run: nix flake check
