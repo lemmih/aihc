@@ -83,3 +83,20 @@ executable extension-progress
     , time
   ghc-options:        -Wall -Werror
   default-language: Haskell2010
+
+executable hackage-tester
+  hs-source-dirs:   app/hackage-tester
+  main-is:          Main.hs
+  build-depends:
+      base >=4.16 && <5
+    , aihc-parser
+    , text
+    , directory
+    , filepath
+    , ghc-lib-parser
+    , http-client >=0.7
+    , http-types
+    , bytestring
+    , tar >=0.5
+  ghc-options:        -Wall -Werror
+  default-language: Haskell2010
