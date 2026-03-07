@@ -57,7 +57,7 @@ resolveDecls cfg decls st0 =
   where
     resolveOne cfg' binders (acc, st) decl =
       case decl of
-        DeclValue valueDecl ->
+        DeclValue _ valueDecl ->
           case valueDeclBinderName valueDecl of
             Nothing ->
               let (resolvedExprs, st') = resolveDeclValueExprs cfg' valueDecl st
@@ -115,8 +115,8 @@ resolveDeclValueExprs cfg valueDecl st0 =
 valueDeclExprs :: ValueDecl -> [Expr]
 valueDeclExprs valueDecl =
   case valueDecl of
-    FunctionBind _ matches -> concatMap matchExprs matches
-    PatternBind _ rhs -> rhsExprs rhs
+    FunctionBind _ _ matches -> concatMap matchExprs matches
+    PatternBind _ _ rhs -> rhsExprs rhs
 
 matchExprs :: Match -> [Expr]
 matchExprs match = rhsExprs (matchRhs match)
@@ -124,22 +124,22 @@ matchExprs match = rhsExprs (matchRhs match)
 rhsExprs :: Rhs -> [Expr]
 rhsExprs rhs =
   case rhs of
-    UnguardedRhs expr -> [expr]
-    GuardedRhss grhss -> map guardedRhsBody grhss
+    UnguardedRhs _ expr -> [expr]
+    GuardedRhss _ grhss -> map guardedRhsBody grhss
 
 resolveExpr :: ResolveConfig -> Expr -> ResolveState -> (ResolvedExpr, ResolveState)
 resolveExpr cfg expr st =
   case expr of
-    EInt n -> (RInt n, st)
-    EIntBase n _ -> (RInt n, st)
-    EApp f x ->
+    EInt _ n -> (RInt n, st)
+    EIntBase _ n _ -> (RInt n, st)
+    EApp _ f x ->
       let (f', st1) = resolveExpr cfg f st
           (x', st2) = resolveExpr cfg x st1
        in (RApp f' x', st2)
-    EParen inner -> resolveExpr cfg inner st
-    EWhereDecls body _decls ->
+    EParen _ inner -> resolveExpr cfg inner st
+    EWhereDecls _ body _decls ->
       resolveExpr cfg body st
-    EVar name ->
+    EVar _ name ->
       case M.lookup name (env st) of
         Just info ->
           ( RVar

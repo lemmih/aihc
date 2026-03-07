@@ -19,6 +19,9 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Test.Tasty.QuickCheck as QC
 
+span0 :: SourceSpan
+span0 = noSourceSpan
+
 main :: IO ()
 main = buildTests >>= defaultMain
 
@@ -191,23 +194,27 @@ isValidGeneratedIdent ident =
 toExpr :: GenExpr -> Expr
 toExpr generated =
   case generated of
-    GVar name -> EVar name
-    GInt value -> EInt value
-    GApp fn arg -> EApp (toExpr fn) (toExpr arg)
+    GVar name -> EVar span0 name
+    GInt value -> EInt span0 value
+    GApp fn arg -> EApp span0 (toExpr fn) (toExpr arg)
 
 toModule :: GenModule -> Module
 toModule (GenModule decls) =
   Module
-    { moduleName = Just "Generated",
+    { moduleSpan = span0,
+      moduleName = Just "Generated",
       moduleExports = Nothing,
       moduleImports = [],
       moduleDecls =
         [ DeclValue
+            span0
             ( FunctionBind
+                span0
                 name
                 [ Match
-                    { matchPats = [],
-                      matchRhs = UnguardedRhs (toExpr expr)
+                    { matchSpan = span0,
+                      matchPats = [],
+                      matchRhs = UnguardedRhs span0 (toExpr expr)
                     }
                 ]
             )
@@ -222,21 +229,22 @@ stripModuleParens modu =
 stripDeclParens :: Decl -> Decl
 stripDeclParens decl =
   case decl of
-    DeclValue valueDecl -> DeclValue (stripValueDeclParens valueDecl)
+    DeclValue s valueDecl -> DeclValue s (stripValueDeclParens valueDecl)
     _ -> decl
 
 stripValueDeclParens :: ValueDecl -> ValueDecl
 stripValueDeclParens valueDecl =
   case valueDecl of
-    FunctionBind name matches -> FunctionBind name [m {matchRhs = stripRhsParens (matchRhs m)} | m <- matches]
-    PatternBind pat rhs -> PatternBind pat (stripRhsParens rhs)
+    FunctionBind s name matches -> FunctionBind s name [m {matchRhs = stripRhsParens (matchRhs m)} | m <- matches]
+    PatternBind s pat rhs -> PatternBind s pat (stripRhsParens rhs)
 
 stripRhsParens :: Rhs -> Rhs
 stripRhsParens rhs =
   case rhs of
-    UnguardedRhs expr -> UnguardedRhs (stripExprParens expr)
-    GuardedRhss guards ->
+    UnguardedRhs s expr -> UnguardedRhs s (stripExprParens expr)
+    GuardedRhss s guards ->
       GuardedRhss
+        s
         [ grhs {guardedRhsGuards = map stripExprParens (guardedRhsGuards grhs), guardedRhsBody = stripExprParens (guardedRhsBody grhs)}
         | grhs <- guards
         ]
@@ -244,54 +252,58 @@ stripRhsParens rhs =
 stripExprParens :: Expr -> Expr
 stripExprParens expr =
   case expr of
-    EParen inner -> stripExprParens inner
-    EApp f x -> EApp (stripExprParens f) (stripExprParens x)
-    EInfix l op r -> EInfix (stripExprParens l) op (stripExprParens r)
-    ENegate x -> ENegate (stripExprParens x)
-    ESectionL l op -> ESectionL (stripExprParens l) op
-    ESectionR op r -> ESectionR op (stripExprParens r)
-    EIf c t f -> EIf (stripExprParens c) (stripExprParens t) (stripExprParens f)
-    ELambdaPats ps b -> ELambdaPats ps (stripExprParens b)
-    ELetDecls decls body -> ELetDecls (map stripDeclParens decls) (stripExprParens body)
-    ECase scrut alts ->
+    EParen _ inner -> stripExprParens inner
+    EApp s f x -> EApp s (stripExprParens f) (stripExprParens x)
+    EInfix s l op r -> EInfix s (stripExprParens l) op (stripExprParens r)
+    ENegate s x -> ENegate s (stripExprParens x)
+    ESectionL s l op -> ESectionL s (stripExprParens l) op
+    ESectionR s op r -> ESectionR s op (stripExprParens r)
+    EIf s c t f -> EIf s (stripExprParens c) (stripExprParens t) (stripExprParens f)
+    ELambdaPats s ps b -> ELambdaPats s ps (stripExprParens b)
+    ELetDecls s decls body -> ELetDecls s (map stripDeclParens decls) (stripExprParens body)
+    ECase s scrut alts ->
       ECase
+        s
         (stripExprParens scrut)
         [ alt {caseAltRhs = stripRhsParens (caseAltRhs alt)}
         | alt <- alts
         ]
-    EDo stmts ->
+    EDo s stmts ->
       EDo
+        s
         [ case stmt of
-            DoBind p e -> DoBind p (stripExprParens e)
-            DoLet binds -> DoLet [(n, stripExprParens v) | (n, v) <- binds]
-            DoLetDecls decls -> DoLetDecls (map stripDeclParens decls)
-            DoExpr e -> DoExpr (stripExprParens e)
+            DoBind s' p e -> DoBind s' p (stripExprParens e)
+            DoLet s' binds -> DoLet s' [(n, stripExprParens v) | (n, v) <- binds]
+            DoLetDecls s' decls -> DoLetDecls s' (map stripDeclParens decls)
+            DoExpr s' e -> DoExpr s' (stripExprParens e)
         | stmt <- stmts
         ]
-    EListComp body quals ->
+    EListComp s body quals ->
       EListComp
+        s
         (stripExprParens body)
         [ case q of
-            CompGen p e -> CompGen p (stripExprParens e)
-            CompGuard e -> CompGuard (stripExprParens e)
-            CompLet binds -> CompLet [(n, stripExprParens v) | (n, v) <- binds]
-            CompLetDecls decls -> CompLetDecls (map stripDeclParens decls)
+            CompGen s' p e -> CompGen s' p (stripExprParens e)
+            CompGuard s' e -> CompGuard s' (stripExprParens e)
+            CompLet s' binds -> CompLet s' [(n, stripExprParens v) | (n, v) <- binds]
+            CompLetDecls s' decls -> CompLetDecls s' (map stripDeclParens decls)
         | q <- quals
         ]
-    EArithSeq seqInfo ->
+    EArithSeq s seqInfo ->
       EArithSeq
+        s
         ( case seqInfo of
-            ArithSeqFrom a -> ArithSeqFrom (stripExprParens a)
-            ArithSeqFromThen a b -> ArithSeqFromThen (stripExprParens a) (stripExprParens b)
-            ArithSeqFromTo a b -> ArithSeqFromTo (stripExprParens a) (stripExprParens b)
-            ArithSeqFromThenTo a b c -> ArithSeqFromThenTo (stripExprParens a) (stripExprParens b) (stripExprParens c)
+            ArithSeqFrom s' a -> ArithSeqFrom s' (stripExprParens a)
+            ArithSeqFromThen s' a b -> ArithSeqFromThen s' (stripExprParens a) (stripExprParens b)
+            ArithSeqFromTo s' a b -> ArithSeqFromTo s' (stripExprParens a) (stripExprParens b)
+            ArithSeqFromThenTo s' a b c -> ArithSeqFromThenTo s' (stripExprParens a) (stripExprParens b) (stripExprParens c)
         )
-    ERecordCon n fields -> ERecordCon n [(f, stripExprParens v) | (f, v) <- fields]
-    ERecordUpd base fields -> ERecordUpd (stripExprParens base) [(f, stripExprParens v) | (f, v) <- fields]
-    ETypeSig inner ty -> ETypeSig (stripExprParens inner) ty
-    EWhereDecls body decls -> EWhereDecls (stripExprParens body) (map stripDeclParens decls)
-    EList xs -> EList (map stripExprParens xs)
-    ETuple xs -> ETuple (map stripExprParens xs)
+    ERecordCon s n fields -> ERecordCon s n [(f, stripExprParens v) | (f, v) <- fields]
+    ERecordUpd s base fields -> ERecordUpd s (stripExprParens base) [(f, stripExprParens v) | (f, v) <- fields]
+    ETypeSig s inner ty -> ETypeSig s (stripExprParens inner) ty
+    EWhereDecls s body decls -> EWhereDecls s (stripExprParens body) (map stripDeclParens decls)
+    EList s xs -> EList s (map stripExprParens xs)
+    ETuple s xs -> ETuple s (map stripExprParens xs)
     _ -> expr
 
 fixtureRoot :: FilePath
