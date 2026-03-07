@@ -33,6 +33,7 @@ test-suite spec
   main-is:          Spec.hs
   other-modules:
       ExtensionSupport
+    , GhcOracle
     , Test.Oracle
     , Test.H2010.Suite
     , Test.Extensions.Suite
@@ -71,6 +72,7 @@ executable extension-progress
   main-is:          Main.hs
   other-modules:
       ExtensionSupport
+    , GhcOracle
   build-depends:
       base >=4.16 && <5
     , aihc-parser

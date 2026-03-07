@@ -2,23 +2,16 @@
 
 module Main (main) where
 
-import Data.List (nub)
 import Data.Text (Text)
-import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import ExtensionSupport
-import qualified GHC.Data.EnumSet as EnumSet
-import GHC.Data.FastString (mkFastString)
-import GHC.Data.StringBuffer (stringToStringBuffer)
-import GHC.Hs (GhcPs, HsModule)
-import GHC.LanguageExtensions.Type (Extension (ForeignFunctionInterface, ParallelListComp))
-import qualified GHC.Parser as GHCParser
-import qualified GHC.Parser.Lexer as Lexer
-import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
-import GHC.Utils.Error (emptyDiagOpts)
-import GHC.Utils.Outputable (ppr, showSDocUnsafe)
+import GHC.LanguageExtensions.Type (Extension (ParallelListComp))
+import GhcOracle
+  ( oracleModuleAstFingerprintWithExtensionsAt,
+    oracleParsesModuleWithExtensionsAt,
+  )
 import qualified Parser
 import Parser.Ast (Module)
 import Parser.Pretty (prettyModule)
@@ -237,7 +230,7 @@ evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> IO (CaseMeta, Outcom
 evaluateCase spec exts meta = do
   source <- TIO.readFile (fixtureDirFor spec </> casePath meta)
   let parsed = Parser.parseModule Parser.defaultConfig source
-      oracleOk = oracleParsesModuleWithExtensions exts source
+      oracleOk = oracleParsesModuleWithExtensionsAt "extension-progress" exts source
       roundtripOk = moduleRoundtripsViaGhc exts source parsed
   pure (finalizeOutcome meta oracleOk roundtripOk)
 
@@ -247,31 +240,11 @@ moduleRoundtripsViaGhc exts source oursResult =
     ParseErr _ -> False
     ParseOk parsed ->
       let rendered = prettyModule parsed
-       in case (oracleModuleAstFingerprintWithExtensions exts source, oracleModuleAstFingerprintWithExtensions exts rendered) of
+       in case ( oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts source,
+                 oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts rendered
+               ) of
             (Right sourceAst, Right renderedAst) -> sourceAst == renderedAst
             _ -> False
-
-oracleParsesModuleWithExtensions :: [Extension] -> Text -> Bool
-oracleParsesModuleWithExtensions exts input =
-  case parseWithGhcWithExtensions exts input of
-    Right _ -> True
-    Left _ -> False
-
-oracleModuleAstFingerprintWithExtensions :: [Extension] -> Text -> Either Text Text
-oracleModuleAstFingerprintWithExtensions exts input = do
-  parsed <- parseWithGhcWithExtensions exts input
-  pure (T.pack (showSDocUnsafe (ppr parsed)))
-
-parseWithGhcWithExtensions :: [Extension] -> Text -> Either Text (HsModule GhcPs)
-parseWithGhcWithExtensions extraExts input =
-  let allExts = nub (ForeignFunctionInterface : extraExts)
-      exts = EnumSet.fromList allExts :: EnumSet.EnumSet Extension
-      opts = Lexer.mkParserOpts exts emptyDiagOpts False False False False
-      buffer = stringToStringBuffer (T.unpack input)
-      start = mkRealSrcLoc (mkFastString "<extension-progress>") 1 1
-   in case Lexer.unP GHCParser.parseModule (Lexer.initParserState opts buffer start) of
-        Lexer.POk _ modu -> Right (unLoc modu)
-        Lexer.PFailed _ -> Left "oracle parse failed"
 
 resolveOracleExtensions :: ExtensionSpec -> IO [Extension]
 resolveOracleExtensions spec =
