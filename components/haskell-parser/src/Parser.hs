@@ -34,6 +34,7 @@ import Text.Megaparsec
 import qualified Text.Megaparsec as MP
 import qualified Text.Megaparsec.Char as C
 import qualified Text.Megaparsec.Char.Lexer as L
+import Text.Megaparsec.Pos (unPos)
 
 type MParser = Parsec Void Text
 
@@ -115,20 +116,12 @@ consumeModuleHeader rows =
     [] -> Nothing
     (_, firstLine) : _
       | not (startsWithModuleKeyword firstLine) -> Nothing
-      | otherwise -> go [] rows
-  where
-    go _ [] = Nothing
-    go acc ((_, rawLine) : rest) =
-      let trimmed = T.strip rawLine
-          acc' = acc <> [trimmed]
-       in if containsWhereKeyword trimmed
-            then
-              let candidate = T.intercalate "\n" acc'
-               in case parseModuleHeader candidate of
-                    Right parsedHeader -> Just (parsedHeader, rest)
-                    Left _ -> Nothing
-            else
-              go acc' rest
+      | otherwise ->
+          let source = T.unlines (map (T.strip . snd) rows)
+           in case parseModuleHeaderPrefix source of
+                Right (parsedHeader, consumedRows)
+                  | consumedRows > 0 -> Just (parsedHeader, drop consumedRows rows)
+                _ -> Nothing
 
 startsWithModuleKeyword :: Text -> Bool
 startsWithModuleKeyword txt =
@@ -136,25 +129,19 @@ startsWithModuleKeyword txt =
     Right _ -> True
     Left _ -> False
 
-containsWhereKeyword :: Text -> Bool
-containsWhereKeyword txt = go Nothing (T.unpack txt)
+parseModuleHeaderPrefix :: Text -> Either ParseError ((Text, Maybe [ExportSpec]), Int)
+parseModuleHeaderPrefix input =
+  case runParser headerPrefixParser "<module-header>" input of
+    Right value -> Right value
+    Left bundle -> Left (bundleToError input bundle)
   where
-    go _ [] = False
-    go prev chars =
-      case chars of
-        'w' : 'h' : 'e' : 'r' : 'e' : rest
-          | isTokenBoundary prev && isTokenBoundary (safeHead rest) -> True
-        c : rest -> go (Just c) rest
-
-    isTokenBoundary mChar =
-      case mChar of
-        Nothing -> True
-        Just c -> not (isIdentTailOrStart c)
-
-    safeHead xs =
-      case xs of
-        [] -> Nothing
-        y : _ -> Just y
+    headerPrefixParser = do
+      _ <- keyword "module"
+      modName <- identifier
+      exports <- MP.optional (try exportSpecListParser)
+      _ <- C.string "where" <* notFollowedBy identTailOrStartChar
+      pos <- MP.getSourcePos
+      pure ((modName, exports), unPos (MP.sourceLine pos))
 
 parseModuleBodyBraces :: ParserConfig -> Int -> Text -> Either ParseError Module
 parseModuleBodyBraces cfg lineNo txt
@@ -183,17 +170,6 @@ parseModuleBodyBraces cfg lineNo txt
           expected = ["module body"],
           found = if T.null (T.strip raw) then Nothing else Just (T.strip raw)
         }
-
-parseModuleHeader :: Text -> Either ParseError (Text, Maybe [ExportSpec])
-parseModuleHeader = parseLineWith headerParser
-  where
-    headerParser = do
-      _ <- keyword "module"
-      modName <- identifier
-      exports <- MP.optional (try exportSpecListParser)
-      _ <- keyword "where"
-      eof
-      pure (modName, exports)
 
 exportSpecListParser :: MParser [ExportSpec]
 exportSpecListParser = do
