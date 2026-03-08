@@ -1,0 +1,3 @@
+expr-quasiquote	expressions	expr-quasiquote.hs	pass
+pat-quasiquote	patterns	pat-quasiquote.hs	pass
+type-quasiquote	types	type-quasiquote.hs	pass

@@ -257,6 +257,7 @@ stripExprParens expr =
   case expr of
     EParen _ inner -> stripExprParens inner
     EApp s f x -> EApp s (stripExprParens f) (stripExprParens x)
+    ETypeApp s f ty -> ETypeApp s (stripExprParens f) ty
     EInfix s l op r -> EInfix s (stripExprParens l) op (stripExprParens r)
     ENegate s x -> ENegate s (stripExprParens x)
     ESectionL s l op -> ESectionL s (stripExprParens l) op

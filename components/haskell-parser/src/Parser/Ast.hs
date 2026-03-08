@@ -152,6 +152,7 @@ data Pattern
   = PVar SourceSpan Text
   | PWildcard SourceSpan
   | PLit SourceSpan Literal
+  | PQuasiQuote SourceSpan Text Text
   | PTuple SourceSpan [Pattern]
   | PList SourceSpan [Pattern]
   | PCon SourceSpan Text [Pattern]
@@ -167,6 +168,7 @@ data Pattern
 data Type
   = TVar SourceSpan Text
   | TCon SourceSpan Text
+  | TQuasiQuote SourceSpan Text Text
   | TApp SourceSpan Type Type
   | TFun SourceSpan Type Type
   | TTuple SourceSpan [Type]
@@ -314,6 +316,7 @@ data Expr
   | EFloat SourceSpan Double
   | EChar SourceSpan Char
   | EString SourceSpan Text
+  | EQuasiQuote SourceSpan Text Text
   | EIf SourceSpan Expr Expr Expr
   | ELambdaPats SourceSpan [Pattern] Expr
   | EInfix SourceSpan Expr Text Expr
@@ -334,6 +337,7 @@ data Expr
   | EList SourceSpan [Expr]
   | ETuple SourceSpan [Expr]
   | ETupleCon SourceSpan Int
+  | ETypeApp SourceSpan Expr Type
   | EApp SourceSpan Expr Expr
   deriving (Eq, Show)
 

@@ -169,6 +169,7 @@ prettyType ty =
   case ty of
     TVar _ name -> pretty name
     TCon _ name -> pretty name
+    TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     TApp _ f x -> parenthesizeTypeApp f <+> parenthesizeTypeArg x
     TFun _ a b -> parenthesizeTypeFunLeft a <+> "->" <+> prettyType b
     TTuple _ elems -> parens (hsep (punctuate comma (map prettyType elems)))
@@ -187,6 +188,7 @@ parenthesizeTypeFunLeft ty =
 parenthesizeTypeApp :: Type -> Doc ann
 parenthesizeTypeApp ty =
   case ty of
+    TQuasiQuote {} -> prettyType ty
     TFun {} -> parens (prettyType ty)
     TContext {} -> parens (prettyType ty)
     _ -> prettyType ty
@@ -194,6 +196,7 @@ parenthesizeTypeApp ty =
 parenthesizeTypeArg :: Type -> Doc ann
 parenthesizeTypeArg ty =
   case ty of
+    TQuasiQuote {} -> prettyType ty
     TApp {} -> parens (prettyType ty)
     TFun {} -> parens (prettyType ty)
     TContext {} -> parens (prettyType ty)
@@ -220,6 +223,7 @@ prettyTypeAtom ty =
   case ty of
     TVar _ _ -> prettyType ty
     TCon _ _ -> prettyType ty
+    TQuasiQuote {} -> prettyType ty
     TList _ _ -> prettyType ty
     TTuple _ _ -> prettyType ty
     TParen _ _ -> prettyType ty
@@ -231,6 +235,7 @@ prettyPattern pat =
     PVar _ name -> pretty name
     PWildcard _ -> "_"
     PLit _ lit -> prettyLiteral lit
+    PQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     PTuple _ elems -> parens (hsep (punctuate comma (map prettyPattern elems)))
     PList _ elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
     PCon _ con args -> hsep (pretty con : map prettyPatternAtom args)
@@ -258,6 +263,7 @@ prettyPatternAtom pat =
     PVar _ _ -> prettyPattern pat
     PWildcard _ -> prettyPattern pat
     PLit _ _ -> prettyPattern pat
+    PQuasiQuote {} -> prettyPattern pat
     PNegLit _ _ -> prettyPattern pat
     PList _ _ -> prettyPattern pat
     PTuple _ _ -> prettyPattern pat
@@ -494,6 +500,8 @@ prettyExprPrec prec expr =
   case expr of
     EApp _ fn arg ->
       parenthesize (prec > 2) (prettyExprPrec 2 fn <+> prettyExprPrec 3 arg)
+    ETypeApp _ fn ty ->
+      parenthesize (prec > 2) (prettyExprPrec 2 fn <+> "@" <> prettyTypeAtom ty)
     EVar _ name
       | isOperatorToken name -> parens (pretty name)
       | otherwise -> pretty name
@@ -502,6 +510,7 @@ prettyExprPrec prec expr =
     EFloat _ value -> pretty (show value)
     EChar _ value -> pretty (show value)
     EString _ value -> pretty (show value)
+    EQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     EIf _ cond yes no ->
       parenthesize
         (prec > 0)
@@ -621,6 +630,9 @@ parenthesize shouldWrap doc
 
 quoted :: Text -> Doc ann
 quoted txt = pretty (show (T.unpack txt))
+
+prettyQuasiQuote :: Text -> Text -> Doc ann
+prettyQuasiQuote quoter body = "[" <> pretty quoter <> "|" <> pretty body <> "|]"
 
 isOperatorToken :: Text -> Bool
 isOperatorToken tok =

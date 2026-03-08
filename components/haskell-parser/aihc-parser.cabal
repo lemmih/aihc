@@ -34,6 +34,7 @@ test-suite spec
   other-modules:
       ExtensionSupport
     , GhcOracle
+    , OracleExtensions
     , Test.Oracle
     , Test.H2010.Suite
     , Test.Extensions.Suite
@@ -73,6 +74,7 @@ executable extension-progress
   other-modules:
       ExtensionSupport
     , GhcOracle
+    , OracleExtensions
   build-depends:
       base >=4.16 && <5
     , aihc-parser

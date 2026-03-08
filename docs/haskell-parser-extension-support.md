@@ -5,9 +5,9 @@
 ## Summary
 
 - Total Extensions: 33
-- Supported: 2
+- Supported: 4
 - In Progress: 0
-- Planned: 31
+- Planned: 29
 
 ## Extension Status
 
@@ -18,7 +18,7 @@
 | ViewPatterns | Supported | 3/3 | View patterns |
 | PatternSynonyms | Planned | - | Pattern synonyms |
 | ScopedTypeVariables | Planned | - | Scoped type variables |
-| TypeApplications | Planned | - | Type applications |
+| TypeApplications | Supported | 2/2 | Type applications |
 | LambdaCase | Planned | - | LambdaCase |
 | MultiWayIf | Planned | - | MultiWayIf |
 | RecordWildCards | Planned | - | Record wildcards |
@@ -42,7 +42,7 @@
 | ConstraintKinds | Planned | - | Constraint kinds |
 | PolyKinds | Planned | - | Polymorphic kinds |
 | TemplateHaskell | Planned | - | Template Haskell |
-| QuasiQuotes | Planned | - | Quasi quotes |
+| QuasiQuotes | Supported | 3/3 | Quasi quotes |
 | Arrows | Planned | - | Arrows |
 | ParallelArrays | Planned | - | Parallel arrays |
 | ExplicitNamespaces | Planned | - | Explicit namespaces |

@@ -18,8 +18,8 @@ Runtime outcomes are reported as:
 - `FAIL`: regression or invalid case/manifest (for example oracle rejects a `pass` case)
 
 Current progress baseline:
-- `213/218` implemented (`97.71%` complete)
-- `PASS=213`, `XFAIL=5`, `XPASS=0`, `FAIL=0`
+- `218/218` implemented (`100.00%` complete)
+- `PASS=218`, `XFAIL=0`, `XPASS=0`, `FAIL=0`
 
 ## Extension Coverage Tracking
 
@@ -31,9 +31,9 @@ Each extension can provide a manifest at:
 
 Current extension baseline:
 - Total tracked extensions: `33`
-- Supported: `2`
+- Supported: `4`
 - In Progress: `0`
-- Planned: `31`
+- Planned: `29`
 
 Generated report:
 - `../../docs/haskell-parser-extension-support.md`
@@ -78,7 +78,8 @@ Beyond Haskell2010, we track support for various Haskell language extensions. Ea
 ### Generating Extension Status Report
 
 ```bash
-nix run .#extension-report-markdown
+nix run .#parser-extension-progress -- --markdown \
+  | sed -n '/^# Haskell Parser Extension Support Status/,$p'
 ```
 
 This generates a markdown report showing:
@@ -105,7 +106,7 @@ list-comp-parallel-1	expressions	list-comp.hs	pass	parallel list comprehension
 
 ### NIX Commands
 
-- `nix run .#extension-report-markdown` - Generate markdown report to stdout
+- `nix run .#parser-extension-progress -- --markdown | sed -n '/^# Haskell Parser Extension Support Status/,$p'` - Generate clean markdown report to stdout
 - `nix build .#extension-report` - Build report to result/ directory
 - `nix flake check` - Includes extension report as part of CI checks
 
