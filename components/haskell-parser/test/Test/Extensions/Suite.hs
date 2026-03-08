@@ -9,7 +9,8 @@ import Control.Monad (when)
 import Data.Text (Text)
 import qualified Data.Text.IO as TIO
 import ExtensionSupport
-import GHC.LanguageExtensions.Type (Extension (ParallelListComp, TypeApplications))
+import GHC.LanguageExtensions.Type (Extension)
+import OracleExtensions (resolveOracleExtensions)
 import qualified Parser
 import Parser.Ast (Module)
 import Parser.Pretty (prettyModule)
@@ -113,10 +114,3 @@ moduleRoundtripsViaGhc exts source oursResult =
        in case (oracleModuleAstFingerprintWithExtensions exts source, oracleModuleAstFingerprintWithExtensions exts rendered) of
             (Right sourceAst, Right renderedAst) -> sourceAst == renderedAst
             _ -> False
-
-resolveOracleExtensions :: ExtensionSpec -> IO [Extension]
-resolveOracleExtensions spec =
-  case extName spec of
-    "ParallelListComp" -> pure [ParallelListComp]
-    "TypeApplications" -> pure [TypeApplications]
-    _ -> fail ("Unsupported extension fixture without oracle mapping: " <> extName spec)
