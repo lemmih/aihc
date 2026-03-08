@@ -6,18 +6,16 @@
   };
 
    outputs = { self, nixpkgs }:
-     let
-       systems = [
-         "x86_64-linux"
-         "aarch64-linux"
-         "x86_64-darwin"
-         "aarch64-darwin"
-       ];
-       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
-    in {
-      apps = forAllSystems (pkgs:
-        let
-          hsPkgs = pkgs.haskellPackages.override {
+      let
+        systems = [
+          "x86_64-linux"
+          "aarch64-linux"
+          "x86_64-darwin"
+          "aarch64-darwin"
+        ];
+        forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
+        mkHsPkgs = pkgs:
+          pkgs.haskellPackages.override {
             overrides = final: prev: {
               ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
               aihc-parser = final.callCabal2nix "aihc-parser" ./components/haskell-parser { };
@@ -25,6 +23,10 @@
                 final.callCabal2nix "aihc-name-resolution" ./components/haskell-name-resolution { };
             };
           };
+     in {
+      apps = forAllSystems (pkgs:
+        let
+          hsPkgs = mkHsPkgs pkgs;
           h2010ProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "h2010-progress";
           extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
           hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
@@ -143,14 +145,7 @@
 
       checks = forAllSystems (pkgs:
         let
-          hsPkgs = pkgs.haskellPackages.override {
-            overrides = final: prev: {
-              ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-              aihc-parser = final.callCabal2nix "aihc-parser" ./components/haskell-parser { };
-              aihc-name-resolution =
-                final.callCabal2nix "aihc-name-resolution" ./components/haskell-name-resolution { };
-            };
-          };
+          hsPkgs = mkHsPkgs pkgs;
           parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-parser);
           nameResolutionTests =
             pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-name-resolution);
