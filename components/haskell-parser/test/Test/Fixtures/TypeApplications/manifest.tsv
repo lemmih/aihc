@@ -1,1 +1,2 @@
 type-applications-expr-basic	expressions	type-applications-expr-basic.hs	pass
+type-applications-no-space	expressions	type-applications-no-space.hs	xfail	spacing-sensitive parse/pretty roundtrip mismatch vs oracle AST

@@ -1497,10 +1497,13 @@ tokenizeExpr input = go (T.strip input) []
         then Left "expression"
         else do
           (typeAtom, tailTxt) <- consumeAtom trimmed
-          ty <- parseTypeText typeAtom
-          Right (ty, tailTxt)
+          if not (T.null tailTxt) && T.head tailTxt == '@'
+            then Left "expression"
+            else do
+              ty <- parseTypeText typeAtom
+              Right (ty, tailTxt)
 
-    isAtomStop ch = isSpace ch || ch == '`' || (isSymbolicOpChar ch && ch /= '.')
+    isAtomStop ch = isSpace ch || ch == '`' || ch == '@' || (isSymbolicOpChar ch && ch /= '.')
 
     consumeNumber txt =
       case T.stripPrefix "0x" txt <|> T.stripPrefix "0X" txt of
