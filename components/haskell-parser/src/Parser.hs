@@ -1449,34 +1449,39 @@ data ExprToken
   deriving (Eq, Show)
 
 tokenizeExpr :: Text -> Either Text [ExprToken]
-tokenizeExpr input = go (T.strip input) []
+tokenizeExpr input = go (T.strip input) [] Nothing
   where
-    go txt acc
+    go txt acc prevChar
       | T.null txt = Right (reverse acc)
       | otherwise =
           case T.uncons txt of
             Nothing -> Right (reverse acc)
             Just (c, rest)
-              | isSpace c -> go (T.dropWhile isSpace rest) acc
+              | isSpace c -> go (T.dropWhile isSpace rest) acc (Just c)
               | isDigit c ->
                   let (numTok, tailTxt) = consumeNumber txt
-                   in go tailTxt (TokAtom numTok : acc)
+                      nextPrev = if T.null numTok then prevChar else Just (T.last numTok)
+                   in go tailTxt (TokAtom numTok : acc) nextPrev
               | c == '`' ->
                   let (name, tailTxt) = T.breakOn "`" rest
                    in if T.null tailTxt
                         then Left "expression"
-                        else go (T.drop 1 tailTxt) (TokOp (T.strip name) : acc)
+                        else go (T.drop 1 tailTxt) (TokOp (T.strip name) : acc) (Just '`')
               | isSymbolicOpChar c ->
                   let (opTxt, tailTxt) = T.span isSymbolicOpChar txt
                    in if opTxt `elem` ["=", "->", "<-", "=>", "::", "|"]
                         then Left "expression"
-                        else go tailTxt (TokOp opTxt : acc)
+                        else go tailTxt (TokOp opTxt : acc) (Just (T.last opTxt))
               | c == '@' -> do
+                  case prevChar of
+                    Just ch | isIdentTailOrStart ch -> Left "expression"
+                    _ -> pure ()
                   (ty, tailTxt) <- consumeTypeArg rest
-                  go tailTxt (TokTypeApp ty : acc)
+                  go tailTxt (TokTypeApp ty : acc) (Just '@')
               | otherwise -> do
                   (atom, tailTxt) <- consumeAtom txt
-                  go tailTxt (TokAtom atom : acc)
+                  let nextPrev = if T.null atom then prevChar else Just (T.last atom)
+                  go tailTxt (TokAtom atom : acc) nextPrev
 
     consumeAtom txt =
       case T.uncons txt of
@@ -1497,8 +1502,11 @@ tokenizeExpr input = go (T.strip input) []
         then Left "expression"
         else do
           (typeAtom, tailTxt) <- consumeAtom trimmed
-          ty <- parseTypeText typeAtom
-          Right (ty, tailTxt)
+          if not (T.null tailTxt) && T.head tailTxt == '@'
+            then Left "expression"
+            else do
+              ty <- parseTypeText typeAtom
+              Right (ty, tailTxt)
 
     isAtomStop ch = isSpace ch || ch == '`' || ch == '@' || (isSymbolicOpChar ch && ch /= '.')
 

@@ -101,7 +101,7 @@ evaluateCaseFromFile spec exts meta = do
 evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> Text -> IO (CaseMeta, Outcome, String)
 evaluateCase _spec exts meta source = do
   let parsed = Parser.parseModule Parser.defaultConfig source
-      oracleOk = oracleParsesSourceOrCanonical exts source parsed
+      oracleOk = oracleParsesModuleWithExtensions exts source
       roundtripOk = moduleRoundtripsViaGhc exts source parsed
   pure (finalizeOutcome meta oracleOk roundtripOk)
 
@@ -111,17 +111,6 @@ moduleRoundtripsViaGhc exts source oursResult =
     ParseErr _ -> False
     ParseOk parsed ->
       let rendered = prettyModule parsed
-          sourceAstE =
-            case oracleModuleAstFingerprintWithExtensions exts source of
-              Right fp -> Right fp
-              Left _ -> oracleModuleAstFingerprintWithExtensions exts rendered
-       in case (sourceAstE, oracleModuleAstFingerprintWithExtensions exts rendered) of
+       in case (oracleModuleAstFingerprintWithExtensions exts source, oracleModuleAstFingerprintWithExtensions exts rendered) of
             (Right sourceAst, Right renderedAst) -> sourceAst == renderedAst
             _ -> False
-
-oracleParsesSourceOrCanonical :: [Extension] -> Text -> ParseResult Module -> Bool
-oracleParsesSourceOrCanonical exts source parsed =
-  oracleParsesModuleWithExtensions exts source
-    || case parsed of
-      ParseErr _ -> False
-      ParseOk modu -> oracleParsesModuleWithExtensions exts (prettyModule modu)

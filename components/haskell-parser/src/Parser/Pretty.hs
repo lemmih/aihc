@@ -493,12 +493,7 @@ prettyExprPrec prec expr =
     EApp _ fn arg ->
       parenthesize (prec > 2) (prettyExprPrec 2 fn <+> prettyExprPrec 3 arg)
     ETypeApp _ fn ty ->
-      parenthesize
-        (prec > 2)
-        ( if tightTypeAppTarget fn
-            then prettyExprPrec 2 fn <> "@" <> prettyTypeAtom ty
-            else prettyExprPrec 2 fn <+> "@" <> prettyTypeAtom ty
-        )
+      parenthesize (prec > 2) (prettyExprPrec 2 fn <+> "@" <> prettyTypeAtom ty)
     EVar _ name
       | isOperatorToken name -> parens (pretty name)
       | otherwise -> pretty name
@@ -623,14 +618,6 @@ parenthesize :: Bool -> Doc ann -> Doc ann
 parenthesize shouldWrap doc
   | shouldWrap = parens doc
   | otherwise = doc
-
-tightTypeAppTarget :: Expr -> Bool
-tightTypeAppTarget expr =
-  case expr of
-    EVar {} -> True
-    EParen {} -> True
-    ETupleCon {} -> True
-    _ -> False
 
 quoted :: Text -> Doc ann
 quoted txt = pretty (show (T.unpack txt))

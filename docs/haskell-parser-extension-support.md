@@ -18,7 +18,7 @@
 | ViewPatterns | Planned | - | View patterns |
 | PatternSynonyms | Planned | - | Pattern synonyms |
 | ScopedTypeVariables | Planned | - | Scoped type variables |
-| TypeApplications | Supported | 3/3 | Type applications |
+| TypeApplications | Supported | 2/2 | Type applications |
 | LambdaCase | Planned | - | LambdaCase |
 | MultiWayIf | Planned | - | MultiWayIf |
 | RecordWildCards | Planned | - | Record wildcards |
