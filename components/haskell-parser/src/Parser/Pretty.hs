@@ -32,8 +32,12 @@ prettyExpr = renderDoc . prettyExprPrec 0
 
 prettyModule :: Module -> Text
 prettyModule modu =
-  renderDoc (vsep (headerLines <> importLines <> declLines))
+  renderDoc (vsep (pragmaLines <> headerLines <> importLines <> declLines))
   where
+    pragmaLines =
+      map
+        (\ext -> "{-# LANGUAGE" <+> pretty ext <+> "#-}")
+        (moduleLanguagePragmas modu)
     headerLines =
       case moduleName modu of
         Just name ->

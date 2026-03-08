@@ -66,6 +66,7 @@ type OperatorName = Text
 data Module = Module
   { moduleSpan :: SourceSpan,
     moduleName :: Maybe Text,
+    moduleLanguagePragmas :: [Text],
     moduleExports :: Maybe [ExportSpec],
     moduleImports :: [ImportDecl],
     moduleDecls :: [Decl]
