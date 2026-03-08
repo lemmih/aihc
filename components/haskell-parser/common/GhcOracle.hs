@@ -8,7 +8,6 @@ module GhcOracle
   )
 where
 
-import Control.Exception (SomeException, evaluate, try)
 import Data.List (nub)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -31,7 +30,6 @@ import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
-import System.IO.Unsafe (unsafePerformIO)
 
 oracleParsesModuleWithExtensions :: [Extension] -> Text -> Bool
 oracleParsesModuleWithExtensions = oracleParsesModuleWithExtensionsAt "oracle"
@@ -71,25 +69,9 @@ parseWithGhcWithExtensions sourceTag extraExts input =
 extractLanguagePragmas :: ParserOpts -> FilePath -> Text -> [Text]
 extractLanguagePragmas opts sourcePath input =
   let buffer = stringToStringBuffer (T.unpack input)
-      pragmasFromOptions =
-        let (_, rawOpts) = getOptions opts [] buffer sourcePath
-         in foldr collectLanguagePragma [] rawOpts
-      optsResult :: Either SomeException [Text]
-      optsResult =
-        unsafePerformIO (try (evaluate (forceList pragmasFromOptions)))
-   in case optsResult of
-        Right pragmas -> pragmas
-        Left _ -> []
+      (_, rawOpts) = getOptions opts [] buffer sourcePath
+   in foldr collectLanguagePragma [] rawOpts
   where
-    forceList :: [Text] -> [Text]
-    forceList xs = go xs `seq` xs
-
-    go :: [Text] -> ()
-    go xs =
-      case xs of
-        [] -> ()
-        (y : ys) -> T.length y `seq` go ys
-
     collectLanguagePragma located acc =
       let raw = T.strip (T.pack (unLoc located))
        in case T.stripPrefix "-X" raw of
