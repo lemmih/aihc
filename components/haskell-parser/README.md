@@ -31,9 +31,9 @@ Each extension can provide a manifest at:
 
 Current extension baseline:
 - Total tracked extensions: `33`
-- Supported: `1`
+- Supported: `2`
 - In Progress: `0`
-- Planned: `32`
+- Planned: `31`
 
 Generated report:
 - `../../docs/haskell-parser-extension-support.md`
@@ -127,4 +127,3 @@ The tool:
 - Parses all `.hs` and `.lhs` files
 - Reports parse errors and roundtrip failures
 - Shows success rate for the package
-

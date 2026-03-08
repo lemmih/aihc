@@ -1,13 +1,13 @@
 # Haskell Parser Extension Support Status
 
-**Generated**: 2026-03-07
+**Generated**: 2026-03-08
 
 ## Summary
 
 - Total Extensions: 33
-- Supported: 1
+- Supported: 2
 - In Progress: 0
-- Planned: 32
+- Planned: 31
 
 ## Extension Status
 
@@ -18,7 +18,7 @@
 | ViewPatterns | Planned | - | View patterns |
 | PatternSynonyms | Planned | - | Pattern synonyms |
 | ScopedTypeVariables | Planned | - | Scoped type variables |
-| TypeApplications | Planned | - | Type applications |
+| TypeApplications | Supported | 1/1 | Type applications |
 | LambdaCase | Planned | - | LambdaCase |
 | MultiWayIf | Planned | - | MultiWayIf |
 | RecordWildCards | Planned | - | Record wildcards |

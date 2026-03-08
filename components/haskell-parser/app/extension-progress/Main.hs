@@ -7,7 +7,7 @@ import qualified Data.Text.IO as TIO
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import ExtensionSupport
-import GHC.LanguageExtensions.Type (Extension (ParallelListComp))
+import GHC.LanguageExtensions.Type (Extension (ParallelListComp, TypeApplications))
 import GhcOracle
   ( oracleModuleAstFingerprintWithExtensionsAt,
     oracleParsesModuleWithExtensionsAt,
@@ -250,4 +250,5 @@ resolveOracleExtensions :: ExtensionSpec -> IO [Extension]
 resolveOracleExtensions spec =
   case extName spec of
     "ParallelListComp" -> pure [ParallelListComp]
+    "TypeApplications" -> pure [TypeApplications]
     _ -> fail ("Unsupported extension fixture without oracle mapping: " <> extName spec)

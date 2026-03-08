@@ -333,6 +333,7 @@ data Expr
   | EList SourceSpan [Expr]
   | ETuple SourceSpan [Expr]
   | ETupleCon SourceSpan Int
+  | ETypeApp SourceSpan Expr Type
   | EApp SourceSpan Expr Expr
   deriving (Eq, Show)
 

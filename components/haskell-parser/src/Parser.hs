@@ -1352,14 +1352,27 @@ buildExprFromTokens tokens =
     buildApp seg =
       case seg of
         [] -> Left "expression"
-        _ -> do
-          atoms <- traverse parseExprAtom seg
-          Right (foldl1 (EApp span0) atoms)
+        (firstTok : restToks) -> do
+          firstExpr <- parseExprAtom firstTok
+          applyExprToks firstExpr restToks
 
     parseExprAtom tok =
       case tok of
         TokAtom atomTxt -> parseAtomicExpression atomTxt
         TokOp op -> Right (EVar span0 op)
+        TokTypeApp _ -> Left "expression"
+
+    applyExprToks acc toks =
+      case toks of
+        [] -> Right acc
+        (tok : restToks) ->
+          case tok of
+            TokAtom atomTxt -> do
+              atomExpr <- parseAtomicExpression atomTxt
+              applyExprToks (EApp span0 acc atomExpr) restToks
+            TokTypeApp ty ->
+              applyExprToks (ETypeApp span0 acc ty) restToks
+            TokOp _ -> Left "expression"
 
     takeSegment ts =
       let (seg, restSeg) = break isOp ts
@@ -1432,6 +1445,7 @@ parseSection inner =
 data ExprToken
   = TokAtom Text
   | TokOp Text
+  | TokTypeApp Type
   deriving (Eq, Show)
 
 tokenizeExpr :: Text -> Either Text [ExprToken]
@@ -1457,7 +1471,9 @@ tokenizeExpr input = go (T.strip input) []
                    in if opTxt `elem` ["=", "->", "<-", "=>", "::", "|"]
                         then Left "expression"
                         else go tailTxt (TokOp opTxt : acc)
-              | c == '@' -> Left "expression"
+              | c == '@' -> do
+                  (ty, tailTxt) <- consumeTypeArg rest
+                  go tailTxt (TokTypeApp ty : acc)
               | otherwise -> do
                   (atom, tailTxt) <- consumeAtom txt
                   go tailTxt (TokAtom atom : acc)
@@ -1474,6 +1490,15 @@ tokenizeExpr input = go (T.strip input) []
           | otherwise ->
               let (atom, tailTxt) = T.break isAtomStop txt
                in Right (atom, tailTxt)
+
+    consumeTypeArg txt = do
+      let trimmed = T.dropWhile isSpace txt
+      if T.null trimmed
+        then Left "expression"
+        else do
+          (typeAtom, tailTxt) <- consumeAtom trimmed
+          ty <- parseTypeText typeAtom
+          Right (ty, tailTxt)
 
     isAtomStop ch = isSpace ch || ch == '`' || (isSymbolicOpChar ch && ch /= '.')
 
@@ -1820,6 +1845,7 @@ findTopLevelOperatorTriple txt =
                     then Nothing
                     else Just (lhsTxt, op, rhsTxt)
         (_, TokAtom _ : _) -> Nothing
+        (_, TokTypeApp _ : _) -> Nothing
     Left _ -> Nothing
   where
     isOp token =
