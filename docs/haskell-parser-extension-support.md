@@ -5,9 +5,9 @@
 ## Summary
 
 - Total Extensions: 33
-- Supported: 2
+- Supported: 3
 - In Progress: 0
-- Planned: 31
+- Planned: 30
 
 ## Extension Status
 
@@ -42,7 +42,7 @@
 | ConstraintKinds | Planned | - | Constraint kinds |
 | PolyKinds | Planned | - | Polymorphic kinds |
 | TemplateHaskell | Planned | - | Template Haskell |
-| QuasiQuotes | Planned | - | Quasi quotes |
+| QuasiQuotes | Supported | 3/3 | Quasi quotes |
 | Arrows | Planned | - | Arrows |
 | ParallelArrays | Planned | - | Parallel arrays |
 | ExplicitNamespaces | Planned | - | Explicit namespaces |

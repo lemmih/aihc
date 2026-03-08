@@ -6,17 +6,32 @@
   };
 
    outputs = { self, nixpkgs }:
-     let
-       systems = [
-         "x86_64-linux"
-         "aarch64-linux"
-         "x86_64-darwin"
-         "aarch64-darwin"
-       ];
-       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
-    in {
+      let
+        systems = [
+          "x86_64-linux"
+          "aarch64-linux"
+          "x86_64-darwin"
+          "aarch64-darwin"
+        ];
+        forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
+        mkHsPkgs = pkgs:
+          pkgs.haskellPackages.override {
+            overrides = final: prev: {
+              ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+              aihc-parser = final.callCabal2nix "aihc-parser" ./components/haskell-parser { };
+              aihc-name-resolution =
+                final.callCabal2nix "aihc-name-resolution" ./components/haskell-name-resolution { };
+            };
+          };
+     in {
       apps = forAllSystems (pkgs:
         let
+          hsPkgs = mkHsPkgs pkgs;
+          h2010ProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "h2010-progress";
+          extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
+          hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
+          nameResolutionProgressExe =
+            pkgs.lib.getExe' hsPkgs.aihc-name-resolution "name-resolution-progress";
           mkApp = name: text: {
             type = "app";
             program = "${pkgs.writeShellApplication {
@@ -43,7 +58,7 @@
               exit 1
             }
             cd components/haskell-parser
-            cabal run h2010-progress
+            ${h2010ProgressExe}
           '';
 
           parser-extension-progress = mkApp "parser-extension-progress" ''
@@ -53,7 +68,7 @@
               exit 1
             }
             cd components/haskell-parser
-            cabal run extension-progress -- "$@"
+            ${extensionProgressExe} "$@"
           '';
 
           hackage-tester = mkApp "hackage-tester" ''
@@ -64,7 +79,7 @@
             }
             cd components/haskell-parser
             cabal update 2>/dev/null || true
-            cabal run hackage-tester -- "$@"
+            ${hackageTesterExe} "$@"
           '';
 
           parser-progress-strict = mkApp "parser-progress-strict" ''
@@ -74,7 +89,7 @@
               exit 1
             }
             cd components/haskell-parser
-            cabal run h2010-progress -- --strict
+            ${h2010ProgressExe} --strict
           '';
 
           parser-extension-progress-strict = mkApp "parser-extension-progress-strict" ''
@@ -84,7 +99,7 @@
               exit 1
             }
             cd components/haskell-parser
-            cabal run extension-progress -- --strict "$@"
+            ${extensionProgressExe} --strict "$@"
           '';
 
           name-resolution-test = mkApp "name-resolution-test" ''
@@ -104,7 +119,7 @@
               exit 1
             }
             cd components/haskell-name-resolution
-            cabal run name-resolution-progress
+            ${nameResolutionProgressExe}
           '';
 
           name-resolution-progress-strict = mkApp "name-resolution-progress-strict" ''
@@ -114,7 +129,7 @@
               exit 1
             }
             cd components/haskell-name-resolution
-            cabal run name-resolution-progress -- --strict
+            ${nameResolutionProgressExe} --strict
           '';
 
           default = mkApp "default" ''
@@ -130,14 +145,7 @@
 
       checks = forAllSystems (pkgs:
         let
-          hsPkgs = pkgs.haskellPackages.override {
-            overrides = final: prev: {
-              ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-              aihc-parser = final.callCabal2nix "aihc-parser" ./components/haskell-parser { };
-              aihc-name-resolution =
-                final.callCabal2nix "aihc-name-resolution" ./components/haskell-name-resolution { };
-            };
-          };
+          hsPkgs = mkHsPkgs pkgs;
           parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-parser);
           nameResolutionTests =
             pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-name-resolution);
