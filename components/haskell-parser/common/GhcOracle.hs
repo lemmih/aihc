@@ -9,6 +9,7 @@ module GhcOracle
 where
 
 import Data.List (nub)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified GHC.Data.EnumSet as EnumSet
@@ -17,10 +18,8 @@ import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Hs (GhcPs, HsModule)
 import GHC.LanguageExtensions.Type (Extension (ForeignFunctionInterface))
 import GHC.Parser (parseModule)
-import GHC.Parser.Header (getOptions)
 import GHC.Parser.Lexer
   ( ParseResult (..),
-    ParserOpts,
     getPsErrorMessages,
     initParserState,
     mkParserOpts,
@@ -54,9 +53,9 @@ oracleModuleAstFingerprintWithExtensionsAt sourceTag exts input = do
 
 parseWithGhcWithExtensions :: String -> [Extension] -> Text -> Either Text ([Text], HsModule GhcPs)
 parseWithGhcWithExtensions sourceTag extraExts input =
-  let exts = EnumSet.fromList (nub (ForeignFunctionInterface : extraExts)) :: EnumSet.EnumSet Extension
-      opts = mkParserOpts exts emptyDiagOpts False False False False
-      languagePragmas = extractLanguagePragmas opts sourceTag input
+  let parseExts = EnumSet.fromList (nub (ForeignFunctionInterface : extraExts)) :: EnumSet.EnumSet Extension
+      opts = mkParserOpts parseExts emptyDiagOpts False False False False
+      languagePragmas = extractLanguagePragmas input
       sanitizedInput = stripLanguagePragmaLines input
       buffer = stringToStringBuffer (T.unpack sanitizedInput)
       start = mkRealSrcLoc (mkFastString sourceTag) 1 1
@@ -66,19 +65,9 @@ parseWithGhcWithExtensions sourceTag extraExts input =
           let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
            in Left (T.pack rendered)
 
-extractLanguagePragmas :: ParserOpts -> FilePath -> Text -> [Text]
-extractLanguagePragmas opts sourcePath input =
-  let buffer = stringToStringBuffer (T.unpack input)
-      (_, rawOpts) = getOptions opts [] buffer sourcePath
-   in foldr collectLanguagePragma [] rawOpts
-  where
-    collectLanguagePragma located acc =
-      let raw = T.strip (T.pack (unLoc located))
-       in case T.stripPrefix "-X" raw of
-            Just ext
-              | T.null (T.strip ext) -> acc
-              | otherwise -> T.strip ext : acc
-            Nothing -> acc
+extractLanguagePragmas :: Text -> [Text]
+extractLanguagePragmas =
+  concat . mapMaybe (parseLanguagePragmaLine . T.strip) . T.lines
 
 parseLanguagePragmaLine :: Text -> Maybe [Text]
 parseLanguagePragmaLine txt
