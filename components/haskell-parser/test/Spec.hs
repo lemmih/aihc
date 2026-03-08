@@ -206,6 +206,7 @@ toModule (GenModule decls) =
   Module
     { moduleSpan = span0,
       moduleName = Just "Generated",
+      moduleLanguagePragmas = [],
       moduleExports = Nothing,
       moduleImports = [],
       moduleDecls =

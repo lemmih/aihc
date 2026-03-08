@@ -70,33 +70,38 @@ parseModule cfg input =
 parseModuleLines :: ParserConfig -> Text -> Either ParseError Module
 parseModuleLines cfg input = do
   let strippedComments = stripComments cfg input
-      compactText = T.strip strippedComments
-      firstLineNo = firstNonEmptyLineNo strippedComments
+      sourceLines = zip [1 ..] (T.lines strippedComments)
+      (languagePragmas, withoutLeadingLanguagePragmas) = extractLeadingLanguagePragmas sourceLines
+      strippedWithoutLeadingPragmas = T.unlines (map snd withoutLeadingLanguagePragmas)
+      compactText = T.strip strippedWithoutLeadingPragmas
+      firstLineNo = firstNonEmptyLineNo strippedWithoutLeadingPragmas
   if T.null compactText
     then
       Right
         Module
           { moduleSpan = span0,
             moduleName = Nothing,
+            moduleLanguagePragmas = languagePragmas,
             moduleExports = Nothing,
             moduleImports = [],
             moduleDecls = []
           }
-    else case parseModuleBodyBraces cfg firstLineNo compactText of
+    else case parseModuleBodyBraces cfg languagePragmas firstLineNo compactText of
       Right modu -> Right modu
       Left _ ->
-        case runParser (moduleParser cfg <* eof) "<module>" strippedComments of
+        case runParser (moduleParser cfg <* eof) "<module>" strippedWithoutLeadingPragmas of
           Right (header, chunks) -> do
             (imports, decls) <- parseTopLevelChunks cfg chunks
             Right
               Module
                 { moduleSpan = span0,
                   moduleName = fmap fst header,
+                  moduleLanguagePragmas = languagePragmas,
                   moduleExports = header >>= snd,
                   moduleImports = imports,
                   moduleDecls = mergeAdjacentFunctions decls
                 }
-          Left bundle -> Left (bundleToError strippedComments bundle)
+          Left bundle -> Left (bundleToError strippedWithoutLeadingPragmas bundle)
 
 moduleParser :: ParserConfig -> MParser (Maybe (Text, Maybe [ExportSpec]), [(Int, Text)])
 moduleParser _cfg = do
@@ -175,8 +180,8 @@ firstNonEmptyLineNo txt = go 1 (T.lines txt)
             then go (n + 1) rest
             else n
 
-parseModuleBodyBraces :: ParserConfig -> Int -> Text -> Either ParseError Module
-parseModuleBodyBraces cfg lineNo txt
+parseModuleBodyBraces :: ParserConfig -> [Text] -> Int -> Text -> Either ParseError Module
+parseModuleBodyBraces cfg languagePragmas lineNo txt
   | hasOuterBraces txt =
       case splitOuterBraces txt of
         Right (before, inside)
@@ -187,6 +192,7 @@ parseModuleBodyBraces cfg lineNo txt
                 Module
                   { moduleSpan = span0,
                     moduleName = Nothing,
+                    moduleLanguagePragmas = languagePragmas,
                     moduleExports = Nothing,
                     moduleImports = imports,
                     moduleDecls = mergeAdjacentFunctions decls
@@ -2106,23 +2112,56 @@ stripComments cfg = go (0 :: Int) False False False T.empty
                 Just (chunk, rest) ->
                   go blockDepth False False False (acc <> chunk) rest
                 Nothing ->
-                  case T.stripPrefix "{-" remaining of
-                    Just rest -> go (blockDepth + 1) False False False acc rest
+                  case T.stripPrefix "{-#" remaining of
+                    Just rest -> go blockDepth False False False (acc <> "{-#") rest
                     Nothing ->
-                      if allowLineComments cfg && "--" `T.isPrefixOf` remaining
-                        then
-                          let afterComment = T.drop 2 remaining
-                              (_, newlineAndRest) = T.break (== '\n') afterComment
-                           in case T.uncons newlineAndRest of
-                                Just ('\n', rest) -> go blockDepth False False False (T.snoc acc '\n') rest
-                                _ -> acc
-                        else
-                          if c == '"'
-                            then go blockDepth True False False (T.snoc acc c) cs
+                      case T.stripPrefix "{-" remaining of
+                        Just rest -> go (blockDepth + 1) False False False acc rest
+                        Nothing ->
+                          if allowLineComments cfg && "--" `T.isPrefixOf` remaining
+                            then
+                              let afterComment = T.drop 2 remaining
+                                  (_, newlineAndRest) = T.break (== '\n') afterComment
+                               in case T.uncons newlineAndRest of
+                                    Just ('\n', rest) -> go blockDepth False False False (T.snoc acc '\n') rest
+                                    _ -> acc
                             else
-                              if c == '\''
-                                then go blockDepth False True False (T.snoc acc c) cs
-                                else go blockDepth False False False (T.snoc acc c) cs
+                              if c == '"'
+                                then go blockDepth True False False (T.snoc acc c) cs
+                                else
+                                  if c == '\''
+                                    then go blockDepth False True False (T.snoc acc c) cs
+                                    else go blockDepth False False False (T.snoc acc c) cs
+
+isLanguagePragma :: Text -> Bool
+isLanguagePragma = isJust . parseLanguagePragmaNames
+
+extractLeadingLanguagePragmas :: [(Int, Text)] -> ([Text], [(Int, Text)])
+extractLeadingLanguagePragmas = go []
+  where
+    go acc rows =
+      case rows of
+        [] -> (reverse acc, [])
+        ((_, raw) : rest) ->
+          let stripped = T.strip raw
+           in if T.null stripped
+                then go acc rest
+                else
+                  if isLanguagePragma stripped
+                    then case parseLanguagePragmaNames stripped of
+                      Just names -> go (reverse names <> acc) rest
+                      Nothing -> go acc rest
+                    else (reverse acc, rows)
+
+parseLanguagePragmaNames :: Text -> Maybe [Text]
+parseLanguagePragmaNames txt
+  | "{-#" `T.isPrefixOf` txt && "#-}" `T.isSuffixOf` txt =
+      case T.stripPrefix "LANGUAGE" (T.strip (T.dropEnd 3 (T.drop 3 txt))) of
+        Just rawNames ->
+          let names = filter (not . T.null) (map T.strip (T.splitOn "," rawNames))
+           in if null names then Nothing else Just names
+        Nothing -> Nothing
+  | otherwise = Nothing
 
 isFixityDecl :: Text -> Bool
 isFixityDecl txt =

@@ -9,6 +9,7 @@ module GhcOracle
 where
 
 import Data.List (nub)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified GHC.Data.EnumSet as EnumSet
@@ -43,17 +44,48 @@ oracleModuleAstFingerprintWithExtensions = oracleModuleAstFingerprintWithExtensi
 
 oracleModuleAstFingerprintWithExtensionsAt :: String -> [Extension] -> Text -> Either Text Text
 oracleModuleAstFingerprintWithExtensionsAt sourceTag exts input = do
-  parsed <- parseWithGhcWithExtensions sourceTag exts input
-  pure (T.pack (showSDocUnsafe (ppr parsed)))
+  (pragmas, parsed) <- parseWithGhcWithExtensions sourceTag exts input
+  let pragmaFingerprint =
+        if null pragmas
+          then ""
+          else "LANGUAGE " <> T.intercalate "," pragmas <> "\n"
+  pure (pragmaFingerprint <> T.pack (showSDocUnsafe (ppr parsed)))
 
-parseWithGhcWithExtensions :: String -> [Extension] -> Text -> Either Text (HsModule GhcPs)
+parseWithGhcWithExtensions :: String -> [Extension] -> Text -> Either Text ([Text], HsModule GhcPs)
 parseWithGhcWithExtensions sourceTag extraExts input =
-  let exts = EnumSet.fromList (nub (ForeignFunctionInterface : extraExts)) :: EnumSet.EnumSet Extension
-      opts = mkParserOpts exts emptyDiagOpts False False False False
-      buffer = stringToStringBuffer (T.unpack input)
+  let parseExts = EnumSet.fromList (nub (ForeignFunctionInterface : extraExts)) :: EnumSet.EnumSet Extension
+      opts = mkParserOpts parseExts emptyDiagOpts False False False False
+      languagePragmas = extractLanguagePragmas input
+      sanitizedInput = stripLanguagePragmaLines input
+      buffer = stringToStringBuffer (T.unpack sanitizedInput)
       start = mkRealSrcLoc (mkFastString sourceTag) 1 1
    in case unP parseModule (initParserState opts buffer start) of
-        POk _ modu -> Right (unLoc modu)
+        POk _ modu -> Right (languagePragmas, unLoc modu)
         PFailed st ->
           let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
            in Left (T.pack rendered)
+
+extractLanguagePragmas :: Text -> [Text]
+extractLanguagePragmas =
+  concat . mapMaybe (parseLanguagePragmaLine . T.strip) . T.lines
+
+parseLanguagePragmaLine :: Text -> Maybe [Text]
+parseLanguagePragmaLine txt
+  | "{-#" `T.isPrefixOf` txt && "#-}" `T.isSuffixOf` txt =
+      case T.stripPrefix "LANGUAGE" (T.strip (T.dropEnd 3 (T.drop 3 txt))) of
+        Just rawNames ->
+          let names = filter (not . T.null) (map T.strip (T.splitOn "," rawNames))
+           in if null names then Nothing else Just names
+        Nothing -> Nothing
+  | otherwise = Nothing
+
+stripLanguagePragmaLines :: Text -> Text
+stripLanguagePragmaLines =
+  T.unlines
+    . filter (not . isLanguagePragmaLine . T.strip)
+    . T.lines
+  where
+    isLanguagePragmaLine t =
+      case parseLanguagePragmaLine t of
+        Just _ -> True
+        Nothing -> False
