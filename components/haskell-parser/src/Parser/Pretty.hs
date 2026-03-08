@@ -498,6 +498,8 @@ prettyExprPrec prec expr =
   case expr of
     EApp _ fn arg ->
       parenthesize (prec > 2) (prettyExprPrec 2 fn <+> prettyExprPrec 3 arg)
+    ETypeApp _ fn ty ->
+      parenthesize (prec > 2) (prettyExprPrec 2 fn <+> "@" <> prettyTypeAtom ty)
     EVar _ name
       | isOperatorToken name -> parens (pretty name)
       | otherwise -> pretty name

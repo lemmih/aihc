@@ -5,9 +5,9 @@
 ## Summary
 
 - Total Extensions: 33
-- Supported: 2
+- Supported: 3
 - In Progress: 0
-- Planned: 31
+- Planned: 30
 
 ## Extension Status
 
@@ -18,7 +18,7 @@
 | ViewPatterns | Planned | - | View patterns |
 | PatternSynonyms | Planned | - | Pattern synonyms |
 | ScopedTypeVariables | Planned | - | Scoped type variables |
-| TypeApplications | Planned | - | Type applications |
+| TypeApplications | Supported | 2/2 | Type applications |
 | LambdaCase | Planned | - | LambdaCase |
 | MultiWayIf | Planned | - | MultiWayIf |
 | RecordWildCards | Planned | - | Record wildcards |
