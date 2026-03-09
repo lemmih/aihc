@@ -16,19 +16,21 @@
         forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
         mkHsPkgs = pkgs:
           pkgs.haskellPackages.override {
-            overrides = final: prev: {
-              ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-              aihc-parser = final.callCabal2nix "aihc-parser" ./components/haskell-parser { };
-              aihc-name-resolution =
-                final.callCabal2nix "aihc-name-resolution" ./components/haskell-name-resolution { };
-            };
-          };
+             overrides = final: prev: {
+               ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+               aihc-parser = final.callCabal2nix "aihc-parser" ./components/haskell-parser { };
+               aihc-cpp = final.callCabal2nix "aihc-cpp" ./components/haskell-cpp { };
+               aihc-name-resolution =
+                 final.callCabal2nix "aihc-name-resolution" ./components/haskell-name-resolution { };
+             };
+           };
      in {
       apps = forAllSystems (pkgs:
         let
           hsPkgs = mkHsPkgs pkgs;
           h2010ProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "h2010-progress";
           extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
+          cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
           hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
           nameResolutionProgressExe =
             pkgs.lib.getExe' hsPkgs.aihc-name-resolution "name-resolution-progress";
@@ -110,6 +112,36 @@
             ${extensionProgressExe} --strict "$@"
           '';
 
+          cpp-test = mkApp "cpp-test" ''
+            set -euo pipefail
+            test -d components/haskell-cpp || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-cpp
+            cabal test --test-show-details=direct
+          '';
+
+          cpp-progress = mkApp "cpp-progress" ''
+            set -euo pipefail
+            test -d components/haskell-cpp || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-cpp
+            CPPHS_BIN='${pkgs.lib.getExe pkgs.haskellPackages.cpphs}' ${cppProgressExe}
+          '';
+
+          cpp-progress-strict = mkApp "cpp-progress-strict" ''
+            set -euo pipefail
+            test -d components/haskell-cpp || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-cpp
+            CPPHS_BIN='${pkgs.lib.getExe pkgs.haskellPackages.cpphs}' ${cppProgressExe} --strict
+          '';
+
           name-resolution-test = mkApp "name-resolution-test" ''
             set -euo pipefail
             test -d components/haskell-name-resolution || {
@@ -174,9 +206,11 @@
           hsPkgs = mkHsPkgs pkgs;
           h2010ProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "h2010-progress";
           extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
+          cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
           nameResolutionProgressExe =
             pkgs.lib.getExe' hsPkgs.aihc-name-resolution "name-resolution-progress";
           parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-parser);
+          cppTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-cpp);
           nameResolutionTests =
             pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-name-resolution);
           nixLint = pkgs.runCommand "aihc-nix-lint" {
@@ -221,6 +255,14 @@
             extension-progress --strict
             touch "$out"
           '';
+          cppProgressStrict = pkgs.runCommand "aihc-cpp-progress-strict" {
+            src = ./.;
+            nativeBuildInputs = [ hsPkgs.aihc-cpp pkgs.haskellPackages.cpphs ];
+          } ''
+            cd "$src/components/haskell-cpp"
+            CPPHS_BIN='${pkgs.lib.getExe pkgs.haskellPackages.cpphs}' cpp-progress --strict
+            touch "$out"
+          '';
           nameResolutionProgressStrict = pkgs.runCommand "aihc-name-resolution-progress-strict" {
             src = ./.;
             nativeBuildInputs = [ hsPkgs.aihc-name-resolution ];
@@ -234,35 +276,41 @@
             nativeBuildInputs = [
               pkgs.bash
               hsPkgs.aihc-parser
+              hsPkgs.aihc-cpp
               hsPkgs.aihc-name-resolution
             ];
           } ''
             cd "$src"
             PARSER_PROGRESS_CMD='cd components/haskell-parser && ${h2010ProgressExe}' \
             PARSER_EXTENSION_PROGRESS_CMD='cd components/haskell-parser && ${extensionProgressExe} --markdown' \
+            CPP_PROGRESS_CMD='cd components/haskell-cpp && CPPHS_BIN=${pkgs.lib.getExe pkgs.haskellPackages.cpphs} ${cppProgressExe}' \
             NAME_RESOLUTION_PROGRESS_CMD='cd components/haskell-name-resolution && ${nameResolutionProgressExe}' \
               bash ./scripts/update-generated-content.sh --check
             touch "$out"
           '';
         in {
           parser-tests = parserTests;
+          cpp-tests = cppTests;
           name-resolution-tests = nameResolutionTests;
           parser-progress-strict = parserProgressStrict;
           parser-extension-progress-strict = parserExtensionProgressStrict;
+          cpp-progress-strict = cppProgressStrict;
           name-resolution-progress-strict = nameResolutionProgressStrict;
           generated-reports-check = generatedReportsCheck;
            nix-lint = nixLint;
            haskell-lint = haskellLint;
            haskell-format = haskellFormat;
            all-tests =
-             pkgs.linkFarm "aihc-all-tests" [
-               { name = "parser-tests"; path = parserTests; }
-               { name = "name-resolution-tests"; path = nameResolutionTests; }
-               { name = "parser-progress-strict"; path = parserProgressStrict; }
-               { name = "parser-extension-progress-strict"; path = parserExtensionProgressStrict; }
-               { name = "name-resolution-progress-strict"; path = nameResolutionProgressStrict; }
-               { name = "generated-reports-check"; path = generatedReportsCheck; }
-               { name = "nix-lint"; path = nixLint; }
+              pkgs.linkFarm "aihc-all-tests" [
+                { name = "parser-tests"; path = parserTests; }
+                { name = "cpp-tests"; path = cppTests; }
+                { name = "name-resolution-tests"; path = nameResolutionTests; }
+                { name = "parser-progress-strict"; path = parserProgressStrict; }
+                { name = "parser-extension-progress-strict"; path = parserExtensionProgressStrict; }
+                { name = "cpp-progress-strict"; path = cppProgressStrict; }
+                { name = "name-resolution-progress-strict"; path = nameResolutionProgressStrict; }
+                { name = "generated-reports-check"; path = generatedReportsCheck; }
+                { name = "nix-lint"; path = nixLint; }
                { name = "haskell-lint"; path = haskellLint; }
                { name = "haskell-format"; path = haskellFormat; }
              ];

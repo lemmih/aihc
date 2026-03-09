@@ -48,6 +48,22 @@ nix run .#parser-extension-progress -- --markdown \
   > docs/haskell-parser-extension-support.md
 ```
 
+## CPP Preprocessor Progress
+
+The pure CPP component lives in `components/haskell-cpp`.
+
+Current progress:
+<!-- AUTO-GENERATED: START cpp-progress -->
+- `9/14` preprocessing cases implemented (`64.28%` complete)
+- status breakdown: `PASS=9`, `XFAIL=5`, `XPASS=0`, `FAIL=0`
+<!-- AUTO-GENERATED: END cpp-progress -->
+
+Recompute progress with:
+
+```bash
+nix run .#cpp-progress
+```
+
 ## Name-Resolution Progress
 
 The name-resolution component lives in `components/haskell-name-resolution`.

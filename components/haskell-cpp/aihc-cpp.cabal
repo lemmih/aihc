@@ -1,0 +1,63 @@
+cabal-version:      3.8
+name:               aihc-cpp
+version:            0.1.0.0
+build-type:         Simple
+license:            MIT
+license-file:       LICENSE
+author:             aihc
+maintainer:         aihc@example.com
+category:           Compilers
+synopsis:           Pure Haskell C preprocessor for aihc
+
+library
+  exposed-modules:
+      Cpp
+  hs-source-dirs:   src
+  build-depends:
+      base >=4.16 && <5
+    , text >=1.2
+    , containers
+    , filepath
+  ghc-options:        -Wall -Werror
+  default-language: Haskell2010
+
+test-suite spec
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Spec.hs
+  other-modules:
+      Test.Progress
+  build-depends:
+      base >=4.16 && <5
+    , aihc-cpp
+    , text
+    , containers
+    , directory
+    , filepath
+    , process
+    , tasty
+    , tasty-hunit
+  build-tool-depends:
+      cpphs:cpphs
+  ghc-options:        -Wall -Werror
+  default-language: Haskell2010
+
+executable cpp-progress
+  hs-source-dirs:
+      app/cpp-progress
+    , test
+  main-is:          Main.hs
+  other-modules:
+      Test.Progress
+  build-depends:
+      base >=4.16 && <5
+    , aihc-cpp
+    , text
+    , containers
+    , directory
+    , filepath
+    , process
+  build-tool-depends:
+      cpphs:cpphs
+  ghc-options:        -Wall -Werror
+  default-language: Haskell2010

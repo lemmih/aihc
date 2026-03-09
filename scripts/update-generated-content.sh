@@ -39,6 +39,7 @@ run_cmd() {
 
 parser_cmd="${PARSER_PROGRESS_CMD:-nix run .#parser-progress}"
 extension_cmd="${PARSER_EXTENSION_PROGRESS_CMD:-nix run .#parser-extension-progress -- --markdown}"
+cpp_cmd="${CPP_PROGRESS_CMD:-nix run .#cpp-progress}"
 name_resolution_cmd="${NAME_RESOLUTION_PROGRESS_CMD:-nix run .#name-resolution-progress}"
 
 tmpdir="$(mktemp -d)"
@@ -50,9 +51,11 @@ trap cleanup EXIT
 parser_out="$tmpdir/parser-progress.txt"
 extension_out="$tmpdir/extension-progress.md"
 name_out="$tmpdir/name-resolution-progress.txt"
+cpp_out="$tmpdir/cpp-progress.txt"
 
 run_cmd "$parser_cmd" > "$parser_out"
 run_cmd "$extension_cmd" | sed -n '/^# Haskell Parser Extension Support Status/,$p' > "$extension_out"
+run_cmd "$cpp_cmd" > "$cpp_out"
 run_cmd "$name_resolution_cmd" > "$name_out"
 
 parse_progress() {
@@ -111,6 +114,15 @@ name_total="${name_vals[4]}"
 name_implemented="${name_vals[5]}"
 name_complete="${name_vals[6]}"
 
+readarray -t cpp_vals < <(parse_progress "$cpp_out")
+cpp_pass="${cpp_vals[0]}"
+cpp_xfail="${cpp_vals[1]}"
+cpp_xpass="${cpp_vals[2]}"
+cpp_fail="${cpp_vals[3]}"
+cpp_total="${cpp_vals[4]}"
+cpp_implemented="${cpp_vals[5]}"
+cpp_complete="${cpp_vals[6]}"
+
 readarray -t ext_vals < <(parse_extension_summary "$extension_out")
 ext_total="${ext_vals[0]}"
 ext_supported="${ext_vals[1]}"
@@ -134,6 +146,11 @@ cat > "$tmpdir/readme-root-name.txt" <<EOF2
 - status breakdown: \`PASS=${name_pass}\`, \`XFAIL=${name_xfail}\`, \`XPASS=${name_xpass}\`, \`FAIL=${name_fail}\`
 EOF2
 
+cat > "$tmpdir/readme-root-cpp.txt" <<EOF2
+- \`${cpp_implemented}/${cpp_total}\` preprocessing cases implemented (\`${cpp_complete}%\` complete)
+- status breakdown: \`PASS=${cpp_pass}\`, \`XFAIL=${cpp_xfail}\`, \`XPASS=${cpp_xpass}\`, \`FAIL=${cpp_fail}\`
+EOF2
+
 cat > "$tmpdir/readme-parser-h2010.txt" <<EOF2
 - \`${parser_implemented}/${parser_total}\` implemented (\`${parser_complete}%\` complete)
 - \`PASS=${parser_pass}\`, \`XFAIL=${parser_xfail}\`, \`XPASS=${parser_xpass}\`, \`FAIL=${parser_fail}\`
@@ -149,6 +166,11 @@ EOF2
 cat > "$tmpdir/readme-name-resolution.txt" <<EOF2
 - \`${name_implemented}/${name_total}\` implemented (\`${name_complete}%\` complete)
 - \`PASS=${name_pass}\`, \`XFAIL=${name_xfail}\`, \`XPASS=${name_xpass}\`, \`FAIL=${name_fail}\`
+EOF2
+
+cat > "$tmpdir/readme-cpp.txt" <<EOF2
+- \`${cpp_implemented}/${cpp_total}\` implemented (\`${cpp_complete}%\` complete)
+- \`PASS=${cpp_pass}\`, \`XFAIL=${cpp_xfail}\`, \`XPASS=${cpp_xpass}\`, \`FAIL=${cpp_fail}\`
 EOF2
 
 replace_marker_block() {
@@ -211,9 +233,11 @@ fi
 
 replace_marker_block README.md "parser-progress" "$tmpdir/readme-root-parser.txt"
 replace_marker_block README.md "parser-extension-progress" "$tmpdir/readme-root-extension.txt"
+replace_marker_block README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
 replace_marker_block README.md "name-resolution-progress" "$tmpdir/readme-root-name.txt"
 replace_marker_block components/haskell-parser/README.md "haskell2010-progress" "$tmpdir/readme-parser-h2010.txt"
 replace_marker_block components/haskell-parser/README.md "extension-progress" "$tmpdir/readme-parser-extension.txt"
+replace_marker_block components/haskell-cpp/README.md "cpp-progress" "$tmpdir/readme-cpp.txt"
 replace_marker_block components/haskell-name-resolution/README.md "name-resolution-progress" "$tmpdir/readme-name-resolution.txt"
 
 if [ "$mode" = "--check" ] && [ "$stale" -ne 0 ]; then

@@ -1,0 +1,2 @@
+#define FOO answer
+FOO
