@@ -83,7 +83,7 @@ type TokParser = Parsec Void [LexToken]
 
 lexTokens :: Text -> Either Text [LexToken]
 lexTokens input =
-  case runParser (many (spaceConsumer *> lexTokenParser) <* spaceConsumer <* eof) "<lexer>" input of
+  case runParser (many (try (spaceConsumer *> lexTokenParser)) <* spaceConsumer <* eof) "<lexer>" input of
     Right toks -> Right toks
     Left _ -> Left "token stream"
 
@@ -270,7 +270,7 @@ manyTillText :: Text -> LParser String
 manyTillText end = go []
   where
     go acc =
-      (try (C.string end) >> pure (reverse acc))
+      (MP.lookAhead (C.string end) >> pure (reverse acc))
         <|> do
           ch <- anySingle
           go (ch : acc)

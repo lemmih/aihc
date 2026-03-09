@@ -1479,106 +1479,164 @@ mergeAdjacentFunctions = reverse . foldl' merge []
     shouldMerge prevMatches currMatches =
       not (all (null . matchPats) (prevMatches <> currMatches))
 
--- | Parse a type from Text using the original text-based parser
+-- | Parse a type from Text using the token-based parser
 parseTypeText :: Text -> Either Text Type
-parseTypeText input =
-  parseTypeContext (T.strip input)
-  where
-    parseTypeContext txt =
-      case splitTopLevelMaybe "=>" txt of
-        Just (ctxTxt, tailTxt) -> do
-          constraints <- parseConstraints ctxTxt
-          rhsTy <- parseFunType (T.strip tailTxt)
-          Right (TContext span0 constraints rhsTy)
-        Nothing -> parseFunType txt
+parseTypeText input = do
+  toks <- lexTokens input
+  case runParser (typeTokParser <* MP.eof) "<type>" toks of
+    Right ty -> Right ty
+    Left _ -> Left "type"
 
-    parseFunType txt =
-      let parts = map T.strip (splitTopLevelTokenRaw "->" txt)
-       in case parts of
-            [] -> Left "type"
-            [single] -> parseTypeApp single
-            manyParts -> do
-              tys <- traverse parseTypeApp manyParts
-              pure (foldr1 (TFun span0) tys)
-
-    parseTypeApp txt =
-      let atoms = splitTopLevelWords txt
-       in case atoms of
-            [] -> Left "type"
-            (firstAtom : restAtoms) -> do
-              firstTy <- parseTypeAtom firstAtom
-              foldl' applyTy (Right firstTy) restAtoms
-
-    applyTy acc atomTxt = do
-      fn <- acc
-      arg <- parseTypeAtom atomTxt
-      Right (TApp span0 fn arg)
-
-    parseTypeAtom atomTxt =
-      let stripped = T.strip atomTxt
-       in if T.null stripped
-            then Left "type"
-            else case parseQuasiQuoteText stripped of
-              Just (quoter, body) -> Right (TQuasiQuote span0 quoter body)
-              Nothing ->
-                case T.uncons stripped of
-                  Just ('[', _) | T.last stripped == ']' -> do
-                    inner <- parseTypeText (T.init (T.tail stripped))
-                    Right (TList span0 inner)
-                  Just ('(', _)
-                    | T.last stripped == ')' ->
-                        let inner = T.strip (T.init (T.tail stripped))
-                            tupleParts = splitTopLevel ',' inner
-                            tupleCtorLike = not (T.null inner) && T.all (== ',') inner
-                         in if inner == "->"
-                              then Right (TCon span0 "(->)")
-                              else
-                                if tupleCtorLike
-                                  then Right (TCon span0 ("(" <> inner <> ")"))
-                                  else
-                                    if T.null inner
-                                      then Right (TTuple span0 [])
-                                      else
-                                        if length tupleParts > 1
-                                          then TTuple span0 <$> traverse parseTypeText tupleParts
-                                          else TParen span0 <$> parseTypeText inner
-                  _ | isTypeToken stripped -> Right (TCon span0 stripped)
-                  _ -> Right (TVar span0 stripped)
-
--- Helper function for splitting on token (restoring the old one)
-splitTopLevelTokenRaw :: Text -> Text -> [Text]
-splitTopLevelTokenRaw token txt =
-  case splitTopLevelMaybe token txt of
-    Nothing -> [T.strip txt]
-    Just (lhs, rhs) -> T.strip lhs : splitTopLevelTokenRaw token rhs
-
+-- | Parse constraints using token-based parser
 parseConstraints :: Text -> Either Text [Constraint]
-parseConstraints txt =
-  let stripped = T.strip txt
-      compact = T.filter (not . isSpace) stripped
-   in if stripped == "()" || compact == "()"
-        then Right [Constraint {constraintSpan = span0, constraintClass = "()", constraintArgs = [], constraintParen = False}]
-        else
-          let inner = if hasOuterParens stripped then T.drop 1 (T.dropEnd 1 stripped) else stripped
-              parts = filter (not . T.null) (map T.strip (splitTopLevel ',' inner))
-              parenthesizedSingle = hasOuterParens stripped && length parts == 1
-           in do
-                parsed <- traverse parseConstraint parts
-                if parenthesizedSingle
-                  then case parsed of
-                    [single] -> Right [single {constraintParen = True}]
-                    _ -> Right parsed
-                  else Right parsed
+parseConstraints txt = do
+  toks <- lexTokens txt
+  case runParser (constraintsTokParser <* MP.eof) "<constraints>" toks of
+    Right cs -> Right cs
+    Left _ -> Left "constraint"
 
-parseConstraint :: Text -> Either Text Constraint
-parseConstraint txt =
-  case splitTopLevelWords txt of
-    [] -> Left "constraint"
-    (cls : args)
-      | isTypeToken cls -> do
-          argTypes <- traverse parseTypeText args
-          Right Constraint {constraintSpan = span0, constraintClass = cls, constraintArgs = argTypes, constraintParen = False}
-      | otherwise -> Left "constraint"
+-- | Parse a list of constraints
+constraintsTokParser :: TokParser [Constraint]
+constraintsTokParser = do
+  mParen <- MP.optional (try (symbolTok "("))
+  case mParen of
+    Just _ -> do
+      -- Check for empty ()
+      mClose <- MP.optional (try (symbolTok ")"))
+      case mClose of
+        Just _ -> pure [Constraint span0 "()" [] False]
+        Nothing -> do
+          -- Parse comma-separated constraints
+          first <- constraintTokParser
+          rest <- many (symbolTok "," *> constraintTokParser)
+          symbolTok ")"
+          let constraints = first : rest
+          -- Mark single parenthesized constraint
+          case constraints of
+            [single] -> pure [single {constraintParen = True}]
+            _ -> pure constraints
+    Nothing -> do
+      -- Single constraint without parens
+      c <- constraintTokParser
+      pure [c]
+
+-- | Parse a single constraint (Class arg1 arg2 ...)
+constraintTokParser :: TokParser Constraint
+constraintTokParser = do
+  clsName <- identifierTok
+  if not (isTypeToken clsName)
+    then fail "constraint class"
+    else do
+      args <- many typeAtomTokParser
+      pure Constraint {constraintSpan = span0, constraintClass = clsName, constraintArgs = args, constraintParen = False}
+
+-- | Parse an atomic type for constraint arguments
+typeAtomTokParser :: TokParser Type
+typeAtomTokParser =
+  try quasiQuoteTypeTokParser
+    <|> try listTypeTokParser
+    <|> try tupleOrParenTypeTokParser
+    <|> typeVarOrConTokParser
+
+-- | Parse a quasi-quoted type
+quasiQuoteTypeTokParser :: TokParser Type
+quasiQuoteTypeTokParser = do
+  (quoter, body) <- quasiQuoteTok
+  pure (TQuasiQuote span0 quoter body)
+
+-- | Parse a list type [a]
+listTypeTokParser :: TokParser Type
+listTypeTokParser = do
+  symbolTok "["
+  inner <- typeTokParser
+  symbolTok "]"
+  pure (TList span0 inner)
+
+-- | Parse a tuple type, unit type, parenthesized type, or special constructors
+tupleOrParenTypeTokParser :: TokParser Type
+tupleOrParenTypeTokParser = do
+  symbolTok "("
+  result <- emptyOrContent
+  symbolTok ")"
+  pure result
+  where
+    emptyOrContent = do
+      done <- isJust <$> MP.optional (MP.lookAhead (symbolTok ")"))
+      if done
+        then pure (TTuple span0 [])
+        else do
+          -- Check for special case: (->)
+          mArrow <- MP.optional (try (operatorTok "->"))
+          case mArrow of
+            Just _ -> pure (TCon span0 "(->)")
+            Nothing -> do
+              -- Check for tuple constructor (,,,)
+              mCommas <- MP.optional (try tupleConstructorTokParser)
+              case mCommas of
+                Just n -> pure (TCon span0 ("(" <> T.replicate n "," <> ")"))
+                Nothing -> do
+                  -- Parse first type
+                  first <- typeTokParser
+                  -- Check for more elements (tuple) or just parens
+                  rest <- many (symbolTok "," *> typeTokParser)
+                  case rest of
+                    [] -> pure (TParen span0 first)
+                    _ -> pure (TTuple span0 (first : rest))
+
+    -- Parse tuple constructor like (,,) - returns number of commas
+    tupleConstructorTokParser :: TokParser Int
+    tupleConstructorTokParser = do
+      n <- length <$> MP.some (symbolTok ",")
+      -- Make sure next token is )
+      _ <- MP.lookAhead (symbolTok ")")
+      pure n
+
+-- | Parse a type variable or constructor
+typeVarOrConTokParser :: TokParser Type
+typeVarOrConTokParser = do
+  name <- identifierTok
+  pure $
+    if isTypeToken name
+      then TCon span0 name
+      else TVar span0 name
+
+-- | Parse a type from a token stream (full type with context and arrows)
+typeTokParser :: TokParser Type
+typeTokParser = typeContextTokParser
+
+-- | Parse a type with optional context (constraints => type)
+typeContextTokParser :: TokParser Type
+typeContextTokParser = do
+  mConstraints <- MP.optional (try constraintsWithArrowTokParser)
+  ty <- funTypeTokParser
+  case mConstraints of
+    Nothing -> pure ty
+    Just constraints -> pure (TContext span0 constraints ty)
+
+-- | Parse constraints followed by =>
+constraintsWithArrowTokParser :: TokParser [Constraint]
+constraintsWithArrowTokParser = do
+  constraints <- constraintsTokParser
+  operatorTok "=>"
+  pure constraints
+
+-- | Parse a function type (a -> b -> c)
+funTypeTokParser :: TokParser Type
+funTypeTokParser = do
+  first <- typeAppTokParser
+  rest <- many (operatorTok "->" *> typeAppTokParser)
+  pure (foldr1Safe (TFun span0) (first : rest))
+  where
+    foldr1Safe _ [x] = x
+    foldr1Safe f (x : xs) = f x (foldr1Safe f xs)
+    foldr1Safe _ [] = error "funTypeTokParser: impossible empty list"
+
+-- | Parse a type application (T a b c)
+typeAppTokParser :: TokParser Type
+typeAppTokParser = do
+  first <- typeAtomTokParser
+  rest <- many typeAtomTokParser
+  pure (foldl' (TApp span0) first rest)
 
 parsePatternText :: Text -> Either Text Pattern
 parsePatternText input =
