@@ -32,7 +32,6 @@ Current extension baseline:
 - Supported: `4`
 - In Progress: `0`
 - Planned: `54`
-
 <!-- AUTO-GENERATED: END parser-extension-progress -->
 
 Recompute extension status with:
