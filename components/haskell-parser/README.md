@@ -19,8 +19,8 @@ Runtime outcomes are reported as:
 
 Current progress baseline:
 <!-- AUTO-GENERATED: START haskell2010-progress -->
-- `230/239` implemented (`96.23%` complete)
-- `PASS=230`, `XFAIL=9`, `XPASS=0`, `FAIL=0`
+- `234/239` implemented (`97.90%` complete)
+- `PASS=234`, `XFAIL=5`, `XPASS=0`, `FAIL=0`
 <!-- AUTO-GENERATED: END haskell2010-progress -->
 
 ## Extension Coverage Tracking
@@ -129,6 +129,7 @@ nix run .#hackage-tester -- transformers
 
 The tool:
 - Downloads and caches packages locally in `~/.cache/aihc/hackage/`
+- Runs the in-repo CPP preprocessor before parsing (with best-effort include resolution)
 - Parses all `.hs` and `.lhs` files
 - Reports parse errors and roundtrip failures
 - Shows success rate for the package

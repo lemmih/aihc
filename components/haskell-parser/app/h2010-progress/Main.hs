@@ -2,6 +2,8 @@
 
 module Main (main) where
 
+import Cpp (resultOutput)
+import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd)
 import Data.Text (Text)
@@ -106,9 +108,10 @@ pct done totalN
 evaluateCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCase meta = do
   source <- TIO.readFile (fixtureRoot </> casePath meta)
-  let parsed = Parser.parseModule Parser.defaultConfig source
-      oracleOk = oracleParsesModule source
-      roundtripOk = moduleRoundtripsViaGhc source parsed
+  let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
+      parsed = Parser.parseModule Parser.defaultConfig source'
+      oracleOk = oracleParsesModule source'
+      roundtripOk = moduleRoundtripsViaGhc source' parsed
       (outcome, details) = classify (caseExpected meta) oracleOk roundtripOk
   pure (meta, outcome, details)
 
