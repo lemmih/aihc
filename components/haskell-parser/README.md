@@ -19,8 +19,8 @@ Runtime outcomes are reported as:
 
 Current progress baseline:
 <!-- AUTO-GENERATED: START haskell2010-progress -->
-- `230/230` implemented (`100.00%` complete)
-- `PASS=230`, `XFAIL=0`, `XPASS=0`, `FAIL=0`
+- `230/252` implemented (`91.26%` complete)
+- `PASS=230`, `XFAIL=22`, `XPASS=0`, `FAIL=0`
 <!-- AUTO-GENERATED: END haskell2010-progress -->
 
 ## Extension Coverage Tracking

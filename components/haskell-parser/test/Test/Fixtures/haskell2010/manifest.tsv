@@ -238,3 +238,26 @@ lexical-block-comments	lexical	lexical/block-comments.hs	pass	block comments uns
 lexical-strings-chars	lexical	lexical/strings-chars.hs	pass	string and char literals unsupported
 lexical-numeric-literals	lexical	lexical/numeric-literals.hs	pass	roundtrip mismatch against oracle AST
 lexical-operators	lexical	lexical/operators.hs	pass	
+
+corpus-filepath-ospath-windows-internal-cpp-include	corpus	corpus/filepath-1.5.5.0/ospath-windows-internal-cpp-include.hs	xfail	filepath-1.5.5.0/System/OsPath/Windows/Internal.hs parse failure; CPP #include is unsupported
+corpus-filepath-ospath-types-cpp-if	corpus	corpus/filepath-1.5.5.0/ospath-types-cpp-if.hs	xfail	filepath-1.5.5.0/System/OsPath/Types.hs parse failure; CPP conditionals are unsupported
+corpus-filepath-ospath-internal-cpp-branch-import	corpus	corpus/filepath-1.5.5.0/ospath-internal-cpp-branch-import.hs	xfail	filepath-1.5.5.0/System/OsPath/Internal.hs parse failure; CPP-gated imports are unsupported
+corpus-filepath-ospath-windows-th-pattern-quote	corpus	corpus/filepath-1.5.5.0/ospath-windows-template-haskell-pattern-quote.hs	xfail	filepath-1.5.5.0/System/OsPath/Windows.hs parse failure; TH pattern quotes with view patterns unsupported
+corpus-filepath-ospath-posix-th-pattern-quote	corpus	corpus/filepath-1.5.5.0/ospath-posix-template-haskell-pattern-quote.hs	xfail	filepath-1.5.5.0/System/OsPath/Posix.hs parse failure; TH pattern quotes with view patterns unsupported
+corpus-filepath-ospath-common-cpp-module-switch	corpus	corpus/filepath-1.5.5.0/ospath-common-cpp-module-switch.hs	xfail	filepath-1.5.5.0/System/OsPath/Common.hs parse failure; CPP-selected module headers unsupported
+corpus-filepath-ospath-posix-internal-cpp-include	corpus	corpus/filepath-1.5.5.0/ospath-posix-internal-cpp-include.hs	xfail	filepath-1.5.5.0/System/OsPath/Posix/Internal.hs parse failure; CPP #include is unsupported
+corpus-filepath-ospath-cpp-include-common	corpus	corpus/filepath-1.5.5.0/ospath-cpp-include-common.hs	xfail	filepath-1.5.5.0/System/OsPath.hs parse failure; CPP #include templates are unsupported
+corpus-filepath-filepath-cpp-module-switch	corpus	corpus/filepath-1.5.5.0/filepath-cpp-module-switch.hs	xfail	filepath-1.5.5.0/System/FilePath.hs parse failure; CPP-selected module body unsupported
+corpus-filepath-filepath-internal-cpp-module-macro	corpus	corpus/filepath-1.5.5.0/filepath-internal-cpp-module-name-macro.hs	xfail	filepath-1.5.5.0/System/FilePath/Internal.hs parse failure; macroized module names unsupported
+corpus-filepath-filepath-windows-cpp-include	corpus	corpus/filepath-1.5.5.0/filepath-windows-cpp-include-internal.hs	xfail	filepath-1.5.5.0/System/FilePath/Windows.hs parse failure; CPP #include is unsupported
+corpus-filepath-filepath-posix-cpp-include	corpus	corpus/filepath-1.5.5.0/filepath-posix-cpp-include-internal.hs	xfail	filepath-1.5.5.0/System/FilePath/Posix.hs parse failure; CPP #include is unsupported
+corpus-filepath-generate-cpp-list	corpus	corpus/filepath-1.5.5.0/generate-cpp-inside-list-expression.hs	xfail	filepath-1.5.5.0/Generate.hs parse failure; CPP directives inside expressions unsupported
+corpus-filepath-equiv-gen-deriving-via	corpus	corpus/filepath-1.5.5.0/equiv-gen-deriving-via.hs	xfail	filepath-1.5.5.0/tests/filepath-equivalent-tests/Gen.hs parse failure; instance overlap pragmas unsupported
+corpus-filepath-equiv-legacy-filepath-cpp-module	corpus	corpus/filepath-1.5.5.0/equiv-legacy-filepath-cpp-module-switch.hs	xfail	filepath-1.5.5.0/tests/filepath-equivalent-tests/Legacy/System/FilePath.hs parse failure; CPP-selected module body unsupported
+corpus-filepath-equiv-legacy-windows-pattern-guards	corpus	corpus/filepath-1.5.5.0/equiv-legacy-windows-pattern-guards.hs	xfail	filepath-1.5.5.0/tests/filepath-equivalent-tests/Legacy/System/FilePath/Windows.hs parse failure; pattern guards unsupported
+corpus-filepath-equiv-legacy-posix-pattern-guards	corpus	corpus/filepath-1.5.5.0/equiv-legacy-posix-pattern-guards.hs	xfail	filepath-1.5.5.0/tests/filepath-equivalent-tests/Legacy/System/FilePath/Posix.hs parse failure; pattern guards unsupported
+corpus-filepath-equiv-test-visible-typeapp-view-pattern	corpus	corpus/filepath-1.5.5.0/equiv-test-visible-typeapp-in-view-pattern.hs	xfail	filepath-1.5.5.0/tests/filepath-equivalent-tests/TestEquiv.hs parse failure; typed lambda patterns unsupported
+corpus-filepath-tests-options-ghc-cpp	corpus	corpus/filepath-1.5.5.0/filepath-tests-options-ghc-and-cpp.hs	xfail	filepath-1.5.5.0/tests/filepath-tests/TestGen.hs parse failure; OPTIONS_GHC + CPP combination unsupported
+corpus-filepath-abstract-arbitrary-options-ghc	corpus	corpus/filepath-1.5.5.0/abstract-arbitrary-options-ghc.hs	xfail	filepath-1.5.5.0/tests/abstract-filepath/Arbitrary.hs parse failure; OPTIONS_GHC pragma handling incomplete
+corpus-filepath-abstract-ospathspec-typeapp-view-pattern	corpus	corpus/filepath-1.5.5.0/abstract-ospathspec-typeapp-view-pattern.hs	xfail	filepath-1.5.5.0/tests/abstract-filepath/OsPathSpec.hs parse failure; complex pattern guards unsupported
+corpus-filepath-testutil-cpp-conditional-import	corpus	corpus/filepath-1.5.5.0/testutil-cpp-conditional-import.hs	xfail	filepath-1.5.5.0/tests/TestUtil.hs parse failure; CPP-conditional imports unsupported
