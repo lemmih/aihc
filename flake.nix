@@ -146,7 +146,7 @@
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            ./scripts/update-generated-content.sh --update
+            bash ./scripts/update-generated-content.sh --update
           '';
 
           check-reports = mkReportsApp "check-reports" ''
@@ -155,7 +155,7 @@
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            ./scripts/update-generated-content.sh --check
+            bash ./scripts/update-generated-content.sh --check
           '';
 
           default = mkApp "default" ''
@@ -241,7 +241,7 @@
             PARSER_PROGRESS_CMD='cd components/haskell-parser && ${h2010ProgressExe}' \
             PARSER_EXTENSION_PROGRESS_CMD='cd components/haskell-parser && ${extensionProgressExe} --markdown' \
             NAME_RESOLUTION_PROGRESS_CMD='cd components/haskell-name-resolution && ${nameResolutionProgressExe}' \
-              ./scripts/update-generated-content.sh --check
+              bash ./scripts/update-generated-content.sh --check
             touch "$out"
           '';
         in {
