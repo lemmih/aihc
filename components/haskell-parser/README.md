@@ -33,10 +33,11 @@ Each extension can provide a manifest at:
 
 Current extension baseline:
 <!-- AUTO-GENERATED: START extension-progress -->
-- Total tracked extensions: `33`
+- Total tracked extensions: `58`
 - Supported: `4`
 - In Progress: `0`
-- Planned: `29`
+- Planned: `54`
+
 <!-- AUTO-GENERATED: END extension-progress -->
 
 Generated report:
