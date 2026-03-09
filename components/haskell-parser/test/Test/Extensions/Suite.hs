@@ -6,6 +6,8 @@ module Test.Extensions.Suite
 where
 
 import Control.Monad (when)
+import Cpp (resultOutput)
+import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Text (Text)
 import qualified Data.Text.IO as TIO
 import ExtensionSupport
@@ -100,9 +102,10 @@ evaluateCaseFromFile spec exts meta = do
 
 evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> Text -> IO (CaseMeta, Outcome, String)
 evaluateCase _spec exts meta source = do
-  let parsed = Parser.parseModule Parser.defaultConfig source
-      oracleOk = oracleParsesModuleWithExtensions exts source
-      roundtripOk = moduleRoundtripsViaGhc exts source parsed
+  let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
+      parsed = Parser.parseModule Parser.defaultConfig source'
+      oracleOk = oracleParsesModuleWithExtensions exts source'
+      roundtripOk = moduleRoundtripsViaGhc exts source' parsed
   pure (finalizeOutcome meta oracleOk roundtripOk)
 
 moduleRoundtripsViaGhc :: [Extension] -> Text -> ParseResult Module -> Bool

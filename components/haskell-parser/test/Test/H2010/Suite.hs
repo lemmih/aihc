@@ -6,6 +6,8 @@ module Test.H2010.Suite
 where
 
 import Control.Monad (when)
+import Cpp (resultOutput)
+import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd)
 import Data.Text (Text)
@@ -122,9 +124,10 @@ evaluateCase meta = do
 
 evaluateCaseText :: CaseMeta -> Text -> IO Outcome
 evaluateCaseText meta source = do
-  let oursResult = Parser.parseModule Parser.defaultConfig source
-      oracleOk = oracleParsesModule source
-      roundtripOk = moduleRoundtripsViaGhc source oursResult
+  let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
+      oursResult = Parser.parseModule Parser.defaultConfig source'
+      oracleOk = oracleParsesModule source'
+      roundtripOk = moduleRoundtripsViaGhc source' oursResult
   pure $ classify (caseExpected meta) oracleOk roundtripOk
 
 classify :: Expected -> Bool -> Bool -> Outcome

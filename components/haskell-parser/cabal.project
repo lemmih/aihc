@@ -1,2 +1,2 @@
-packages: .
+packages: . ../haskell-cpp
 tests: True

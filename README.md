@@ -11,7 +11,7 @@ The from-scratch parser lives in `components/haskell-parser`.
 
 Current Haskell2010 progress:
 <!-- AUTO-GENERATED: START parser-progress -->
-- `230/239` syntax cases implemented (`96.23%` complete)
+- `234/239` syntax cases implemented (`97.90%` complete)
 <!-- AUTO-GENERATED: END parser-progress -->
 
 ## Haskell Parser Extension Support Progress

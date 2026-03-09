@@ -3,7 +3,16 @@
 module Main (main) where
 
 import Control.Monad (foldM, forM, when)
-import Data.List (isPrefixOf, isSuffixOf)
+import Cpp
+  ( Diagnostic (..),
+    IncludeKind (..),
+    IncludeRequest (..),
+    Severity (..),
+    resultDiagnostics,
+    resultOutput,
+  )
+import CppSupport (preprocessForParser)
+import Data.List (isPrefixOf, isSuffixOf, nub)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -40,7 +49,7 @@ import System.Directory
   )
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import System.FilePath ((</>))
+import System.FilePath (isAbsolute, makeRelative, normalise, splitDirectories, takeDirectory, (</>))
 import System.Process (callCommand, readProcess)
 
 main :: IO ()
@@ -65,7 +74,7 @@ testPackage packageName = do
       srcDir <- downloadPackage packageName ver
       files <- findHaskellFiles srcDir
       putStrLn ("Found " ++ show (length files) ++ " Haskell source files")
-      results <- processFiles files
+      results <- processFiles srcDir files
       printSummary results
       let failed = filter (\r -> parseError r || roundtripFail r) results
       if null failed
@@ -160,20 +169,27 @@ data FileResult = FileResult
     roundtripErrorMsg :: Maybe Text
   }
 
-processFiles :: [FilePath] -> IO [FileResult]
-processFiles files =
+processFiles :: FilePath -> [FilePath] -> IO [FileResult]
+processFiles packageRoot files =
   forM files $ \file -> do
-    result <- processFile file
+    result <- processFile packageRoot file
     case (parseError result, roundtripFail result) of
       (True, _) -> putStrLn ("PARSE_ERROR: " ++ file)
       (_, True) -> putStrLn ("ROUNDTRIP_FAIL: " ++ file)
       _ -> pure ()
     pure result
 
-processFile :: FilePath -> IO FileResult
-processFile file = do
+processFile :: FilePath -> FilePath -> IO FileResult
+processFile packageRoot file = do
   source <- TIO.readFile file
-  let oursResult = Parser.parseModule Parser.defaultConfig source
+  preprocessed <- preprocessForParser file (resolveIncludeBestEffort packageRoot file) source
+  let source' = resultOutput preprocessed
+      cppErrors = [diagToText diag | diag <- resultDiagnostics preprocessed, diagSeverity diag == Error]
+      cppErrorMsg =
+        if null cppErrors
+          then Nothing
+          else Just (T.intercalate "\n" cppErrors)
+      oursResult = Parser.parseModule Parser.defaultConfig source'
   case oursResult of
     ParseErr err ->
       pure
@@ -181,12 +197,12 @@ processFile file = do
           { filePath = file,
             parseError = True,
             roundtripFail = False,
-            parseErrorMsg = Just (T.pack (show err)),
+            parseErrorMsg = Just (prefixCppErrors cppErrorMsg (T.pack (show err))),
             roundtripErrorMsg = Nothing
           }
     ParseOk parsed -> do
       let rendered = prettyModule parsed
-      let sourceAst = oracleModuleAstFingerprint source
+      let sourceAst = oracleModuleAstFingerprint source'
       let renderedAst = oracleModuleAstFingerprint rendered
       case (sourceAst, renderedAst) of
         (Right sa, Right ra) ->
@@ -197,7 +213,7 @@ processFile file = do
                   { filePath = file,
                     parseError = False,
                     roundtripFail = False,
-                    parseErrorMsg = Nothing,
+                    parseErrorMsg = cppErrorMsg,
                     roundtripErrorMsg = Nothing
                   }
             else
@@ -206,8 +222,8 @@ processFile file = do
                   { filePath = file,
                     parseError = False,
                     roundtripFail = True,
-                    parseErrorMsg = Nothing,
-                    roundtripErrorMsg = Just "AST fingerprint mismatch"
+                    parseErrorMsg = cppErrorMsg,
+                    roundtripErrorMsg = Just (prefixCppErrors cppErrorMsg "AST fingerprint mismatch")
                   }
         _ ->
           pure
@@ -215,9 +231,78 @@ processFile file = do
               { filePath = file,
                 parseError = False,
                 roundtripFail = True,
-                parseErrorMsg = Nothing,
-                roundtripErrorMsg = Just "Failed to get AST fingerprint"
+                parseErrorMsg = cppErrorMsg,
+                roundtripErrorMsg = Just (prefixCppErrors cppErrorMsg "Failed to get AST fingerprint")
               }
+
+resolveIncludeBestEffort :: FilePath -> FilePath -> IncludeRequest -> IO (Maybe Text)
+resolveIncludeBestEffort packageRoot currentFile req = do
+  firstExisting <- firstExistingPath (includeCandidates packageRoot currentFile req)
+  case firstExisting of
+    Nothing -> pure Nothing
+    Just includeFile -> Just <$> TIO.readFile includeFile
+
+includeCandidates :: FilePath -> FilePath -> IncludeRequest -> [FilePath]
+includeCandidates packageRoot currentFile req =
+  map normalise $ nub [dir </> includePath req | dir <- searchDirs]
+  where
+    includeDir = takeDirectory (includeFrom req)
+    sourceRelDir = takeDirectory (makeRelative packageRoot currentFile)
+    packageAncestors = ancestorDirs sourceRelDir
+    localRoots =
+      [ takeDirectory currentFile,
+        packageRoot </> sourceRelDir,
+        packageRoot </> includeDir
+      ]
+    systemRoots =
+      [ packageRoot </> "include",
+        packageRoot </> "includes",
+        packageRoot </> "cbits",
+        packageRoot
+      ]
+    searchDirs =
+      case includeKind req of
+        IncludeLocal -> localRoots <> map (packageRoot </>) packageAncestors <> systemRoots
+        IncludeSystem -> systemRoots <> localRoots <> map (packageRoot </>) packageAncestors
+
+ancestorDirs :: FilePath -> [FilePath]
+ancestorDirs path =
+  case filter (not . null) (splitDirectories path) of
+    [] -> []
+    parts ->
+      [ foldl (</>) "." (take n parts)
+      | n <- [length parts, length parts - 1 .. 1]
+      ]
+
+firstExistingPath :: [FilePath] -> IO (Maybe FilePath)
+firstExistingPath [] = pure Nothing
+firstExistingPath (candidate : rest) = do
+  let path = if isAbsolute candidate then candidate else normalise candidate
+  exists <- doesFileExist path
+  if exists
+    then pure (Just path)
+    else firstExistingPath rest
+
+diagToText :: Diagnostic -> Text
+diagToText diag =
+  T.pack (diagFile diag)
+    <> ":"
+    <> T.pack (show (diagLine diag))
+    <> ": "
+    <> sev
+    <> ": "
+    <> diagMessage diag
+  where
+    sev =
+      case diagSeverity diag of
+        Warning -> "warning"
+        Error -> "error"
+
+prefixCppErrors :: Maybe Text -> Text -> Text
+prefixCppErrors cppMsg msg =
+  case cppMsg of
+    Nothing -> msg
+    Just cppText -> "cpp diagnostics:\n" <> cppText <> "\n" <> msg
 
 oracleModuleAstFingerprint :: Text -> Either Text Text
 oracleModuleAstFingerprint input = do

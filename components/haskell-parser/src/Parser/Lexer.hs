@@ -58,7 +58,7 @@ type TokParser = Parsec Void [LexToken]
 
 lexTokens :: Text -> Either Text [LexToken]
 lexTokens input =
-  case runParser (spaceConsumer *> many lexTokenParser <* spaceConsumer <* eof) "<lexer>" input of
+  case runParser (many (spaceConsumer *> lexTokenParser) <* spaceConsumer <* eof) "<lexer>" input of
     Right toks -> Right toks
     Left _ -> Left "token stream"
 
@@ -77,7 +77,7 @@ parseImportDeclTokens input = do
     Left _ -> Left "import declaration"
 
 spaceConsumer :: LParser ()
-spaceConsumer = L.space C.space1 MP.empty MP.empty
+spaceConsumer = L.space C.space1 (L.skipLineComment "--") (L.skipBlockCommentNested "{-" "-}")
 
 lexTokenParser :: LParser LexToken
 lexTokenParser =
@@ -370,9 +370,9 @@ operatorTokP = tokenSatisfy $ \tok ->
 
 tokenSatisfy :: (LexToken -> Maybe a) -> TokParser a
 tokenSatisfy f = do
-  tok <- anySingle
+  tok <- MP.lookAhead anySingle
   case f tok of
-    Just out -> pure out
+    Just out -> out <$ anySingle
     Nothing -> fail "token"
 
 tokenSatisfy_ :: (LexToken -> Bool) -> TokParser ()
