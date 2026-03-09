@@ -34,7 +34,7 @@ fi
 
 run_cmd() {
   local cmd="$1"
-  bash -lc "$cmd"
+  bash -c "$cmd"
 }
 
 parser_cmd="${PARSER_PROGRESS_CMD:-nix run .#parser-progress}"
