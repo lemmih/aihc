@@ -365,13 +365,23 @@ classifyDeclHeadText txt
 
 parseTypeSignatureDeclText :: Text -> Either Text Decl
 parseTypeSignatureDeclText txt = do
-  (lhs, rhs) <- splitTopLevelOnce "::" txt
-  let names = filter (not . T.null) (map (stripParens . T.strip) (splitTopLevel ',' lhs))
-  if null names || not (all isValueName names)
+  toks <- lexTokens txt
+  (lhsToks, rhsToks) <-
+    case runParser (typeSignatureDeclTokParser <* eof) "<type-signature-decl>" toks of
+      Right parsed -> Right parsed
+      Left _ -> Left "type signature"
+  nameChunks <- splitTokensOnTopLevelCommas lhsToks
+  names <- traverse parseValueNameChunk nameChunks
+  if null names
     then Left "type signature"
     else do
-      ty <- parseTypeText (T.strip rhs)
-      Right (DeclTypeSig span0 names ty)
+      let rhsTxt = T.strip (tokensToSourceText rhsToks)
+      if T.null rhsTxt
+        then Left "type signature"
+        else do
+          (_, rhsRaw) <- splitTopLevelOnce "::" txt
+          ty <- parseTypeText (T.strip rhsRaw)
+          Right (DeclTypeSig span0 names ty)
 
 parseFixityDeclText :: Text -> Either Text Decl
 parseFixityDeclText txt = do
@@ -424,14 +434,19 @@ fixityTargetTokParser =
 
 parseTypeSynonymDecl :: Text -> Either Text Decl
 parseTypeSynonymDecl txt = do
-  raw <- maybe (Left "type declaration") Right (T.stripPrefix "type" (T.stripStart txt))
-  (lhs, rhs) <- splitTopLevelOnce "=" raw
-  let lhsToks = splitTopLevelWords lhs
-  case lhsToks of
-    [] -> Left "type declaration"
-    (name : params)
-      | isTypeToken name -> do
-          ty <- parseTypeText rhs
+  toks <- lexTokens txt
+  (name, params, rhsToks) <-
+    case runParser (typeSynonymDeclTokParser <* eof) "<type-synonym-decl>" toks of
+      Right parsed -> Right parsed
+      Left _ -> Left "type declaration"
+  if not (isTypeToken name)
+    then Left "type declaration"
+    else do
+      let rhsTxt = T.strip (tokensToSourceText rhsToks)
+      if T.null rhsTxt
+        then Left "type declaration"
+        else do
+          ty <- parseTypeText rhsTxt
           Right
             ( DeclTypeSyn
                 span0
@@ -442,7 +457,6 @@ parseTypeSynonymDecl txt = do
                     typeSynBody = ty
                   }
             )
-      | otherwise -> Left "type declaration"
 
 parseDataDeclText :: Text -> Either Text Decl
 parseDataDeclText txt = do
@@ -721,9 +735,14 @@ parseInstanceItem cfg txt
 
 parseDefaultDeclText :: Text -> Either Text Decl
 parseDefaultDeclText txt = do
-  raw <- maybe (Left "default declaration") Right (T.stripPrefix "default" (T.stripStart txt))
-  let inner = stripParens (T.strip raw)
-  tys <- traverse parseTypeText (filter (not . T.null) (map T.strip (splitTopLevel ',' inner)))
+  toks <- lexTokens txt
+  bodyToks <-
+    case runParser (defaultDeclTokParser <* eof) "<default-decl>" toks of
+      Right parsed -> Right parsed
+      Left _ -> Left "default declaration"
+  let innerToks = stripOuterParensTokens bodyToks
+  typeChunks <- splitTokensOnTopLevelCommas innerToks
+  tys <- traverse (parseTypeText . T.strip . tokensToSourceText) typeChunks
   if null tys
     then Left "default declaration"
     else Right (DeclDefault span0 tys)
@@ -771,6 +790,124 @@ foreignDeclTokParser direction = do
   if T.null typeTxt
     then fail "foreign type"
     else pure (callConv, safety, entity, name, typeTxt)
+
+typeSignatureDeclTokParser :: TokParser ([LexToken], [LexToken])
+typeSignatureDeclTokParser = do
+  lhs <- many (try (MP.notFollowedBy (operatorTokParser "::") *> MP.anySingle))
+  operatorTokParser "::"
+  rhs <- many MP.anySingle
+  pure (lhs, rhs)
+
+typeSynonymDeclTokParser :: TokParser (Text, [Text], [LexToken])
+typeSynonymDeclTokParser = do
+  tokWord "type"
+  name <- identifierTokParser
+  params <- many identifierTokParser
+  operatorTokParser "="
+  rhs <- many MP.anySingle
+  pure (name, params, rhs)
+
+defaultDeclTokParser :: TokParser [LexToken]
+defaultDeclTokParser = do
+  tokWord "default"
+  many MP.anySingle
+
+parseValueNameChunk :: [LexToken] -> Either Text Text
+parseValueNameChunk toks =
+  let name = stripParens (T.strip (tokensToSourceText toks))
+   in if T.null name || not (isValueName name)
+        then Left "type signature"
+        else Right name
+
+splitTokensOnTopLevelCommas :: [LexToken] -> Either Text [[LexToken]]
+splitTokensOnTopLevelCommas toks = go toks (0 :: Int) (0 :: Int) (0 :: Int) [] []
+  where
+    go remaining parenDepth bracketDepth braceDepth current acc =
+      case remaining of
+        [] ->
+          if parenDepth /= 0 || bracketDepth /= 0 || braceDepth /= 0
+            then Left "malformed token groups"
+            else
+              let finalChunk = reverse current
+                  chunks = reverse (finalChunk : acc)
+               in if any null chunks then Left "malformed token groups" else Right chunks
+        (tok : rest) ->
+          case lexTokenKind tok of
+            TkSymbol "(" -> go rest (parenDepth + 1) bracketDepth braceDepth (tok : current) acc
+            TkSymbol ")" ->
+              if parenDepth <= 0
+                then Left "malformed token groups"
+                else go rest (parenDepth - 1) bracketDepth braceDepth (tok : current) acc
+            TkSymbol "[" -> go rest parenDepth (bracketDepth + 1) braceDepth (tok : current) acc
+            TkSymbol "]" ->
+              if bracketDepth <= 0
+                then Left "malformed token groups"
+                else go rest parenDepth (bracketDepth - 1) braceDepth (tok : current) acc
+            TkSymbol "{" -> go rest parenDepth bracketDepth (braceDepth + 1) (tok : current) acc
+            TkSymbol "}" ->
+              if braceDepth <= 0
+                then Left "malformed token groups"
+                else go rest parenDepth bracketDepth (braceDepth - 1) (tok : current) acc
+            TkSymbol ","
+              | parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 ->
+                  if null current
+                    then Left "malformed token groups"
+                    else go rest parenDepth bracketDepth braceDepth [] (reverse current : acc)
+            _ -> go rest parenDepth bracketDepth braceDepth (tok : current) acc
+
+stripOuterParensTokens :: [LexToken] -> [LexToken]
+stripOuterParensTokens toks
+  | hasOuterParensTokens toks =
+      case toks of
+        [] -> []
+        _ : rest ->
+          case unsnoc rest of
+            Nothing -> []
+            Just (middle, _) -> middle
+  | otherwise = toks
+
+hasOuterParensTokens :: [LexToken] -> Bool
+hasOuterParensTokens toks =
+  case toks of
+    [] -> False
+    [_] -> False
+    firstTok : rest ->
+      case unsnoc rest of
+        Nothing -> False
+        Just (middle, lastTok) ->
+          isSymbolToken "(" firstTok
+            && isSymbolToken ")" lastTok
+            && wrapsTokens (firstTok : middle <> [lastTok])
+
+isSymbolToken :: Text -> LexToken -> Bool
+isSymbolToken sym tok =
+  case lexTokenKind tok of
+    TkSymbol txt -> txt == sym
+    _ -> False
+
+wrapsTokens :: [LexToken] -> Bool
+wrapsTokens toks =
+  let lastIndex = length toks - 1
+      step (ok, depth) (idx, tok)
+        | not ok = (False, depth)
+        | otherwise =
+            case lexTokenKind tok of
+              TkSymbol "(" -> (True, depth + 1)
+              TkSymbol ")" ->
+                if depth <= 0
+                  then (False, depth)
+                  else
+                    let depth' = depth - 1
+                     in (not (depth' == 0 && idx < lastIndex), depth')
+              _ -> (True, depth)
+      (okFinal, depthFinal) = foldl' step (True, 0 :: Int) (zip [0 ..] toks)
+   in okFinal && depthFinal == 0
+
+unsnoc :: [a] -> Maybe ([a], a)
+unsnoc xs =
+  case reverse xs of
+    [] -> Nothing
+    y : ys -> Just (reverse ys, y)
 
 tokensToSourceText :: [LexToken] -> Text
 tokensToSourceText = T.unwords . map lexTokenText
