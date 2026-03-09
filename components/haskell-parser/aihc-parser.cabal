@@ -4,8 +4,8 @@ version:            0.1.0.0
 build-type:         Simple
 license:            MIT
 license-file:       LICENSE
-author:             aihc
-maintainer:         aihc@example.com
+author:             David Himmelstrup
+maintainer:         lemmih@gmail.com
 category:           Compilers
 synopsis:           From-scratch Haskell parser with differential tests
 
