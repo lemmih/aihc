@@ -2,46 +2,71 @@
 
 ## Summary
 
-- Total Extensions: 33
+- Total Extensions: 58
 - Supported: 4
 - In Progress: 0
-- Planned: 29
+- Planned: 54
 
 ## Extension Status
 
 | Extension | Status | Tests Passing | Notes |
 |-----------|--------|---------------|-------|
 | ParallelListComp | Supported | 1/1 | Parallel list comprehensions |
-| TransformListComp | Planned | - | TransformListComp (then clauses in list comprehensions) |
-| ViewPatterns | Supported | 3/3 | View patterns |
-| PatternSynonyms | Planned | - | Pattern synonyms |
-| ScopedTypeVariables | Planned | - | Scoped type variables |
-| TypeApplications | Supported | 2/2 | Type applications |
-| LambdaCase | Planned | - | LambdaCase |
-| MultiWayIf | Planned | - | MultiWayIf |
-| RecordWildCards | Planned | - | Record wildcards |
-| RecordPuns | Planned | - | Record puns |
-| NamedFieldPuns | Planned | - | Named field puns (alias for RecordPuns) |
-| DisambiguateRecordFields | Planned | - | Disambiguate record fields |
-| OverloadedStrings | Planned | - | Overloaded strings |
-| OverloadedLists | Planned | - | Overloaded lists |
-| DeriveGeneric | Planned | - | DeriveGeneric |
-| DeriveFunctor | Planned | - | DeriveFunctor |
-| DeriveTraversable | Planned | - | DeriveTraversable |
-| DeriveFoldable | Planned | - | DeriveFoldable |
-| StandaloneDeriving | Planned | - | Standalone deriving |
-| KindSignatures | Planned | - | Kind signatures |
-| TypeInType | Planned | - | Type in type |
-| DataKinds | Planned | - | Data kinds |
-| GADTs | Planned | - | Generalized algebraic data types |
-| TypeFamilies | Planned | - | Type families |
-| TypeFamilyDependencies | Planned | - | Type family dependencies |
-| ExplicitForAll | Planned | - | Explicit for all |
-| ConstraintKinds | Planned | - | Constraint kinds |
-| PolyKinds | Planned | - | Polymorphic kinds |
-| TemplateHaskell | Planned | - | Template Haskell |
 | QuasiQuotes | Supported | 3/3 | Quasi quotes |
-| Arrows | Planned | - | Arrows |
-| ParallelArrays | Planned | - | Parallel arrays |
-| ExplicitNamespaces | Planned | - | Explicit namespaces |
+| TypeApplications | Supported | 2/2 | Type applications |
+| ViewPatterns | Supported | 3/3 | View patterns |
+| BangPatterns | Planned | - | Bang Patterns |
+| BinaryLiterals | Planned | - | Binary Literals |
+| ConstrainedClassMethods | Planned | - | Constrained Class Methods |
+| ConstraintKinds | Planned | - | Constraint Kinds |
+| DataKinds | Planned | - | Data Kinds |
+| DeriveDataTypeable | Planned | - | Derive Data Typeable |
+| DeriveFoldable | Planned | - | Derive Foldable |
+| DeriveFunctor | Planned | - | Derive Functor |
+| DeriveGeneric | Planned | - | Derive Generic |
+| DeriveLift | Planned | - | Derive Lift |
+| DeriveTraversable | Planned | - | Derive Traversable |
+| DerivingStrategies | Planned | - | Deriving Strategies |
+| DisambiguateRecordFields | Planned | - | Disambiguate Record Fields |
+| DoAndIfThenElse | Planned | - | Do And If Then Else |
+| EmptyCase | Planned | - | Empty Case |
+| EmptyDataDecls | Planned | - | Empty Data Decls |
+| EmptyDataDeriving | Planned | - | Empty Data Deriving |
+| ExistentialQuantification | Planned | - | Existential Quantification |
+| ExplicitForAll | Planned | - | Explicit For All |
+| ExplicitNamespaces | Planned | - | Explicit Namespaces |
+| FieldSelectors | Planned | - | Field Selectors |
+| FlexibleContexts | Planned | - | Flexible Contexts |
+| FlexibleInstances | Planned | - | Flexible Instances |
+| ForeignFunctionInterface | Planned | - | Foreign Function Interface |
+| GADTs | Planned | - | GADTs |
+| GADTSyntax | Planned | - | GADT Syntax |
+| GeneralisedNewtypeDeriving | Planned | - | Generalised Newtype Deriving |
+| HexFloatLiterals | Planned | - | Hex Float Literals |
+| ImplicitPrelude | Planned | - | Implicit Prelude |
+| ImportQualifiedPost | Planned | - | Import Qualified Post |
+| InstanceSigs | Planned | - | Instance Sigs |
+| KindSignatures | Planned | - | Kind Signatures |
+| LambdaCase | Planned | - | Lambda Case |
+| MonoLocalBinds | Planned | - | Mono Local Binds |
+| MonomorphismRestriction | Planned | - | Monomorphism Restriction |
+| MultiParamTypeClasses | Planned | - | Multi Param Type Classes |
+| NamedFieldPuns | Planned | - | Named Field Puns |
+| NamedWildCards | Planned | - | Named Wild Cards |
+| NumericUnderscores | Planned | - | Numeric Underscores |
+| PatternGuards | Planned | - | Pattern Guards |
+| PolyKinds | Planned | - | Poly Kinds |
+| PostfixOperators | Planned | - | Postfix Operators |
+| RankNTypes | Planned | - | Rank N Types |
+| RelaxedPolyRec | Planned | - | Relaxed Poly Rec |
+| RoleAnnotations | Planned | - | Role Annotations |
+| ScopedTypeVariables | Planned | - | Scoped Type Variables |
+| StandaloneDeriving | Planned | - | Standalone Deriving |
+| StandaloneKindSignatures | Planned | - | Standalone Kind Signatures |
+| StarIsType | Planned | - | Star Is Type |
+| TraditionalRecordSyntax | Planned | - | Traditional Record Syntax |
+| TupleSections | Planned | - | Tuple Sections |
+| TypeOperators | Planned | - | Type Operators |
+| TypeSynonymInstances | Planned | - | Type Synonym Instances |
+| ImplicitStagePersistence | Planned | - | Implicit Stage Persistence |
 

@@ -21,12 +21,12 @@ Extension support tracking for `components/haskell-parser` is reported in:
 
 Current extension baseline:
 <!-- AUTO-GENERATED: START parser-extension-progress -->
-- Total tracked extensions: `33`
+- Total tracked extensions: `58`
 - Supported: `4`
 - In Progress: `0`
-- Planned: `29`
-- Supported extensions: `ParallelListComp, ViewPatterns, TypeApplications, QuasiQuotes`
-- In Progress extensions: ``
+- Planned: `54`
+- Supported extensions: `ParallelListComp, QuasiQuotes, TypeApplications, ViewPatterns`
+- In Progress extensions: _(none)_
 <!-- AUTO-GENERATED: END parser-extension-progress -->
 
 ## CPP Preprocessor Progress
