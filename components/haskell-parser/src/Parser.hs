@@ -18,6 +18,7 @@ import qualified Data.Text as T
 import Data.Void (Void)
 import Numeric (readHex, readOct)
 import Parser.Ast
+import Parser.Lexer (parseImportDeclTokens)
 import Parser.Types
 import Text.Megaparsec
   ( Parsec,
@@ -281,9 +282,12 @@ parseTopLevelChunks cfg = go [] [] False
 
 parseImportDeclText :: Text -> Either Text ImportDecl
 parseImportDeclText txt =
-  case parseLineWith importDeclParser txt of
+  case parseImportDeclTokens txt of
     Right decl -> Right decl
-    Left _ -> Left "import declaration"
+    Left _ ->
+      case parseLineWith importDeclParser txt of
+        Right decl -> Right decl
+        Left _ -> Left "import declaration"
 
 importDeclParser :: MParser ImportDecl
 importDeclParser = do
