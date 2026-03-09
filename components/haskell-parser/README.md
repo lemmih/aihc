@@ -35,8 +35,8 @@ Current extension baseline:
 <!-- AUTO-GENERATED: START extension-progress -->
 - Total tracked extensions: `58`
 - Supported: `4`
-- In Progress: `0`
-- Planned: `54`
+- In Progress: `1`
+- Planned: `53`
 <!-- AUTO-GENERATED: END extension-progress -->
 
 Generated report:

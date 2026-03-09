@@ -1,0 +1,2 @@
+lambda-case-basic	expressions	lambda-case-basic.hs	xfail	parser lacks LambdaCase expression support
+lambda-case-nested	expressions	lambda-case-nested.hs	xfail	nested LambdaCase parsing not yet implemented

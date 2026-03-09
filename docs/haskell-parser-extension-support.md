@@ -4,8 +4,8 @@
 
 - Total Extensions: 58
 - Supported: 4
-- In Progress: 0
-- Planned: 54
+- In Progress: 1
+- Planned: 53
 
 ## Extension Status
 
@@ -47,7 +47,7 @@
 | ImportQualifiedPost | Planned | - | Import Qualified Post |
 | InstanceSigs | Planned | - | Instance Sigs |
 | KindSignatures | Planned | - | Kind Signatures |
-| LambdaCase | Planned | - | Lambda Case |
+| LambdaCase | In Progress | 0/2 | Lambda Case |
 | MonoLocalBinds | Planned | - | Mono Local Binds |
 | MonomorphismRestriction | Planned | - | Monomorphism Restriction |
 | MultiParamTypeClasses | Planned | - | Multi Param Type Classes |
