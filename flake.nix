@@ -40,6 +40,14 @@
               inherit text;
             }}/bin/${name}";
           };
+          mkReportsApp = name: text: {
+            type = "app";
+            program = "${pkgs.writeShellApplication {
+              inherit name;
+              runtimeInputs = [ pkgs.bash pkgs.nix ];
+              inherit text;
+            }}/bin/${name}";
+          };
         in {
           parser-test = mkApp "parser-test" ''
             set -euo pipefail
@@ -132,6 +140,24 @@
             ${nameResolutionProgressExe} --strict
           '';
 
+          generate-reports = mkReportsApp "generate-reports" ''
+            set -euo pipefail
+            test -d components/haskell-parser || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            bash ./scripts/update-generated-content.sh --update
+          '';
+
+          check-reports = mkReportsApp "check-reports" ''
+            set -euo pipefail
+            test -d components/haskell-parser || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            bash ./scripts/update-generated-content.sh --check
+          '';
+
           default = mkApp "default" ''
             set -euo pipefail
             test -d components/haskell-parser || {
@@ -146,6 +172,10 @@
       checks = forAllSystems (pkgs:
         let
           hsPkgs = mkHsPkgs pkgs;
+          h2010ProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "h2010-progress";
+          extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
+          nameResolutionProgressExe =
+            pkgs.lib.getExe' hsPkgs.aihc-name-resolution "name-resolution-progress";
           parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-parser);
           nameResolutionTests =
             pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-name-resolution);
@@ -199,12 +229,28 @@
             name-resolution-progress --strict
             touch "$out"
           '';
+          generatedReportsCheck = pkgs.runCommand "aihc-generated-reports-check" {
+            src = ./.;
+            nativeBuildInputs = [
+              pkgs.bash
+              hsPkgs.aihc-parser
+              hsPkgs.aihc-name-resolution
+            ];
+          } ''
+            cd "$src"
+            PARSER_PROGRESS_CMD='cd components/haskell-parser && ${h2010ProgressExe}' \
+            PARSER_EXTENSION_PROGRESS_CMD='cd components/haskell-parser && ${extensionProgressExe} --markdown' \
+            NAME_RESOLUTION_PROGRESS_CMD='cd components/haskell-name-resolution && ${nameResolutionProgressExe}' \
+              bash ./scripts/update-generated-content.sh --check
+            touch "$out"
+          '';
         in {
           parser-tests = parserTests;
           name-resolution-tests = nameResolutionTests;
           parser-progress-strict = parserProgressStrict;
           parser-extension-progress-strict = parserExtensionProgressStrict;
           name-resolution-progress-strict = nameResolutionProgressStrict;
+          generated-reports-check = generatedReportsCheck;
            nix-lint = nixLint;
            haskell-lint = haskellLint;
            haskell-format = haskellFormat;
@@ -215,6 +261,7 @@
                { name = "parser-progress-strict"; path = parserProgressStrict; }
                { name = "parser-extension-progress-strict"; path = parserExtensionProgressStrict; }
                { name = "name-resolution-progress-strict"; path = nameResolutionProgressStrict; }
+               { name = "generated-reports-check"; path = generatedReportsCheck; }
                { name = "nix-lint"; path = nixLint; }
                { name = "haskell-lint"; path = haskellLint; }
                { name = "haskell-format"; path = haskellFormat; }

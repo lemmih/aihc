@@ -4,8 +4,6 @@ module Main (main) where
 
 import Data.Text (Text)
 import qualified Data.Text.IO as TIO
-import Data.Time.Clock (getCurrentTime)
-import Data.Time.Format (defaultTimeLocale, formatTime)
 import ExtensionSupport
 import GHC.LanguageExtensions.Type (Extension)
 import GhcOracle
@@ -43,9 +41,7 @@ main = do
   results <- mapM evaluateExtension specs
 
   if markdown
-    then do
-      now <- getCurrentTime
-      putStrLn (renderMarkdown (formatTime defaultTimeLocale "%Y-%m-%d" now) results)
+    then putStrLn (renderMarkdown results)
     else printTextSummary results
 
   let failN = sum [erFailN result | result <- results]
@@ -126,12 +122,10 @@ printXPass (spec, meta, details) =
         <> details
     )
 
-renderMarkdown :: String -> [ExtensionResult] -> String
-renderMarkdown generatedDate results =
+renderMarkdown :: [ExtensionResult] -> String
+renderMarkdown results =
   unlines
     ( [ "# Haskell Parser Extension Support Status",
-        "",
-        "**Generated**: " <> generatedDate,
         "",
         "## Summary",
         "",

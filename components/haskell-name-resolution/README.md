@@ -18,8 +18,10 @@ Runtime outcomes:
 - `FAIL`: regression (expected pass not matching) or oracle/fixture failure
 
 Current baseline:
+<!-- AUTO-GENERATED: START name-resolution-progress -->
 - `10/12` implemented (`83.33%` complete)
 - `PASS=10`, `XFAIL=2`, `XPASS=0`, `FAIL=0`
+<!-- AUTO-GENERATED: END name-resolution-progress -->
 
 ## Commands
 

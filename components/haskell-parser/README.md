@@ -18,8 +18,10 @@ Runtime outcomes are reported as:
 - `FAIL`: regression or invalid case/manifest (for example oracle rejects a `pass` case)
 
 Current progress baseline:
+<!-- AUTO-GENERATED: START haskell2010-progress -->
 - `230/230` implemented (`100.00%` complete)
 - `PASS=230`, `XFAIL=0`, `XPASS=0`, `FAIL=0`
+<!-- AUTO-GENERATED: END haskell2010-progress -->
 
 ## Extension Coverage Tracking
 
@@ -30,10 +32,12 @@ Each extension can provide a manifest at:
 - `test/Test/Fixtures/<Extension>/manifest.tsv`
 
 Current extension baseline:
+<!-- AUTO-GENERATED: START extension-progress -->
 - Total tracked extensions: `33`
 - Supported: `4`
 - In Progress: `0`
 - Planned: `29`
+<!-- AUTO-GENERATED: END extension-progress -->
 
 Generated report:
 - `../../docs/haskell-parser-extension-support.md`
