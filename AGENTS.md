@@ -1,7 +1,14 @@
 # AGENTS
 
-- `gh` and `nix` are available for agents.
-- Other tools (for example `ghc` and `pandoc`) are not directly available, but can be run via `nix`.
-- Run tests with `nix flake check`.
-- `README.md` files include progress stats and must be kept up to date when working on PRs.
-- Always use `git worktree` when working on PRs locally.
+- Tools: `gh`, `nix` (others via `nix`)
+- Run tests: `nix flake check`
+- Keep README AUTO-GENERATED blocks up to date before opening PRs
+- Use `git worktree` for PR branches
+
+- Commands:
+  - Parser: `nix run .#parser-progress`
+  - Extensions: `nix run .#parser-extension-progress` (regenerate docs: `nix run .#parser-extension-progress -- --markdown | sed -n '/^# Haskell Parser Extension Support Status/,$p' > docs/haskell-parser-extension-support.md`)
+  - CPP: `nix run .#cpp-progress`
+  - Name-resolution: `nix run .#name-resolution-progress`
+
+- Create PRs: `gh pr create --base main --head <branch> --title "<title>" --body <file>`

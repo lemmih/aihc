@@ -96,7 +96,7 @@ parse_extension_summary() {
   ' "$infile"
 }
 
-readarray -t parser_vals < <(parse_progress "$parser_out")
+parser_vals=($(parse_progress "$parser_out"))
 parser_pass="${parser_vals[0]}"
 parser_xfail="${parser_vals[1]}"
 parser_xpass="${parser_vals[2]}"
@@ -105,7 +105,7 @@ parser_total="${parser_vals[4]}"
 parser_implemented="${parser_vals[5]}"
 parser_complete="${parser_vals[6]}"
 
-readarray -t name_vals < <(parse_progress "$name_out")
+name_vals=($(parse_progress "$name_out"))
 name_pass="${name_vals[0]}"
 name_xfail="${name_vals[1]}"
 name_xpass="${name_vals[2]}"
@@ -114,7 +114,7 @@ name_total="${name_vals[4]}"
 name_implemented="${name_vals[5]}"
 name_complete="${name_vals[6]}"
 
-readarray -t cpp_vals < <(parse_progress "$cpp_out")
+cpp_vals=($(parse_progress "$cpp_out"))
 cpp_pass="${cpp_vals[0]}"
 cpp_xfail="${cpp_vals[1]}"
 cpp_xpass="${cpp_vals[2]}"
@@ -123,15 +123,18 @@ cpp_total="${cpp_vals[4]}"
 cpp_implemented="${cpp_vals[5]}"
 cpp_complete="${cpp_vals[6]}"
 
-readarray -t ext_vals < <(parse_extension_summary "$extension_out")
+ext_vals=($(parse_extension_summary "$extension_out"))
 ext_total="${ext_vals[0]}"
 ext_supported="${ext_vals[1]}"
 ext_in_progress="${ext_vals[2]}"
 ext_planned="${ext_vals[3]}"
 
+# extract extension name lists (alphabetically sorted, comma-separated) from the markdown table if present
+ext_supported_names="$(awk -F'|' 'BEGIN{names=""} /^\|/ { status=$3; name=$2; gsub(/^[ \t]+|[ \t]+$/, "", name); gsub(/^[ \t]+|[ \t]+$/, "", status); if (status == "Supported") { if (names=="") names=name; else names=names ", " name } } END{ print names }' "$extension_out")"
+ext_in_progress_names="$(awk -F'|' 'BEGIN{names=""} /^\|/ { status=$3; name=$2; gsub(/^[ \t]+|[ \t]+$/, "", name); gsub(/^[ \t]+|[ \t]+$/, "", status); if (status == "In Progress") { if (names=="") names=name; else names=names ", " name } } END{ print names }' "$extension_out")"
+
 cat > "$tmpdir/readme-root-parser.txt" <<EOF2
 - \`${parser_implemented}/${parser_total}\` syntax cases implemented (\`${parser_complete}%\` complete)
-- status breakdown: \`PASS=${parser_pass}\`, \`XFAIL=${parser_xfail}\`, \`XPASS=${parser_xpass}\`, \`FAIL=${parser_fail}\`
 EOF2
 
 cat > "$tmpdir/readme-root-extension.txt" <<EOF2
@@ -139,21 +142,20 @@ cat > "$tmpdir/readme-root-extension.txt" <<EOF2
 - Supported: \`${ext_supported}\`
 - In Progress: \`${ext_in_progress}\`
 - Planned: \`${ext_planned}\`
+- Supported extensions: \`${ext_supported_names:-}\`
+- In Progress extensions: \`${ext_in_progress_names:-}\`
 EOF2
 
 cat > "$tmpdir/readme-root-name.txt" <<EOF2
 - \`${name_implemented}/${name_total}\` capability cases implemented (\`${name_complete}%\` complete)
-- status breakdown: \`PASS=${name_pass}\`, \`XFAIL=${name_xfail}\`, \`XPASS=${name_xpass}\`, \`FAIL=${name_fail}\`
 EOF2
 
 cat > "$tmpdir/readme-root-cpp.txt" <<EOF2
 - \`${cpp_implemented}/${cpp_total}\` preprocessing cases implemented (\`${cpp_complete}%\` complete)
-- status breakdown: \`PASS=${cpp_pass}\`, \`XFAIL=${cpp_xfail}\`, \`XPASS=${cpp_xpass}\`, \`FAIL=${cpp_fail}\`
 EOF2
 
 cat > "$tmpdir/readme-parser-h2010.txt" <<EOF2
 - \`${parser_implemented}/${parser_total}\` implemented (\`${parser_complete}%\` complete)
-- \`PASS=${parser_pass}\`, \`XFAIL=${parser_xfail}\`, \`XPASS=${parser_xpass}\`, \`FAIL=${parser_fail}\`
 EOF2
 
 cat > "$tmpdir/readme-parser-extension.txt" <<EOF2
@@ -165,12 +167,10 @@ EOF2
 
 cat > "$tmpdir/readme-name-resolution.txt" <<EOF2
 - \`${name_implemented}/${name_total}\` implemented (\`${name_complete}%\` complete)
-- \`PASS=${name_pass}\`, \`XFAIL=${name_xfail}\`, \`XPASS=${name_xpass}\`, \`FAIL=${name_fail}\`
 EOF2
 
 cat > "$tmpdir/readme-cpp.txt" <<EOF2
 - \`${cpp_implemented}/${cpp_total}\` implemented (\`${cpp_complete}%\` complete)
-- \`PASS=${cpp_pass}\`, \`XFAIL=${cpp_xfail}\`, \`XPASS=${cpp_xpass}\`, \`FAIL=${cpp_fail}\`
 EOF2
 
 replace_marker_block() {
