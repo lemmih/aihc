@@ -145,8 +145,10 @@ finalizeOutcome meta oracleOk roundtripOk =
 
 stripComment :: Text -> Text
 stripComment line =
-  let core = fst (T.breakOn "#" line)
-   in T.strip core
+  let stripped = T.stripStart line
+   in if "#" `T.isPrefixOf` stripped
+        then ""
+        else T.strip line
 
 trim :: String -> String
 trim = dropWhile isSpace . dropWhileEnd isSpace

@@ -155,8 +155,10 @@ loadManifest = do
 
 stripComment :: Text -> Text
 stripComment line =
-  let core = fst (T.breakOn "#" line)
-   in T.strip core
+  let stripped = T.stripStart line
+   in if "#" `T.isPrefixOf` stripped
+        then ""
+        else T.strip line
 
 parseRow :: Text -> IO CaseMeta
 parseRow row =

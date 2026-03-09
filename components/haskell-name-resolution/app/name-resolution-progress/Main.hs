@@ -178,7 +178,11 @@ loadManifest = do
   mapM parseRow rows
 
 stripComment :: T.Text -> T.Text
-stripComment line = T.strip (fst (T.breakOn "#" line))
+stripComment line =
+  let stripped = T.stripStart line
+   in if "#" `T.isPrefixOf` stripped
+        then ""
+        else T.strip line
 
 parseRow :: T.Text -> IO CaseMeta
 parseRow row =
