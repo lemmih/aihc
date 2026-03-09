@@ -27,7 +27,6 @@ import Text.Megaparsec
     many,
     notFollowedBy,
     runParser,
-    sepEndBy,
     some,
     try,
     (<|>),
@@ -152,13 +151,7 @@ splitModuleHeaderChunk rows =
         _ -> False
 
 parseModuleHeaderText :: Text -> Either Text (Text, Maybe [ExportSpec])
-parseModuleHeaderText txt =
-  case parseModuleHeaderTokens txt of
-    Right header -> Right header
-    Left _ ->
-      case parseLineWith moduleHeaderLineParser txt of
-        Right header -> Right header
-        Left _ -> Left "module header"
+parseModuleHeaderText = parseModuleHeaderTokens
 
 moduleParser :: ParserConfig -> MParser [(Int, Text)]
 moduleParser _cfg = do
@@ -257,53 +250,6 @@ parseModuleBodyBraces cfg languagePragmas lineNo txt
           found = if T.null (T.strip raw) then Nothing else Just (T.strip raw)
         }
 
-exportSpecListParser :: MParser [ExportSpec]
-exportSpecListParser = do
-  _ <- symbol "("
-  specs <- exportSpecParser `sepEndBy` symbol ","
-  _ <- symbol ")"
-  pure specs
-
-exportSpecParser :: MParser ExportSpec
-exportSpecParser =
-  try moduleSpecParser <|> entitySpecParser
-  where
-    moduleSpecParser = do
-      _ <- keyword "module"
-      ExportModule span0 <$> identifier
-
-    entitySpecParser = do
-      name <- identifierOrOperator
-      members <- MP.optional (try exportMembersParser)
-      pure $
-        case members of
-          Nothing
-            | isTypeToken name -> ExportAbs span0 name
-            | otherwise -> ExportVar span0 name
-          Just Nothing -> ExportAll span0 name
-          Just (Just xs) -> ExportWith span0 name xs
-
-exportMembersParser :: MParser (Maybe [Text])
-exportMembersParser = do
-  _ <- symbol "("
-  allMembers <- MP.optional (try (symbol ".."))
-  case allMembers of
-    Just _ -> do
-      _ <- symbol ")"
-      pure Nothing
-    Nothing -> do
-      members <- identifierOrOperator `sepEndBy` symbol ","
-      _ <- symbol ")"
-      pure (Just members)
-
-moduleHeaderLineParser :: MParser (Text, Maybe [ExportSpec])
-moduleHeaderLineParser = do
-  _ <- keyword "module"
-  modName <- identifier
-  exports <- MP.optional (try exportSpecListParser)
-  _ <- keyword "where"
-  pure (modName, exports)
-
 parseTopLevelChunks :: ParserConfig -> [(Int, Text)] -> Either ParseError ([ImportDecl], [Decl])
 parseTopLevelChunks cfg = go [] [] False
   where
@@ -315,7 +261,7 @@ parseTopLevelChunks cfg = go [] [] False
            in if T.null txt
                 then go imports decls seenDecl rest
                 else
-                  if "import " `T.isPrefixOf` txt
+                  if isImportChunk txt
                     then
                       if seenDecl
                         then Left (mkTopLevelErr lineNo txt "declaration")
@@ -334,57 +280,13 @@ parseTopLevelChunks cfg = go [] [] False
           expected = [expectedText],
           found = if T.null txt then Nothing else Just txt
         }
+    isImportChunk txt =
+      case T.words txt of
+        "import" : _ -> True
+        _ -> False
 
 parseImportDeclText :: Text -> Either Text ImportDecl
-parseImportDeclText txt =
-  case parseImportDeclTokens txt of
-    Right decl -> Right decl
-    Left _ ->
-      case parseLineWith importDeclParser txt of
-        Right decl -> Right decl
-        Left _ -> Left "import declaration"
-
-importDeclParser :: MParser ImportDecl
-importDeclParser = do
-  _ <- keyword "import"
-  qualifiedFlag <- isJust <$> MP.optional (try (keyword "qualified"))
-  modName <- identifier
-  alias <- MP.optional (try (keyword "as" *> identifier))
-  spec <- MP.optional (try importSpecParser)
-  eof
-  pure
-    ImportDecl
-      { importDeclSpan = span0,
-        importDeclQualified = qualifiedFlag,
-        importDeclModule = modName,
-        importDeclAs = alias,
-        importDeclSpec = spec
-      }
-
-importSpecParser :: MParser ImportSpec
-importSpecParser = do
-  hidingFlag <- isJust <$> MP.optional (try (keyword "hiding"))
-  _ <- symbol "("
-  items <- importItemParser `sepEndBy` symbol ","
-  _ <- symbol ")"
-  pure
-    ImportSpec
-      { importSpecSpan = span0,
-        importSpecHiding = hidingFlag,
-        importSpecItems = items
-      }
-
-importItemParser :: MParser ImportItem
-importItemParser = do
-  name <- identifierOrOperator
-  members <- MP.optional (try exportMembersParser)
-  pure $
-    case members of
-      Nothing
-        | isTypeToken name -> ImportItemAbs span0 name
-        | otherwise -> ImportItemVar span0 name
-      Just Nothing -> ImportItemAll span0 name
-      Just (Just xs) -> ImportItemWith span0 name xs
+parseImportDeclText = parseImportDeclTokens
 
 parseDeclText :: ParserConfig -> Text -> Either Text Decl
 parseDeclText cfg txt

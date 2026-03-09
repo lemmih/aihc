@@ -370,9 +370,9 @@ operatorTokP = tokenSatisfy $ \tok ->
 
 tokenSatisfy :: (LexToken -> Maybe a) -> TokParser a
 tokenSatisfy f = do
-  tok <- anySingle
+  tok <- MP.lookAhead anySingle
   case f tok of
-    Just out -> pure out
+    Just out -> out <$ anySingle
     Nothing -> fail "token"
 
 tokenSatisfy_ :: (LexToken -> Bool) -> TokParser ()
