@@ -18,7 +18,7 @@ import qualified Data.Text as T
 import Data.Void (Void)
 import Numeric (readHex, readOct)
 import Parser.Ast
-import Parser.Lexer (parseImportDeclTokens)
+import Parser.Lexer (parseImportDeclTokens, parseModuleHeaderTokens)
 import Parser.Types
 import Text.Megaparsec
   ( Parsec,
@@ -91,33 +91,81 @@ parseModuleLines cfg input = do
       Right modu -> Right modu
       Left _ ->
         case runParser (moduleParser cfg <* eof) "<module>" strippedWithoutLeadingPragmas of
-          Right (header, chunks) -> do
-            (imports, decls) <- parseTopLevelChunks cfg chunks
-            Right
-              Module
-                { moduleSpan = span0,
-                  moduleName = fmap fst header,
-                  moduleLanguagePragmas = languagePragmas,
-                  moduleExports = header >>= snd,
-                  moduleImports = imports,
-                  moduleDecls = mergeAdjacentFunctions decls
-                }
+          Right chunks0 ->
+            case splitModuleHeaderChunk chunks0 of
+              Right parsed ->
+                finishModule languagePragmas cfg parsed
+              Left _ ->
+                case runParser (legacyModuleParser cfg <* eof) "<module>" strippedWithoutLeadingPragmas of
+                  Right parsed ->
+                    finishModule languagePragmas cfg parsed
+                  Left bundle -> Left (bundleToError strippedWithoutLeadingPragmas bundle)
           Left bundle -> Left (bundleToError strippedWithoutLeadingPragmas bundle)
+  where
+    finishModule pragmas cfg' (header, chunks) = do
+      (imports, decls) <- parseTopLevelChunks cfg' chunks
+      Right
+        Module
+          { moduleSpan = span0,
+            moduleName = fmap fst header,
+            moduleLanguagePragmas = pragmas,
+            moduleExports = header >>= snd,
+            moduleImports = imports,
+            moduleDecls = mergeAdjacentFunctions decls
+          }
 
-moduleParser :: ParserConfig -> MParser (Maybe (Text, Maybe [ExportSpec]), [(Int, Text)])
+splitModuleHeaderChunk :: [(Int, Text)] -> Either ParseError (Maybe (Text, Maybe [ExportSpec]), [(Int, Text)])
+splitModuleHeaderChunk rows =
+  case rows of
+    [] -> Right (Nothing, [])
+    ((lineNo, firstChunk) : rest) ->
+      let stripped = T.strip firstChunk
+       in if not ("module" `T.isPrefixOf` stripped)
+            then Right (Nothing, rows)
+            else case parseModuleHeaderText firstChunk of
+              Right header -> Right (Just header, rest)
+              Left _ ->
+                Left
+                  ParseError
+                    { offset = 0,
+                      line = lineNo,
+                      col = 1,
+                      expected = ["module header"],
+                      found = if T.null stripped then Nothing else Just stripped
+                    }
+
+parseModuleHeaderText :: Text -> Either Text (Text, Maybe [ExportSpec])
+parseModuleHeaderText txt =
+  case parseModuleHeaderTokens txt of
+    Right header -> Right header
+    Left _ ->
+      case parseLineWith moduleHeaderLineParser txt of
+        Right header -> Right header
+        Left _ -> Left "module header"
+
+moduleParser :: ParserConfig -> MParser [(Int, Text)]
 moduleParser _cfg = do
   skipBlankLines
-  header <- MP.optional (try moduleHeaderParser)
+  gatherChunks
+  where
+    gatherChunks = do
+      skipBlankLines
+      done <- MP.option False (True <$ eof)
+      if done
+        then pure []
+        else do
+          pos <- MP.getSourcePos
+          chunk <- topLevelChunkParser
+          rest <- gatherChunks
+          pure ((unPos (MP.sourceLine pos), chunk) : rest)
+
+legacyModuleParser :: ParserConfig -> MParser (Maybe (Text, Maybe [ExportSpec]), [(Int, Text)])
+legacyModuleParser _cfg = do
+  skipBlankLines
+  header <- MP.optional (try moduleHeaderLineParser)
   chunks <- gatherChunks
   pure (header, chunks)
   where
-    moduleHeaderParser = do
-      _ <- keyword "module"
-      modName <- identifier
-      exports <- MP.optional (try exportSpecListParser)
-      _ <- keyword "where"
-      pure (modName, exports)
-
     gatherChunks = do
       skipBlankLines
       done <- MP.option False (True <$ eof)
@@ -248,6 +296,14 @@ exportMembersParser = do
       members <- identifierOrOperator `sepEndBy` symbol ","
       _ <- symbol ")"
       pure (Just members)
+
+moduleHeaderLineParser :: MParser (Text, Maybe [ExportSpec])
+moduleHeaderLineParser = do
+  _ <- keyword "module"
+  modName <- identifier
+  exports <- MP.optional (try exportSpecListParser)
+  _ <- keyword "where"
+  pure (modName, exports)
 
 parseTopLevelChunks :: ParserConfig -> [(Int, Text)] -> Either ParseError ([ImportDecl], [Decl])
 parseTopLevelChunks cfg = go [] [] False
