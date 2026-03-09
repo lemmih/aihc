@@ -2,7 +2,7 @@ cabal-version:      3.8
 name:               aihc-cpp
 version:            0.1.0.0
 build-type:         Simple
-license:            MIT
+license:            Unlicense
 license-file:       LICENSE
 author:             aihc
 maintainer:         aihc@example.com
