@@ -11,32 +11,37 @@ where
 import Data.Char (isAlpha, isAlphaNum, isDigit, isHexDigit, isLower, isSpace, isUpper)
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
 import Numeric (readHex, readOct)
 import Parser.Ast
-import Parser.Lexer (parseImportDeclTokens, parseModuleHeaderTokens)
+import Parser.Lexer
+  ( LexToken (..),
+    LexTokenKind (..),
+    lexTokens,
+    parseImportDeclTokens,
+    parseModuleHeaderTokens,
+  )
 import Parser.Types
 import Text.Megaparsec
   ( Parsec,
     eof,
     errorOffset,
     many,
-    notFollowedBy,
     runParser,
-    some,
     try,
     (<|>),
   )
 import qualified Text.Megaparsec as MP
 import qualified Text.Megaparsec.Char as C
-import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Pos (unPos)
 
 type MParser = Parsec Void Text
+
+type TokParser = Parsec Void [LexToken]
 
 span0 :: SourceSpan
 span0 = noSourceSpan
@@ -289,19 +294,74 @@ parseImportDeclText :: Text -> Either Text ImportDecl
 parseImportDeclText = parseImportDeclTokens
 
 parseDeclText :: ParserConfig -> Text -> Either Text Decl
-parseDeclText cfg txt
-  | "foreign import" `T.isPrefixOf` txt = parseForeignDeclText ForeignImport txt
-  | "foreign export" `T.isPrefixOf` txt = parseForeignDeclText ForeignExport txt
-  | "data " `T.isPrefixOf` txt = parseDataDeclText txt
-  | "newtype " `T.isPrefixOf` txt = parseNewtypeDeclText txt
-  | "type " `T.isPrefixOf` txt = parseTypeSynonymDecl txt
-  | "class " `T.isPrefixOf` txt = parseClassDeclText cfg txt
-  | "instance " `T.isPrefixOf` txt = parseInstanceDeclText cfg txt
-  | "default " `T.isPrefixOf` txt = parseDefaultDeclText txt
-  | isFixityDecl txt = parseFixityDeclText txt
-  | hasTopLevelEquals txt = parseEquationDecl cfg txt
-  | hasTopLevelTypeSig txt = parseTypeSignatureDeclText txt
-  | otherwise = Left "declaration"
+parseDeclText cfg txt =
+  case classifyDeclHead txt of
+    DeclHeadForeignImport -> parseForeignDeclText ForeignImport txt
+    DeclHeadForeignExport -> parseForeignDeclText ForeignExport txt
+    DeclHeadData -> parseDataDeclText txt
+    DeclHeadNewtype -> parseNewtypeDeclText txt
+    DeclHeadTypeSynonym -> parseTypeSynonymDecl txt
+    DeclHeadClass -> parseClassDeclText cfg txt
+    DeclHeadInstance -> parseInstanceDeclText cfg txt
+    DeclHeadDefault -> parseDefaultDeclText txt
+    DeclHeadFixity -> parseFixityDeclText txt
+    DeclHeadOther
+      | hasTopLevelEquals txt -> parseEquationDecl cfg txt
+      | hasTopLevelTypeSig txt -> parseTypeSignatureDeclText txt
+      | otherwise -> Left "declaration"
+
+data DeclHead
+  = DeclHeadForeignImport
+  | DeclHeadForeignExport
+  | DeclHeadData
+  | DeclHeadNewtype
+  | DeclHeadTypeSynonym
+  | DeclHeadClass
+  | DeclHeadInstance
+  | DeclHeadDefault
+  | DeclHeadFixity
+  | DeclHeadOther
+
+classifyDeclHead :: Text -> DeclHead
+classifyDeclHead txt =
+  case lexTokens txt of
+    Right toks -> classifyDeclHeadTokens toks
+    Left _ -> classifyDeclHeadText txt
+
+classifyDeclHeadTokens :: [LexToken] -> DeclHead
+classifyDeclHeadTokens toks =
+  case mapMaybe tokenWord toks of
+    "foreign" : "import" : _ -> DeclHeadForeignImport
+    "foreign" : "export" : _ -> DeclHeadForeignExport
+    "data" : _ -> DeclHeadData
+    "newtype" : _ -> DeclHeadNewtype
+    "type" : _ -> DeclHeadTypeSynonym
+    "class" : _ -> DeclHeadClass
+    "instance" : _ -> DeclHeadInstance
+    "default" : _ -> DeclHeadDefault
+    "infix" : _ -> DeclHeadFixity
+    "infixl" : _ -> DeclHeadFixity
+    "infixr" : _ -> DeclHeadFixity
+    _ -> DeclHeadOther
+  where
+    tokenWord tok =
+      case lexTokenKind tok of
+        TkKeyword t -> Just t
+        TkIdentifier t -> Just t
+        _ -> Nothing
+
+classifyDeclHeadText :: Text -> DeclHead
+classifyDeclHeadText txt
+  | "foreign import" `T.isPrefixOf` txt = DeclHeadForeignImport
+  | "foreign export" `T.isPrefixOf` txt = DeclHeadForeignExport
+  | "data " `T.isPrefixOf` txt = DeclHeadData
+  | "newtype " `T.isPrefixOf` txt = DeclHeadNewtype
+  | "type " `T.isPrefixOf` txt = DeclHeadTypeSynonym
+  | "class " `T.isPrefixOf` txt = DeclHeadClass
+  | "instance " `T.isPrefixOf` txt = DeclHeadInstance
+  | "default " `T.isPrefixOf` txt = DeclHeadDefault
+  | isFixityDecl txt = DeclHeadFixity
+  | otherwise = DeclHeadOther
 
 parseTypeSignatureDeclText :: Text -> Either Text Decl
 parseTypeSignatureDeclText txt = do
@@ -642,47 +702,130 @@ parseDefaultDeclText txt = do
     else Right (DeclDefault span0 tys)
 
 parseForeignDeclText :: ForeignDirection -> Text -> Either Text Decl
-parseForeignDeclText direction txt =
-  case parseLineWith (foreignDeclParser direction) txt of
-    Right decl -> Right decl
-    Left _ -> Left "foreign declaration"
+parseForeignDeclText direction txt = do
+  toks <- lexTokens txt
+  (callConv, safety, entity, name, typeTxt) <-
+    case runParser (foreignDeclTokParser direction <* eof) "<foreign-decl>" toks of
+      Right parsed -> Right parsed
+      Left _ -> Left "foreign declaration"
+  ty <-
+    case parseTypeText typeTxt of
+      Right t -> Right t
+      Left _ -> Left "foreign declaration"
+  Right
+    ( DeclForeign
+        span0
+        ForeignDecl
+          { foreignDeclSpan = span0,
+            foreignDirection = direction,
+            foreignCallConv = callConv,
+            foreignSafety = safety,
+            foreignEntity = classifyForeignEntitySpec entity,
+            foreignName = name,
+            foreignType = ty
+          }
+    )
 
-foreignDeclParser :: ForeignDirection -> MParser Decl
-foreignDeclParser direction = do
-  _ <- keyword "foreign"
-  _ <-
-    case direction of
-      ForeignImport -> keyword "import"
-      ForeignExport -> keyword "export"
-  callConv <- callConvParser
+foreignDeclTokParser :: ForeignDirection -> TokParser (CallConv, Maybe ForeignSafety, Maybe Text, Text, Text)
+foreignDeclTokParser direction = do
+  tokWord "foreign"
+  case direction of
+    ForeignImport -> tokWord "import"
+    ForeignExport -> tokWord "export"
+  callConv <- callConvTokParser
   safety <-
     case direction of
-      ForeignImport -> MP.optional (try safetyParser)
+      ForeignImport -> MP.optional (try safetyTokParser)
       ForeignExport -> pure Nothing
-  entity <- MP.optional (try foreignEntityParser)
-  name <- identifierOrOperator
-  _ <- symbol "::"
-  typeTxt <- T.strip <$> MP.takeRest
+  entity <- MP.optional (try stringTokParser)
+  name <- identifierOrOperatorTokParser
+  operatorTokParser "::"
+  typeTxt <- T.strip . tokensToSourceText <$> many MP.anySingle
   if T.null typeTxt
-    then fail "expected foreign type"
-    else do
-      ty <-
-        case parseTypeText typeTxt of
-          Right t -> pure t
-          Left _ -> fail "foreign type"
-      pure
-        ( DeclForeign
-            span0
-            ForeignDecl
-              { foreignDeclSpan = span0,
-                foreignDirection = direction,
-                foreignCallConv = callConv,
-                foreignSafety = safety,
-                foreignEntity = classifyForeignEntitySpec entity,
-                foreignName = name,
-                foreignType = ty
-              }
-        )
+    then fail "foreign type"
+    else pure (callConv, safety, entity, name, typeTxt)
+
+tokensToSourceText :: [LexToken] -> Text
+tokensToSourceText = T.unwords . map lexTokenText
+
+tokenSatisfy :: (LexToken -> Maybe a) -> TokParser a
+tokenSatisfy f = do
+  tok <- MP.lookAhead MP.anySingle
+  case f tok of
+    Just out -> out <$ MP.anySingle
+    Nothing -> fail "token"
+
+tokWord :: Text -> TokParser ()
+tokWord expectedWord =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkKeyword txt | txt == expectedWord -> Just ()
+      TkIdentifier txt | txt == expectedWord -> Just ()
+      _ -> Nothing
+
+callConvTokParser :: TokParser CallConv
+callConvTokParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier "ccall" -> Just CCall
+      TkIdentifier "stdcall" -> Just StdCall
+      TkKeyword "ccall" -> Just CCall
+      TkKeyword "stdcall" -> Just StdCall
+      _ -> Nothing
+
+safetyTokParser :: TokParser ForeignSafety
+safetyTokParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier "safe" -> Just Safe
+      TkIdentifier "unsafe" -> Just Unsafe
+      TkKeyword "safe" -> Just Safe
+      TkKeyword "unsafe" -> Just Unsafe
+      _ -> Nothing
+
+stringTokParser :: TokParser Text
+stringTokParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkString txt -> Just txt
+      _ -> Nothing
+
+operatorTokParser :: Text -> TokParser ()
+operatorTokParser expectedOp =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkOperator txt | txt == expectedOp -> Just ()
+      _ -> Nothing
+
+identifierOrOperatorTokParser :: TokParser Text
+identifierOrOperatorTokParser =
+  identifierTokParser
+    <|> do
+      symbolTokParser "("
+      op <- anyOperatorTokParser
+      symbolTokParser ")"
+      pure op
+
+identifierTokParser :: TokParser Text
+identifierTokParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier txt -> Just txt
+      _ -> Nothing
+
+anyOperatorTokParser :: TokParser Text
+anyOperatorTokParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkOperator txt -> Just txt
+      _ -> Nothing
+
+symbolTokParser :: Text -> TokParser ()
+symbolTokParser expectedSym =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkSymbol txt | txt == expectedSym -> Just ()
+      _ -> Nothing
 
 classifyForeignEntitySpec :: Maybe Text -> ForeignEntitySpec
 classifyForeignEntitySpec mEntity =
@@ -1941,94 +2084,11 @@ findTopLevelOperatorTriple txt =
         TokOp _ -> True
         _ -> False
 
-parseLineWith :: MParser a -> Text -> Either ParseError a
-parseLineWith parser input =
-  case runParser parser "<line>" input of
-    Right value -> Right value
-    Left bundle -> Left (bundleToError input bundle)
-
-callConvParser :: MParser CallConv
-callConvParser =
-  (keyword "ccall" >> pure CCall)
-    <|> (keyword "stdcall" >> pure StdCall)
-
-safetyParser :: MParser ForeignSafety
-safetyParser =
-  (keyword "safe" >> pure Safe)
-    <|> (keyword "unsafe" >> pure Unsafe)
-
-foreignEntityParser :: MParser Text
-foreignEntityParser = lexeme scLine $ do
-  _ <- C.char '"'
-  txt <- manyTillChar '"'
-  pure (T.pack txt)
-
-manyTillChar :: Char -> MParser String
-manyTillChar endCh = go []
-  where
-    go acc =
-      (C.char endCh >> pure (reverse acc))
-        <|> do
-          ch <- C.printChar
-          go (ch : acc)
-
-identifier :: MParser Text
-identifier = identifierLexeme scLine
-
-identifierOrOperator :: MParser Text
-identifierOrOperator =
-  identifier
-    <|> do
-      _ <- symbol "("
-      op <- operatorTokenLexeme scLine
-      _ <- symbol ")"
-      pure op
-
-identifierLexeme :: MParser () -> MParser Text
-identifierLexeme sc = lexeme sc $ do
-  notFollowedBy reservedWord
-  first <- C.letterChar <|> C.char '_'
-  rest <- many identTailChar
-  more <- many (C.char '.' *> ((:) <$> C.letterChar <*> many identTailChar))
-  let base = first : rest
-      chunks = base : more
-  pure (T.intercalate "." (map T.pack chunks))
-
-operatorTokenLexeme :: MParser () -> MParser Text
-operatorTokenLexeme sc =
-  lexeme sc $ do
-    tok <- some (MP.satisfy isSymbolicOpChar)
-    let t = T.pack tok
-    if t `elem` ["=", "->", "<-", "=>", "::", "|"]
-      then fail "operator"
-      else pure t
-
-identTailChar :: MParser Char
-identTailChar =
-  C.alphaNumChar
-    <|> C.char '_'
-    <|> C.char '\''
-
-symbol :: Text -> MParser Text
-symbol = L.symbol scLine
-
-keyword :: Text -> MParser Text
-keyword kw = lexeme scLine (C.string kw <* notFollowedBy identTailOrStartChar)
-
-identTailOrStartChar :: MParser Char
-identTailOrStartChar = MP.satisfy isIdentTailOrStart
-
 isIdentTailOrStart :: Char -> Bool
 isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
 
 isSymbolicOpChar :: Char -> Bool
 isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?\\^|-~" :: String)
-
-lexeme :: MParser () -> MParser a -> MParser a
-lexeme = L.lexeme
-
-scLine :: MParser ()
-scLine = L.space C.space1 MP.empty MP.empty
 
 stripComments :: ParserConfig -> Text -> Text
 stripComments cfg = go (0 :: Int) False False False T.empty
@@ -2258,32 +2318,3 @@ tokenAt input off
   | off < 0 = Nothing
   | off >= T.length input = Just "<eof>"
   | otherwise = Just (T.singleton (T.index input off))
-
-reservedWords :: [Text]
-reservedWords =
-  [ "module",
-    "where",
-    "data",
-    "class",
-    "instance",
-    "type",
-    "newtype",
-    "default",
-    "foreign",
-    "import",
-    "export",
-    "if",
-    "then",
-    "else",
-    "let",
-    "in",
-    "case",
-    "of",
-    "do"
-  ]
-
-reservedWord :: MParser ()
-reservedWord =
-  foldr1 (<|>) (map oneReservedWord reservedWords)
-  where
-    oneReservedWord kw = try (C.string kw *> notFollowedBy identTailOrStartChar)
