@@ -1,7 +1,5 @@
 # Haskell Parser Extension Support Status
 
-**Generated**: 2026-03-09
-
 ## Summary
 
 - Total Extensions: 33
