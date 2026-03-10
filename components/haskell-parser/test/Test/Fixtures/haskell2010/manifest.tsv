@@ -45,18 +45,18 @@ modules-s5-module-empty-exports	modules	modules/s5-module-empty-exports.hs	xfail
 modules-s5-module-explicit-no-exports	modules	modules/s5-module-explicit-no-exports.hs	pass	parser now supports explicit no-export module form
 modules-s5-module-exports-trailing-comma	modules	modules/s5-module-exports-trailing-comma.hs	xfail	section 5 module variation unsupported
 
-modules-language-pragma-basic	modules	modules/pre-module-language-pragma.hs	xfail	file-header LANGUAGE pragma before module declaration
-modules-language-pragma-singleline-above	modules	modules/pre-module-language-pragma-singleline-comment-above.hs	xfail	file-header LANGUAGE pragma with single-line comment above
-modules-language-pragma-singleline-below	modules	modules/pre-module-language-pragma-singleline-comment-below.hs	xfail	file-header LANGUAGE pragma with single-line comment below
-modules-language-pragma-singleline-above-below	modules	modules/pre-module-language-pragma-singleline-comment-above-below.hs	xfail	file-header LANGUAGE pragma with single-line comments above and below
-modules-language-pragma-multiline-above	modules	modules/pre-module-language-pragma-multiline-comment-above.hs	xfail	file-header LANGUAGE pragma with multi-line comment above
-modules-language-pragma-multiline-below	modules	modules/pre-module-language-pragma-multiline-comment-below.hs	xfail	file-header LANGUAGE pragma with multi-line comment below
-modules-language-pragma-multiline-above-below	modules	modules/pre-module-language-pragma-multiline-comment-above-below.hs	xfail	file-header LANGUAGE pragma with multi-line comments above and below
-modules-language-pragma-mixed-single-above-multi-below	modules	modules/pre-module-language-pragma-mixed-comments-single-above-multi-below.hs	xfail	file-header LANGUAGE pragma with single-line comment above and multi-line comment below
-modules-language-pragma-mixed-multi-above-single-below	modules	modules/pre-module-language-pragma-mixed-comments-multi-above-single-below.hs	xfail	file-header LANGUAGE pragma with multi-line comment above and single-line comment below
-modules-language-pragma-multiple	modules	modules/pre-module-language-pragma-multiple.hs	xfail	multiple file-header LANGUAGE pragmas before module declaration
-modules-language-pragma-multiple-singleline-comments	modules	modules/pre-module-language-pragma-multiple-singleline-comments.hs	xfail	multiple LANGUAGE pragmas with single-line comments between and around pragmas
-modules-language-pragma-multiple-multiline-comments	modules	modules/pre-module-language-pragma-multiple-multiline-comments.hs	xfail	multiple LANGUAGE pragmas with multi-line comments between and around pragmas
+modules-language-pragma-basic	modules	modules/pre-module-language-pragma.hs	pass
+modules-language-pragma-singleline-above	modules	modules/pre-module-language-pragma-singleline-comment-above.hs	pass
+modules-language-pragma-singleline-below	modules	modules/pre-module-language-pragma-singleline-comment-below.hs	pass
+modules-language-pragma-singleline-above-below	modules	modules/pre-module-language-pragma-singleline-comment-above-below.hs	pass
+modules-language-pragma-multiline-above	modules	modules/pre-module-language-pragma-multiline-comment-above.hs	pass
+modules-language-pragma-multiline-below	modules	modules/pre-module-language-pragma-multiline-comment-below.hs	pass
+modules-language-pragma-multiline-above-below	modules	modules/pre-module-language-pragma-multiline-comment-above-below.hs	pass
+modules-language-pragma-mixed-single-above-multi-below	modules	modules/pre-module-language-pragma-mixed-comments-single-above-multi-below.hs	pass
+modules-language-pragma-mixed-multi-above-single-below	modules	modules/pre-module-language-pragma-mixed-comments-multi-above-single-below.hs	pass
+modules-language-pragma-multiple	modules	modules/pre-module-language-pragma-multiple.hs	pass
+modules-language-pragma-multiple-singleline-comments	modules	modules/pre-module-language-pragma-multiple-singleline-comments.hs	pass
+modules-language-pragma-multiple-multiline-comments	modules	modules/pre-module-language-pragma-multiple-multiline-comments.hs	pass
 
 ffi-s8-export-ccall-named	ffi	ffi/s8-export-ccall-named.hs	xfail	parser intentionally disabled
 ffi-s8-export-ccall-omitted-entity	ffi	ffi/s8-export-ccall-omitted-entity.hs	xfail	parser intentionally disabled
