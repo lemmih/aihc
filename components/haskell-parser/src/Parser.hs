@@ -984,8 +984,21 @@ unsnoc xs =
     [] -> Nothing
     y : ys -> Just (reverse ys, y)
 
+-- | Convert tokens back to source text, preserving line breaks as newlines
 tokensToSourceText :: [LexToken] -> Text
-tokensToSourceText = T.unwords . map lexTokenText
+tokensToSourceText [] = T.empty
+tokensToSourceText (t : ts) = go (tokenLine t) (lexTokenText t) ts
+  where
+    go _ acc [] = acc
+    go prevLine acc (tok : rest) =
+      let curLine = tokenLine tok
+          sep = if curLine > prevLine then "\n" else " "
+       in go curLine (acc <> sep <> lexTokenText tok) rest
+
+    tokenLine tok =
+      case lexTokenSpan tok of
+        NoSourceSpan -> 0
+        SourceSpan {sourceSpanStartLine = ln} -> ln
 
 tokenSatisfy :: (LexToken -> Maybe a) -> TokParser a
 tokenSatisfy f = do
@@ -1719,7 +1732,6 @@ exprTokParser =
     <|> try letExprTok
     <|> try caseExprTok
     <|> try doExprTok
-    <|> try typeSigExprTok
     <|> infixAndAppExprTok
 
 ifExprTok :: TokParser Expr
@@ -1771,24 +1783,26 @@ doExprTok = do
               else filter (not . T.null) (map T.strip (T.lines body))
        in traverse parseDoStmtText rows
 
-typeSigExprTok :: TokParser Expr
-typeSigExprTok = do
-  lhsToks <- collectUntilOperator "::"
-  operatorTokParser "::"
-  rhsToks <- MP.many MP.anySingle
-  lhsExpr <- either (fail . T.unpack) pure (parseExprToks lhsToks)
-  rhsType <- either (fail . T.unpack) pure (parseTypeText (tokensToSourceText rhsToks))
-  pure (ETypeSig span0 lhsExpr rhsType)
-
 infixAndAppExprTok :: TokParser Expr
 infixAndAppExprTok = do
   -- Try to parse negation first
   mNeg <- MP.optional (try (operatorTokParser "-"))
-  case mNeg of
+  expr <- case mNeg of
     Just () -> ENegate span0 <$> infixAndAppExprTok
     Nothing -> do
       firstAtom <- exprAtomTok
       buildInfixExpr firstAtom
+  -- Check for type signature (lowest precedence)
+  mTypeSig <- MP.optional (try typeSigSuffixTok)
+  case mTypeSig of
+    Just ty -> pure (ETypeSig span0 expr ty)
+    Nothing -> pure expr
+
+typeSigSuffixTok :: TokParser Type
+typeSigSuffixTok = do
+  operatorTokParser "::"
+  tyToks <- MP.many MP.anySingle
+  either (fail . T.unpack) pure (parseTypeText (tokensToSourceText tyToks))
 
 buildInfixExpr :: Expr -> TokParser Expr
 buildInfixExpr lhs = do
@@ -1841,11 +1855,21 @@ literalExprTok :: TokParser Expr
 literalExprTok =
   tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkInteger n -> Just (EInt span0 (fromInteger n))
+      TkInteger n ->
+        let repr = lexTokenText tok
+         in if isHexOrOctLiteral repr
+              then Just (EIntBase span0 (fromInteger n) repr)
+              else Just (EInt span0 (fromInteger n))
       TkFloat d -> Just (EFloat span0 d)
       TkChar c -> Just (EChar span0 c)
       TkString s -> Just (EString span0 s)
       _ -> Nothing
+  where
+    isHexOrOctLiteral txt =
+      "0x" `T.isPrefixOf` txt
+        || "0X" `T.isPrefixOf` txt
+        || "0o" `T.isPrefixOf` txt
+        || "0O" `T.isPrefixOf` txt
 
 parenExprTok :: TokParser Expr
 parenExprTok = do
@@ -2082,40 +2106,6 @@ collectUntilKeyword kw = go (0 :: Int) (0 :: Int) (0 :: Int) []
                   _ <- MP.anySingle
                   go parenDepth bracketDepth braceDepth (tok : acc)
 
-collectUntilOperator :: Text -> TokParser [LexToken]
-collectUntilOperator op = go (0 :: Int) (0 :: Int) (0 :: Int) []
-  where
-    go parenDepth bracketDepth braceDepth acc = do
-      mTok <- MP.optional (MP.lookAhead MP.anySingle)
-      case mTok of
-        Nothing -> pure (reverse acc)
-        Just tok
-          | parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 && isOperatorTokenKind op tok ->
-              pure (reverse acc)
-          | otherwise ->
-              case lexTokenKind tok of
-                TkSymbol "(" -> do
-                  _ <- MP.anySingle
-                  go (parenDepth + 1) bracketDepth braceDepth (tok : acc)
-                TkSymbol ")" -> do
-                  _ <- MP.anySingle
-                  go (max 0 (parenDepth - 1)) bracketDepth braceDepth (tok : acc)
-                TkSymbol "[" -> do
-                  _ <- MP.anySingle
-                  go parenDepth (bracketDepth + 1) braceDepth (tok : acc)
-                TkSymbol "]" -> do
-                  _ <- MP.anySingle
-                  go parenDepth (max 0 (bracketDepth - 1)) braceDepth (tok : acc)
-                TkSymbol "{" -> do
-                  _ <- MP.anySingle
-                  go parenDepth bracketDepth (braceDepth + 1) (tok : acc)
-                TkSymbol "}" -> do
-                  _ <- MP.anySingle
-                  go parenDepth bracketDepth (max 0 (braceDepth - 1)) (tok : acc)
-                _ -> do
-                  _ <- MP.anySingle
-                  go parenDepth bracketDepth braceDepth (tok : acc)
-
 parseLiteralText :: Text -> Maybe Literal
 parseLiteralText txt
   | T.length txt >= 2 && T.head txt == '\'' && T.last txt == '\'' =
@@ -2179,7 +2169,12 @@ parseExprText input =
   let txt = T.strip input
    in if T.null txt
         then Left "expression"
-        else parseExprCore txt
+        else case lexTokens txt of
+          Right toks ->
+            case runParser (exprTokParser <* eof) "<expr>" toks of
+              Right expr -> Right expr
+              Left _ -> parseExprCore txt
+          Left _ -> parseExprCore txt
 
 parseExprCore :: Text -> Either Text Expr
 parseExprCore txt
