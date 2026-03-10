@@ -129,7 +129,7 @@ expr-where-clause	expressions	expressions/where-clause.hs	xfail	parser intention
 expr-list-comprehension	expressions	expressions/list-comprehension.hs	xfail	parser intentionally disabled
 expr-arithmetic-seq	expressions	expressions/arithmetic-seq.hs	xfail	parser intentionally disabled
 
-expr-s3-errors-error	expressions	expressions/errors-error.hs	xfail	section 3 expression variation unsupported
+expr-s3-errors-error	expressions	expressions/errors-error.hs	pass	parser now handles error application expression case
 expr-s3-errors-undefined	expressions	expressions/errors-undefined.hs	pass	parser now handles this expression atom case
 expr-s3-atoms-qvar	expressions	expressions/atoms-qvar.hs	pass	parser now handles qualified-variable atom case
 expr-s3-atoms-gcon-unit	expressions	expressions/atoms-gcon-unit.hs	xfail	parser intentionally disabled
@@ -137,9 +137,10 @@ expr-s3-atoms-gcon-listcon	expressions	expressions/atoms-gcon-listcon.hs	pass	pa
 expr-s3-atoms-gcon-tuplecon	expressions	expressions/atoms-gcon-tuplecon.hs	xfail	parser intentionally disabled
 expr-s3-atoms-qcon	expressions	expressions/atoms-qcon.hs	xfail	parser intentionally disabled
 expr-s3-atoms-literal-int	expressions	expressions/atoms-literal-int.hs	pass	parser now handles integer literal atom case
-expr-s3-atoms-literal-float	expressions	expressions/atoms-literal-float.hs	xfail	parser intentionally disabled
-expr-s3-atoms-literal-char	expressions	expressions/atoms-literal-char.hs	xfail	parser intentionally disabled
-expr-s3-atoms-literal-string	expressions	expressions/atoms-literal-string.hs	xfail	parser intentionally disabled
+expr-s3-atoms-literal-float	expressions	expressions/atoms-literal-float.hs	pass	parser now handles floating literal atom case
+expr-s3-atoms-literal-char	expressions	expressions/atoms-literal-char.hs	pass	parser now handles char literal atom case
+expr-s3-atoms-literal-string	expressions	expressions/atoms-literal-string.hs	pass	parser now handles string literal atom case
+expr-s3-atoms-literal-all	expressions	expressions/atoms-literal-all.hs	pass	parser now handles all haskell2010 literal atom categories
 expr-s3-operators-varsym-paren	expressions	expressions/operators-varsym-paren.hs	xfail	parser intentionally disabled
 expr-s3-operators-backtick-varid	expressions	expressions/operators-backtick-varid.hs	xfail	parser intentionally disabled
 expr-s3-operators-conop-colon	expressions	expressions/operators-conop-colon.hs	xfail	parser intentionally disabled
@@ -235,8 +236,8 @@ layout-let	layout	layout/let-layout.hs	xfail	parser intentionally disabled
 layout-where	layout	layout/where-layout.hs	xfail	parser intentionally disabled
 
 lexical-block-comments	lexical	lexical/block-comments.hs	pass	lexer now handles block comments
-lexical-strings-chars	lexical	lexical/strings-chars.hs	xfail	string and char literals unsupported
-lexical-numeric-literals	lexical	lexical/numeric-literals.hs	xfail	roundtrip mismatch against oracle AST
+lexical-strings-chars	lexical	lexical/strings-chars.hs	pass	parser now handles string and char literals
+lexical-numeric-literals	lexical	lexical/numeric-literals.hs	pass	parser now handles numeric literals in lexical suite
 lexical-operators	lexical	lexical/operators.hs	xfail	parser intentionally disabled
 
 hashable-xxh3-cpp-include	corpus	corpus/hashable/hashable-xxh3-cpp-include.hs	xfail	from hashable/src/Data/Hashable/XXH3.hs; covered by parser-test CPP preprocessing

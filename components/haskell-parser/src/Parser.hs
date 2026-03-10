@@ -145,6 +145,38 @@ intExprParser = withSpan $ do
       _ -> Nothing
   pure (`EInt` n)
 
+intBaseExprParser :: TokParser Expr
+intBaseExprParser = withSpan $ do
+  (n, repr) <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIntegerBase i txt -> Just (i, txt)
+      _ -> Nothing
+  pure (\span' -> EIntBase span' n repr)
+
+floatExprParser :: TokParser Expr
+floatExprParser = withSpan $ do
+  n <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkFloat x -> Just x
+      _ -> Nothing
+  pure (`EFloat` n)
+
+charExprParser :: TokParser Expr
+charExprParser = withSpan $ do
+  c <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkChar x -> Just x
+      _ -> Nothing
+  pure (`EChar` c)
+
+stringExprParser :: TokParser Expr
+stringExprParser = withSpan $ do
+  s <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkString x -> Just x
+      _ -> Nothing
+  pure (`EString` s)
+
 appExprParser :: TokParser Expr
 appExprParser = withSpan $ do
   first <- atomExprParser
@@ -157,7 +189,15 @@ appExprParser = withSpan $ do
     foldl (EApp span') first rest
 
 atomExprParser :: TokParser Expr
-atomExprParser = parenExprParser <|> listExprParser <|> intExprParser <|> varExprParser
+atomExprParser =
+  parenExprParser
+    <|> listExprParser
+    <|> intBaseExprParser
+    <|> floatExprParser
+    <|> intExprParser
+    <|> charExprParser
+    <|> stringExprParser
+    <|> varExprParser
 
 sameLineAtomExprParser :: Int -> TokParser Expr
 sameLineAtomExprParser expectedLine = do
