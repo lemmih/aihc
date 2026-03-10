@@ -62,7 +62,7 @@ type LParser = Parsec Void Text
 
 lexTokens :: Text -> [LexToken]
 lexTokens input =
-  case runParser (many (spaceConsumer *> lexTokenParser) <* spaceConsumer <* eof) "<lexer>" input of
+  case runParser (spaceConsumer *> many (lexTokenParser <* spaceConsumer) <* eof) "<lexer>" input of
     Right toks -> toks
     Left _ -> []
 

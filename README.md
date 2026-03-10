@@ -11,7 +11,7 @@ The from-scratch parser lives in `components/haskell-parser`.
 
 Current Haskell2010 progress:
 <!-- AUTO-GENERATED: START parser-progress -->
-- `0/239` syntax cases implemented (`0.00%` complete)
+- `12/239` syntax cases implemented (`5.02%` complete)
 <!-- AUTO-GENERATED: END parser-progress -->
 
 ## Haskell Parser Extension Support Progress
@@ -44,7 +44,7 @@ The name-resolution component lives in `components/haskell-name-resolution`.
 
 Current progress:
 <!-- AUTO-GENERATED: START name-resolution-progress -->
-- `0/12` capability cases implemented (`0.00%` complete)
+- `8/12` capability cases implemented (`66.66%` complete)
 <!-- AUTO-GENERATED: END name-resolution-progress -->
 
 Generate all tracked docs/sections:

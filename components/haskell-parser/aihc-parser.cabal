@@ -64,6 +64,7 @@ executable h2010-progress
   main-is:          Main.hs
   other-modules:
       CppSupport
+    , GhcOracle
   build-depends:
       base >=4.16 && <5
     , aihc-parser

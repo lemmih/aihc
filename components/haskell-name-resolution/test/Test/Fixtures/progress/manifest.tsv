@@ -1,11 +1,11 @@
-core-backward-reference	core	core/backward-reference.hs	xfail	parser intentionally disabled
-core-forward-reference	core	core/forward-reference.hs	xfail	parser intentionally disabled
-core-unbound-variable	core	core/unbound-variable.hs	xfail	parser intentionally disabled
-core-duplicate-binding	core	core/duplicate-binding.hs	xfail	parser intentionally disabled
-core-nested-application	core	core/nested-application.hs	xfail	parser intentionally disabled
-core-prelude-reference	core	core/prelude-reference.hs	xfail	parser intentionally disabled
-core-shadow-prelude	core	core/shadow-prelude.hs	xfail	parser intentionally disabled
-core-module-comments	core	core/module-comments.hs	xfail	parser intentionally disabled
+core-backward-reference	core	core/backward-reference.hs	pass	name-resolution now handles backward references
+core-forward-reference	core	core/forward-reference.hs	pass	name-resolution now handles forward references
+core-unbound-variable	core	core/unbound-variable.hs	pass	name-resolution now handles unbound-variable detection
+core-duplicate-binding	core	core/duplicate-binding.hs	pass	name-resolution now handles duplicate bindings
+core-nested-application	core	core/nested-application.hs	pass	name-resolution now handles nested applications
+core-prelude-reference	core	core/prelude-reference.hs	pass	name-resolution now handles Prelude references
+core-shadow-prelude	core	core/shadow-prelude.hs	pass	name-resolution now handles Prelude shadowing
+core-module-comments	core	core/module-comments.hs	pass	name-resolution now handles module comments
 modules-import-qualified	modules	modules/import-qualified.hs	xfail	parser intentionally disabled
 modules-import-hiding	modules	modules/import-hiding.hs	xfail	parser intentionally disabled
 modules-export-list	modules	modules/export-list.hs	xfail	parser intentionally disabled

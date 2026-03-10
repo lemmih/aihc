@@ -1,15 +1,15 @@
-modules-minimal	modules	modules/minimal.hs	xfail	parser intentionally disabled
-modules-implicit	modules	modules/implicit.hs	xfail	parser intentionally disabled
-modules-application	modules	modules/application.hs	xfail	parser intentionally disabled
-modules-comments	modules	modules/comments.hs	xfail	parser intentionally disabled
+modules-minimal	modules	modules/minimal.hs	pass	parser supports minimal module parsing
+modules-implicit	modules	modules/implicit.hs	pass	parser supports implicit module parsing
+modules-application	modules	modules/application.hs	pass	parser now supports simple module application declarations
+modules-comments	modules	modules/comments.hs	pass	parser supports comment handling in modules
 modules-exports	modules	modules/exports.hs	xfail	export lists unsupported
 modules-import-qualified	modules	modules/import-qualified.hs	xfail	imports unsupported
 modules-import-hiding	modules	modules/import-hiding.hs	xfail	imports unsupported
 modules-multi-imports	modules	modules/multi-imports.hs	xfail	imports unsupported
 modules-import-as	modules	modules/import-as.hs	xfail	imports unsupported
-modules-multiline-definition	modules	modules/multiline-definition.hs	xfail	parser intentionally disabled
-modules-multiline-definition-module-split	modules	modules/multiline-definition-module-split.hs	xfail	parser intentionally disabled
-modules-multiline-definition-where-split	modules	modules/multiline-definition-where-split.hs	xfail	parser intentionally disabled
+modules-multiline-definition	modules	modules/multiline-definition.hs	pass	parser now handles multiline module headers
+modules-multiline-definition-module-split	modules	modules/multiline-definition-module-split.hs	pass	parser now handles multiline module headers
+modules-multiline-definition-where-split	modules	modules/multiline-definition-where-split.hs	pass	parser now handles multiline module headers
 modules-multiline-definition-export-list-split	modules	modules/multiline-definition-export-list-split.hs	xfail	parser intentionally disabled
 modules-multiline-definition-export-list-items-split	modules	modules/multiline-definition-export-list-items-split.hs	xfail	parser intentionally disabled
 
@@ -42,7 +42,7 @@ modules-s5-module-body-impdecls-topdecls-braces	modules	modules/s5-module-body-i
 modules-s5-module-body-imports-only-braces	modules	modules/s5-module-body-imports-only-braces.hs	xfail	section 5 module variation unsupported
 modules-s5-module-body-topdecls-only-braces	modules	modules/s5-module-body-topdecls-only-braces.hs	xfail	section 5 module variation unsupported
 modules-s5-module-empty-exports	modules	modules/s5-module-empty-exports.hs	xfail	section 5 module variation unsupported
-modules-s5-module-explicit-no-exports	modules	modules/s5-module-explicit-no-exports.hs	xfail	parser intentionally disabled
+modules-s5-module-explicit-no-exports	modules	modules/s5-module-explicit-no-exports.hs	pass	parser now supports explicit no-export module form
 modules-s5-module-exports-trailing-comma	modules	modules/s5-module-exports-trailing-comma.hs	xfail	section 5 module variation unsupported
 
 modules-language-pragma-basic	modules	modules/pre-module-language-pragma.hs	xfail	file-header LANGUAGE pragma before module declaration
@@ -130,13 +130,13 @@ expr-list-comprehension	expressions	expressions/list-comprehension.hs	xfail	pars
 expr-arithmetic-seq	expressions	expressions/arithmetic-seq.hs	xfail	parser intentionally disabled
 
 expr-s3-errors-error	expressions	expressions/errors-error.hs	xfail	section 3 expression variation unsupported
-expr-s3-errors-undefined	expressions	expressions/errors-undefined.hs	xfail	parser intentionally disabled
-expr-s3-atoms-qvar	expressions	expressions/atoms-qvar.hs	xfail	parser intentionally disabled
+expr-s3-errors-undefined	expressions	expressions/errors-undefined.hs	pass	parser now handles this expression atom case
+expr-s3-atoms-qvar	expressions	expressions/atoms-qvar.hs	pass	parser now handles qualified-variable atom case
 expr-s3-atoms-gcon-unit	expressions	expressions/atoms-gcon-unit.hs	xfail	parser intentionally disabled
 expr-s3-atoms-gcon-listcon	expressions	expressions/atoms-gcon-listcon.hs	xfail	parser intentionally disabled
 expr-s3-atoms-gcon-tuplecon	expressions	expressions/atoms-gcon-tuplecon.hs	xfail	parser intentionally disabled
 expr-s3-atoms-qcon	expressions	expressions/atoms-qcon.hs	xfail	parser intentionally disabled
-expr-s3-atoms-literal-int	expressions	expressions/atoms-literal-int.hs	xfail	parser intentionally disabled
+expr-s3-atoms-literal-int	expressions	expressions/atoms-literal-int.hs	pass	parser now handles integer literal atom case
 expr-s3-atoms-literal-float	expressions	expressions/atoms-literal-float.hs	xfail	parser intentionally disabled
 expr-s3-atoms-literal-char	expressions	expressions/atoms-literal-char.hs	xfail	parser intentionally disabled
 expr-s3-atoms-literal-string	expressions	expressions/atoms-literal-string.hs	xfail	parser intentionally disabled
@@ -234,7 +234,7 @@ types-nested-maybe-list	types	types/nested-maybe-list.hs	xfail	parser intentiona
 layout-let	layout	layout/let-layout.hs	xfail	parser intentionally disabled
 layout-where	layout	layout/where-layout.hs	xfail	parser intentionally disabled
 
-lexical-block-comments	lexical	lexical/block-comments.hs	xfail	block comments unsupported
+lexical-block-comments	lexical	lexical/block-comments.hs	pass	lexer now handles block comments
 lexical-strings-chars	lexical	lexical/strings-chars.hs	xfail	string and char literals unsupported
 lexical-numeric-literals	lexical	lexical/numeric-literals.hs	xfail	roundtrip mismatch against oracle AST
 lexical-operators	lexical	lexical/operators.hs	xfail	parser intentionally disabled

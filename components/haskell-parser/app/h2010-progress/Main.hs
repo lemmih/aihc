@@ -9,16 +9,10 @@ import Data.List (dropWhileEnd)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified GHC.Data.EnumSet as EnumSet
-import GHC.Data.FastString (mkFastString)
-import GHC.Data.StringBuffer (stringToStringBuffer)
-import GHC.Hs (GhcPs, HsModule)
-import GHC.LanguageExtensions.Type (Extension (ForeignFunctionInterface))
-import qualified GHC.Parser as GHCParser
-import qualified GHC.Parser.Lexer as Lexer
-import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
-import GHC.Utils.Error (emptyDiagOpts)
-import GHC.Utils.Outputable (ppr, showSDocUnsafe)
+import GhcOracle
+  ( oracleModuleAstFingerprintWithExtensionsAt,
+    oracleParsesModuleWithExtensionsAt,
+  )
 import qualified Parser
 import Parser.Ast (Module)
 import Parser.Pretty (prettyModule)
@@ -137,25 +131,10 @@ moduleRoundtripsViaGhc source oursResult =
             _ -> False
 
 oracleParsesModule :: Text -> Bool
-oracleParsesModule input =
-  case parseWithGhc input of
-    Right _ -> True
-    Left _ -> False
+oracleParsesModule = oracleParsesModuleWithExtensionsAt "h2010-progress" []
 
 oracleModuleAstFingerprint :: Text -> Either Text Text
-oracleModuleAstFingerprint input = do
-  parsed <- parseWithGhc input
-  pure (T.pack (showSDocUnsafe (ppr parsed)))
-
-parseWithGhc :: Text -> Either Text (HsModule GhcPs)
-parseWithGhc input =
-  let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
-      opts = Lexer.mkParserOpts exts emptyDiagOpts False False False False
-      buffer = stringToStringBuffer (T.unpack input)
-      start = mkRealSrcLoc (mkFastString "<h2010-progress>") 1 1
-   in case Lexer.unP GHCParser.parseModule (Lexer.initParserState opts buffer start) of
-        Lexer.POk _ modu -> Right (unLoc modu)
-        Lexer.PFailed _ -> Left "oracle parse failed"
+oracleModuleAstFingerprint = oracleModuleAstFingerprintWithExtensionsAt "h2010-progress" []
 
 loadManifest :: IO [CaseMeta]
 loadManifest = do
