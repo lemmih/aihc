@@ -283,6 +283,7 @@
             cd "$src"
             PARSER_PROGRESS_CMD='cd components/haskell-parser && ${h2010ProgressExe}' \
             PARSER_EXTENSION_PROGRESS_CMD='cd components/haskell-parser && ${extensionProgressExe} --markdown' \
+            PARSER_EXTENSION_PROGRESS_TEXT_CMD='cd components/haskell-parser && ${extensionProgressExe}' \
             CPP_PROGRESS_CMD='cd components/haskell-cpp && CPPHS_BIN=${pkgs.lib.getExe pkgs.haskellPackages.cpphs} ${cppProgressExe}' \
             NAME_RESOLUTION_PROGRESS_CMD='cd components/haskell-name-resolution && ${nameResolutionProgressExe}' \
               bash ./scripts/update-generated-content.sh --check
