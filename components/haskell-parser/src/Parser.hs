@@ -1705,9 +1705,416 @@ collectBracketedToks open close = go (0 :: Int) []
               _ <- MP.anySingle
               go depth (tok : acc)
 
--- Placeholder for expression token parser (to be implemented)
+-- Token-based expression parsing
 parseExprToks :: [LexToken] -> Either Text Expr
-parseExprToks toks = parseExprText (tokensToSourceText toks)
+parseExprToks toks =
+  case runParser (exprTokParser <* eof) "<expr>" toks of
+    Right expr -> Right expr
+    Left _ -> parseExprText (tokensToSourceText toks)
+
+exprTokParser :: TokParser Expr
+exprTokParser =
+  try ifExprTok
+    <|> try lambdaExprTok
+    <|> try letExprTok
+    <|> try caseExprTok
+    <|> try doExprTok
+    <|> try typeSigExprTok
+    <|> infixAndAppExprTok
+
+ifExprTok :: TokParser Expr
+ifExprTok = do
+  tokWord "if"
+  cond <- exprTokParser
+  tokWord "then"
+  thenExpr <- exprTokParser
+  tokWord "else"
+  EIf span0 cond thenExpr <$> exprTokParser
+
+lambdaExprTok :: TokParser Expr
+lambdaExprTok = do
+  symbolTokParser "\\"
+  pats <- MP.some patternAtomTok
+  operatorTokParser "->"
+  ELambdaPats span0 pats <$> exprTokParser
+
+letExprTok :: TokParser Expr
+letExprTok = do
+  tokWord "let"
+  bindsToks <- collectUntilKeyword "in"
+  tokWord "in"
+  decls <- either (fail . T.unpack) pure (parseLocalDecls defaultConfig (tokensToSourceText bindsToks))
+  ELetDecls span0 decls <$> exprTokParser
+
+caseExprTok :: TokParser Expr
+caseExprTok = do
+  tokWord "case"
+  scrutToks <- collectUntilKeyword "of"
+  scrutExpr <- either (fail . T.unpack) pure (parseExprToks scrutToks)
+  tokWord "of"
+  altsToks <- MP.many MP.anySingle
+  alts <- either (fail . T.unpack) pure (parseCaseAlts (tokensToSourceText altsToks))
+  pure (ECase span0 scrutExpr alts)
+
+doExprTok :: TokParser Expr
+doExprTok = do
+  tokWord "do"
+  bodyToks <- MP.many MP.anySingle
+  stmts <- either (fail . T.unpack) pure (parseDoStmts (tokensToSourceText bodyToks))
+  pure (EDo span0 stmts)
+  where
+    parseDoStmts txt =
+      let body = T.strip txt
+          rows =
+            if hasOuterBraces body
+              then splitDeclItems (T.drop 1 (T.dropEnd 1 body))
+              else filter (not . T.null) (map T.strip (T.lines body))
+       in traverse parseDoStmtText rows
+
+typeSigExprTok :: TokParser Expr
+typeSigExprTok = do
+  lhsToks <- collectUntilOperator "::"
+  operatorTokParser "::"
+  rhsToks <- MP.many MP.anySingle
+  lhsExpr <- either (fail . T.unpack) pure (parseExprToks lhsToks)
+  rhsType <- either (fail . T.unpack) pure (parseTypeText (tokensToSourceText rhsToks))
+  pure (ETypeSig span0 lhsExpr rhsType)
+
+infixAndAppExprTok :: TokParser Expr
+infixAndAppExprTok = do
+  -- Try to parse negation first
+  mNeg <- MP.optional (try (operatorTokParser "-"))
+  case mNeg of
+    Just () -> ENegate span0 <$> infixAndAppExprTok
+    Nothing -> do
+      firstAtom <- exprAtomTok
+      buildInfixExpr firstAtom
+
+buildInfixExpr :: Expr -> TokParser Expr
+buildInfixExpr lhs = do
+  mOp <- MP.optional (try infixOpTok)
+  case mOp of
+    Nothing -> buildAppExpr lhs
+    Just op -> EInfix span0 lhs op <$> infixAndAppExprTok
+
+buildAppExpr :: Expr -> TokParser Expr
+buildAppExpr fn = do
+  mArg <- MP.optional (try exprAtomTok)
+  case mArg of
+    Nothing -> pure fn
+    Just arg -> buildAppExpr (EApp span0 fn arg)
+
+infixOpTok :: TokParser Text
+infixOpTok =
+  regularOpTok <|> backtickOpTok
+  where
+    regularOpTok =
+      tokenSatisfy $ \tok ->
+        case lexTokenKind tok of
+          TkOperator op
+            | op `notElem` ["->", "<-", "=>", "::", "=", "|", "@", "~", "\\"] -> Just op
+          _ -> Nothing
+    backtickOpTok = do
+      symbolTokParser "`"
+      name <- identifierTokParser
+      symbolTokParser "`"
+      pure name
+
+exprAtomTok :: TokParser Expr
+exprAtomTok =
+  try quasiQuoteExprTok
+    <|> try literalExprTok
+    <|> try parenExprTok
+    <|> try listExprTok
+    <|> try recordExprTok
+    <|> try typeAppExprTok
+    <|> varExprTok
+
+quasiQuoteExprTok :: TokParser Expr
+quasiQuoteExprTok =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkQuasiQuote quoter body -> Just (EQuasiQuote span0 quoter body)
+      _ -> Nothing
+
+literalExprTok :: TokParser Expr
+literalExprTok =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkInteger n -> Just (EInt span0 (fromInteger n))
+      TkFloat d -> Just (EFloat span0 d)
+      TkChar c -> Just (EChar span0 c)
+      TkString s -> Just (EString span0 s)
+      _ -> Nothing
+
+parenExprTok :: TokParser Expr
+parenExprTok = do
+  symbolTokParser "("
+  innerToks <- collectBracketedToks "(" ")"
+  symbolTokParser ")"
+  parseParenInnerExpr innerToks
+
+parseParenInnerExpr :: [LexToken] -> TokParser Expr
+parseParenInnerExpr toks =
+  case toks of
+    [] -> pure (ETuple span0 [])
+    [tok] ->
+      case lexTokenKind tok of
+        TkOperator op -> pure (EVar span0 op)
+        TkIdentifier name -> pure (EVar span0 name)
+        _ -> parseExprOrTuple toks
+    _ ->
+      -- Check for tuple constructor (,,,)
+      if all isCommaToken toks
+        then pure (ETupleCon span0 (length toks + 1))
+        else -- Check for sections or tuples
+          parseExprOrTuple toks
+  where
+    isCommaToken tok =
+      case lexTokenKind tok of
+        TkSymbol "," -> True
+        _ -> False
+
+parseExprOrTuple :: [LexToken] -> TokParser Expr
+parseExprOrTuple toks =
+  case splitTokensOnTopLevelCommas toks of
+    Right chunks | length chunks > 1 -> do
+      exprs <- either (fail . T.unpack) pure (traverse parseExprToks chunks)
+      pure (ETuple span0 exprs)
+    _ -> do
+      -- Check for section
+      case parseSectionToks toks of
+        Just section -> pure section
+        Nothing ->
+          EParen span0 <$> either (fail . T.unpack) pure (parseExprToks toks)
+  where
+    parseSectionToks ts =
+      case ts of
+        [opTok] | isOpToken opTok ->
+          case lexTokenKind opTok of
+            TkOperator op -> Just (EVar span0 op)
+            _ -> Nothing
+        (opTok : rest) | isOpToken opTok ->
+          case (lexTokenKind opTok, parseExprToks rest) of
+            (TkOperator op, Right rhs) -> Just (ESectionR span0 op rhs)
+            _ -> Nothing
+        _ ->
+          case unsnoc ts of
+            Just (init', opTok) | isOpToken opTok ->
+              case (parseExprToks init', lexTokenKind opTok) of
+                (Right lhs, TkOperator op) -> Just (ESectionL span0 lhs op)
+                _ -> Nothing
+            _ -> Nothing
+
+    isOpToken tok =
+      case lexTokenKind tok of
+        TkOperator _ -> True
+        _ -> False
+
+listExprTok :: TokParser Expr
+listExprTok = do
+  symbolTokParser "["
+  innerToks <- collectBracketedToks "[" "]"
+  symbolTokParser "]"
+  parseListInnerExpr innerToks
+
+parseListInnerExpr :: [LexToken] -> TokParser Expr
+parseListInnerExpr toks =
+  case toks of
+    [] -> pure (EList span0 [])
+    _ ->
+      -- Check for list comprehension (contains |)
+      case splitTokensOnTopLevelOperator "|" toks of
+        Just (bodyToks, qualsToks) -> do
+          bodyExpr <- either (fail . T.unpack) pure (parseExprToks bodyToks)
+          -- Parse qualifier groups (separated by |)
+          let qualGroups = splitOnPipe qualsToks
+          qualifierGroups <- traverse parseQualGroup qualGroups
+          case qualifierGroups of
+            [qualifiers] -> pure (EListComp span0 bodyExpr qualifiers)
+            _ -> pure (EListCompParallel span0 bodyExpr qualifierGroups)
+        Nothing ->
+          -- Check for arithmetic sequence (..)
+          case splitTokensOnTopLevelOperator ".." toks of
+            Just _ -> parseArithSeqToks toks
+            Nothing -> do
+              chunks <- either (fail . T.unpack) pure (splitTokensOnTopLevelCommas toks)
+              exprs <- either (fail . T.unpack) pure (traverse parseExprToks chunks)
+              pure (EList span0 exprs)
+  where
+    splitOnPipe ts =
+      case splitTokensOnTopLevelOperator "|" ts of
+        Nothing -> [ts]
+        Just (before, after) -> before : splitOnPipe after
+
+    parseQualGroup grpToks = do
+      chunks <- either (fail . T.unpack) pure (splitTokensOnTopLevelCommas grpToks)
+      traverse parseCompStmtToks chunks
+
+parseCompStmtToks :: [LexToken] -> TokParser CompStmt
+parseCompStmtToks toks =
+  case toks of
+    (tok : rest) | isLetToken tok -> do
+      let restTxt = tokensToSourceText rest
+      decls <- either (fail . T.unpack) pure (parseLocalDecls defaultConfig restTxt)
+      case localDeclsToSimpleBindings decls of
+        Just binds -> pure (CompLet span0 binds)
+        Nothing -> pure (CompLetDecls span0 decls)
+    _ ->
+      case splitTokensOnTopLevelOperator "<-" toks of
+        Just (patToks, exprToks) -> do
+          pat <- either (fail . T.unpack) pure (parsePatternToks patToks)
+          expr <- either (fail . T.unpack) pure (parseExprToks exprToks)
+          pure (CompGen span0 pat expr)
+        Nothing ->
+          CompGuard span0 <$> either (fail . T.unpack) pure (parseExprToks toks)
+  where
+    isLetToken tok =
+      case lexTokenKind tok of
+        TkKeyword "let" -> True
+        TkIdentifier "let" -> True
+        _ -> False
+
+parseArithSeqToks :: [LexToken] -> TokParser Expr
+parseArithSeqToks toks =
+  case splitTokensOnTopLevelOperator ".." toks of
+    Nothing -> fail "arithmetic sequence"
+    Just (lhsToks, rhsToks) ->
+      case splitTokensOnTopLevelCommas lhsToks of
+        Right [fromToks] -> do
+          fromExpr <- either (fail . T.unpack) pure (parseExprToks fromToks)
+          if null rhsToks
+            then pure (EArithSeq span0 (ArithSeqFrom span0 fromExpr))
+            else do
+              toExpr <- either (fail . T.unpack) pure (parseExprToks rhsToks)
+              pure (EArithSeq span0 (ArithSeqFromTo span0 fromExpr toExpr))
+        Right [fromToks, thenToks] -> do
+          fromExpr <- either (fail . T.unpack) pure (parseExprToks fromToks)
+          thenExpr <- either (fail . T.unpack) pure (parseExprToks thenToks)
+          if null rhsToks
+            then pure (EArithSeq span0 (ArithSeqFromThen span0 fromExpr thenExpr))
+            else do
+              toExpr <- either (fail . T.unpack) pure (parseExprToks rhsToks)
+              pure (EArithSeq span0 (ArithSeqFromThenTo span0 fromExpr thenExpr toExpr))
+        _ -> fail "arithmetic sequence"
+
+recordExprTok :: TokParser Expr
+recordExprTok = do
+  baseTok <- MP.lookAhead MP.anySingle
+  case lexTokenKind baseTok of
+    TkIdentifier name | not (T.null name) && isUpper (T.head name) -> do
+      _ <- MP.anySingle
+      symbolTokParser "{"
+      fieldsToks <- collectBracketedToks "{" "}"
+      symbolTokParser "}"
+      fields <- parseRecordFieldsToks fieldsToks
+      pure (ERecordCon span0 name fields)
+    _ -> fail "record expression"
+
+parseRecordFieldsToks :: [LexToken] -> TokParser [(Text, Expr)]
+parseRecordFieldsToks toks =
+  case toks of
+    [] -> pure []
+    _ -> do
+      chunks <- either (fail . T.unpack) pure (splitTokensOnTopLevelCommas toks)
+      traverse parseRecordFieldTok chunks
+
+parseRecordFieldTok :: [LexToken] -> TokParser (Text, Expr)
+parseRecordFieldTok toks =
+  case splitTokensOnTopLevelOperator "=" toks of
+    Just (nameToks, exprToks) -> do
+      name <- case nameToks of
+        [tok] ->
+          case lexTokenKind tok of
+            TkIdentifier n -> pure n
+            _ -> fail "field name"
+        _ -> fail "field name"
+      expr <- either (fail . T.unpack) pure (parseExprToks exprToks)
+      pure (name, expr)
+    Nothing -> fail "record field"
+
+typeAppExprTok :: TokParser Expr
+typeAppExprTok = do
+  base <- varExprTok
+  symbolTokParser "@"
+  tyToks <- MP.some MP.anySingle
+  ty <- either (fail . T.unpack) pure (parseTypeText (tokensToSourceText tyToks))
+  pure (ETypeApp span0 base ty)
+
+varExprTok :: TokParser Expr
+varExprTok =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier name -> Just (EVar span0 name)
+      _ -> Nothing
+
+collectUntilKeyword :: Text -> TokParser [LexToken]
+collectUntilKeyword kw = go (0 :: Int) (0 :: Int) (0 :: Int) []
+  where
+    go parenDepth bracketDepth braceDepth acc = do
+      mTok <- MP.optional (MP.lookAhead MP.anySingle)
+      case mTok of
+        Nothing -> pure (reverse acc)
+        Just tok
+          | parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 && isWordToken kw tok ->
+              pure (reverse acc)
+          | otherwise ->
+              case lexTokenKind tok of
+                TkSymbol "(" -> do
+                  _ <- MP.anySingle
+                  go (parenDepth + 1) bracketDepth braceDepth (tok : acc)
+                TkSymbol ")" -> do
+                  _ <- MP.anySingle
+                  go (max 0 (parenDepth - 1)) bracketDepth braceDepth (tok : acc)
+                TkSymbol "[" -> do
+                  _ <- MP.anySingle
+                  go parenDepth (bracketDepth + 1) braceDepth (tok : acc)
+                TkSymbol "]" -> do
+                  _ <- MP.anySingle
+                  go parenDepth (max 0 (bracketDepth - 1)) braceDepth (tok : acc)
+                TkSymbol "{" -> do
+                  _ <- MP.anySingle
+                  go parenDepth bracketDepth (braceDepth + 1) (tok : acc)
+                TkSymbol "}" -> do
+                  _ <- MP.anySingle
+                  go parenDepth bracketDepth (max 0 (braceDepth - 1)) (tok : acc)
+                _ -> do
+                  _ <- MP.anySingle
+                  go parenDepth bracketDepth braceDepth (tok : acc)
+
+collectUntilOperator :: Text -> TokParser [LexToken]
+collectUntilOperator op = go (0 :: Int) (0 :: Int) (0 :: Int) []
+  where
+    go parenDepth bracketDepth braceDepth acc = do
+      mTok <- MP.optional (MP.lookAhead MP.anySingle)
+      case mTok of
+        Nothing -> pure (reverse acc)
+        Just tok
+          | parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 && isOperatorTokenKind op tok ->
+              pure (reverse acc)
+          | otherwise ->
+              case lexTokenKind tok of
+                TkSymbol "(" -> do
+                  _ <- MP.anySingle
+                  go (parenDepth + 1) bracketDepth braceDepth (tok : acc)
+                TkSymbol ")" -> do
+                  _ <- MP.anySingle
+                  go (max 0 (parenDepth - 1)) bracketDepth braceDepth (tok : acc)
+                TkSymbol "[" -> do
+                  _ <- MP.anySingle
+                  go parenDepth (bracketDepth + 1) braceDepth (tok : acc)
+                TkSymbol "]" -> do
+                  _ <- MP.anySingle
+                  go parenDepth (max 0 (bracketDepth - 1)) braceDepth (tok : acc)
+                TkSymbol "{" -> do
+                  _ <- MP.anySingle
+                  go parenDepth bracketDepth (braceDepth + 1) (tok : acc)
+                TkSymbol "}" -> do
+                  _ <- MP.anySingle
+                  go parenDepth bracketDepth (max 0 (braceDepth - 1)) (tok : acc)
+                _ -> do
+                  _ <- MP.anySingle
+                  go parenDepth bracketDepth braceDepth (tok : acc)
 
 parseLiteralText :: Text -> Maybe Literal
 parseLiteralText txt
