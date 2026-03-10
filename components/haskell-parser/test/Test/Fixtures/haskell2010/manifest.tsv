@@ -58,31 +58,31 @@ modules-language-pragma-multiple	modules	modules/pre-module-language-pragma-mult
 modules-language-pragma-multiple-singleline-comments	modules	modules/pre-module-language-pragma-multiple-singleline-comments.hs	pass
 modules-language-pragma-multiple-multiline-comments	modules	modules/pre-module-language-pragma-multiple-multiline-comments.hs	pass
 
-ffi-s8-export-ccall-named	ffi	ffi/s8-export-ccall-named.hs	xfail	parser intentionally disabled
-ffi-s8-export-ccall-omitted-entity	ffi	ffi/s8-export-ccall-omitted-entity.hs	xfail	parser intentionally disabled
-ffi-s8-export-stdcall-named	ffi	ffi/s8-export-stdcall-named.hs	xfail	parser intentionally disabled
-ffi-s8-import-address-header-cid	ffi	ffi/s8-import-address-header-cid.hs	xfail	parser intentionally disabled
-ffi-s8-import-address-only	ffi	ffi/s8-import-address-only.hs	xfail	parser intentionally disabled
-ffi-s8-import-ccall-basic	ffi	ffi/s8-import-ccall-basic.hs	xfail	parser intentionally disabled
-ffi-s8-import-ccall-safe	ffi	ffi/s8-import-ccall-safe.hs	xfail	parser intentionally disabled
-ffi-s8-import-ccall-unsafe	ffi	ffi/s8-import-ccall-unsafe.hs	xfail	parser intentionally disabled
-ffi-s8-import-dynamic	ffi	ffi/s8-import-dynamic.hs	xfail	roundtrip mismatch against oracle AST
-ffi-s8-import-ftype-arrow	ffi	ffi/s8-import-ftype-arrow.hs	xfail	parser intentionally disabled
-ffi-s8-import-ftype-frtype-only	ffi	ffi/s8-import-ftype-frtype-only.hs	xfail	parser intentionally disabled
-ffi-s8-import-ftype-multi-arg	ffi	ffi/s8-import-ftype-multi-arg.hs	xfail	parser intentionally disabled
-ffi-s8-import-ftype-result-unit	ffi	ffi/s8-import-ftype-result-unit.hs	xfail	parser intentionally disabled
-ffi-s8-import-impent-omitted	ffi	ffi/s8-import-impent-omitted.hs	xfail	parser intentionally disabled
-ffi-s8-import-static-dynamic-name	ffi	ffi/s8-import-static-dynamic-name.hs	xfail	parser intentionally disabled
-ffi-s8-import-static-header-cid	ffi	ffi/s8-import-static-header-cid.hs	xfail	parser intentionally disabled
-ffi-s8-import-static-header-default-cid	ffi	ffi/s8-import-static-header-default-cid.hs	xfail	parser intentionally disabled
-ffi-s8-import-static-wrapper-name	ffi	ffi/s8-import-static-wrapper-name.hs	xfail	parser intentionally disabled
-ffi-s8-import-stdcall-basic	ffi	ffi/s8-import-stdcall-basic.hs	xfail	parser intentionally disabled
-ffi-s8-import-wrapper	ffi	ffi/s8-import-wrapper.hs	xfail	parser intentionally disabled
-ffi-s8-lexical-identifiers	ffi	ffi/s8-lexical-identifiers.hs	xfail	parser intentionally disabled
-ffi-s8-mixed-import-export	ffi	ffi/s8-mixed-import-export.hs	xfail	parser intentionally disabled
-ffi-s8-multiple-foreign-decls	ffi	ffi/s8-multiple-foreign-decls.hs	xfail	parser intentionally disabled
+ffi-s8-export-ccall-named	ffi	ffi/s8-export-ccall-named.hs	pass	parser now supports foreign export declarations
+ffi-s8-export-ccall-omitted-entity	ffi	ffi/s8-export-ccall-omitted-entity.hs	pass	parser now supports foreign export declarations with omitted entity
+ffi-s8-export-stdcall-named	ffi	ffi/s8-export-stdcall-named.hs	pass	parser now supports stdcall foreign export declarations
+ffi-s8-import-address-header-cid	ffi	ffi/s8-import-address-header-cid.hs	pass	parser now supports foreign import address entities with header strings
+ffi-s8-import-address-only	ffi	ffi/s8-import-address-only.hs	pass	parser now supports foreign import address-only entities
+ffi-s8-import-ccall-basic	ffi	ffi/s8-import-ccall-basic.hs	pass	parser now supports basic ccall foreign imports
+ffi-s8-import-ccall-safe	ffi	ffi/s8-import-ccall-safe.hs	pass	parser now supports safe foreign imports
+ffi-s8-import-ccall-unsafe	ffi	ffi/s8-import-ccall-unsafe.hs	pass	parser now supports unsafe foreign imports
+ffi-s8-import-dynamic	ffi	ffi/s8-import-dynamic.hs	pass	parser now supports dynamic foreign imports
+ffi-s8-import-ftype-arrow	ffi	ffi/s8-import-ftype-arrow.hs	pass	parser now supports foreign function arrow types
+ffi-s8-import-ftype-frtype-only	ffi	ffi/s8-import-ftype-frtype-only.hs	pass	parser now supports non-IO foreign result types
+ffi-s8-import-ftype-multi-arg	ffi	ffi/s8-import-ftype-multi-arg.hs	pass	parser now supports multi-argument foreign function types
+ffi-s8-import-ftype-result-unit	ffi	ffi/s8-import-ftype-result-unit.hs	pass	parser now supports unit foreign result types
+ffi-s8-import-impent-omitted	ffi	ffi/s8-import-impent-omitted.hs	pass	parser now supports foreign imports with omitted entities
+ffi-s8-import-static-dynamic-name	ffi	ffi/s8-import-static-dynamic-name.hs	pass	parser now supports static-named foreign imports
+ffi-s8-import-static-header-cid	ffi	ffi/s8-import-static-header-cid.hs	pass	parser now supports static foreign imports with headers
+ffi-s8-import-static-header-default-cid	ffi	ffi/s8-import-static-header-default-cid.hs	pass	parser now supports static foreign imports with default C identifier
+ffi-s8-import-static-wrapper-name	ffi	ffi/s8-import-static-wrapper-name.hs	pass	parser now supports static wrapper-named foreign imports
+ffi-s8-import-stdcall-basic	ffi	ffi/s8-import-stdcall-basic.hs	pass	parser now supports stdcall foreign imports
+ffi-s8-import-wrapper	ffi	ffi/s8-import-wrapper.hs	pass	parser now supports wrapper foreign imports
+ffi-s8-lexical-identifiers	ffi	ffi/s8-lexical-identifiers.hs	pass	parser preserves ccall/stdcall as identifiers in non-foreign contexts
+ffi-s8-mixed-import-export	ffi	ffi/s8-mixed-import-export.hs	pass	parser now supports mixed foreign import/export declarations
+ffi-s8-multiple-foreign-decls	ffi	ffi/s8-multiple-foreign-decls.hs	pass	parser now supports multiple foreign declarations per module
 
-decls-type-signature	declarations	declarations/type-signature.hs	xfail	parser intentionally disabled
+decls-type-signature	declarations	declarations/type-signature.hs	pass	parser now supports top-level type signatures
 decls-multiple-equations	declarations	declarations/multiple-equations.hs	xfail	parser intentionally disabled
 decls-pattern-binding	declarations	declarations/pattern-binding.hs	xfail	parser intentionally disabled
 decls-data	declarations	declarations/data.hs	pass
@@ -99,7 +99,7 @@ decls-data-record-strict-field	declarations	declarations/data-record-strict-fiel
 decls-data-deriving-single	declarations	declarations/data-deriving-single.hs	xfail	parser intentionally disabled
 decls-data-deriving-empty	declarations	declarations/data-deriving-empty.hs	xfail	parser intentionally disabled
 decls-data-abstract	declarations	declarations/data-abstract.hs	pass
-decls-newtype	declarations	declarations/newtype.hs	xfail	parser intentionally disabled
+decls-newtype	declarations	declarations/newtype.hs	pass	parser now supports simple newtype declarations
 decls-type-synonym	declarations	declarations/type-synonym.hs	xfail	parser intentionally disabled
 decls-class	declarations	declarations/class.hs	xfail	parser intentionally disabled
 decls-class-minimal	declarations	declarations/class-minimal.hs	xfail	parser intentionally disabled
@@ -143,22 +143,22 @@ expr-s3-atoms-literal-string	expressions	expressions/atoms-literal-string.hs	pas
 expr-s3-atoms-literal-all	expressions	expressions/atoms-literal-all.hs	pass	parser now handles all haskell2010 literal atom categories
 expr-s3-operators-varsym-paren	expressions	expressions/operators-varsym-paren.hs	xfail	parser intentionally disabled
 expr-s3-operators-backtick-varid	expressions	expressions/operators-backtick-varid.hs	xfail	parser intentionally disabled
-expr-s3-operators-conop-colon	expressions	expressions/operators-conop-colon.hs	xfail	parser intentionally disabled
+expr-s3-operators-conop-colon	expressions	expressions/operators-conop-colon.hs	pass	parser now supports infix constructor operators in expressions
 expr-s3-operators-backtick-conid	expressions	expressions/operators-backtick-conid.hs	xfail	parser intentionally disabled
-expr-s3-application-left-assoc	expressions	expressions/application-left-assoc.hs	xfail	parser intentionally disabled
+expr-s3-application-left-assoc	expressions	expressions/application-left-assoc.hs	pass	parser now supports left-associative application
 expr-s3-application-constructor-partial	expressions	expressions/application-constructor-partial.hs	xfail	parser intentionally disabled
 expr-s3-lambda-single-apat	expressions	expressions/lambda-single-apat.hs	xfail	parser intentionally disabled
 expr-s3-lambda-multi-apat	expressions	expressions/lambda-multi-apat.hs	xfail	parser intentionally disabled
 expr-s3-lambda-pattern-apat	expressions	expressions/lambda-pattern-apat.hs	xfail	parser intentionally disabled
-expr-s3-infix-qvarop	expressions	expressions/infix-qvarop.hs	xfail	parser intentionally disabled
-expr-s3-infix-qconop	expressions	expressions/infix-qconop.hs	xfail	parser intentionally disabled
+expr-s3-infix-qvarop	expressions	expressions/infix-qvarop.hs	pass	parser now supports infix qualified variable operators
+expr-s3-infix-qconop	expressions	expressions/infix-qconop.hs	pass	parser now supports infix qualified constructor operators
 expr-s3-prefix-negation	expressions	expressions/prefix-negation.hs	xfail	parser intentionally disabled
 expr-s3-minus-with-parenthesized-negation	expressions	expressions/minus-with-parenthesized-negation.hs	xfail	parser intentionally disabled
 expr-s3-section-left	expressions	expressions/section-left.hs	xfail	parser intentionally disabled
 expr-s3-section-right	expressions	expressions/section-right.hs	xfail	parser intentionally disabled
 expr-s3-section-backtick-left	expressions	expressions/section-backtick-left.hs	xfail	parser intentionally disabled
 expr-s3-section-backtick-right	expressions	expressions/section-backtick-right.hs	xfail	parser intentionally disabled
-expr-s3-conditional-basic	expressions	expressions/conditional-basic.hs	xfail	parser intentionally disabled
+expr-s3-conditional-basic	expressions	expressions/conditional-basic.hs	pass	parser now supports basic conditional expressions
 expr-s3-conditional-semicolons	expressions	expressions/conditional-semicolons.hs	xfail	parser intentionally disabled
 expr-s3-list-empty	expressions	expressions/list-empty.hs	pass	parser supports empty list literals
 expr-s3-list-singleton	expressions	expressions/list-singleton.hs	pass	parser supports singleton list literals
@@ -166,13 +166,13 @@ expr-s3-list-multiple	expressions	expressions/list-multiple.hs	pass	parser suppo
 expr-s3-tuple-pair	expressions	expressions/tuple-pair.hs	xfail	parser intentionally disabled
 expr-s3-tuple-triple	expressions	expressions/tuple-triple.hs	xfail	section 3 expression variation unsupported
 expr-s3-unit-expression	expressions	expressions/unit-expression.hs	xfail	section 3 expression variation unsupported
-expr-s3-parenthesized-expression	expressions	expressions/parenthesized-expression.hs	xfail	parser intentionally disabled
+expr-s3-parenthesized-expression	expressions	expressions/parenthesized-expression.hs	pass	parser now supports parenthesized expressions
 expr-s3-arithseq-from	expressions	expressions/arithseq-from.hs	xfail	parser intentionally disabled
 expr-s3-arithseq-from-then	expressions	expressions/arithseq-from-then.hs	xfail	parser intentionally disabled
 expr-s3-arithseq-from-to	expressions	expressions/arithseq-from-to.hs	xfail	parser intentionally disabled
 expr-s3-arithseq-from-then-to	expressions	expressions/arithseq-from-then-to.hs	xfail	parser intentionally disabled
-expr-s3-listcomp-generator	expressions	expressions/listcomp-generator.hs	xfail	parser intentionally disabled
-expr-s3-listcomp-guards	expressions	expressions/listcomp-guards.hs	xfail	parser intentionally disabled
+expr-s3-listcomp-generator	expressions	expressions/listcomp-generator.hs	pass	parser now supports simple list-comprehension generator forms
+expr-s3-listcomp-guards	expressions	expressions/listcomp-guards.hs	pass	parser now supports simple list-comprehension guard forms
 expr-s3-listcomp-let-qualifier	expressions	expressions/listcomp-let-qualifier.hs	xfail	parser intentionally disabled
 expr-s3-listcomp-multi-generator	expressions	expressions/listcomp-multi-generator.hs	xfail	parser intentionally disabled
 expr-s3-let-basic	expressions	expressions/let-basic.hs	xfail	parser intentionally disabled
@@ -217,7 +217,7 @@ pat-contexts	patterns	patterns/contexts.hs	xfail	pattern matching contexts unsup
 types-context	types	types/context.hs	xfail	parser intentionally disabled
 types-tuple-list	types	types/tuple-list-types.hs	xfail	parser intentionally disabled
 types-newtype-record	types	types/newtype-record.hs	xfail	parser intentionally disabled
-types-multi-vars-signature	types	types/multi-vars-signature.hs	xfail	parser intentionally disabled
+types-multi-vars-signature	types	types/multi-vars-signature.hs	pass	parser now supports multi-variable top-level signatures
 types-context-multi-vars	types	types/context-multi-vars.hs	xfail	parser intentionally disabled
 types-signature-where	types	types/signature-where.hs	xfail	local type signatures in where bindings unsupported
 types-inline-signature-basic	types	types/inline-signature-basic.hs	xfail	parser intentionally disabled
@@ -225,7 +225,7 @@ types-inline-signature-context	types	types/inline-signature-context.hs	xfail	par
 types-inline-signature-lambda	types	types/inline-signature-lambda.hs	xfail	parser intentionally disabled
 types-let-signature	types	types/let-signature.hs	xfail	local let type signatures unsupported
 types-guard-inline-signature	types	types/guard-inline-signature.hs	xfail	parser intentionally disabled
-types-list-type-constructor	types	types/list-type-constructor.hs	xfail	parser intentionally disabled
+types-list-type-constructor	types	types/list-type-constructor.hs	pass	parser now supports list type constructors
 types-maybe-type-constructor	types	types/maybe-type-constructor.hs	xfail	parser intentionally disabled
 types-function-type-constructor	types	types/function-type-constructor.hs	xfail	parser intentionally disabled
 types-function-type-constructor-partial	types	types/function-type-constructor-partial.hs	xfail	parser intentionally disabled
@@ -242,10 +242,10 @@ lexical-operators	lexical	lexical/operators.hs	xfail	parser intentionally disabl
 
 hashable-xxh3-cpp-include	corpus	corpus/hashable/hashable-xxh3-cpp-include.hs	xfail	from hashable/src/Data/Hashable/XXH3.hs; covered by parser-test CPP preprocessing
 hashable-generic-instances-kind-arrow	corpus	corpus/hashable/hashable-generic-instances-kind-arrow.hs	xfail	from hashable/src/Data/Hashable/Generic/Instances.hs; parser rejects multiline LANGUAGE pragma lists
-hashable-mix-cpp-if	corpus	corpus/hashable/hashable-mix-cpp-if.hs	xfail	from hashable/src/Data/Hashable/Mix.hs; covered by parser-test CPP preprocessing
+hashable-mix-cpp-if	corpus	corpus/hashable/hashable-mix-cpp-if.hs	pass	from hashable/src/Data/Hashable/Mix.hs; parser now accepts this preprocessed case
 hashable-ffi-capi-calling-convention	corpus	corpus/hashable/hashable-ffi-capi-calling-convention.hs	xfail	from hashable/src/Data/Hashable/FFI.hs; parser does not support capi calling convention (CApiFFI)
 hashable-class-package-imports	corpus	corpus/hashable/hashable-class-package-imports.hs	xfail	from hashable/src/Data/Hashable/Class.hs; parser rejects package-qualified imports
-hashable-lowlevel-cpp-ifdef	corpus	corpus/hashable/hashable-lowlevel-cpp-ifdef.hs	xfail	from hashable/src/Data/Hashable/LowLevel.hs; covered by parser-test CPP preprocessing
+hashable-lowlevel-cpp-ifdef	corpus	corpus/hashable/hashable-lowlevel-cpp-ifdef.hs	pass	from hashable/src/Data/Hashable/LowLevel.hs; parser now accepts this preprocessed case
 hashable-properties-unboxed-tuples	corpus	corpus/hashable/hashable-properties-unboxed-tuples.hs	xfail	from hashable/tests/Properties.hs; parser rejects unboxed tuple syntax
 hashable-regress-cpp-have-mmap	corpus	corpus/hashable/hashable-regress-cpp-have-mmap.hs	xfail	from hashable/tests/Regress.hs; covered by parser-test CPP preprocessing
 hashable-xxhash-tests-numeric-underscores	corpus	corpus/hashable/hashable-xxhash-tests-numeric-underscores.hs	xfail	from hashable/tests/xxhash-tests.hs; parser rejects NumericUnderscores literals
