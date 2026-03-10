@@ -3,8 +3,6 @@
 - Tools: `gh`, `nix` (others via `nix`)
 - Run tests: `nix flake check`
 - Keep README AUTO-GENERATED blocks up to date before opening PRs
-- Use `git worktree` for PR branches
-
 - Commands:
   - Parser: `nix run .#parser-progress`
   - Extensions: `nix run .#parser-extension-progress` (regenerate docs: `nix run .#parser-extension-progress -- --markdown | sed -n '/^# Haskell Parser Extension Support Status/,$p' > docs/haskell-parser-extension-support.md`)
