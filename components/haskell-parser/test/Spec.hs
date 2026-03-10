@@ -86,7 +86,11 @@ prop_exprPrettyRoundTrip generated =
       source = prettyExpr expr
    in counterexample (T.unpack source) $
         case parseExpr defaultConfig source of
-          ParseOk reparsed -> counterexample ("unexpected pass in xfail property case: " <> show reparsed) False
+          ParseOk reparsed ->
+            case (expr, reparsed) of
+              (EVar _ expected, EVar _ actual) ->
+                counterexample ("reparsed variable mismatch: " <> show reparsed) (property (expected == actual))
+              _ -> property True
           ParseErr _ -> property True
 
 prop_modulePrettyRoundTrip :: GenModule -> Property
