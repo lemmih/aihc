@@ -224,7 +224,6 @@ manyTillText end = go []
           ch <- anySingle
           go (ch : acc)
 
-
 readMaybeChar :: String -> Maybe Char
 readMaybeChar raw =
   case reads raw of
