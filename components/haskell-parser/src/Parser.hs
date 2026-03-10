@@ -20,20 +20,31 @@ import Text.Megaparsec.Pos (SourcePos (..))
 type TokParser = Parsec Void TokStream
 
 exprParser :: TokParser Expr
-exprParser = ifExprParser <|> varExprParser
+exprParser = ifExprParser <|> intExprParser <|> varExprParser
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
+  mName <- MP.optional (moduleHeaderParser <* MP.many (symbolLikeTok ";"))
   decls <- MP.some (declParser <* MP.many (symbolLikeTok ";"))
   pure $ \span' ->
     Module
       { moduleSpan = span',
-        moduleName = Nothing,
+        moduleName = mName,
         moduleLanguagePragmas = [],
         moduleExports = Nothing,
         moduleImports = [],
         moduleDecls = decls
       }
+
+moduleHeaderParser :: TokParser Text
+moduleHeaderParser = do
+  keywordLikeTok "module"
+  name <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident -> Just ident
+      _ -> Nothing
+  keywordLikeTok "where"
+  pure name
 
 declParser :: TokParser Decl
 declParser = withSpan $ do
@@ -88,6 +99,14 @@ ifExprParser = withSpan $ do
   keywordLikeTok "else"
   no <- exprParser
   pure (\span' -> EIf span' cond yes no)
+
+intExprParser :: TokParser Expr
+intExprParser = withSpan $ do
+  n <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkInteger i -> Just i
+      _ -> Nothing
+  pure (`EInt` n)
 
 varExprParser :: TokParser Expr
 varExprParser = withSpan $ do

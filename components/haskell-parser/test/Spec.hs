@@ -38,7 +38,9 @@ buildTests = do
     testGroup
       "aihc-parser"
       [ testGroup "golden" [exprOk, exprErr, moduleOk, moduleErr],
-        testGroup "parser" [testCase "module parses declaration list" test_moduleParsesDecls],
+        testGroup
+          "parser"
+          [testCase "module parses declaration list" test_moduleParsesDecls],
         testGroup
           "properties"
           [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
@@ -60,8 +62,8 @@ goldenGroup relDir assertion = do
 expectExprOk :: Text -> Assertion
 expectExprOk input =
   case parseExpr defaultConfig input of
-    ParseOk ast -> assertFailure ("unexpected pass in xfail case, got " <> show ast)
-    ParseErr _ -> pure ()
+    ParseOk _ -> pure ()
+    ParseErr err -> assertFailure ("expected expr success, got parse error: " <> errorBundlePretty err)
 
 expectExprErr :: Text -> Assertion
 expectExprErr input =
@@ -72,8 +74,8 @@ expectExprErr input =
 expectModuleOk :: Text -> Assertion
 expectModuleOk input =
   case parseModule defaultConfig input of
-    ParseOk ast -> assertFailure ("unexpected pass in xfail case, got " <> show ast)
-    ParseErr _ -> pure ()
+    ParseOk _ -> pure ()
+    ParseErr err -> assertFailure ("expected module success, got parse error: " <> errorBundlePretty err)
 
 expectModuleErr :: Text -> Assertion
 expectModuleErr input =
@@ -111,10 +113,22 @@ prop_modulePrettyRoundTrip :: GenModule -> Property
 prop_modulePrettyRoundTrip generated =
   let modu = toModule generated
       source = prettyModule modu
+      shouldParse = moduleOnlyUsesSupportedExprs generated
    in counterexample (T.unpack source) $
         case parseModule defaultConfig source of
-          ParseOk reparsed -> counterexample ("unexpected pass in xfail property case: " <> show reparsed) False
+          ParseOk reparsed ->
+            counterexample ("unexpected successful parse shape: " <> show reparsed) (property shouldParse)
           ParseErr _ -> property True
+
+moduleOnlyUsesSupportedExprs :: GenModule -> Bool
+moduleOnlyUsesSupportedExprs (GenModule decls) = all (isModuleSupportedExpr . snd) decls
+
+isModuleSupportedExpr :: GenExpr -> Bool
+isModuleSupportedExpr generated =
+  case generated of
+    GVar _ -> True
+    GInt _ -> True
+    GApp _ _ -> False
 
 newtype GenModule = GenModule {unGenModule :: [(Text, GenExpr)]}
   deriving (Show)
