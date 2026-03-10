@@ -38,12 +38,12 @@ moduleParser = withSpan $ do
 
 moduleHeaderParser :: TokParser Text
 moduleHeaderParser = do
-  keywordLikeTok "module"
+  keywordTok TkKeywordModule
   name <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
       TkIdentifier ident -> Just ident
       _ -> Nothing
-  keywordLikeTok "where"
+  keywordTok TkKeywordWhere
   pure name
 
 declParser :: TokParser Decl
