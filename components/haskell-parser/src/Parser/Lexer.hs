@@ -4,13 +4,10 @@ module Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
     lexTokens,
-    parseImportDeclTokens,
-    parseModuleHeaderTokens,
   )
 where
 
-import Data.Char (isAlphaNum, isHexDigit, isOctDigit, isUpper)
-import Data.Maybe (isJust)
+import Data.Char (isAlphaNum, isHexDigit, isOctDigit)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -54,25 +51,11 @@ data LexToken = LexToken
 
 type LParser = Parsec Void Text
 
-type TokParser = Parsec Void [LexToken]
-
 lexTokens :: Text -> [LexToken]
 lexTokens input =
   case runParser (many (spaceConsumer *> lexTokenParser) <* spaceConsumer <* eof) "<lexer>" input of
     Right toks -> toks
     Left _ -> []
-
-parseModuleHeaderTokens :: Text -> Either Text (Text, Maybe [ExportSpec])
-parseModuleHeaderTokens input =
-  case runParser (moduleHeaderTokParser <* eof) "<module-header>" (lexTokens input) of
-    Right header -> Right header
-    Left _ -> Left "module header"
-
-parseImportDeclTokens :: Text -> Either Text ImportDecl
-parseImportDeclTokens input =
-  case runParser (importDeclTokParser <* eof) "<import-decl>" (lexTokens input) of
-    Right decl -> Right decl
-    Left _ -> Left "import declaration"
 
 spaceConsumer :: LParser ()
 spaceConsumer = L.space C.space1 (L.skipLineComment "--") (L.skipBlockCommentNested "{-" "-}")
@@ -241,158 +224,6 @@ manyTillText end = go []
           ch <- anySingle
           go (ch : acc)
 
-moduleHeaderTokParser :: TokParser (Text, Maybe [ExportSpec])
-moduleHeaderTokParser = do
-  _ <- keywordTok "module"
-  modName <- identifierTok
-  exports <- MP.optional (try exportSpecListTokParser)
-  _ <- keywordTok "where"
-  pure (modName, exports)
-
-importDeclTokParser :: TokParser ImportDecl
-importDeclTokParser = do
-  _ <- keywordTok "import"
-  qualifiedFlag <- isJust <$> MP.optional (try (keywordTok "qualified"))
-  modName <- identifierTok
-  alias <- MP.optional (try (keywordTok "as" *> identifierTok))
-  spec <- MP.optional (try importSpecTokParser)
-  pure
-    ImportDecl
-      { importDeclSpan = noSourceSpan,
-        importDeclQualified = qualifiedFlag,
-        importDeclModule = modName,
-        importDeclAs = alias,
-        importDeclSpec = spec
-      }
-
-exportSpecListTokParser :: TokParser [ExportSpec]
-exportSpecListTokParser = do
-  _ <- symbolTok "("
-  specs <- exportSpecTokParser `sepEndByTok` symbolTok ","
-  _ <- symbolTok ")"
-  pure specs
-
-exportSpecTokParser :: TokParser ExportSpec
-exportSpecTokParser =
-  try moduleSpecTokParser <|> entitySpecTokParser
-  where
-    moduleSpecTokParser = do
-      _ <- keywordTok "module"
-      ExportModule noSourceSpan <$> identifierTok
-
-    entitySpecTokParser = do
-      name <- identifierOrOperatorTok
-      members <- MP.optional (try exportMembersTokParser)
-      pure $
-        case members of
-          Nothing
-            | isTypeToken name -> ExportAbs noSourceSpan name
-            | otherwise -> ExportVar noSourceSpan name
-          Just Nothing -> ExportAll noSourceSpan name
-          Just (Just xs) -> ExportWith noSourceSpan name xs
-
-exportMembersTokParser :: TokParser (Maybe [Text])
-exportMembersTokParser = do
-  _ <- symbolTok "("
-  allMembers <- MP.optional (try (symbolTok ".."))
-  case allMembers of
-    Just _ -> do
-      _ <- symbolTok ")"
-      pure Nothing
-    Nothing -> do
-      members <- identifierOrOperatorTok `sepEndByTok` symbolTok ","
-      _ <- symbolTok ")"
-      pure (Just members)
-
-importSpecTokParser :: TokParser ImportSpec
-importSpecTokParser = do
-  hidingFlag <- isJust <$> MP.optional (try (keywordTok "hiding"))
-  _ <- symbolTok "("
-  items <- importItemTokParser `sepEndByTok` symbolTok ","
-  _ <- symbolTok ")"
-  pure
-    ImportSpec
-      { importSpecSpan = noSourceSpan,
-        importSpecHiding = hidingFlag,
-        importSpecItems = items
-      }
-
-importItemTokParser :: TokParser ImportItem
-importItemTokParser = do
-  name <- identifierOrOperatorTok
-  members <- MP.optional (try exportMembersTokParser)
-  pure $
-    case members of
-      Nothing
-        | isTypeToken name -> ImportItemAbs noSourceSpan name
-        | otherwise -> ImportItemVar noSourceSpan name
-      Just Nothing -> ImportItemAll noSourceSpan name
-      Just (Just xs) -> ImportItemWith noSourceSpan name xs
-
-identifierOrOperatorTok :: TokParser Text
-identifierOrOperatorTok =
-  identifierTok
-    <|> do
-      _ <- symbolTok "("
-      op <- operatorTokP
-      _ <- symbolTok ")"
-      pure op
-
-identifierTok :: TokParser Text
-identifierTok = tokenSatisfy $ \tok ->
-  case lexTokenKind tok of
-    TkIdentifier txt -> Just txt
-    TkKeyword txt
-      | txt `elem` ["as", "qualified", "hiding"] -> Just txt
-    _ -> Nothing
-
-keywordTok :: Text -> TokParser ()
-keywordTok expected =
-  tokenSatisfy_ $ \tok ->
-    case lexTokenKind tok of
-      TkKeyword txt -> txt == expected
-      _ -> False
-
-symbolTok :: Text -> TokParser ()
-symbolTok expected =
-  tokenSatisfy_ $ \tok ->
-    case lexTokenKind tok of
-      TkSymbol txt -> txt == expected
-      _ -> False
-
-operatorTokP :: TokParser Text
-operatorTokP = tokenSatisfy $ \tok ->
-  case lexTokenKind tok of
-    TkOperator txt -> Just txt
-    _ -> Nothing
-
-tokenSatisfy :: (LexToken -> Maybe a) -> TokParser a
-tokenSatisfy f = do
-  tok <- MP.lookAhead anySingle
-  case f tok of
-    Just out -> out <$ anySingle
-    Nothing -> fail "token"
-
-tokenSatisfy_ :: (LexToken -> Bool) -> TokParser ()
-tokenSatisfy_ f = tokenSatisfy (\tok -> if f tok then Just () else Nothing)
-
-sepEndByTok :: TokParser a -> TokParser sep -> TokParser [a]
-sepEndByTok p sep = do
-  first <- MP.optional p
-  case first of
-    Nothing -> pure []
-    Just x -> go [x]
-  where
-    go acc = do
-      hasSep <- isJust <$> MP.optional (try sep)
-      if not hasSep
-        then pure (reverse acc)
-        else do
-          mx <- MP.optional p
-          case mx of
-            Nothing -> pure (reverse acc)
-            Just x -> go (x : acc)
-
 readMaybeChar :: String -> Maybe Char
 readMaybeChar raw =
   case reads raw of
@@ -416,19 +247,6 @@ isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?\\^|-~" :: String)
 
 isIdentTailOrStart :: Char -> Bool
 isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
-
-isTypeToken :: Text -> Bool
-isTypeToken token =
-  case T.uncons (stripParens token) of
-    Just (c, _) -> isUpper c
-    Nothing -> False
-
-stripParens :: Text -> Text
-stripParens t =
-  let trimmed = T.strip t
-   in if T.length trimmed >= 2 && T.head trimmed == '(' && T.last trimmed == ')'
-        then T.strip (T.init (T.tail trimmed))
-        else trimmed
 
 reservedKeywords :: [Text]
 reservedKeywords =
