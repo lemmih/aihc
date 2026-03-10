@@ -20,7 +20,7 @@ import Text.Megaparsec.Pos (SourcePos (..))
 type TokParser = Parsec Void TokStream
 
 exprParser :: TokParser Expr
-exprParser = ifExprParser <|> intExprParser <|> varExprParser
+exprParser = ifExprParser <|> appExprParser
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
@@ -107,6 +107,67 @@ intExprParser = withSpan $ do
       TkInteger i -> Just i
       _ -> Nothing
   pure (`EInt` n)
+
+appExprParser :: TokParser Expr
+appExprParser = withSpan $ do
+  first <- atomExprParser
+  let appLine =
+        case exprSourceSpan first of
+          SourceSpan line _ _ _ -> line
+          NoSourceSpan -> 1
+  rest <- MP.many (sameLineAtomExprParser appLine)
+  pure $ \span' ->
+    foldl (\fn arg -> EApp span' fn arg) first rest
+
+atomExprParser :: TokParser Expr
+atomExprParser = parenExprParser <|> intExprParser <|> varExprParser
+
+sameLineAtomExprParser :: Int -> TokParser Expr
+sameLineAtomExprParser expectedLine = do
+  nextTok <- lookAhead anySingle
+  case lexTokenSpan nextTok of
+    SourceSpan line _ _ _ | line == expectedLine -> atomExprParser
+    _ -> fail "line break"
+
+parenExprParser :: TokParser Expr
+parenExprParser = withSpan $ do
+  symbolLikeTok "("
+  inner <- exprParser
+  symbolLikeTok ")"
+  pure (`EParen` inner)
+
+exprSourceSpan :: Expr -> SourceSpan
+exprSourceSpan expr =
+  case expr of
+    EVar span' _ -> span'
+    EInt span' _ -> span'
+    EIntBase span' _ _ -> span'
+    EFloat span' _ -> span'
+    EChar span' _ -> span'
+    EString span' _ -> span'
+    EQuasiQuote span' _ _ -> span'
+    EIf span' _ _ _ -> span'
+    ELambdaPats span' _ _ -> span'
+    EInfix span' _ _ _ -> span'
+    ENegate span' _ -> span'
+    ESectionL span' _ _ -> span'
+    ESectionR span' _ _ -> span'
+    ELetDecls span' _ _ -> span'
+    ECase span' _ _ -> span'
+    EDo span' _ -> span'
+    EListComp span' _ _ -> span'
+    EListCompParallel span' _ _ -> span'
+    EArithSeq span' _ -> span'
+    ERecordCon span' _ _ -> span'
+    ERecordUpd span' _ _ -> span'
+    ETypeSig span' _ _ -> span'
+    EParen span' _ -> span'
+    EWhereDecls span' _ _ -> span'
+    EList span' _ -> span'
+    ETuple span' _ -> span'
+    ETupleCon span' _ -> span'
+    ETypeApp span' _ _ -> span'
+    EApp span' _ _ -> span'
 
 varExprParser :: TokParser Expr
 varExprParser = withSpan $ do

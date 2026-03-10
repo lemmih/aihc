@@ -1,6 +1,6 @@
 modules-minimal	modules	modules/minimal.hs	pass	parser supports minimal module parsing
 modules-implicit	modules	modules/implicit.hs	pass	parser supports implicit module parsing
-modules-application	modules	modules/application.hs	xfail	parser intentionally disabled
+modules-application	modules	modules/application.hs	pass	parser now supports simple module application declarations
 modules-comments	modules	modules/comments.hs	pass	parser supports comment handling in modules
 modules-exports	modules	modules/exports.hs	xfail	export lists unsupported
 modules-import-qualified	modules	modules/import-qualified.hs	xfail	imports unsupported

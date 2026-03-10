@@ -128,7 +128,7 @@ isModuleSupportedExpr generated =
   case generated of
     GVar _ -> True
     GInt _ -> True
-    GApp _ _ -> False
+    GApp fn arg -> isModuleSupportedExpr fn && isModuleSupportedExpr arg
 
 newtype GenModule = GenModule {unGenModule :: [(Text, GenExpr)]}
   deriving (Show)
