@@ -24,7 +24,7 @@ exprParser = ifExprParser <|> varExprParser
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
-  decls <- MP.many (declParser <* MP.many (symbolLikeTok ";"))
+  decls <- MP.some (declParser <* MP.many (symbolLikeTok ";"))
   pure $ \span' ->
     Module
       { moduleSpan = span',
