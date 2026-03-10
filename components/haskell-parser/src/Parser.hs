@@ -117,7 +117,7 @@ appExprParser = withSpan $ do
           NoSourceSpan -> 1
   rest <- MP.many (sameLineAtomExprParser appLine)
   pure $ \span' ->
-    foldl (\fn arg -> EApp span' fn arg) first rest
+    foldl (EApp span') first rest
 
 atomExprParser :: TokParser Expr
 atomExprParser = parenExprParser <|> intExprParser <|> varExprParser
