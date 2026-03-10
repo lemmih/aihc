@@ -2,7 +2,7 @@
 
 module Main (main) where
 
-import Control.Monad (foldM, forM, when)
+import Control.Monad (forM, when)
 import Cpp
   ( Diagnostic (..),
     IncludeKind (..),
@@ -12,10 +12,40 @@ import Cpp
     resultOutput,
   )
 import CppSupport (preprocessForParser)
+import qualified Data.ByteString as BS
 import Data.List (isPrefixOf, isSuffixOf, nub)
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import Distribution.ModuleName (ModuleName, toFilePath)
+import Distribution.PackageDescription
+  ( BuildInfo,
+    Executable,
+    Library,
+    autogenModules,
+    buildInfo,
+    condExecutables,
+    condLibrary,
+    condSubLibraries,
+    exeModules,
+    exposedModules,
+    hsSourceDirs,
+    libBuildInfo,
+    modulePath,
+    otherModules,
+  )
+import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.Types.CondTree
+  ( CondBranch,
+    CondTree,
+    condBranchIfFalse,
+    condBranchIfTrue,
+    condTreeComponents,
+    condTreeData,
+  )
+import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
+import Distribution.Utils.Path (getSymbolicPath)
 import qualified GHC.Data.EnumSet as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
@@ -49,7 +79,7 @@ import System.Directory
   )
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import System.FilePath (isAbsolute, makeRelative, normalise, splitDirectories, takeDirectory, (</>))
+import System.FilePath (isAbsolute, makeRelative, normalise, splitDirectories, takeDirectory, (<.>), (</>))
 import System.Process (callCommand, readProcess)
 
 main :: IO ()
@@ -72,7 +102,7 @@ testPackage packageName = do
       exitFailure
     Just ver -> do
       srcDir <- downloadPackage packageName ver
-      files <- findHaskellFiles srcDir
+      files <- findTargetFilesFromCabal srcDir
       putStrLn ("Found " ++ show (length files) ++ " Haskell source files")
       results <- processFiles srcDir files
       printSummary results
@@ -137,29 +167,115 @@ getCacheDir = do
   cacheBase <- getXdgDirectory XdgCache "aihc"
   pure (cacheBase </> "hackage")
 
-findHaskellFiles :: FilePath -> IO [FilePath]
-findHaskellFiles dir = go [] ""
+findTargetFilesFromCabal :: FilePath -> IO [FilePath]
+findTargetFilesFromCabal extractedRoot = do
+  cabalFiles <- findCabalFiles extractedRoot
+  cabalFile <-
+    case cabalFiles of
+      [file] -> pure file
+      [] ->
+        ioError
+          ( userError
+              ("No .cabal file found under extracted package root: " ++ extractedRoot)
+          )
+      _ ->
+        ioError
+          ( userError
+              ("Multiple .cabal files found under extracted package root: " ++ show cabalFiles)
+          )
+  cabalBytes <- BS.readFile cabalFile
+  let (_, parseResult) = runParseResult (parseGenericPackageDescription cabalBytes)
+  gpd <-
+    case parseResult of
+      Right parsed -> pure parsed
+      Left (_, errs) ->
+        ioError
+          ( userError
+              ("Failed to parse cabal file " ++ cabalFile ++ ": " ++ show errs)
+          )
+  collectComponentFiles gpd cabalFile
+
+collectComponentFiles :: GenericPackageDescription -> FilePath -> IO [FilePath]
+collectComponentFiles gpd cabalFile = do
+  let packageRoot = takeDirectory cabalFile
+      libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
+      executableTrees = map snd (condExecutables gpd)
+      libraries = concatMap flattenCondTree libraryTrees
+      executables = concatMap flattenCondTree executableTrees
+  libraryFiles <- fmap concat (forM libraries (libraryFilesFor packageRoot))
+  executableFiles <- fmap concat (forM executables (executableFilesFor packageRoot))
+  dedupeExistingFiles (libraryFiles <> executableFiles)
+
+libraryFilesFor :: FilePath -> Library -> IO [FilePath]
+libraryFilesFor packageRoot library =
+  moduleFilesForBuildInfo packageRoot build moduleNames
   where
-    go acc subdir = do
-      let fullDir = dir </> subdir
-      entries <- listDirectory fullDir
-      foldM
-        ( \acc' entry -> do
-            let entryPath = subdir </> entry
-            let fullPath = fullDir </> entry
-            isDir <- doesDirectoryExist fullPath
-            if isDir
-              then
-                if ".git" `isPrefixOf` entry
-                  then pure acc'
-                  else go acc' entryPath
-              else
-                if ".hs" `isSuffixOf` entry || ".lhs" `isSuffixOf` entry
-                  then pure (fullPath : acc')
-                  else pure acc'
-        )
-        acc
-        entries
+    build = libBuildInfo library
+    moduleNames = exposedModules library <> otherModules build <> autogenModules build
+
+executableFilesFor :: FilePath -> Executable -> IO [FilePath]
+executableFilesFor packageRoot executable = do
+  moduleFiles <- moduleFilesForBuildInfo packageRoot build moduleNames
+  mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build]
+  pure (moduleFiles <> mainFiles)
+  where
+    build = buildInfo executable
+    moduleNames = otherModules build <> exeModules executable <> autogenModules build
+    mainPath = modulePath executable
+
+moduleFilesForBuildInfo :: FilePath -> BuildInfo -> [ModuleName] -> IO [FilePath]
+moduleFilesForBuildInfo packageRoot build modules = do
+  let dirs = sourceDirs packageRoot build
+      moduleCandidates =
+        [ dir </> toFilePath modu <.> ext
+        | dir <- dirs,
+          modu <- modules,
+          ext <- ["hs", "lhs"]
+        ]
+  dedupeExistingFiles moduleCandidates
+
+sourceDirs :: FilePath -> BuildInfo -> [FilePath]
+sourceDirs packageRoot build =
+  case map getSymbolicPath (hsSourceDirs build) of
+    [] -> [packageRoot]
+    dirs -> [packageRoot </> dir | dir <- dirs]
+
+flattenCondTree :: CondTree v c a -> [a]
+flattenCondTree tree =
+  condTreeData tree : concatMap flattenBranch (condTreeComponents tree)
+
+flattenBranch :: CondBranch v c a -> [a]
+flattenBranch branch =
+  flattenCondTree (condBranchIfTrue branch)
+    <> maybe [] flattenCondTree (condBranchIfFalse branch)
+
+findCabalFiles :: FilePath -> IO [FilePath]
+findCabalFiles dir = do
+  entries <- listDirectory dir
+  paths <- fmap concat $
+    forM entries $ \entry -> do
+      let fullPath = dir </> entry
+      isDir <- doesDirectoryExist fullPath
+      if isDir
+        then
+          if ".git" `isPrefixOf` entry
+            then pure []
+            else findCabalFiles fullPath
+        else
+          if ".cabal" `isSuffixOf` entry
+            then pure [fullPath]
+            else pure []
+  pure (nub (map normalise paths))
+
+existingPaths :: [FilePath] -> IO [FilePath]
+existingPaths candidates = do
+  existing <- forM candidates $ \candidate -> do
+    fileExists <- doesFileExist candidate
+    pure (if fileExists then Just (normalise candidate) else Nothing)
+  pure (catMaybes existing)
+
+dedupeExistingFiles :: [FilePath] -> IO [FilePath]
+dedupeExistingFiles files = fmap nub (existingPaths files)
 
 data FileResult = FileResult
   { filePath :: FilePath,

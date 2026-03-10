@@ -110,6 +110,7 @@ executable hackage-tester
     , directory
     , filepath
     , ghc-lib-parser
+    , Cabal
     , bytestring
     , process
   ghc-options:        -Wall -Werror

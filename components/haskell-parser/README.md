@@ -129,6 +129,6 @@ nix run .#hackage-tester -- transformers
 The tool:
 - Downloads and caches packages locally in `~/.cache/aihc/hackage/`
 - Runs the in-repo CPP preprocessor before parsing (with best-effort include resolution)
-- Parses all `.hs` and `.lhs` files
+- Parses Cabal-declared library and executable source files
 - Reports parse errors and roundtrip failures
 - Shows success rate for the package
