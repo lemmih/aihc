@@ -14,7 +14,7 @@
     {
       "type": "pull_request",
       "parameters": {
-        "automatic_copilot_code_review_enabled": true,
+        "automatic_copilot_code_review_enabled": false,
         "dismiss_stale_reviews_on_push": false,
         "require_code_owner_review": false,
         "require_last_push_approval": false,
