@@ -25,6 +25,7 @@ exprParser = ifExprParser <|> appExprParser
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
+  languagePragmas <- MP.many languagePragmaParser
   mName <- MP.optional (moduleHeaderParser <* MP.many (symbolLikeTok ";"))
   imports <- MP.many (importDeclParser <* MP.many (symbolLikeTok ";"))
   decls <- MP.some (declParser <* MP.many (symbolLikeTok ";"))
@@ -32,11 +33,18 @@ moduleParser = withSpan $ do
     Module
       { moduleSpan = span',
         moduleName = mName,
-        moduleLanguagePragmas = [],
+        moduleLanguagePragmas = concat languagePragmas,
         moduleExports = Nothing,
         moduleImports = imports,
         moduleDecls = decls
       }
+
+languagePragmaParser :: TokParser [Text]
+languagePragmaParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkPragmaLanguage names -> Just names
+      _ -> Nothing
 
 moduleHeaderParser :: TokParser Text
 moduleHeaderParser = do

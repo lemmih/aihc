@@ -7,6 +7,7 @@ module Parser.Lexer
   )
 where
 
+import Control.Monad (void)
 import Data.Char (isAlphaNum, isHexDigit, isOctDigit)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -20,6 +21,7 @@ import Text.Megaparsec
     eof,
     getSourcePos,
     many,
+    notFollowedBy,
     runParser,
     satisfy,
     some,
@@ -42,6 +44,7 @@ data LexTokenKind
   | TkKeywordIf
   | TkKeywordThen
   | TkKeywordElse
+  | TkPragmaLanguage [Text]
   | TkIdentifier Text
   | TkOperator Text
   | TkInteger Integer
@@ -64,17 +67,35 @@ type LParser = Parsec Void Text
 
 lexTokens :: Text -> [LexToken]
 lexTokens input =
-  case runParser (spaceConsumer *> many (lexTokenParser <* spaceConsumer) <* eof) "<lexer>" input of
+  case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
     Right toks -> toks
     Left _ -> []
 
-spaceConsumer :: LParser ()
-spaceConsumer = L.space C.space1 (L.skipLineComment "--") (L.skipBlockCommentNested "{-" "-}")
+triviaConsumer :: LParser ()
+triviaConsumer = MP.skipMany (void C.spaceChar <|> lineCommentConsumer <|> try blockCommentConsumer)
+
+lineCommentConsumer :: LParser ()
+lineCommentConsumer = L.skipLineComment "--"
+
+blockCommentConsumer :: LParser ()
+blockCommentConsumer = do
+  _ <- C.string "{-"
+  notFollowedBy (C.char '#')
+  skipNestedBlockCommentBody 1
+
+skipNestedBlockCommentBody :: Int -> LParser ()
+skipNestedBlockCommentBody depth
+  | depth <= 0 = pure ()
+  | otherwise =
+      try (C.string "{-" *> skipNestedBlockCommentBody (depth + 1))
+        <|> try (C.string "-}" *> skipNestedBlockCommentBody (depth - 1))
+        <|> (anySingle *> skipNestedBlockCommentBody depth)
 
 lexTokenParser :: LParser LexToken
 lexTokenParser =
   lexWithSpan $
-    try quasiQuoteToken
+    try languagePragmaToken
+      <|> try quasiQuoteToken
       <|> try floatToken
       <|> try intBaseToken
       <|> try intToken
@@ -83,6 +104,21 @@ lexTokenParser =
       <|> try symbolToken
       <|> try identifierToken
       <|> operatorToken
+
+languagePragmaToken :: LParser (Text, LexTokenKind)
+languagePragmaToken = do
+  _ <- C.string "{-#"
+  _ <- many C.spaceChar
+  _ <- C.string "LANGUAGE"
+  _ <- many C.spaceChar
+  body <- manyTillText "#-}"
+  let names = parseLanguagePragmaNames (T.pack body)
+      raw = "{-# LANGUAGE " <> T.intercalate ", " names <> " #-}"
+  pure (raw, TkPragmaLanguage names)
+
+parseLanguagePragmaNames :: Text -> [Text]
+parseLanguagePragmaNames body =
+  filter (not . T.null) (map (T.strip . T.takeWhile (/= '#')) (T.splitOn "," body))
 
 lexWithSpan :: LParser (Text, LexTokenKind) -> LParser LexToken
 lexWithSpan parser = do
