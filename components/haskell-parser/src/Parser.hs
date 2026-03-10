@@ -8,15 +8,13 @@ module Parser
   )
 where
 
-import qualified Data.Set as Set
 import Data.Text (Text)
 import Data.Void (Void)
-import Parser.Ast (Expr (..), Module, SourceSpan (..))
+import Parser.Ast (Decl (..), Expr (..), Match (..), Module (..), Rhs (..), SourceSpan (..), ValueDecl (..))
 import Parser.Lexer (LexToken (..), LexTokenKind (..), lexTokens)
 import Parser.Types
-import Text.Megaparsec (Parsec, anySingle, fancyFailure, lookAhead, runParser, (<|>))
+import Text.Megaparsec (Parsec, anySingle, lookAhead, runParser, (<|>))
 import qualified Text.Megaparsec as MP
-import Text.Megaparsec.Error (ErrorFancy (ErrorFail))
 import Text.Megaparsec.Pos (SourcePos (..))
 
 type TokParser = Parsec Void TokStream
@@ -25,7 +23,39 @@ exprParser :: TokParser Expr
 exprParser = ifExprParser <|> varExprParser
 
 moduleParser :: TokParser Module
-moduleParser = fancyFailure (Set.singleton (ErrorFail ("not implemented" :: String)))
+moduleParser = withSpan $ do
+  decls <- MP.many (declParser <* MP.many (symbolLikeTok ";"))
+  pure $ \span' ->
+    Module
+      { moduleSpan = span',
+        moduleName = Nothing,
+        moduleLanguagePragmas = [],
+        moduleExports = Nothing,
+        moduleImports = [],
+        moduleDecls = decls
+      }
+
+declParser :: TokParser Decl
+declParser = withSpan $ do
+  name <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident -> Just ident
+      _ -> Nothing
+  operatorLikeTok "="
+  rhsExpr <- exprParser
+  pure $ \span' ->
+    DeclValue
+      span'
+      ( FunctionBind
+          span'
+          name
+          [ Match
+              { matchSpan = span',
+                matchPats = [],
+                matchRhs = UnguardedRhs span' rhsExpr
+              }
+          ]
+      )
 
 defaultConfig :: ParserConfig
 defaultConfig =
@@ -41,7 +71,7 @@ parseExpr _cfg input =
 
 parseModule :: ParserConfig -> Text -> ParseResult Module
 parseModule _cfg input =
-  case runParser moduleParser "" (TokStream (lexTokens input)) of
+  case runParser (moduleParser <* MP.eof) "" (TokStream (lexTokens input)) of
     Left bundle -> ParseErr bundle
     Right m -> ParseOk m
 
@@ -75,6 +105,22 @@ keywordLikeTok expected =
         | kw == expected -> Just ()
       TkIdentifier kw
         | kw == expected -> Just ()
+      _ -> Nothing
+
+symbolLikeTok :: Text -> TokParser ()
+symbolLikeTok expected =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkSymbol sym
+        | sym == expected -> Just ()
+      _ -> Nothing
+
+operatorLikeTok :: Text -> TokParser ()
+operatorLikeTok expected =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkOperator op
+        | op == expected -> Just ()
       _ -> Nothing
 
 tokenSatisfy :: (LexToken -> Maybe a) -> TokParser a

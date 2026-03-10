@@ -38,6 +38,7 @@ buildTests = do
     testGroup
       "aihc-parser"
       [ testGroup "golden" [exprOk, exprErr, moduleOk, moduleErr],
+        testGroup "parser" [testCase "module parses declaration list" test_moduleParsesDecls],
         testGroup
           "properties"
           [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
@@ -79,6 +80,19 @@ expectModuleErr input =
   case parseModule defaultConfig input of
     ParseOk ast -> assertFailure ("expected module failure, got " <> show ast)
     ParseErr _ -> pure ()
+
+test_moduleParsesDecls :: Assertion
+test_moduleParsesDecls =
+  case parseModule defaultConfig "x = if y then z else w" of
+    ParseErr err ->
+      assertFailure ("expected module parse success, got parse error: " <> errorBundlePretty err)
+    ParseOk modu ->
+      case moduleDecls modu of
+        [ DeclValue _ (FunctionBind _ "x" [Match {matchPats = [], matchRhs = UnguardedRhs _ (EIf _ (EVar _ "y") (EVar _ "z") (EVar _ "w"))}])
+          ] ->
+            pure ()
+        other ->
+          assertFailure ("unexpected parsed declarations: " <> show other)
 
 prop_exprPrettyRoundTrip :: GenExpr -> Property
 prop_exprPrettyRoundTrip generated =
