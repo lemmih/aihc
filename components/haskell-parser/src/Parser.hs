@@ -8,9 +8,11 @@ module Parser
   )
 where
 
+import Data.Char (isAsciiLower)
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Void (Void)
-import Parser.Ast (DataDecl (..), Decl (..), Expr (..), ImportDecl (..), Match (..), Module (..), Rhs (..), SourceSpan (..), ValueDecl (..))
+import Parser.Ast (CaseAlt (..), DataDecl (..), Decl (..), Expr (..), ImportDecl (..), Match (..), Module (..), Pattern (..), Rhs (..), SourceSpan (..), ValueDecl (..))
 import Parser.Lexer (LexToken (..), LexTokenKind (..), lexTokens)
 import Parser.Types
 import Text.Megaparsec (Parsec, anySingle, lookAhead, runParser, (<|>))
@@ -20,7 +22,7 @@ import Text.Megaparsec.Pos (SourcePos (..))
 type TokParser = Parsec Void TokStream
 
 exprParser :: TokParser Expr
-exprParser = ifExprParser <|> appExprParser
+exprParser = ifExprParser <|> caseExprParser <|> appExprParser
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
@@ -85,10 +87,8 @@ dataDeclParser = withSpan $ do
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpan $ do
-  name <- tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkIdentifier ident -> Just ident
-      _ -> Nothing
+  name <- identifierTokenText
+  pats <- MP.many varPatternParser
   operatorLikeTok "="
   rhsExpr <- exprParser
   pure $ \span' ->
@@ -99,7 +99,7 @@ valueDeclParser = withSpan $ do
           name
           [ Match
               { matchSpan = span',
-                matchPats = [],
+                matchPats = pats,
                 matchRhs = UnguardedRhs span' rhsExpr
               }
           ]
@@ -198,6 +198,73 @@ atomExprParser =
     <|> charExprParser
     <|> stringExprParser
     <|> varExprParser
+
+patternParser :: TokParser Pattern
+patternParser = withSpan $ do
+  first <- identifierTokenText
+  rest <- MP.many identifierTokenText
+  pure $ \span' ->
+    case rest of
+      [] -> PVar span' first
+      _ -> PCon span' first (map (PVar span') rest)
+
+identifierTokenText :: TokParser Text
+identifierTokenText =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident -> Just ident
+      _ -> Nothing
+
+varPatternParser :: TokParser Pattern
+varPatternParser = withSpan $ do
+  name <- varIdentTokenText
+  pure (`PVar` name)
+
+varIdentTokenText :: TokParser Text
+varIdentTokenText =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident
+        | isVarIdent ident -> Just ident
+      _ -> Nothing
+
+isVarIdent :: Text -> Bool
+isVarIdent ident =
+  case T.uncons ident of
+    Just (c, _) -> c == '_' || isAsciiLower c
+    Nothing -> False
+
+rhsParser :: TokParser Rhs
+rhsParser = withSpan $ do
+  operatorLikeTok "->"
+  body <- exprParser
+  pure (`UnguardedRhs` body)
+
+caseAltParser :: TokParser CaseAlt
+caseAltParser = withSpan $ do
+  pat <- patternParser
+  rhs <- rhsParser
+  pure $ \span' ->
+    CaseAlt
+      { caseAltSpan = span',
+        caseAltPattern = pat,
+        caseAltRhs = rhs
+      }
+
+caseExprParser :: TokParser Expr
+caseExprParser = withSpan $ do
+  keywordTok TkKeywordCase
+  scrutinee <- exprParser
+  keywordTok TkKeywordOf
+  alts <- bracedAlts <|> plainAlts
+  pure $ \span' -> ECase span' scrutinee alts
+  where
+    plainAlts = MP.some (caseAltParser <* MP.many (symbolLikeTok ";"))
+    bracedAlts = do
+      symbolLikeTok "{"
+      parsed <- plainAlts
+      symbolLikeTok "}"
+      pure parsed
 
 sameLineAtomExprParser :: Int -> TokParser Expr
 sameLineAtomExprParser expectedLine = do
