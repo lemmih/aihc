@@ -45,6 +45,7 @@ data LexTokenKind
   | TkIdentifier Text
   | TkOperator Text
   | TkInteger Integer
+  | TkIntegerBase Integer Text
   | TkFloat Double
   | TkChar Char
   | TkString Text
@@ -157,7 +158,7 @@ intBaseToken = do
         if base `elem` ['x', 'X']
           then readHexLiteral txt
           else readOctLiteral txt
-  pure (txt, TkInteger n)
+  pure (txt, TkIntegerBase n txt)
 
 intToken :: LParser (Text, LexTokenKind)
 intToken = do
@@ -168,10 +169,26 @@ intToken = do
 floatToken :: LParser (Text, LexTokenKind)
 floatToken = do
   lhs <- some C.digitChar
-  _ <- C.char '.'
-  rhs <- some C.digitChar
-  let txt = T.pack (lhs <> "." <> rhs)
-  pure (txt, TkFloat (read (lhs <> "." <> rhs)))
+  repr <-
+    try
+      ( do
+          _ <- C.char '.'
+          rhs <- some C.digitChar
+          expo <- MP.optional exponentPart
+          pure (lhs <> "." <> rhs <> fromMaybe "" expo)
+      )
+      <|> do
+        expo <- exponentPart
+        pure (lhs <> expo)
+  let txt = T.pack repr
+  pure (txt, TkFloat (read repr))
+
+exponentPart :: LParser String
+exponentPart = do
+  marker <- C.char 'e' <|> C.char 'E'
+  sign <- MP.optional (C.char '+' <|> C.char '-')
+  ds <- some C.digitChar
+  pure (marker : maybe [] pure sign <> ds)
 
 charToken :: LParser (Text, LexTokenKind)
 charToken = do
