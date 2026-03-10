@@ -8,9 +8,10 @@ module Parser
   )
 where
 
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Void (Void)
-import Parser.Ast (DataDecl (..), Decl (..), Expr (..), ImportDecl (..), Match (..), Module (..), Rhs (..), SourceSpan (..), ValueDecl (..))
+import Parser.Ast (DataConDecl (..), DataDecl (..), Decl (..), Expr (..), ImportDecl (..), Match (..), Module (..), Rhs (..), SourceSpan (..), ValueDecl (..))
 import Parser.Lexer (LexToken (..), LexTokenKind (..), lexTokens)
 import Parser.Types
 import Text.Megaparsec (Parsec, anySingle, lookAhead, runParser, (<|>))
@@ -71,6 +72,7 @@ dataDeclParser = withSpan $ do
     case lexTokenKind tok of
       TkIdentifier ident -> Just ident
       _ -> Nothing
+  constructors <- MP.optional (operatorLikeTok "=" *> dataConDeclParser `MP.sepBy1` operatorLikeTok "|")
   pure $ \span' ->
     DeclData
       span'
@@ -79,9 +81,17 @@ dataDeclParser = withSpan $ do
           dataDeclContext = [],
           dataDeclName = typeName,
           dataDeclParams = typeParams,
-          dataDeclConstructors = [],
+          dataDeclConstructors = fromMaybe [] constructors,
           dataDeclDeriving = Nothing
         }
+
+dataConDeclParser :: TokParser DataConDecl
+dataConDeclParser = withSpan $ do
+  name <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident -> Just ident
+      _ -> Nothing
+  pure $ \span' -> PrefixCon span' name []
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpan $ do
