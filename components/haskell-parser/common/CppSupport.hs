@@ -20,7 +20,7 @@ import qualified Data.Text as T
 preprocessForParser :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
 preprocessForParser inputFile resolveInclude source = do
   result <- drive (preprocess Config {configInputFile = inputFile} source)
-  pure result {resultOutput = stripLanguagePragmas (stripLinePragmas (resultOutput result))}
+  pure result {resultOutput = stripLinePragmas (resultOutput result)}
   where
     drive (Done result) = pure result
     drive (NeedInclude req k) = resolveInclude req >>= drive . k
@@ -36,13 +36,3 @@ stripLinePragmas =
     . T.lines
   where
     isLinePragma line = "#line " `T.isPrefixOf` T.stripStart line
-
-stripLanguagePragmas :: Text -> Text
-stripLanguagePragmas =
-  T.unlines
-    . filter (not . isLanguagePragma)
-    . T.lines
-  where
-    isLanguagePragma line =
-      let trimmed = T.strip line
-       in "{-# LANGUAGE " `T.isPrefixOf` trimmed && "#-}" `T.isSuffixOf` trimmed
