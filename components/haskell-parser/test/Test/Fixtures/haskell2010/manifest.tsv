@@ -5,7 +5,7 @@ modules-comments	modules	modules/comments.hs	pass	parser supports comment handli
 modules-exports	modules	modules/exports.hs	xfail	export lists unsupported
 modules-import-qualified	modules	modules/import-qualified.hs	xfail	imports unsupported
 modules-import-hiding	modules	modules/import-hiding.hs	xfail	imports unsupported
-modules-multi-imports	modules	modules/multi-imports.hs	xfail	imports unsupported
+modules-multi-imports	modules	modules/multi-imports.hs	pass	parser supports multiple plain imports
 modules-import-as	modules	modules/import-as.hs	xfail	imports unsupported
 modules-multiline-definition	modules	modules/multiline-definition.hs	pass	parser now handles multiline module headers
 modules-multiline-definition-module-split	modules	modules/multiline-definition-module-split.hs	pass	parser now handles multiline module headers
@@ -34,7 +34,7 @@ modules-s5-import-explicit-tycon	modules	modules/s5-import-explicit-tycon.hs	xfa
 modules-s5-import-explicit-var	modules	modules/s5-import-explicit-var.hs	xfail	section 5 module variation unsupported
 modules-s5-import-hiding-empty	modules	modules/s5-import-hiding-empty.hs	xfail	section 5 module variation unsupported
 modules-s5-import-hiding-var	modules	modules/s5-import-hiding-var.hs	xfail	section 5 module variation unsupported
-modules-s5-import-plain	modules	modules/s5-import-plain.hs	xfail	section 5 module variation unsupported
+modules-s5-import-plain	modules	modules/s5-import-plain.hs	pass	parser supports plain section 5 imports
 modules-s5-import-qualified-as	modules	modules/s5-import-qualified-as.hs	xfail	section 5 module variation unsupported
 modules-s5-import-qualified-hiding-var	modules	modules/s5-import-qualified-hiding-var.hs	xfail	section 5 module variation unsupported
 modules-s5-import-qualified	modules	modules/s5-import-qualified.hs	xfail	section 5 module variation unsupported
@@ -133,7 +133,7 @@ expr-s3-errors-error	expressions	expressions/errors-error.hs	pass	parser now han
 expr-s3-errors-undefined	expressions	expressions/errors-undefined.hs	pass	parser now handles this expression atom case
 expr-s3-atoms-qvar	expressions	expressions/atoms-qvar.hs	pass	parser now handles qualified-variable atom case
 expr-s3-atoms-gcon-unit	expressions	expressions/atoms-gcon-unit.hs	xfail	parser intentionally disabled
-expr-s3-atoms-gcon-listcon	expressions	expressions/atoms-gcon-listcon.hs	xfail	parser intentionally disabled
+expr-s3-atoms-gcon-listcon	expressions	expressions/atoms-gcon-listcon.hs	pass	parser supports list constructor expression
 expr-s3-atoms-gcon-tuplecon	expressions	expressions/atoms-gcon-tuplecon.hs	xfail	parser intentionally disabled
 expr-s3-atoms-qcon	expressions	expressions/atoms-qcon.hs	xfail	parser intentionally disabled
 expr-s3-atoms-literal-int	expressions	expressions/atoms-literal-int.hs	pass	parser now handles integer literal atom case
@@ -160,9 +160,9 @@ expr-s3-section-backtick-left	expressions	expressions/section-backtick-left.hs	x
 expr-s3-section-backtick-right	expressions	expressions/section-backtick-right.hs	xfail	parser intentionally disabled
 expr-s3-conditional-basic	expressions	expressions/conditional-basic.hs	xfail	parser intentionally disabled
 expr-s3-conditional-semicolons	expressions	expressions/conditional-semicolons.hs	xfail	parser intentionally disabled
-expr-s3-list-empty	expressions	expressions/list-empty.hs	xfail	parser intentionally disabled
-expr-s3-list-singleton	expressions	expressions/list-singleton.hs	xfail	parser intentionally disabled
-expr-s3-list-multiple	expressions	expressions/list-multiple.hs	xfail	parser intentionally disabled
+expr-s3-list-empty	expressions	expressions/list-empty.hs	pass	parser supports empty list literals
+expr-s3-list-singleton	expressions	expressions/list-singleton.hs	pass	parser supports singleton list literals
+expr-s3-list-multiple	expressions	expressions/list-multiple.hs	pass	parser supports multi-element list literals
 expr-s3-tuple-pair	expressions	expressions/tuple-pair.hs	xfail	parser intentionally disabled
 expr-s3-tuple-triple	expressions	expressions/tuple-triple.hs	xfail	section 3 expression variation unsupported
 expr-s3-unit-expression	expressions	expressions/unit-expression.hs	xfail	section 3 expression variation unsupported

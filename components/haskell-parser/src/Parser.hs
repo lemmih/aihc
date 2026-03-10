@@ -10,7 +10,7 @@ where
 
 import Data.Text (Text)
 import Data.Void (Void)
-import Parser.Ast (DataDecl (..), Decl (..), Expr (..), Match (..), Module (..), Rhs (..), SourceSpan (..), ValueDecl (..))
+import Parser.Ast (DataDecl (..), Decl (..), Expr (..), ImportDecl (..), Match (..), Module (..), Rhs (..), SourceSpan (..), ValueDecl (..))
 import Parser.Lexer (LexToken (..), LexTokenKind (..), lexTokens)
 import Parser.Types
 import Text.Megaparsec (Parsec, anySingle, lookAhead, runParser, (<|>))
@@ -25,6 +25,7 @@ exprParser = ifExprParser <|> appExprParser
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
   mName <- MP.optional (moduleHeaderParser <* MP.many (symbolLikeTok ";"))
+  imports <- MP.many (importDeclParser <* MP.many (symbolLikeTok ";"))
   decls <- MP.some (declParser <* MP.many (symbolLikeTok ";"))
   pure $ \span' ->
     Module
@@ -32,19 +33,29 @@ moduleParser = withSpan $ do
         moduleName = mName,
         moduleLanguagePragmas = [],
         moduleExports = Nothing,
-        moduleImports = [],
+        moduleImports = imports,
         moduleDecls = decls
       }
 
 moduleHeaderParser :: TokParser Text
 moduleHeaderParser = do
   keywordTok TkKeywordModule
-  name <- tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkIdentifier ident -> Just ident
-      _ -> Nothing
+  name <- moduleNameParser
   keywordTok TkKeywordWhere
   pure name
+
+importDeclParser :: TokParser ImportDecl
+importDeclParser = withSpan $ do
+  keywordTok TkKeywordImport
+  importedModule <- moduleNameParser
+  pure $ \span' ->
+    ImportDecl
+      { importDeclSpan = span',
+        importDeclQualified = False,
+        importDeclModule = importedModule,
+        importDeclAs = Nothing,
+        importDeclSpec = Nothing
+      }
 
 declParser :: TokParser Decl
 declParser = dataDeclParser <|> valueDeclParser
@@ -180,6 +191,7 @@ appExprParser = withSpan $ do
 atomExprParser :: TokParser Expr
 atomExprParser =
   parenExprParser
+    <|> listExprParser
     <|> intBaseExprParser
     <|> floatExprParser
     <|> intExprParser
@@ -200,6 +212,13 @@ parenExprParser = withSpan $ do
   inner <- exprParser
   symbolLikeTok ")"
   pure (`EParen` inner)
+
+listExprParser :: TokParser Expr
+listExprParser = withSpan $ do
+  symbolLikeTok "["
+  elems <- exprParser `MP.sepBy` symbolLikeTok ","
+  symbolLikeTok "]"
+  pure (`EList` elems)
 
 exprSourceSpan :: Expr -> SourceSpan
 exprSourceSpan expr =
@@ -269,6 +288,13 @@ tokenSatisfy f = do
   case f tok of
     Just out -> out <$ anySingle
     Nothing -> fail "token"
+
+moduleNameParser :: TokParser Text
+moduleNameParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident -> Just ident
+      _ -> Nothing
 
 withSpan :: TokParser (SourceSpan -> a) -> TokParser a
 withSpan parser = do
