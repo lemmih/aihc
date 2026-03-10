@@ -10,7 +10,7 @@
 | Name | Progress |
 | --- | --- |
 <!-- AUTO-GENERATED: START parser-progress -->
-| Parser | `29/251` (`11.55%`) |
+| Parser | `41/251` (`16.33%`) |
 <!-- AUTO-GENERATED: END parser-progress -->
 <!-- AUTO-GENERATED: START cpp-progress -->
 | CPP preprocessor | `9/14` (`64.28%`) |
