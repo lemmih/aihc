@@ -1364,14 +1364,23 @@ parsePatternText input =
   let txt = T.strip input
    in if T.null txt
         then Left "pattern"
-        else case T.uncons txt of
-          Just ('~', rest) -> PIrrefutable span0 <$> parsePatternText rest
-          Just ('-', rest) ->
-            case parseLiteralText (T.strip rest) of
-              Just lit
-                | isNumericLiteral lit -> Right (PNegLit span0 lit)
-              _ -> parsePatternCore txt
-          _ -> parsePatternCore txt
+        else case lexTokens txt of
+          Right toks ->
+            case runParser (patternTokParser <* eof) "<pattern>" toks of
+              Right pat -> Right pat
+              Left _ -> parsePatternTextFallback txt
+          Left _ -> parsePatternTextFallback txt
+
+parsePatternTextFallback :: Text -> Either Text Pattern
+parsePatternTextFallback txt =
+  case T.uncons txt of
+    Just ('~', rest) -> PIrrefutable span0 <$> parsePatternText rest
+    Just ('-', rest) ->
+      case parseLiteralText (T.strip rest) of
+        Just lit
+          | isNumericLiteral lit -> Right (PNegLit span0 lit)
+        _ -> parsePatternCore txt
+    _ -> parsePatternCore txt
 
 parsePatternCore :: Text -> Either Text Pattern
 parsePatternCore txt
@@ -1479,6 +1488,226 @@ parseConOrVarPattern txt =
           Right (PCon span0 firstTok args)
       | isVarToken firstTok && null rest -> Right (PVar span0 firstTok)
       | otherwise -> Left "pattern"
+
+-- Token-based pattern parsing
+parsePatternToks :: [LexToken] -> Either Text Pattern
+parsePatternToks toks =
+  case runParser (patternTokParser <* eof) "<pattern>" toks of
+    Right pat -> Right pat
+    Left _ -> Left "pattern"
+
+patternTokParser :: TokParser Pattern
+patternTokParser =
+  try irrefutablePatTok
+    <|> try negLitPatTok
+    <|> try asPatTok
+    <|> try infixPatTok
+    <|> patternAtomTok
+
+irrefutablePatTok :: TokParser Pattern
+irrefutablePatTok =
+  symbolTokParser "~" *> (PIrrefutable span0 <$> patternTokParser)
+
+negLitPatTok :: TokParser Pattern
+negLitPatTok =
+  operatorTokParser "-" *> (PNegLit span0 <$> numericLitTok)
+
+numericLitTok :: TokParser Literal
+numericLitTok =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkInteger n -> Just (LitInt span0 (fromInteger n))
+      TkFloat d -> Just (LitFloat span0 d)
+      _ -> Nothing
+
+asPatTok :: TokParser Pattern
+asPatTok = do
+  name <- varIdentifierTok
+  operatorTokParser "@"
+  PAs span0 name <$> patternTokParser
+
+infixPatTok :: TokParser Pattern
+infixPatTok = do
+  lhs <- patternAtomTok
+  op <- infixConOrOpTok
+  PInfix span0 lhs op <$> patternTokParser
+
+infixConOrOpTok :: TokParser Text
+infixConOrOpTok =
+  conOperatorTok
+    <|> backtickConTok
+  where
+    conOperatorTok =
+      tokenSatisfy $ \tok ->
+        case lexTokenKind tok of
+          TkOperator txt | T.head txt == ':' -> Just txt
+          _ -> Nothing
+    backtickConTok = do
+      symbolTokParser "`"
+      name <- typeIdentifierTok
+      symbolTokParser "`"
+      pure name
+
+patternAtomTok :: TokParser Pattern
+patternAtomTok =
+  try wildcardPatTok
+    <|> try quasiQuotePatTok
+    <|> try literalPatTok
+    <|> try parenPatTok
+    <|> try listPatTok
+    <|> try recordPatTok
+    <|> try conPatTok
+    <|> varPatTok
+
+wildcardPatTok :: TokParser Pattern
+wildcardPatTok = do
+  _ <-
+    tokenSatisfy $ \tok ->
+      case lexTokenKind tok of
+        TkIdentifier "_" -> Just ()
+        _ -> Nothing
+  pure (PWildcard span0)
+
+quasiQuotePatTok :: TokParser Pattern
+quasiQuotePatTok =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkQuasiQuote quoter body -> Just (PQuasiQuote span0 quoter body)
+      _ -> Nothing
+
+literalPatTok :: TokParser Pattern
+literalPatTok = PLit span0 <$> anyLiteralTok
+
+anyLiteralTok :: TokParser Literal
+anyLiteralTok =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkInteger n -> Just (LitInt span0 (fromInteger n))
+      TkFloat d -> Just (LitFloat span0 d)
+      TkChar c -> Just (LitChar span0 c)
+      TkString s -> Just (LitString span0 s)
+      _ -> Nothing
+
+parenPatTok :: TokParser Pattern
+parenPatTok = do
+  symbolTokParser "("
+  innerToks <- collectBracketedToks "(" ")"
+  symbolTokParser ")"
+  case innerToks of
+    [] -> pure (PTuple span0 [])
+    _ -> parseParenInnerPat innerToks
+
+parseParenInnerPat :: [LexToken] -> TokParser Pattern
+parseParenInnerPat toks =
+  case splitTokensOnTopLevelCommas toks of
+    Right chunks | length chunks > 1 -> do
+      pats <- either (fail . T.unpack) pure (traverse parsePatternToks chunks)
+      pure (PTuple span0 pats)
+    _ ->
+      case splitTokensOnTopLevelOperator "->" toks of
+        Just (viewToks, patToks) -> do
+          viewExpr <- either (fail . T.unpack) pure (parseExprToks viewToks)
+          pat <- either (fail . T.unpack) pure (parsePatternToks patToks)
+          pure (PView span0 viewExpr pat)
+        Nothing -> do
+          pat <- either (fail . T.unpack) pure (parsePatternToks toks)
+          pure (PParen span0 pat)
+
+listPatTok :: TokParser Pattern
+listPatTok = do
+  symbolTokParser "["
+  innerToks <- collectBracketedToks "[" "]"
+  symbolTokParser "]"
+  case innerToks of
+    [] -> pure (PList span0 [])
+    _ -> do
+      chunks <- either (fail . T.unpack) pure (splitTokensOnTopLevelCommas innerToks)
+      pats <- either (fail . T.unpack) pure (traverse parsePatternToks chunks)
+      pure (PList span0 pats)
+
+recordPatTok :: TokParser Pattern
+recordPatTok = do
+  ctor <- typeIdentifierTok
+  symbolTokParser "{"
+  innerToks <- collectBracketedToks "{" "}"
+  symbolTokParser "}"
+  fields <- parseRecordPatFields innerToks
+  pure (PRecord span0 ctor fields)
+
+parseRecordPatFields :: [LexToken] -> TokParser [(Text, Pattern)]
+parseRecordPatFields toks =
+  case toks of
+    [] -> pure []
+    _ -> do
+      chunks <- either (fail . T.unpack) pure (splitTokensOnTopLevelCommas toks)
+      traverse parseRecordPatField chunks
+
+parseRecordPatField :: [LexToken] -> TokParser (Text, Pattern)
+parseRecordPatField toks =
+  case splitTokensOnTopLevelOperator "=" toks of
+    Just (nameToks, patToks) -> do
+      name <- parseFieldName nameToks
+      pat <- either (fail . T.unpack) pure (parsePatternToks patToks)
+      pure (name, pat)
+    Nothing -> do
+      name <- parseFieldName toks
+      pure (name, PVar span0 name)
+  where
+    parseFieldName nameToks =
+      case nameToks of
+        [tok] ->
+          case lexTokenKind tok of
+            TkIdentifier n -> pure n
+            _ -> fail "field name"
+        _ -> fail "field name"
+
+conPatTok :: TokParser Pattern
+conPatTok = do
+  ctor <- typeIdentifierTok
+  args <- many patternAtomTok
+  pure (PCon span0 ctor args)
+
+varPatTok :: TokParser Pattern
+varPatTok = PVar span0 <$> varIdentifierTok
+
+varIdentifierTok :: TokParser Text
+varIdentifierTok =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier txt | not (T.null txt) && isLower (T.head txt) -> Just txt
+      _ -> Nothing
+
+typeIdentifierTok :: TokParser Text
+typeIdentifierTok =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier txt | not (T.null txt) && isUpper (T.head txt) -> Just txt
+      _ -> Nothing
+
+collectBracketedToks :: Text -> Text -> TokParser [LexToken]
+collectBracketedToks open close = go (0 :: Int) []
+  where
+    go depth acc = do
+      mTok <- MP.optional (MP.lookAhead MP.anySingle)
+      case mTok of
+        Nothing -> pure (reverse acc)
+        Just tok ->
+          case lexTokenKind tok of
+            TkSymbol sym
+              | sym == close && depth == 0 -> pure (reverse acc)
+              | sym == close -> do
+                  _ <- MP.anySingle
+                  go (depth - 1) (tok : acc)
+              | sym == open -> do
+                  _ <- MP.anySingle
+                  go (depth + 1) (tok : acc)
+            _ -> do
+              _ <- MP.anySingle
+              go depth (tok : acc)
+
+-- Placeholder for expression token parser (to be implemented)
+parseExprToks :: [LexToken] -> Either Text Expr
+parseExprToks toks = parseExprText (tokensToSourceText toks)
 
 parseLiteralText :: Text -> Maybe Literal
 parseLiteralText txt
