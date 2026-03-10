@@ -38,7 +38,8 @@ run_cmd() {
 }
 
 parser_cmd="${PARSER_PROGRESS_CMD:-nix run .#parser-progress}"
-extension_cmd="${PARSER_EXTENSION_PROGRESS_CMD:-nix run .#parser-extension-progress -- --markdown}"
+extension_markdown_cmd="${PARSER_EXTENSION_PROGRESS_CMD:-nix run .#parser-extension-progress -- --markdown}"
+extension_progress_cmd="${PARSER_EXTENSION_PROGRESS_TEXT_CMD:-nix run .#parser-extension-progress}"
 cpp_cmd="${CPP_PROGRESS_CMD:-nix run .#cpp-progress}"
 name_resolution_cmd="${NAME_RESOLUTION_PROGRESS_CMD:-nix run .#name-resolution-progress}"
 
@@ -50,11 +51,13 @@ trap cleanup EXIT
 
 parser_out="$tmpdir/parser-progress.txt"
 extension_out="$tmpdir/extension-progress.md"
+extension_progress_out="$tmpdir/extension-progress.txt"
 name_out="$tmpdir/name-resolution-progress.txt"
 cpp_out="$tmpdir/cpp-progress.txt"
 
 run_cmd "$parser_cmd" > "$parser_out"
-run_cmd "$extension_cmd" | sed -n '/^# Haskell Parser Extension Support Status/,$p' > "$extension_out"
+run_cmd "$extension_markdown_cmd" | sed -n '/^# Haskell Parser Extension Support Status/,$p' > "$extension_out"
+run_cmd "$extension_progress_cmd" > "$extension_progress_out"
 run_cmd "$cpp_cmd" > "$cpp_out"
 run_cmd "$name_resolution_cmd" > "$name_out"
 
@@ -96,6 +99,45 @@ parse_extension_summary() {
   ' "$infile"
 }
 
+parse_extension_progress() {
+  local infile="$1"
+  awk '
+    {
+      if ($0 ~ /PASS=[0-9]+/ && $0 ~ /XFAIL=[0-9]+/ && $0 ~ /XPASS=[0-9]+/ && $0 ~ /FAIL=[0-9]+/) {
+        passS = $0
+        sub(/.*PASS=/, "", passS)
+        sub(/[^0-9].*/, "", passS)
+
+        xfailS = $0
+        sub(/.*XFAIL=/, "", xfailS)
+        sub(/[^0-9].*/, "", xfailS)
+
+        xpassS = $0
+        sub(/.*XPASS=/, "", xpassS)
+        sub(/[^0-9].*/, "", xpassS)
+
+        failS = $0
+        sub(/.*FAIL=/, "", failS)
+        sub(/[^0-9].*/, "", failS)
+
+        pass += passS + 0
+        xfail += xfailS + 0
+        xpass += xpassS + 0
+        fail += failS + 0
+      }
+    }
+    END {
+      total = pass + xfail + xpass + fail
+      if (total <= 0) {
+        complete = 0.0
+      } else {
+        complete = ((pass + xpass) * 100.0) / total
+      }
+      printf "%d\n%d\n%d\n%d\n%d\n%d\n%.2f\n", pass, xfail, xpass, fail, total, pass + xpass, complete
+    }
+  ' "$infile"
+}
+
 parser_vals=($(parse_progress "$parser_out"))
 parser_pass="${parser_vals[0]}"
 parser_xfail="${parser_vals[1]}"
@@ -129,29 +171,28 @@ ext_supported="${ext_vals[1]}"
 ext_in_progress="${ext_vals[2]}"
 ext_planned="${ext_vals[3]}"
 
+ext_progress_vals=($(parse_extension_progress "$extension_progress_out"))
+ext_test_total="${ext_progress_vals[4]}"
+ext_implemented="${ext_progress_vals[5]}"
+
+parser_total_tests=$((parser_total + ext_test_total))
+parser_passing_tests=$((parser_implemented + ext_implemented))
+parser_total_complete="$(awk -v passing="$parser_passing_tests" -v total="$parser_total_tests" 'BEGIN { if (total <= 0) { printf "0.00" } else { printf "%.2f", (passing * 100.0) / total } }')"
+
 # extract extension name lists (alphabetically sorted, comma-separated) from the markdown table if present
 ext_supported_names="$(awk -F'|' 'BEGIN{names=""} /^\|/ { status=$3; name=$2; gsub(/^[ \t]+|[ \t]+$/, "", name); gsub(/^[ \t]+|[ \t]+$/, "", status); if (status == "Supported") { if (names=="") names=name; else names=names ", " name } } END{ print names }' "$extension_out")"
 ext_in_progress_names="$(awk -F'|' 'BEGIN{names=""} /^\|/ { status=$3; name=$2; gsub(/^[ \t]+|[ \t]+$/, "", name); gsub(/^[ \t]+|[ \t]+$/, "", status); if (status == "In Progress") { if (names=="") names=name; else names=names ", " name } } END{ print names }' "$extension_out")"
 
 cat > "$tmpdir/readme-root-parser.txt" <<EOF2
-- \`${parser_implemented}/${parser_total}\` syntax cases implemented (\`${parser_complete}%\` complete)
-EOF2
-
-cat > "$tmpdir/readme-root-extension.txt" <<EOF2
-- Total tracked extensions: \`${ext_total}\`
-- Supported: \`${ext_supported}\`
-- In Progress: \`${ext_in_progress}\`
-- Planned: \`${ext_planned}\`
-- Supported extensions: \`${ext_supported_names:-}\`
-- In Progress extensions: \`${ext_in_progress_names:-}\`
+| Parser | \`${parser_passing_tests}/${parser_total_tests}\` (\`${parser_total_complete}%\`) |
 EOF2
 
 cat > "$tmpdir/readme-root-name.txt" <<EOF2
-- \`${name_implemented}/${name_total}\` capability cases implemented (\`${name_complete}%\` complete)
+| Name resolution | \`${name_implemented}/${name_total}\` (\`${name_complete}%\`) |
 EOF2
 
 cat > "$tmpdir/readme-root-cpp.txt" <<EOF2
-- \`${cpp_implemented}/${cpp_total}\` preprocessing cases implemented (\`${cpp_complete}%\` complete)
+| CPP preprocessor | \`${cpp_implemented}/${cpp_total}\` (\`${cpp_complete}%\`) |
 EOF2
 
 cat > "$tmpdir/readme-parser-h2010.txt" <<EOF2
@@ -232,7 +273,6 @@ else
 fi
 
 replace_marker_block README.md "parser-progress" "$tmpdir/readme-root-parser.txt"
-replace_marker_block README.md "parser-extension-progress" "$tmpdir/readme-root-extension.txt"
 replace_marker_block README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
 replace_marker_block README.md "name-resolution-progress" "$tmpdir/readme-root-name.txt"
 replace_marker_block components/haskell-parser/README.md "haskell2010-progress" "$tmpdir/readme-parser-h2010.txt"
