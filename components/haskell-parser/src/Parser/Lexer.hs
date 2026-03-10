@@ -34,6 +34,7 @@ import Text.Megaparsec.Pos (unPos)
 data LexTokenKind
   = TkKeywordModule
   | TkKeywordWhere
+  | TkKeywordData
   | TkKeywordImport
   | TkKeywordQualified
   | TkKeywordAs
@@ -258,6 +259,7 @@ keywordTokenKind :: Text -> Maybe LexTokenKind
 keywordTokenKind txt = case txt of
   "module" -> Just TkKeywordModule
   "where" -> Just TkKeywordWhere
+  "data" -> Just TkKeywordData
   "import" -> Just TkKeywordImport
   "qualified" -> Just TkKeywordQualified
   "as" -> Just TkKeywordAs

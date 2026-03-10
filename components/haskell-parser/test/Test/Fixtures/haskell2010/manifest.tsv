@@ -98,7 +98,7 @@ decls-data-record-grouped-fields	declarations	declarations/data-record-grouped-f
 decls-data-record-strict-field	declarations	declarations/data-record-strict-field.hs	xfail	parser intentionally disabled
 decls-data-deriving-single	declarations	declarations/data-deriving-single.hs	xfail	parser intentionally disabled
 decls-data-deriving-empty	declarations	declarations/data-deriving-empty.hs	xfail	parser intentionally disabled
-decls-data-abstract	declarations	declarations/data-abstract.hs	xfail	parser intentionally disabled
+decls-data-abstract	declarations	declarations/data-abstract.hs	pass
 decls-newtype	declarations	declarations/newtype.hs	xfail	parser intentionally disabled
 decls-type-synonym	declarations	declarations/type-synonym.hs	xfail	parser intentionally disabled
 decls-class	declarations	declarations/class.hs	xfail	parser intentionally disabled

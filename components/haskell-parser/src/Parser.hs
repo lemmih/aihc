@@ -10,7 +10,7 @@ where
 
 import Data.Text (Text)
 import Data.Void (Void)
-import Parser.Ast (Decl (..), Expr (..), Match (..), Module (..), Rhs (..), SourceSpan (..), ValueDecl (..))
+import Parser.Ast (DataDecl (..), Decl (..), Expr (..), Match (..), Module (..), Rhs (..), SourceSpan (..), ValueDecl (..))
 import Parser.Lexer (LexToken (..), LexTokenKind (..), lexTokens)
 import Parser.Types
 import Text.Megaparsec (Parsec, anySingle, lookAhead, runParser, (<|>))
@@ -47,7 +47,33 @@ moduleHeaderParser = do
   pure name
 
 declParser :: TokParser Decl
-declParser = withSpan $ do
+declParser = dataDeclParser <|> valueDeclParser
+
+dataDeclParser :: TokParser Decl
+dataDeclParser = withSpan $ do
+  keywordTok TkKeywordData
+  typeName <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident -> Just ident
+      _ -> Nothing
+  typeParams <- MP.many $ tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident -> Just ident
+      _ -> Nothing
+  pure $ \span' ->
+    DeclData
+      span'
+      DataDecl
+        { dataDeclSpan = span',
+          dataDeclContext = [],
+          dataDeclName = typeName,
+          dataDeclParams = typeParams,
+          dataDeclConstructors = [],
+          dataDeclDeriving = Nothing
+        }
+
+valueDeclParser :: TokParser Decl
+valueDeclParser = withSpan $ do
   name <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
       TkIdentifier ident -> Just ident
