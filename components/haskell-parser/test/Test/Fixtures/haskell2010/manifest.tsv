@@ -118,7 +118,7 @@ decls-fixity	declarations	declarations/fixity.hs	xfail	parser intentionally disa
 decls-default	declarations	declarations/default.hs	xfail	default declarations unsupported
 decls-deriving	declarations	declarations/deriving.hs	xfail	parser intentionally disabled
 
-expr-if-then-else	expressions	expressions/if-then-else.hs	xfail	parser intentionally disabled
+expr-if-then-else	expressions	expressions/if-then-else.hs	pass	parser now handles this if-then-else form
 expr-case-of	expressions	expressions/case-of.hs	xfail	parser intentionally disabled
 expr-let-in	expressions	expressions/let-in.hs	xfail	parser intentionally disabled
 expr-lambda	expressions	expressions/lambda.hs	xfail	parser intentionally disabled
