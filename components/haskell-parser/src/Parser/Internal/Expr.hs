@@ -452,7 +452,30 @@ whereClauseParser = do
       pure parsed
 
 localDeclParser :: TokParser Decl
-localDeclParser = withSpan $ do
+localDeclParser = MP.try localFunctionDeclParser <|> localPatternDeclParser
+
+localFunctionDeclParser :: TokParser Decl
+localFunctionDeclParser = withSpan $ do
+  name <- identifierTextParser
+  pats <- MP.many simplePatternParser
+  operatorLikeTok "="
+  rhsExpr <- exprParser
+  pure $ \span' ->
+    DeclValue
+      span'
+      ( FunctionBind
+          span'
+          name
+          [ Match
+              { matchSpan = span',
+                matchPats = pats,
+                matchRhs = UnguardedRhs span' rhsExpr
+              }
+          ]
+      )
+
+localPatternDeclParser :: TokParser Decl
+localPatternDeclParser = withSpan $ do
   pat <- patternParser
   operatorLikeTok "="
   rhsExpr <- exprParser

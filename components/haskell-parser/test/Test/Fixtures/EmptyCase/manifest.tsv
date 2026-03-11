@@ -1,3 +1,3 @@
-empty-case-basic	expressions	empty-case-basic.hs	xfail	parser accepts EmptyCase; roundtrip mismatch pending
-empty-case-where	expressions	empty-case-where.hs	xfail	parser accepts EmptyCase; roundtrip mismatch pending
-empty-case-let	expressions	empty-case-let.hs	xfail	parser accepts EmptyCase; roundtrip mismatch pending
+empty-case-basic	expressions	empty-case-basic.hs	pass	parser now supports empty case alternatives
+empty-case-where	expressions	empty-case-where.hs	pass	parser now supports empty case alternatives
+empty-case-let	expressions	empty-case-let.hs	pass	parser now supports empty case alternatives

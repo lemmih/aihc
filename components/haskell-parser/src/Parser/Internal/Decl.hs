@@ -15,8 +15,8 @@ import qualified Data.Text as T
 import Parser.Ast
 import Parser.Internal.Common
 import Parser.Internal.Expr (exprParser, simplePatternParser, typeParser)
-import Parser.Lexer (LexTokenKind (..), lexTokenKind)
-import Text.Megaparsec ((<|>))
+import Parser.Lexer (LexTokenKind (..), lexTokenKind, lexTokenSpan)
+import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import qualified Text.Megaparsec as MP
 
 languagePragmaParser :: TokParser [Text]
@@ -191,14 +191,16 @@ foreignEntityFromString txt
 dataDeclParser :: TokParser Decl
 dataDeclParser = withSpan $ do
   keywordTok TkKeywordData
-  typeName <- tokenSatisfy $ \tok ->
+  (typeName, headLine) <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident -> Just ident
+      TkIdentifier ident ->
+        let line =
+              case lexTokenSpan tok of
+                SourceSpan startLine _ _ _ -> startLine
+                NoSourceSpan -> 1
+         in Just (ident, line)
       _ -> Nothing
-  typeParams <- MP.many $ tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkIdentifier ident -> Just ident
-      _ -> Nothing
+  typeParams <- MP.many (sameLineIdentifierParser headLine)
   constructors <- MP.optional (operatorLikeTok "=" *> dataConDeclParser `MP.sepBy1` operatorLikeTok "|")
   pure $ \span' ->
     DeclData
@@ -211,6 +213,17 @@ dataDeclParser = withSpan $ do
           dataDeclConstructors = fromMaybe [] constructors,
           dataDeclDeriving = Nothing
         }
+
+sameLineIdentifierParser :: Int -> TokParser Text
+sameLineIdentifierParser expectedLine = do
+  nextTok <- lookAhead anySingle
+  case lexTokenSpan nextTok of
+    SourceSpan line _ _ _ | line == expectedLine ->
+      tokenSatisfy $ \tok ->
+        case lexTokenKind tok of
+          TkIdentifier ident -> Just ident
+          _ -> Nothing
+    _ -> fail "line break"
 
 dataConDeclParser :: TokParser DataConDecl
 dataConDeclParser = withSpan $ do
