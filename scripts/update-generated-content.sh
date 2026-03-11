@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  cat <<'USAGE'
+	cat <<'USAGE'
 Usage: scripts/update-generated-content.sh [--update|--check]
 
   --update  Rewrite generated files/sections in place
@@ -11,30 +11,30 @@ USAGE
 }
 
 if [ "$#" -ne 1 ]; then
-  usage >&2
-  exit 2
+	usage >&2
+	exit 2
 fi
 
 mode="$1"
 case "$mode" in
-  --update|--check) ;;
-  *)
-    usage >&2
-    exit 2
-    ;;
+--update | --check) ;;
+*)
+	usage >&2
+	exit 2
+	;;
 esac
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
 if [ ! -f flake.nix ]; then
-  echo "Run this script from inside the repository." >&2
-  exit 1
+	echo "Run this script from inside the repository." >&2
+	exit 1
 fi
 
 run_cmd() {
-  local cmd="$1"
-  bash -c "$cmd"
+	local cmd="$1"
+	bash -c "$cmd"
 }
 
 parser_cmd="${PARSER_PROGRESS_CMD:-nix run .#parser-progress}"
@@ -45,7 +45,7 @@ name_resolution_cmd="${NAME_RESOLUTION_PROGRESS_CMD:-nix run .#name-resolution-p
 
 tmpdir="$(mktemp -d)"
 cleanup() {
-  rm -rf "$tmpdir"
+	rm -rf "$tmpdir"
 }
 trap cleanup EXIT
 
@@ -55,15 +55,15 @@ extension_progress_out="$tmpdir/extension-progress.txt"
 name_out="$tmpdir/name-resolution-progress.txt"
 cpp_out="$tmpdir/cpp-progress.txt"
 
-run_cmd "$parser_cmd" > "$parser_out"
-run_cmd "$extension_markdown_cmd" | sed -n '/^# Haskell Parser Extension Support Status/,$p' > "$extension_out"
-run_cmd "$extension_progress_cmd" > "$extension_progress_out"
-run_cmd "$cpp_cmd" > "$cpp_out"
-run_cmd "$name_resolution_cmd" > "$name_out"
+run_cmd "$parser_cmd" >"$parser_out"
+run_cmd "$extension_markdown_cmd" | sed -n '/^# Haskell Parser Extension Support Status/,$p' >"$extension_out"
+run_cmd "$extension_progress_cmd" >"$extension_progress_out"
+run_cmd "$cpp_cmd" >"$cpp_out"
+run_cmd "$name_resolution_cmd" >"$name_out"
 
 parse_progress() {
-  local infile="$1"
-  awk '
+	local infile="$1"
+	awk '
     /^PASS[[:space:]]+/ { pass=$2 }
     /^XFAIL[[:space:]]+/ { xfail=$2 }
     /^XPASS[[:space:]]+/ { xpass=$2 }
@@ -84,8 +84,8 @@ parse_progress() {
 }
 
 parse_extension_summary() {
-  local infile="$1"
-  awk '
+	local infile="$1"
+	awk '
     /^- Total Extensions:/ { total=$4 }
     /^- Supported:/ { supported=$3 }
     /^- In Progress:/ { in_progress=$4 }
@@ -100,8 +100,8 @@ parse_extension_summary() {
 }
 
 parse_extension_progress() {
-  local infile="$1"
-  awk '
+	local infile="$1"
+	awk '
     {
       if ($0 ~ /PASS=[0-9]+/ && $0 ~ /XFAIL=[0-9]+/ && $0 ~ /XPASS=[0-9]+/ && $0 ~ /FAIL=[0-9]+/) {
         passS = $0
@@ -183,55 +183,55 @@ parser_total_complete="$(awk -v passing="$parser_passing_tests" -v total="$parse
 ext_supported_names="$(awk -F'|' 'BEGIN{names=""} /^\|/ { status=$3; name=$2; gsub(/^[ \t]+|[ \t]+$/, "", name); gsub(/^[ \t]+|[ \t]+$/, "", status); if (status == "Supported") { if (names=="") names=name; else names=names ", " name } } END{ print names }' "$extension_out")"
 ext_in_progress_names="$(awk -F'|' 'BEGIN{names=""} /^\|/ { status=$3; name=$2; gsub(/^[ \t]+|[ \t]+$/, "", name); gsub(/^[ \t]+|[ \t]+$/, "", status); if (status == "In Progress") { if (names=="") names=name; else names=names ", " name } } END{ print names }' "$extension_out")"
 
-cat > "$tmpdir/readme-root-parser.txt" <<EOF2
-| Parser | \`${parser_passing_tests}/${parser_total_tests}\` (\`${parser_total_complete}%\`) |
+cat >"$tmpdir/readme-root-parser.txt" <<EOF2
+\`${parser_passing_tests}/${parser_total_tests}\` (\`${parser_total_complete}%\`)
 EOF2
 
-cat > "$tmpdir/readme-root-name.txt" <<EOF2
-| Name resolution | \`${name_implemented}/${name_total}\` (\`${name_complete}%\`) |
+cat >"$tmpdir/readme-root-name.txt" <<EOF2
+\`${name_implemented}/${name_total}\` (\`${name_complete}%\`)
 EOF2
 
-cat > "$tmpdir/readme-root-cpp.txt" <<EOF2
-| CPP preprocessor | \`${cpp_implemented}/${cpp_total}\` (\`${cpp_complete}%\`) |
+cat >"$tmpdir/readme-root-cpp.txt" <<EOF2
+\`${cpp_implemented}/${cpp_total}\` (\`${cpp_complete}%\`)
 EOF2
 
-cat > "$tmpdir/readme-parser-h2010.txt" <<EOF2
+cat >"$tmpdir/readme-parser-h2010.txt" <<EOF2
 - \`${parser_implemented}/${parser_total}\` implemented (\`${parser_complete}%\` complete)
 EOF2
 
-cat > "$tmpdir/readme-parser-extension.txt" <<EOF2
+cat >"$tmpdir/readme-parser-extension.txt" <<EOF2
 - Total tracked extensions: \`${ext_total}\`
 - Supported: \`${ext_supported}\`
 - In Progress: \`${ext_in_progress}\`
 - Planned: \`${ext_planned}\`
 EOF2
 
-cat > "$tmpdir/readme-name-resolution.txt" <<EOF2
+cat >"$tmpdir/readme-name-resolution.txt" <<EOF2
 - \`${name_implemented}/${name_total}\` implemented (\`${name_complete}%\` complete)
 EOF2
 
-cat > "$tmpdir/readme-cpp.txt" <<EOF2
+cat >"$tmpdir/readme-cpp.txt" <<EOF2
 - \`${cpp_implemented}/${cpp_total}\` implemented (\`${cpp_complete}%\` complete)
 EOF2
 
 replace_marker_block() {
-  local file="$1"
-  local marker="$2"
-  local content_file="$3"
-  local start="<!-- AUTO-GENERATED: START ${marker} -->"
-  local end="<!-- AUTO-GENERATED: END ${marker} -->"
-  local tmp_out="$tmpdir/$(basename "$file").${marker}.out"
+	local file="$1"
+	local marker="$2"
+	local content_file="$3"
+	local start="<!-- AUTO-GENERATED: START ${marker} -->"
+	local end="<!-- AUTO-GENERATED: END ${marker} -->"
+	local tmp_out="$tmpdir/$(basename "$file").${marker}.out"
 
-  local start_count
-  local end_count
-  start_count="$(grep -Fxc "$start" "$file" || true)"
-  end_count="$(grep -Fxc "$end" "$file" || true)"
-  if [ "$start_count" -ne 1 ] || [ "$end_count" -ne 1 ]; then
-    echo "Expected exactly one marker pair for '${marker}' in ${file}" >&2
-    exit 1
-  fi
+	local start_count
+	local end_count
+	start_count="$(grep -Fxc "$start" "$file" || true)"
+	end_count="$(grep -Fxc "$end" "$file" || true)"
+	if [ "$start_count" -ne 1 ] || [ "$end_count" -ne 1 ]; then
+		echo "Expected exactly one marker pair for '${marker}' in ${file}" >&2
+		exit 1
+	fi
 
-  awk -v start="$start" -v end="$end" -v content_file="$content_file" '
+	awk -v start="$start" -v end="$end" -v content_file="$content_file" '
     $0 == start {
       print
       while ((getline line < content_file) > 0) {
@@ -247,39 +247,85 @@ replace_marker_block() {
       next
     }
     !in_block { print }
-  ' "$file" > "$tmp_out"
+  ' "$file" >"$tmp_out"
 
-  if [ "$mode" = "--update" ]; then
-    if ! cmp -s "$file" "$tmp_out"; then
-      cat "$tmp_out" > "$file"
-    fi
-  else
-    if ! cmp -s "$file" "$tmp_out"; then
-      echo "Generated block out of date: ${file} (${marker})" >&2
-      stale=1
-    fi
-  fi
+	if [ "$mode" = "--update" ]; then
+		if ! cmp -s "$file" "$tmp_out"; then
+			cat "$tmp_out" >"$file"
+		fi
+	else
+		if ! cmp -s "$file" "$tmp_out"; then
+			echo "Generated block out of date: ${file} (${marker})" >&2
+			stale=1
+		fi
+	fi
+}
+
+replace_marker_inline() {
+	local file="$1"
+	local marker="$2"
+	local content_file="$3"
+	local start="<!-- AUTO-GENERATED: START ${marker} -->"
+	local end="<!-- AUTO-GENERATED: END ${marker} -->"
+	local tmp_out="$tmpdir/$(basename "$file").${marker}.inline.out"
+
+	local start_count
+	local end_count
+	start_count="$(grep -Foc "$start" "$file" || true)"
+	end_count="$(grep -Foc "$end" "$file" || true)"
+	if [ "$start_count" -ne 1 ] || [ "$end_count" -ne 1 ]; then
+		echo "Expected exactly one inline marker pair for '${marker}' in ${file}" >&2
+		exit 1
+	fi
+
+	local content
+	content="$(tr -d '\n' <"$content_file")"
+
+	awk -v start="$start" -v end="$end" -v content="$content" '
+    {
+      s = index($0, start)
+      e = index($0, end)
+      if (s > 0 && e > s) {
+        prefix = substr($0, 1, s + length(start) - 1)
+        suffix = substr($0, e)
+        print prefix " " content " " suffix
+      } else {
+        print
+      }
+    }
+  ' "$file" >"$tmp_out"
+
+	if [ "$mode" = "--update" ]; then
+		if ! cmp -s "$file" "$tmp_out"; then
+			cat "$tmp_out" >"$file"
+		fi
+	else
+		if ! cmp -s "$file" "$tmp_out"; then
+			echo "Generated inline block out of date: ${file} (${marker})" >&2
+			stale=1
+		fi
+	fi
 }
 
 stale=0
 
 if [ "$mode" = "--update" ]; then
-  cp "$extension_out" docs/haskell-parser-extension-support.md
+	cp "$extension_out" docs/haskell-parser-extension-support.md
 else
-  if ! cmp -s docs/haskell-parser-extension-support.md "$extension_out"; then
-    echo "Generated file out of date: docs/haskell-parser-extension-support.md" >&2
-    stale=1
-  fi
+	if ! cmp -s docs/haskell-parser-extension-support.md "$extension_out"; then
+		echo "Generated file out of date: docs/haskell-parser-extension-support.md" >&2
+		stale=1
+	fi
 fi
 
-replace_marker_block README.md "parser-progress" "$tmpdir/readme-root-parser.txt"
-replace_marker_block README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
-replace_marker_block README.md "name-resolution-progress" "$tmpdir/readme-root-name.txt"
+replace_marker_inline README.md "parser-progress" "$tmpdir/readme-root-parser.txt"
+replace_marker_inline README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
+replace_marker_inline README.md "name-resolution-progress" "$tmpdir/readme-root-name.txt"
 replace_marker_block components/haskell-parser/README.md "haskell2010-progress" "$tmpdir/readme-parser-h2010.txt"
 replace_marker_block components/haskell-parser/README.md "extension-progress" "$tmpdir/readme-parser-extension.txt"
 replace_marker_block components/haskell-cpp/README.md "cpp-progress" "$tmpdir/readme-cpp.txt"
 replace_marker_block components/haskell-name-resolution/README.md "name-resolution-progress" "$tmpdir/readme-name-resolution.txt"
 
 if [ "$mode" = "--check" ] && [ "$stale" -ne 0 ]; then
-  exit 1
+	exit 1
 fi
