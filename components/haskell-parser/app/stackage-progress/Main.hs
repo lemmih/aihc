@@ -5,7 +5,7 @@ module Main (main) where
 
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception (SomeException, displayException, try)
-import Control.Monad (forM, when)
+import Control.Monad (forM)
 import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParser)
 import Data.Char (isSpace)
@@ -101,23 +101,7 @@ main = do
   putStrLn ("Result: " ++ show successN ++ "/" ++ show total)
   putStrLn ("Failed: " ++ show failureN)
 
-  let failed = [result | result <- results, not (packageOk result)]
-  mapM_ printFailure (take 50 failed)
-  when (length failed > 50) $ do
-    putStrLn ("... and " ++ show (length failed - 50) ++ " more failures")
-
   if successN == total then exitSuccess else exitFailure
-
-printFailure :: PackageResult -> IO ()
-printFailure result =
-  putStrLn
-    ( "FAIL "
-        ++ pkgName (package result)
-        ++ "-"
-        ++ pkgVersion (package result)
-        ++ ": "
-        ++ packageReason result
-    )
 
 usage :: String
 usage =
