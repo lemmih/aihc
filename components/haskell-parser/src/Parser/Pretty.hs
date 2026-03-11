@@ -551,7 +551,9 @@ prettyExprPrec prec expr =
         ( "case"
             <+> prettyExprPrec 0 scrutinee
             <+> "of"
-            <+> hsep (punctuate semi (map prettyCaseAlt alts))
+            <+> case alts of
+              [] -> braces mempty
+              _ -> hsep (punctuate semi (map prettyCaseAlt alts))
         )
     EDo _ stmts ->
       parenthesize

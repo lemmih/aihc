@@ -1,3 +1,4 @@
-empty-case-basic	expressions	empty-case-basic.hs	xfail	parser support pending
-empty-case-where	expressions	empty-case-where.hs	xfail	parser support pending
-empty-case-let	expressions	empty-case-let.hs	xfail	parser support pending
+empty-case-basic	expressions	empty-case-basic.hs	pass	parser now supports empty case alternatives
+empty-case-where	expressions	empty-case-where.hs	pass	parser now supports empty case alternatives
+empty-case-let	expressions	empty-case-let.hs	pass	parser now supports empty case alternatives
+empty-case-multiline-type-param	expressions	empty-case-multiline-type-param.hs	pass	parser now supports multiline data declaration heads
