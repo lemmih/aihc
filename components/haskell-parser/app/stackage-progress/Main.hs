@@ -5,7 +5,7 @@ module Main (main) where
 
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception (SomeException, displayException, try)
-import Control.Monad (forM)
+import Control.Monad (forM, when)
 import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParser)
 import Data.Char (isAlphaNum, isSpace)
@@ -55,7 +55,8 @@ data Options = Options
   { optSnapshot :: String,
     optChecks :: [Check],
     optJobs :: Maybe Int,
-    optOffline :: Bool
+    optOffline :: Bool,
+    optPrintSucceeded :: Bool
   }
 
 data PackageSpec = PackageSpec
@@ -96,22 +97,27 @@ main = do
   let successN = length [() | result <- results, packageOk result]
   putStrLn ""
 
+  when (optPrintSucceeded opts) $ do
+    mapM_ putStrLn [formatPackage (package result) | result <- results, packageOk result]
+    putStrLn ""
+
   if successN == total then exitSuccess else exitFailure
 
 usage :: String
 usage =
   unlines
-    [ "Usage: cabal run stackage-progress -- [--snapshot lts-24.33] [--checks parse,roundtrip-ghc,source-span] [--jobs N] [--offline]",
+    [ "Usage: cabal run stackage-progress -- [--snapshot lts-24.33] [--checks parse,roundtrip-ghc,source-span] [--jobs N] [--offline] [--print-succeeded]",
       "",
       "Defaults:",
       "  --snapshot lts-24.33",
       "  --checks parse",
       "  --jobs <num processors>",
-      "  --offline false"
+      "  --offline false",
+      "  --print-succeeded false"
     ]
 
 parseOptions :: [String] -> Either String Options
-parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False)
+parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False)
   where
     go opts [] = Right opts
     go opts ("--snapshot" : value : rest)
@@ -126,8 +132,13 @@ parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False)
         _ -> Left "--jobs must be a positive integer"
     go opts ("--offline" : rest) =
       go opts {optOffline = True} rest
+    go opts ("--print-succeeded" : rest) =
+      go opts {optPrintSucceeded = True} rest
     go _ ("--help" : _) = Left ""
     go _ (arg : _) = Left ("Unknown argument: " ++ arg)
+
+formatPackage :: PackageSpec -> String
+formatPackage spec = pkgName spec ++ "-" ++ pkgVersion spec
 
 parseChecks :: String -> Either String [Check]
 parseChecks raw = do
