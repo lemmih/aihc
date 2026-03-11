@@ -54,7 +54,7 @@ oracleModuleAstFingerprintWithExtensionsAt sourceTag exts input = do
 parseWithGhcWithExtensions :: String -> [Extension] -> Text -> Either Text ([Text], HsModule GhcPs)
 parseWithGhcWithExtensions sourceTag extraExts input =
   let parseExts = EnumSet.fromList (nub (ForeignFunctionInterface : extraExts)) :: EnumSet.EnumSet Extension
-      opts = mkParserOpts parseExts emptyDiagOpts False False False False
+      opts = mkParserOpts parseExts emptyDiagOpts [] False False False False
       languagePragmas = extractLanguagePragmas input
       sanitizedInput = stripLanguagePragmaLines input
       buffer = stringToStringBuffer (T.unpack sanitizedInput)

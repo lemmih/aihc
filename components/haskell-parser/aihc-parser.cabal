@@ -103,6 +103,7 @@ executable hackage-tester
   main-is:          Main.hs
   other-modules:
       CppSupport
+    , HackageSupport
   build-depends:
       base >=4.16 && <5
     , aihc-parser
@@ -114,5 +115,29 @@ executable hackage-tester
     , Cabal
     , bytestring
     , process
+  ghc-options:        -Wall -Werror
+  default-language: Haskell2010
+
+executable stackage-progress
+  hs-source-dirs:
+      app/stackage-progress
+    , common
+  main-is:          Main.hs
+  other-modules:
+      CppSupport
+    , GhcOracle
+    , HackageSupport
+  build-depends:
+      base >=4.16 && <5
+    , aihc-parser
+    , aihc-cpp
+    , text
+    , directory
+    , filepath
+    , ghc-lib-parser
+    , process
+    , async
+    , Cabal
+    , bytestring
   ghc-options:        -Wall -Werror
   default-language: Haskell2010

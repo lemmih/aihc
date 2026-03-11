@@ -32,6 +32,7 @@
           extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
           cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
           hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
+          stackageProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "stackage-progress";
           nameResolutionProgressExe =
             pkgs.lib.getExe' hsPkgs.aihc-name-resolution "name-resolution-progress";
           mkApp = name: text: {
@@ -92,6 +93,17 @@
             cd components/haskell-parser
             cabal update 2>/dev/null || true
             ${hackageTesterExe} "$@"
+          '';
+
+          stackage-progress = mkApp "stackage-progress" ''
+            set -euo pipefail
+            test -d components/haskell-parser || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-parser
+            cabal update 2>/dev/null || true
+            ${stackageProgressExe} "$@"
           '';
 
           parser-progress-strict = mkApp "parser-progress-strict" ''
