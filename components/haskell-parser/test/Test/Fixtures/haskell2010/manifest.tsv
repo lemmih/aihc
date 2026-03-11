@@ -3,10 +3,10 @@ modules-implicit	modules	modules/implicit.hs	pass	parser supports implicit modul
 modules-application	modules	modules/application.hs	pass	parser now supports simple module application declarations
 modules-comments	modules	modules/comments.hs	pass	parser supports comment handling in modules
 modules-exports	modules	modules/exports.hs	xfail	export lists unsupported
-modules-import-qualified	modules	modules/import-qualified.hs	xfail	imports unsupported
-modules-import-hiding	modules	modules/import-hiding.hs	xfail	imports unsupported
+modules-import-qualified	modules	modules/import-qualified.hs	pass	parser now supports qualified imports with aliases
+modules-import-hiding	modules	modules/import-hiding.hs	pass	parser now supports hiding import lists
 modules-multi-imports	modules	modules/multi-imports.hs	pass	parser supports multiple plain imports
-modules-import-as	modules	modules/import-as.hs	xfail	imports unsupported
+modules-import-as	modules	modules/import-as.hs	pass	parser now supports import aliases
 modules-multiline-definition	modules	modules/multiline-definition.hs	pass	parser now handles multiline module headers
 modules-multiline-definition-module-split	modules	modules/multiline-definition-module-split.hs	pass	parser now handles multiline module headers
 modules-multiline-definition-where-split	modules	modules/multiline-definition-where-split.hs	pass	parser now handles multiline module headers
@@ -21,23 +21,23 @@ modules-s5-export-qtycon-abstract	modules	modules/s5-export-qtycon-abstract.hs	x
 modules-s5-export-qtycon-all	modules	modules/s5-export-qtycon-all.hs	xfail	section 5 module variation unsupported
 modules-s5-export-qtycon-cnames	modules	modules/s5-export-qtycon-cnames.hs	xfail	section 5 module variation unsupported
 modules-s5-export-qvar	modules	modules/s5-export-qvar.hs	xfail	section 5 module variation unsupported
-modules-s5-import-as-explicit-list	modules	modules/s5-import-as-explicit-list.hs	xfail	section 5 module variation unsupported
-modules-s5-import-as-hiding	modules	modules/s5-import-as-hiding.hs	xfail	section 5 module variation unsupported
-modules-s5-import-as	modules	modules/s5-import-as.hs	xfail	section 5 module variation unsupported
-modules-s5-import-empty-list	modules	modules/s5-import-empty-list.hs	xfail	section 5 module variation unsupported
+modules-s5-import-as-explicit-list	modules	modules/s5-import-as-explicit-list.hs	pass	parser now supports section 5 import aliases with explicit lists
+modules-s5-import-as-hiding	modules	modules/s5-import-as-hiding.hs	pass	parser now supports section 5 import aliases with hiding lists
+modules-s5-import-as	modules	modules/s5-import-as.hs	pass	parser now supports section 5 import aliases
+modules-s5-import-empty-list	modules	modules/s5-import-empty-list.hs	pass	parser now supports empty section 5 import lists
 modules-s5-import-explicit-tycls-all	modules	modules/s5-import-explicit-tycls-all.hs	xfail	section 5 module variation unsupported
 modules-s5-import-explicit-tycls-methods	modules	modules/s5-import-explicit-tycls-methods.hs	xfail	section 5 module variation unsupported
-modules-s5-import-explicit-tycls	modules	modules/s5-import-explicit-tycls.hs	xfail	section 5 module variation unsupported
+modules-s5-import-explicit-tycls	modules	modules/s5-import-explicit-tycls.hs	pass	parser now supports section 5 explicit class imports
 modules-s5-import-explicit-tycon-all	modules	modules/s5-import-explicit-tycon-all.hs	xfail	section 5 module variation unsupported
 modules-s5-import-explicit-tycon-cnames	modules	modules/s5-import-explicit-tycon-cnames.hs	xfail	section 5 module variation unsupported
-modules-s5-import-explicit-tycon	modules	modules/s5-import-explicit-tycon.hs	xfail	section 5 module variation unsupported
-modules-s5-import-explicit-var	modules	modules/s5-import-explicit-var.hs	xfail	section 5 module variation unsupported
-modules-s5-import-hiding-empty	modules	modules/s5-import-hiding-empty.hs	xfail	section 5 module variation unsupported
-modules-s5-import-hiding-var	modules	modules/s5-import-hiding-var.hs	xfail	section 5 module variation unsupported
+modules-s5-import-explicit-tycon	modules	modules/s5-import-explicit-tycon.hs	pass	parser now supports section 5 explicit type constructor imports
+modules-s5-import-explicit-var	modules	modules/s5-import-explicit-var.hs	pass	parser now supports section 5 explicit variable imports
+modules-s5-import-hiding-empty	modules	modules/s5-import-hiding-empty.hs	pass	parser now supports section 5 empty hiding import lists
+modules-s5-import-hiding-var	modules	modules/s5-import-hiding-var.hs	pass	parser now supports section 5 hiding import lists
 modules-s5-import-plain	modules	modules/s5-import-plain.hs	pass	parser supports plain section 5 imports
-modules-s5-import-qualified-as	modules	modules/s5-import-qualified-as.hs	xfail	section 5 module variation unsupported
-modules-s5-import-qualified-hiding-var	modules	modules/s5-import-qualified-hiding-var.hs	xfail	section 5 module variation unsupported
-modules-s5-import-qualified	modules	modules/s5-import-qualified.hs	xfail	section 5 module variation unsupported
+modules-s5-import-qualified-as	modules	modules/s5-import-qualified-as.hs	pass	parser now supports section 5 qualified imports with aliases
+modules-s5-import-qualified-hiding-var	modules	modules/s5-import-qualified-hiding-var.hs	pass	parser now supports section 5 qualified hiding imports
+modules-s5-import-qualified	modules	modules/s5-import-qualified.hs	pass	parser now supports section 5 qualified imports
 modules-s5-module-body-impdecls-topdecls-braces	modules	modules/s5-module-body-impdecls-topdecls-braces.hs	xfail	section 5 module variation unsupported
 modules-s5-module-body-imports-only-braces	modules	modules/s5-module-body-imports-only-braces.hs	xfail	section 5 module variation unsupported
 modules-s5-module-body-topdecls-only-braces	modules	modules/s5-module-body-topdecls-only-braces.hs	xfail	section 5 module variation unsupported
@@ -141,7 +141,7 @@ expr-s3-atoms-literal-float	expressions	expressions/atoms-literal-float.hs	pass	
 expr-s3-atoms-literal-char	expressions	expressions/atoms-literal-char.hs	pass	parser now handles char literal atom case
 expr-s3-atoms-literal-string	expressions	expressions/atoms-literal-string.hs	pass	parser now handles string literal atom case
 expr-s3-atoms-literal-all	expressions	expressions/atoms-literal-all.hs	pass	parser now handles all haskell2010 literal atom categories
-expr-s3-operators-varsym-paren	expressions	expressions/operators-varsym-paren.hs	xfail	parser intentionally disabled
+expr-s3-operators-varsym-paren	expressions	expressions/operators-varsym-paren.hs	pass	parser now supports parenthesized symbolic operators as expressions
 expr-s3-operators-backtick-varid	expressions	expressions/operators-backtick-varid.hs	xfail	parser intentionally disabled
 expr-s3-operators-conop-colon	expressions	expressions/operators-conop-colon.hs	pass	parser now supports infix constructor operators in expressions
 expr-s3-operators-backtick-conid	expressions	expressions/operators-backtick-conid.hs	xfail	parser intentionally disabled

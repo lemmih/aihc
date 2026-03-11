@@ -139,7 +139,8 @@ appExprParser = withSpan $ do
 
 atomExprParser :: TokParser Expr
 atomExprParser =
-  parenExprParser
+  MP.try parenOperatorExprParser
+    <|> parenExprParser
     <|> listExprParser
     <|> intBaseExprParser
     <|> floatExprParser
@@ -147,6 +148,16 @@ atomExprParser =
     <|> charExprParser
     <|> stringExprParser
     <|> varExprParser
+
+parenOperatorExprParser :: TokParser Expr
+parenOperatorExprParser = withSpan $ do
+  symbolLikeTok "("
+  op <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkOperator sym -> Just sym
+      _ -> Nothing
+  symbolLikeTok ")"
+  pure (`EVar` op)
 
 patternParser :: TokParser Pattern
 patternParser = withSpan $ do

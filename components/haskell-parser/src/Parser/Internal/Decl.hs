@@ -35,15 +35,38 @@ moduleHeaderParser = do
 importDeclParser :: TokParser ImportDecl
 importDeclParser = withSpan $ do
   keywordTok TkKeywordImport
+  isQualified <-
+    MP.option False (keywordTok TkKeywordQualified >> pure True)
   importedModule <- moduleNameParser
+  importAlias <- MP.optional (keywordTok TkKeywordAs *> moduleNameParser)
+  importSpec <- MP.optional importSpecParser
   pure $ \span' ->
     ImportDecl
       { importDeclSpan = span',
-        importDeclQualified = False,
+        importDeclQualified = isQualified,
         importDeclModule = importedModule,
-        importDeclAs = Nothing,
-        importDeclSpec = Nothing
+        importDeclAs = importAlias,
+        importDeclSpec = importSpec
       }
+
+importSpecParser :: TokParser ImportSpec
+importSpecParser = withSpan $ do
+  isHiding <-
+    MP.option False (keywordTok TkKeywordHiding >> pure True)
+  symbolLikeTok "("
+  items <- importItemParser `MP.sepBy` symbolLikeTok ","
+  symbolLikeTok ")"
+  pure $ \span' ->
+    ImportSpec
+      { importSpecSpan = span',
+        importSpecHiding = isHiding,
+        importSpecItems = items
+      }
+
+importItemParser :: TokParser ImportItem
+importItemParser = withSpan $ do
+  itemName <- identifierTextParser
+  pure (`ImportItemVar` itemName)
 
 declParser :: TokParser Decl
 declParser =
