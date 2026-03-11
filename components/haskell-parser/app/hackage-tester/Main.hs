@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -8,7 +9,6 @@ import CppSupport (preprocessForParser)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import HackageSupport (diagToText, downloadPackage, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
 import qualified GHC.Data.EnumSet as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
@@ -26,6 +26,7 @@ import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
+import HackageSupport (diagToText, downloadPackage, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
 import qualified Parser
 import Parser.Pretty (prettyModule)
 import Parser.Types (ParseResult (..))
@@ -159,6 +160,18 @@ oracleModuleAstFingerprint input = do
   pure (T.pack (showSDocUnsafe (ppr parsed)))
 
 parseWithGhc :: Text -> Either Text (HsModule GhcPs)
+#if __GLASGOW_HASKELL__ >= 910
+parseWithGhc input =
+  let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
+      opts = mkParserOpts exts emptyDiagOpts False False False False
+      buffer = stringToStringBuffer (T.unpack input)
+      start = mkRealSrcLoc (mkFastString "<hackage-tester>") 1 1
+   in case unP GHCParser.parseModule (initParserState opts buffer start) of
+        POk _ modu -> Right (unLoc modu)
+        PFailed st ->
+          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
+           in Left (T.pack rendered)
+#else
 parseWithGhc input =
   let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
       opts = mkParserOpts exts emptyDiagOpts [] False False False False
@@ -169,3 +182,4 @@ parseWithGhc input =
         PFailed st ->
           let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
            in Left (T.pack rendered)
+#endif

@@ -1,19 +1,20 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception (SomeException, displayException, try)
-import Control.Monad (forM)
+import Control.Monad (forM, when)
 import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParser)
 import Data.Char (isSpace)
+import Data.Either (lefts)
 import Data.List (intercalate, isPrefixOf, nub)
-import Data.Maybe (catMaybes)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import HackageSupport (diagToText, downloadPackage, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
 import GHC.Conc (getNumProcessors)
 import qualified GHC.Data.EnumSet as EnumSet
 import GHC.Data.FastString (mkFastString)
@@ -32,6 +33,7 @@ import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
+import HackageSupport (diagToText, downloadPackage, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
 import qualified Parser
 import Parser.Ast
 import Parser.Pretty (prettyModule)
@@ -101,9 +103,8 @@ main = do
 
   let failed = [result | result <- results, not (packageOk result)]
   mapM_ printFailure (take 50 failed)
-  if length failed > 50
-    then putStrLn ("... and " ++ show (length failed - 50) ++ " more failures")
-    else pure ()
+  when (length failed > 50) $ do
+    putStrLn ("... and " ++ show (length failed - 50) ++ " more failures")
 
   if successN == total then exitSuccess else exitFailure
 
@@ -196,7 +197,7 @@ parseSnapshotConstraints :: String -> Either String [PackageSpec]
 parseSnapshotConstraints content = do
   let section = constraintLines (lines content)
       entries = map trim (splitComma (concat section))
-      specs = catMaybes (map parseConstraint entries)
+      specs = mapMaybe parseConstraint entries
   if null specs
     then Left "No package constraints found"
     else Right specs
@@ -213,7 +214,9 @@ constraintLines ls =
 
 isConstraintContinuation :: String -> Bool
 isConstraintContinuation line =
-  not (null line) && isSpace (head line)
+  case line of
+    c : _ -> isSpace c
+    [] -> False
 
 trimLeft :: String -> String
 trimLeft = dropWhile isSpace
@@ -240,12 +243,12 @@ breakOn needle haystack =
        in Just (left, drop (length needle) right)
 
 findNeedle :: String -> String -> Maybe Int
-findNeedle needle haystack = go 0 haystack
+findNeedle needle = go 0
   where
     go _ [] = Nothing
     go i xs
       | needle `isPrefixOf` xs = Just i
-      | otherwise = go (i + 1) (tail xs)
+      | otherwise = go (i + 1) (drop 1 xs)
 
 runPackage :: Options -> PackageSpec -> IO PackageResult
 runPackage opts spec = do
@@ -275,14 +278,14 @@ runPackageOrThrow opts spec = do
       if null files
         then
           pure
-        PackageResult
-          { package = spec,
-            packageOk = False,
-            packageReason = "no target source files"
-          }
+            PackageResult
+              { package = spec,
+                packageOk = False,
+                packageReason = "no target source files"
+              }
         else do
           fileResults <- forM files (checkFile opts srcDir)
-          let failures = [reason | Left reason <- fileResults]
+          let failures = lefts fileResults
           if null failures
             then
               pure
@@ -292,12 +295,16 @@ runPackageOrThrow opts spec = do
                     packageReason = ""
                   }
             else
-              pure
-                PackageResult
-                  { package = spec,
-                    packageOk = False,
-                    packageReason = head failures
-                  }
+              let firstFailure =
+                    case failures of
+                      f : _ -> f
+                      [] -> "unknown failure"
+               in pure
+                    PackageResult
+                      { package = spec,
+                        packageOk = False,
+                        packageReason = firstFailure
+                      }
 
 checkFile :: Options -> FilePath -> FilePath -> IO (Either String ())
 checkFile opts packageRoot file = do
@@ -348,6 +355,18 @@ oracleModuleAstFingerprint input = do
   pure (T.pack (showSDocUnsafe (ppr parsed)))
 
 parseWithGhc :: Text -> Either Text (HsModule GhcPs)
+#if __GLASGOW_HASKELL__ >= 910
+parseWithGhc input =
+  let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
+      opts = mkParserOpts exts emptyDiagOpts False False False False
+      buffer = stringToStringBuffer (T.unpack input)
+      start = mkRealSrcLoc (mkFastString "<stackage-progress>") 1 1
+   in case unP GHCParser.parseModule (initParserState opts buffer start) of
+        POk _ modu -> Right (unLoc modu)
+        PFailed st ->
+          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
+           in Left (T.pack rendered)
+#else
 parseWithGhc input =
   let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
       opts = mkParserOpts exts emptyDiagOpts [] False False False False
@@ -358,6 +377,7 @@ parseWithGhc input =
         PFailed st ->
           let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
            in Left (T.pack rendered)
+#endif
 
 checkSourceSpans :: FilePath -> Text -> Module -> Either String ()
 checkSourceSpans file source modu =
@@ -515,8 +535,8 @@ collectPatternExprs pat =
 
 collectExprTree :: Expr -> [Expr]
 collectExprTree expr =
-  expr :
-    case expr of
+  expr
+    : case expr of
       EIf _ c t e -> collectExprTree c <> collectExprTree t <> collectExprTree e
       ELambdaPats _ pats body -> concatMap collectPatternExprs pats <> collectExprTree body
       EInfix _ l _ r -> collectExprTree l <> collectExprTree r

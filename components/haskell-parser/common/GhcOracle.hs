@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module GhcOracle
@@ -52,6 +53,20 @@ oracleModuleAstFingerprintWithExtensionsAt sourceTag exts input = do
   pure (pragmaFingerprint <> T.pack (showSDocUnsafe (ppr parsed)))
 
 parseWithGhcWithExtensions :: String -> [Extension] -> Text -> Either Text ([Text], HsModule GhcPs)
+#if __GLASGOW_HASKELL__ >= 910
+parseWithGhcWithExtensions sourceTag extraExts input =
+  let parseExts = EnumSet.fromList (nub (ForeignFunctionInterface : extraExts)) :: EnumSet.EnumSet Extension
+      opts = mkParserOpts parseExts emptyDiagOpts False False False False
+      languagePragmas = extractLanguagePragmas input
+      sanitizedInput = stripLanguagePragmaLines input
+      buffer = stringToStringBuffer (T.unpack sanitizedInput)
+      start = mkRealSrcLoc (mkFastString sourceTag) 1 1
+   in case unP parseModule (initParserState opts buffer start) of
+        POk _ modu -> Right (languagePragmas, unLoc modu)
+        PFailed st ->
+          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
+           in Left (T.pack rendered)
+#else
 parseWithGhcWithExtensions sourceTag extraExts input =
   let parseExts = EnumSet.fromList (nub (ForeignFunctionInterface : extraExts)) :: EnumSet.EnumSet Extension
       opts = mkParserOpts parseExts emptyDiagOpts [] False False False False
@@ -64,6 +79,7 @@ parseWithGhcWithExtensions sourceTag extraExts input =
         PFailed st ->
           let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
            in Left (T.pack rendered)
+#endif
 
 extractLanguagePragmas :: Text -> [Text]
 extractLanguagePragmas =
