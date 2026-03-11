@@ -229,13 +229,13 @@ irrefutablePatternParser :: TokParser Pattern
 irrefutablePatternParser = withSpan $ do
   operatorLikeTok "~"
   inner <- patternAtomParser
-  pure (\span' -> PIrrefutable span' inner)
+  pure (`PIrrefutable` inner)
 
 negativeLiteralPatternParser :: TokParser Pattern
 negativeLiteralPatternParser = withSpan $ do
   operatorLikeTok "-"
   lit <- literalParser
-  pure (\span' -> PNegLit span' lit)
+  pure (`PNegLit` lit)
 
 wildcardPatternParser :: TokParser Pattern
 wildcardPatternParser = withSpan $ do
@@ -245,7 +245,7 @@ wildcardPatternParser = withSpan $ do
 literalPatternParser :: TokParser Pattern
 literalPatternParser = withSpan $ do
   lit <- literalParser
-  pure (\span' -> PLit span' lit)
+  pure (`PLit` lit)
 
 literalParser :: TokParser Literal
 literalParser = intLiteralParser <|> intBaseLiteralParser <|> floatLiteralParser <|> charLiteralParser <|> stringLiteralParser

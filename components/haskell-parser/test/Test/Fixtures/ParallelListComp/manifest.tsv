@@ -1,1 +1,1 @@
-parallel-list-comp-basic	expressions	parallel-list-comp-basic.hs	xfail	parser intentionally disabled
+parallel-list-comp-basic	expressions	parallel-list-comp-basic.hs	pass	parser now supports basic parallel list comprehensions
