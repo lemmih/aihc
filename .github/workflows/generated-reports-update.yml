@@ -47,6 +47,8 @@ jobs:
       - name: Open pull request for generated updates
         uses: peter-evans/create-pull-request@v7
         with:
+          token: ${{ secrets.AUTOMATION_PR_TOKEN }}
+          branch-token: ${{ secrets.AUTOMATION_PR_TOKEN }}
           commit-message: "chore(reports): update generated reports"
           add-paths: |
             README.md
