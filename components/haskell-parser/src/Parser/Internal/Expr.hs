@@ -291,10 +291,31 @@ stringLiteralParser = withSpan $ do
   pure (`LitString` s)
 
 rhsParser :: TokParser Rhs
-rhsParser = withSpan $ do
+rhsParser = MP.try guardedRhssParser <|> unguardedRhsParser
+
+unguardedRhsParser :: TokParser Rhs
+unguardedRhsParser = withSpan $ do
   operatorLikeTok "->"
   body <- exprParser
   pure (`UnguardedRhs` body)
+
+guardedRhssParser :: TokParser Rhs
+guardedRhssParser = withSpan $ do
+  grhss <- MP.some guardedRhsParser
+  pure (`GuardedRhss` grhss)
+
+guardedRhsParser :: TokParser GuardedRhs
+guardedRhsParser = withSpan $ do
+  operatorLikeTok "|"
+  guards <- exprParser `MP.sepBy1` symbolLikeTok ","
+  operatorLikeTok "->"
+  body <- exprParser
+  pure $ \span' ->
+    GuardedRhs
+      { guardedRhsSpan = span',
+        guardedRhsGuards = guards,
+        guardedRhsBody = body
+      }
 
 caseAltParser :: TokParser CaseAlt
 caseAltParser = withSpan $ do
@@ -318,7 +339,8 @@ caseExprParser = withSpan $ do
     plainAlts = MP.some (caseAltParser <* MP.many (symbolLikeTok ";"))
     bracedAlts = do
       symbolLikeTok "{"
-      parsed <- plainAlts
+      _ <- MP.many (symbolLikeTok ";")
+      parsed <- caseAltParser `MP.sepEndBy` symbolLikeTok ";"
       symbolLikeTok "}"
       pure parsed
 
@@ -418,10 +440,25 @@ compGenStmtParser = withSpan $ do
 lambdaExprParser :: TokParser Expr
 lambdaExprParser = withSpan $ do
   operatorLikeTok "\\"
-  pats <- MP.some patternParser
-  operatorLikeTok "->"
-  body <- exprParser
-  pure (\span' -> ELambdaPats span' pats body)
+  lambdaCaseParser <|> lambdaPatsParser
+  where
+    lambdaCaseParser = do
+      keywordTok TkKeywordCase
+      alts <- bracedAlts <|> plainAlts
+      pure (`ELambdaCase` alts)
+
+    lambdaPatsParser = do
+      pats <- MP.some patternParser
+      operatorLikeTok "->"
+      body <- exprParser
+      pure (\span' -> ELambdaPats span' pats body)
+
+    plainAlts = MP.some (caseAltParser <* MP.many (symbolLikeTok ";"))
+    bracedAlts = do
+      symbolLikeTok "{"
+      parsed <- plainAlts
+      symbolLikeTok "}"
+      pure parsed
 
 letExprParser :: TokParser Expr
 letExprParser = withSpan $ do
@@ -451,7 +488,30 @@ whereClauseParser = do
       pure parsed
 
 localDeclParser :: TokParser Decl
-localDeclParser = withSpan $ do
+localDeclParser = MP.try localFunctionDeclParser <|> localPatternDeclParser
+
+localFunctionDeclParser :: TokParser Decl
+localFunctionDeclParser = withSpan $ do
+  name <- identifierTextParser
+  pats <- MP.many simplePatternParser
+  operatorLikeTok "="
+  rhsExpr <- exprParser
+  pure $ \span' ->
+    DeclValue
+      span'
+      ( FunctionBind
+          span'
+          name
+          [ Match
+              { matchSpan = span',
+                matchPats = pats,
+                matchRhs = UnguardedRhs span' rhsExpr
+              }
+          ]
+      )
+
+localPatternDeclParser :: TokParser Decl
+localPatternDeclParser = withSpan $ do
   pat <- patternParser
   operatorLikeTok "="
   rhsExpr <- exprParser

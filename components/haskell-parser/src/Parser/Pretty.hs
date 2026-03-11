@@ -67,13 +67,21 @@ prettyExportSpec spec =
 
 prettyImportDecl :: ImportDecl -> Doc ann
 prettyImportDecl decl =
-  hsep
-    ( ["import"]
-        <> ["qualified" | importDeclQualified decl]
-        <> [pretty (importDeclModule decl)]
-        <> maybe [] (\alias -> ["as", pretty alias]) (importDeclAs decl)
-        <> maybe [] (\spec -> [prettyImportSpec spec]) (importDeclSpec decl)
-    )
+  let renderPostQualified =
+        importDeclQualifiedPost decl
+          && importDeclQualified decl
+   in hsep
+        ( ["import"]
+            <> ["qualified" | importDeclQualified decl && not renderPostQualified]
+            <> maybe [] (\pkg -> [prettyQuotedText pkg]) (importDeclPackage decl)
+            <> [pretty (importDeclModule decl)]
+            <> ["qualified" | importDeclQualified decl && renderPostQualified]
+            <> maybe [] (\alias -> ["as", pretty alias]) (importDeclAs decl)
+            <> maybe [] (\spec -> [prettyImportSpec spec]) (importDeclSpec decl)
+        )
+
+prettyQuotedText :: Text -> Doc ann
+prettyQuotedText txt = "\"" <> pretty txt <> "\""
 
 prettyImportSpec :: ImportSpec -> Doc ann
 prettyImportSpec spec =
@@ -521,6 +529,10 @@ prettyExprPrec prec expr =
         ("if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyExprPrec 0 yes <+> "else" <+> prettyExprPrec 0 no)
     ELambdaPats _ pats body ->
       parenthesize (prec > 0) ("\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyExprPrec 0 body)
+    ELambdaCase _ alts ->
+      parenthesize
+        (prec > 0)
+        ("\\" <> "case" <+> braces (hsep (punctuate semi (map prettyCaseAlt alts))))
     EInfix _ lhs op rhs -> parenthesize (prec > 1) (prettyExprPrec 1 lhs <+> prettyExprOperator op <+> prettyExprPrec 1 rhs)
     ENegate _ inner -> parenthesize (prec > 2) ("-" <> prettyExprPrec 3 inner)
     ESectionL _ lhs op -> parens (prettyExprPrec 0 lhs <+> prettyExprOperator op)
@@ -539,7 +551,9 @@ prettyExprPrec prec expr =
         ( "case"
             <+> prettyExprPrec 0 scrutinee
             <+> "of"
-            <+> hsep (punctuate semi (map prettyCaseAlt alts))
+            <+> case alts of
+              [] -> braces mempty
+              _ -> hsep (punctuate semi (map prettyCaseAlt alts))
         )
     EDo _ stmts ->
       parenthesize

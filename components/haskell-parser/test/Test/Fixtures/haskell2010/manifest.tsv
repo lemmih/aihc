@@ -38,9 +38,9 @@ modules-s5-import-plain	modules	modules/s5-import-plain.hs	pass	parser supports 
 modules-s5-import-qualified-as	modules	modules/s5-import-qualified-as.hs	pass	parser now supports section 5 qualified imports with aliases
 modules-s5-import-qualified-hiding-var	modules	modules/s5-import-qualified-hiding-var.hs	pass	parser now supports section 5 qualified hiding imports
 modules-s5-import-qualified	modules	modules/s5-import-qualified.hs	pass	parser now supports section 5 qualified imports
-modules-s5-module-body-impdecls-topdecls-braces	modules	modules/s5-module-body-impdecls-topdecls-braces.hs	xfail	section 5 module variation unsupported
+modules-s5-module-body-impdecls-topdecls-braces	modules	modules/s5-module-body-impdecls-topdecls-braces.hs	pass	parser now supports section 5 braced module bodies with imports and declarations
 modules-s5-module-body-imports-only-braces	modules	modules/s5-module-body-imports-only-braces.hs	xfail	section 5 module variation unsupported
-modules-s5-module-body-topdecls-only-braces	modules	modules/s5-module-body-topdecls-only-braces.hs	xfail	section 5 module variation unsupported
+modules-s5-module-body-topdecls-only-braces	modules	modules/s5-module-body-topdecls-only-braces.hs	pass	parser now supports section 5 braced module bodies with top-level declarations
 modules-s5-module-empty-exports	modules	modules/s5-module-empty-exports.hs	pass	parser now supports explicit empty module export lists
 modules-s5-module-explicit-no-exports	modules	modules/s5-module-explicit-no-exports.hs	pass	parser now supports explicit no-export module form
 modules-s5-module-exports-trailing-comma	modules	modules/s5-module-exports-trailing-comma.hs	xfail	section 5 module variation unsupported
@@ -96,8 +96,8 @@ decls-data-record-empty	declarations	declarations/data-record-empty.hs	pass
 decls-data-record-fields	declarations	declarations/data-record-fields.hs	xfail	roundtrip mismatch against oracle AST
 decls-data-record-grouped-fields	declarations	declarations/data-record-grouped-fields.hs	xfail	roundtrip mismatch against oracle AST
 decls-data-record-strict-field	declarations	declarations/data-record-strict-field.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-deriving-single	declarations	declarations/data-deriving-single.hs	xfail	parser intentionally disabled
-decls-data-deriving-empty	declarations	declarations/data-deriving-empty.hs	xfail	parser intentionally disabled
+decls-data-deriving-single	declarations	declarations/data-deriving-single.hs	pass	parser now supports data deriving clauses
+decls-data-deriving-empty	declarations	declarations/data-deriving-empty.hs	pass	parser now supports empty data deriving clauses
 decls-data-abstract	declarations	declarations/data-abstract.hs	pass
 decls-newtype	declarations	declarations/newtype.hs	pass	parser now supports simple newtype declarations
 decls-type-synonym	declarations	declarations/type-synonym.hs	pass	parser now supports type synonym declarations
@@ -116,7 +116,7 @@ decls-class-cdecl-fixity	declarations	declarations/class-cdecl-fixity.hs	xfail	p
 decls-instance	declarations	declarations/instance.hs	xfail	parser intentionally disabled
 decls-fixity	declarations	declarations/fixity.hs	xfail	parser intentionally disabled
 decls-default	declarations	declarations/default.hs	xfail	default declarations unsupported
-decls-deriving	declarations	declarations/deriving.hs	xfail	parser intentionally disabled
+decls-deriving	declarations	declarations/deriving.hs	pass	parser now supports parenthesized data deriving clauses
 
 expr-if-then-else	expressions	expressions/if-then-else.hs	pass	parser now handles this if-then-else form
 expr-case-of	expressions	expressions/case-of.hs	pass	parser now supports simple case-of expressions
@@ -178,7 +178,7 @@ expr-s3-listcomp-multi-generator	expressions	expressions/listcomp-multi-generato
 expr-s3-let-basic	expressions	expressions/let-basic.hs	pass	parser now supports basic let expressions
 expr-s3-let-multiple-decls	expressions	expressions/let-multiple-decls.hs	pass	parser now supports multiple let declarations
 expr-s3-case-basic	expressions	expressions/case-basic.hs	pass	parser now supports basic case alternatives
-expr-s3-case-guarded-alts	expressions	expressions/case-guarded-alts.hs	xfail	parser intentionally disabled
+expr-s3-case-guarded-alts	expressions	expressions/case-guarded-alts.hs	pass	parser now supports guarded case alternatives
 expr-s3-do-single-expression	expressions	expressions/do-single-expression.hs	pass	parser now supports single-expression do blocks
 expr-s3-do-bind-stmt	expressions	expressions/do-bind-stmt.hs	pass	parser now supports do bind statements
 expr-s3-do-let-stmt	expressions	expressions/do-let-stmt.hs	xfail	parser intentionally disabled

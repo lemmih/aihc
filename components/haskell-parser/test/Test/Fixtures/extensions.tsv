@@ -1,5 +1,6 @@
 # extension	fixture_dir	notes
 ParallelListComp	ParallelListComp	Parallel list comprehensions
+PackageImports	PackageImports	Package-qualified imports
 QuasiQuotes	QuasiQuotes	Quasi quotes
 TypeApplications	TypeApplications	Type applications
 ViewPatterns	ViewPatterns	View patterns

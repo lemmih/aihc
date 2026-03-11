@@ -83,7 +83,9 @@ data ExportSpec
 
 data ImportDecl = ImportDecl
   { importDeclSpan :: SourceSpan,
+    importDeclPackage :: Maybe Text,
     importDeclQualified :: Bool,
+    importDeclQualifiedPost :: Bool,
     importDeclModule :: Text,
     importDeclAs :: Maybe Text,
     importDeclSpec :: Maybe ImportSpec
@@ -320,6 +322,7 @@ data Expr
   | EQuasiQuote SourceSpan Text Text
   | EIf SourceSpan Expr Expr Expr
   | ELambdaPats SourceSpan [Pattern] Expr
+  | ELambdaCase SourceSpan [CaseAlt]
   | EInfix SourceSpan Expr Text Expr
   | ENegate SourceSpan Expr
   | ESectionL SourceSpan Expr Text

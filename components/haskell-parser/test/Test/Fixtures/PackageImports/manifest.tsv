@@ -1,3 +1,3 @@
-package-imports-basic	modules	package-imports-basic.hs	xfail	parser support pending
-package-imports-qualified	modules	package-imports-qualified.hs	xfail	parser support pending
-package-imports-qualified-post	modules	package-imports-qualified-post.hs	xfail	parser support pending
+package-imports-basic	modules	package-imports-basic.hs	pass
+package-imports-qualified	modules	package-imports-qualified.hs	pass
+package-imports-qualified-post	modules	package-imports-qualified-post.hs	pass

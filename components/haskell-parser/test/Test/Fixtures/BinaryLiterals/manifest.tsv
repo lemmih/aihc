@@ -1,3 +1,3 @@
-binary-literals-basic	literals	binary-literals-basic.hs	xfail	parser support pending
-binary-literals-patterns	patterns	binary-literals-patterns.hs	xfail	parser support pending
-binary-literals-negative	literals	binary-literals-negative.hs	xfail	parser support pending
+binary-literals-basic	literals	binary-literals-basic.hs	pass
+binary-literals-patterns	patterns	binary-literals-patterns.hs	pass
+binary-literals-negative	literals	binary-literals-negative.hs	xfail	prefix negation is not supported yet
