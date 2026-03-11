@@ -42,7 +42,7 @@ import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, does
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
-import System.IO (hPutStrLn, stderr)
+import System.IO (hFlush, hPutStrLn, stderr, stdout)
 import System.Process (readProcess)
 
 data Check
@@ -875,14 +875,16 @@ data ProgressState = ProgressState
 
 putProgressLine :: ProgressState -> IO ()
 putProgressLine p =
-  putStr
-    ( "\r"
-        ++ show (progressSuccess p)
-        ++ "/"
-        ++ show (progressTotal p)
-        ++ " ("
-        ++ show (progressDone p)
-        ++ "/"
-        ++ show (progressTotal p)
-        ++ " processed)"
-    )
+  do
+    putStr
+      ( "\r"
+          ++ show (progressSuccess p)
+          ++ "/"
+          ++ show (progressTotal p)
+          ++ " ("
+          ++ show (progressDone p)
+          ++ "/"
+          ++ show (progressTotal p)
+          ++ " processed)"
+      )
+    hFlush stdout
