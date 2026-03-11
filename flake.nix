@@ -101,8 +101,6 @@
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-parser
-            cabal update 2>/dev/null || true
             ${stackageProgressExe} "$@"
           '';
 
