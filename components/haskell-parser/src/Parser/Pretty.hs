@@ -6,7 +6,7 @@ module Parser.Pretty
   )
 where
 
-import Data.Maybe (catMaybes, isJust)
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Parser.Ast
@@ -69,15 +69,19 @@ prettyImportDecl :: ImportDecl -> Doc ann
 prettyImportDecl decl =
   let renderPostQualified =
         importDeclQualifiedPost decl
-          && (isJust (importDeclAs decl) || isJust (importDeclSpec decl))
+          && importDeclQualified decl
    in hsep
         ( ["import"]
             <> ["qualified" | importDeclQualified decl && not renderPostQualified]
+            <> maybe [] (\pkg -> [prettyQuotedText pkg]) (importDeclPackage decl)
             <> [pretty (importDeclModule decl)]
             <> ["qualified" | importDeclQualified decl && renderPostQualified]
             <> maybe [] (\alias -> ["as", pretty alias]) (importDeclAs decl)
             <> maybe [] (\spec -> [prettyImportSpec spec]) (importDeclSpec decl)
         )
+
+prettyQuotedText :: Text -> Doc ann
+prettyQuotedText txt = "\"" <> pretty txt <> "\""
 
 prettyImportSpec :: ImportSpec -> Doc ann
 prettyImportSpec spec =

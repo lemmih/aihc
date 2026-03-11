@@ -85,6 +85,7 @@ importDeclParser = withSpan $ do
   keywordTok TkKeywordImport
   preQualified <-
     MP.option False (keywordTok TkKeywordQualified >> pure True)
+  importedPackage <- MP.optional packageNameParser
   importedModule <- moduleNameParser
   postQualified <-
     MP.option False (keywordTok TkKeywordQualified >> pure True)
@@ -96,12 +97,20 @@ importDeclParser = withSpan $ do
   pure $ \span' ->
     ImportDecl
       { importDeclSpan = span',
+        importDeclPackage = importedPackage,
         importDeclQualified = isQualified,
         importDeclQualifiedPost = postQualified,
         importDeclModule = importedModule,
         importDeclAs = importAlias,
         importDeclSpec = importSpec
       }
+
+packageNameParser :: TokParser Text
+packageNameParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkString txt -> Just txt
+      _ -> Nothing
 
 importSpecParser :: TokParser ImportSpec
 importSpecParser = withSpan $ do
