@@ -171,7 +171,11 @@ dataConDeclParser = withSpan $ do
     case lexTokenKind tok of
       TkIdentifier ident -> Just ident
       _ -> Nothing
-  pure $ \span' -> PrefixCon span' name []
+  mRecordFields <- MP.optional (symbolLikeTok "{" *> symbolLikeTok "}")
+  pure $ \span' ->
+    case mRecordFields of
+      Just () -> RecordCon span' name []
+      Nothing -> PrefixCon span' name []
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpan $ do

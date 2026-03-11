@@ -92,7 +92,7 @@ decls-data-prefix-strict	declarations	declarations/data-prefix-strict.hs	xfail	p
 decls-data-infix	declarations	declarations/data-infix.hs	xfail	parser intentionally disabled
 decls-data-infix-strict-left	declarations	declarations/data-infix-strict-left.hs	xfail	parser intentionally disabled
 decls-data-infix-strict-right	declarations	declarations/data-infix-strict-right.hs	xfail	parser intentionally disabled
-decls-data-record-empty	declarations	declarations/data-record-empty.hs	xfail	roundtrip mismatch against oracle AST
+decls-data-record-empty	declarations	declarations/data-record-empty.hs	pass	
 decls-data-record-fields	declarations	declarations/data-record-fields.hs	xfail	roundtrip mismatch against oracle AST
 decls-data-record-grouped-fields	declarations	declarations/data-record-grouped-fields.hs	xfail	roundtrip mismatch against oracle AST
 decls-data-record-strict-field	declarations	declarations/data-record-strict-field.hs	xfail	roundtrip mismatch against oracle AST
