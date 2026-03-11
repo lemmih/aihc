@@ -466,6 +466,7 @@ exprSpan expr =
     EQuasiQuote span' _ _ -> span'
     EIf span' _ _ _ -> span'
     ELambdaPats span' _ _ -> span'
+    ELambdaCase span' _ -> span'
     EInfix span' _ _ _ -> span'
     ENegate span' _ -> span'
     ESectionL span' _ _ -> span'
@@ -552,6 +553,7 @@ collectExprTree expr =
     : case expr of
       EIf _ c t e -> collectExprTree c <> collectExprTree t <> collectExprTree e
       ELambdaPats _ pats body -> concatMap collectPatternExprs pats <> collectExprTree body
+      ELambdaCase _ alts -> concatMap collectCaseAltExprs alts
       EInfix _ l _ r -> collectExprTree l <> collectExprTree r
       ENegate _ e -> collectExprTree e
       ESectionL _ e _ -> collectExprTree e
@@ -615,6 +617,7 @@ stripExpr expr =
     EQuasiQuote _ q body -> EQuasiQuote noSourceSpan q body
     EIf _ a b c -> EIf noSourceSpan (stripExpr a) (stripExpr b) (stripExpr c)
     ELambdaPats _ pats e -> ELambdaPats noSourceSpan (map stripPattern pats) (stripExpr e)
+    ELambdaCase _ alts -> ELambdaCase noSourceSpan (map stripCaseAlt alts)
     EInfix _ a op b -> EInfix noSourceSpan (stripExpr a) op (stripExpr b)
     ENegate _ e -> ENegate noSourceSpan (stripExpr e)
     ESectionL _ e op -> ESectionL noSourceSpan (stripExpr e) op

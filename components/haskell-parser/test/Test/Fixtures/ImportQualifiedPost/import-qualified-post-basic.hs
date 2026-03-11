@@ -2,7 +2,7 @@
 
 module ImportQualifiedPostBasic where
 
-import Data.List qualified
+import Data.List qualified as List
 
-sorted :: Ord a => [a] -> [a]
-sorted = Data.List.sort
+sorted :: [Int] -> [Int]
+sorted = List.sort

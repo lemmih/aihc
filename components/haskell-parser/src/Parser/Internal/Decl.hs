@@ -8,6 +8,7 @@ module Parser.Internal.Decl
   )
 where
 
+import Control.Monad (when)
 import Data.Char (isUpper)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -82,15 +83,21 @@ isTypeName txt =
 importDeclParser :: TokParser ImportDecl
 importDeclParser = withSpan $ do
   keywordTok TkKeywordImport
-  isQualified <-
+  preQualified <-
     MP.option False (keywordTok TkKeywordQualified >> pure True)
   importedModule <- moduleNameParser
+  postQualified <-
+    MP.option False (keywordTok TkKeywordQualified >> pure True)
+  when (preQualified && postQualified) $
+    fail "import declaration cannot contain 'qualified' both before and after the module name"
   importAlias <- MP.optional (keywordTok TkKeywordAs *> moduleNameParser)
   importSpec <- MP.optional importSpecParser
+  let isQualified = preQualified || postQualified
   pure $ \span' ->
     ImportDecl
       { importDeclSpan = span',
         importDeclQualified = isQualified,
+        importDeclQualifiedPost = postQualified,
         importDeclModule = importedModule,
         importDeclAs = importAlias,
         importDeclSpec = importSpec
@@ -200,6 +207,7 @@ dataDeclParser = withSpan $ do
       TkIdentifier ident -> Just ident
       _ -> Nothing
   constructors <- MP.optional (operatorLikeTok "=" *> dataConDeclParser `MP.sepBy1` operatorLikeTok "|")
+  derivingClause <- MP.optional derivingClauseParser
   pure $ \span' ->
     DeclData
       span'
@@ -209,8 +217,21 @@ dataDeclParser = withSpan $ do
           dataDeclName = typeName,
           dataDeclParams = typeParams,
           dataDeclConstructors = fromMaybe [] constructors,
-          dataDeclDeriving = Nothing
+          dataDeclDeriving = derivingClause
         }
+
+derivingClauseParser :: TokParser DerivingClause
+derivingClauseParser = do
+  identifierExact "deriving"
+  classes <- parenClasses <|> singleClass
+  pure (DerivingClause classes)
+  where
+    singleClass = (: []) <$> identifierTextParser
+    parenClasses = do
+      symbolLikeTok "("
+      classes <- identifierTextParser `MP.sepBy` symbolLikeTok ","
+      symbolLikeTok ")"
+      pure classes
 
 dataConDeclParser :: TokParser DataConDecl
 dataConDeclParser = withSpan $ do

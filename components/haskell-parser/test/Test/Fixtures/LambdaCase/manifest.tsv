@@ -1,5 +1,5 @@
-lambda-case-basic	expressions	lambda-case-basic.hs	xfail	parser lacks LambdaCase expression support
-lambda-case-nested	expressions	lambda-case-nested.hs	xfail	nested LambdaCase parsing not yet implemented
-lambda-case-guards	expressions	lambda-case-guards.hs	xfail	parser lacks LambdaCase guard support
-lambda-case-locally-bound	expressions	lambda-case-locally-bound.hs	xfail	parser lacks LambdaCase expression support
-lambda-case-in-application	expressions	lambda-case-in-application.hs	xfail	parser lacks LambdaCase expression support
+lambda-case-basic	expressions	lambda-case-basic.hs	pass
+lambda-case-nested	expressions	lambda-case-nested.hs	xfail	multiline application around lambda-case not yet supported
+lambda-case-guards	expressions	lambda-case-guards.hs	pass
+lambda-case-locally-bound	expressions	lambda-case-locally-bound.hs	pass
+lambda-case-in-application	expressions	lambda-case-in-application.hs	xfail	multiline application around lambda-case not yet supported
