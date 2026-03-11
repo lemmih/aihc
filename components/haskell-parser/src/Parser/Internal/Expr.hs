@@ -18,7 +18,15 @@ import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import qualified Text.Megaparsec as MP
 
 exprParser :: TokParser Expr
-exprParser = doExprParser <|> ifExprParser <|> caseExprParser <|> infixExprParser
+exprParser = lambdaExprParser <|> doExprParser <|> ifExprParser <|> caseExprParser <|> infixExprParser
+
+lambdaExprParser :: TokParser Expr
+lambdaExprParser = withSpan $ do
+  operatorLikeTok "\\"
+  pats <- MP.some simplePatternParser
+  operatorLikeTok "->"
+  body <- exprParser
+  pure (\span' -> ELambdaPats span' pats body)
 
 ifExprParser :: TokParser Expr
 ifExprParser = withSpan $ do
@@ -209,9 +217,74 @@ parenExprParser = withSpan $ do
 listExprParser :: TokParser Expr
 listExprParser = withSpan $ do
   symbolLikeTok "["
-  elems <- exprParser `MP.sepBy` symbolLikeTok ","
-  symbolLikeTok "]"
-  pure (`EList` elems)
+  mClose <- MP.optional (symbolLikeTok "]")
+  case mClose of
+    Just () -> pure (`EList` [])
+    Nothing -> do
+      first <- exprParser
+      parseListTail first
+
+parseListTail :: Expr -> TokParser (SourceSpan -> Expr)
+parseListTail first =
+  MP.try listCompTailParser
+    <|> MP.try arithFromToTailParser
+    <|> MP.try commaTailParser
+    <|> singletonTailParser
+  where
+    listCompTailParser = do
+      operatorLikeTok "|"
+      quals <- compStmtParser `MP.sepBy1` symbolLikeTok ","
+      symbolLikeTok "]"
+      pure (\span' -> EListComp span' first quals)
+
+    arithFromToTailParser = do
+      symbolLikeTok ".."
+      mTo <- MP.optional exprParser
+      symbolLikeTok "]"
+      pure $ \span' ->
+        EArithSeq span' $
+          case mTo of
+            Nothing -> ArithSeqFrom span' first
+            Just toExpr -> ArithSeqFromTo span' first toExpr
+
+    commaTailParser = do
+      symbolLikeTok ","
+      second <- exprParser
+      MP.try (arithFromThenTailParser second) <|> listTailParser second
+
+    arithFromThenTailParser second = do
+      symbolLikeTok ".."
+      mTo <- MP.optional exprParser
+      symbolLikeTok "]"
+      pure $ \span' ->
+        EArithSeq span' $
+          case mTo of
+            Nothing -> ArithSeqFromThen span' first second
+            Just toExpr -> ArithSeqFromThenTo span' first second toExpr
+
+    listTailParser second = do
+      rest <- MP.many (symbolLikeTok "," *> exprParser)
+      symbolLikeTok "]"
+      pure (\span' -> EList span' (first : second : rest))
+
+    singletonTailParser = do
+      symbolLikeTok "]"
+      pure (\span' -> EList span' [first])
+
+compStmtParser :: TokParser CompStmt
+compStmtParser = MP.try compGenStmtParser <|> compGuardStmtParser
+
+compGenStmtParser :: TokParser CompStmt
+compGenStmtParser = withSpan $ do
+  pat <- simplePatternParser
+  operatorLikeTok "<-"
+  expr <- exprParser
+  pure (\span' -> CompGen span' pat expr)
+
+compGuardStmtParser :: TokParser CompStmt
+compGuardStmtParser = withSpan $ do
+  expr <- exprParser
+  pure (`CompGuard` expr)
 
 varExprParser :: TokParser Expr
 varExprParser = withSpan $ do

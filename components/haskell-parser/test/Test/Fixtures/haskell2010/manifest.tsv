@@ -121,13 +121,13 @@ decls-deriving	declarations	declarations/deriving.hs	xfail	parser intentionally 
 expr-if-then-else	expressions	expressions/if-then-else.hs	pass	parser now handles this if-then-else form
 expr-case-of	expressions	expressions/case-of.hs	pass	parser now supports simple case-of expressions
 expr-let-in	expressions	expressions/let-in.hs	xfail	parser intentionally disabled
-expr-lambda	expressions	expressions/lambda.hs	xfail	parser intentionally disabled
+expr-lambda	expressions	expressions/lambda.hs	pass	parser now supports simple lambda expressions
 expr-list-tuple	expressions	expressions/list-tuple.hs	xfail	list and tuple expressions unsupported
 expr-sections	expressions	expressions/sections.hs	xfail	parser intentionally disabled
 expr-do-notation	expressions	expressions/do-notation.hs	pass	parser now handles do-notation with layout and explicit braces
 expr-where-clause	expressions	expressions/where-clause.hs	xfail	parser intentionally disabled
-expr-list-comprehension	expressions	expressions/list-comprehension.hs	xfail	parser intentionally disabled
-expr-arithmetic-seq	expressions	expressions/arithmetic-seq.hs	xfail	parser intentionally disabled
+expr-list-comprehension	expressions	expressions/list-comprehension.hs	pass	parser now supports list comprehensions with generators and guards
+expr-arithmetic-seq	expressions	expressions/arithmetic-seq.hs	pass	parser now supports arithmetic sequence expressions
 
 expr-s3-errors-error	expressions	expressions/errors-error.hs	pass	parser now handles error application expression case
 expr-s3-errors-undefined	expressions	expressions/errors-undefined.hs	pass	parser now handles this expression atom case
@@ -147,8 +147,8 @@ expr-s3-operators-conop-colon	expressions	expressions/operators-conop-colon.hs	p
 expr-s3-operators-backtick-conid	expressions	expressions/operators-backtick-conid.hs	xfail	parser intentionally disabled
 expr-s3-application-left-assoc	expressions	expressions/application-left-assoc.hs	pass	parser now supports left-associative application
 expr-s3-application-constructor-partial	expressions	expressions/application-constructor-partial.hs	xfail	parser intentionally disabled
-expr-s3-lambda-single-apat	expressions	expressions/lambda-single-apat.hs	xfail	parser intentionally disabled
-expr-s3-lambda-multi-apat	expressions	expressions/lambda-multi-apat.hs	xfail	parser intentionally disabled
+expr-s3-lambda-single-apat	expressions	expressions/lambda-single-apat.hs	pass	parser now supports section 3 lambda expressions with one argument pattern
+expr-s3-lambda-multi-apat	expressions	expressions/lambda-multi-apat.hs	pass	parser now supports section 3 lambda expressions with multiple argument patterns
 expr-s3-lambda-pattern-apat	expressions	expressions/lambda-pattern-apat.hs	xfail	parser intentionally disabled
 expr-s3-infix-qvarop	expressions	expressions/infix-qvarop.hs	pass	parser now supports infix qualified variable operators
 expr-s3-infix-qconop	expressions	expressions/infix-qconop.hs	pass	parser now supports infix qualified constructor operators
@@ -167,10 +167,10 @@ expr-s3-tuple-pair	expressions	expressions/tuple-pair.hs	xfail	parser intentiona
 expr-s3-tuple-triple	expressions	expressions/tuple-triple.hs	xfail	section 3 expression variation unsupported
 expr-s3-unit-expression	expressions	expressions/unit-expression.hs	xfail	section 3 expression variation unsupported
 expr-s3-parenthesized-expression	expressions	expressions/parenthesized-expression.hs	pass	parser now supports parenthesized expressions
-expr-s3-arithseq-from	expressions	expressions/arithseq-from.hs	xfail	parser intentionally disabled
-expr-s3-arithseq-from-then	expressions	expressions/arithseq-from-then.hs	xfail	parser intentionally disabled
-expr-s3-arithseq-from-to	expressions	expressions/arithseq-from-to.hs	xfail	parser intentionally disabled
-expr-s3-arithseq-from-then-to	expressions	expressions/arithseq-from-then-to.hs	xfail	parser intentionally disabled
+expr-s3-arithseq-from	expressions	expressions/arithseq-from.hs	pass	parser now supports section 3 arithmetic sequences from-form
+expr-s3-arithseq-from-then	expressions	expressions/arithseq-from-then.hs	pass	parser now supports section 3 arithmetic sequences from-then form
+expr-s3-arithseq-from-to	expressions	expressions/arithseq-from-to.hs	pass	parser now supports section 3 arithmetic sequences from-to form
+expr-s3-arithseq-from-then-to	expressions	expressions/arithseq-from-then-to.hs	pass	parser now supports section 3 arithmetic sequences from-then-to form
 expr-s3-listcomp-generator	expressions	expressions/listcomp-generator.hs	pass	parser now supports simple list-comprehension generator forms
 expr-s3-listcomp-guards	expressions	expressions/listcomp-guards.hs	pass	parser now supports simple list-comprehension guard forms
 expr-s3-listcomp-let-qualifier	expressions	expressions/listcomp-let-qualifier.hs	xfail	parser intentionally disabled
