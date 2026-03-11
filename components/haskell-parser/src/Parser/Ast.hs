@@ -142,9 +142,9 @@ data GuardedRhs = GuardedRhs
   deriving (Eq, Show)
 
 data Literal
-  = LitInt SourceSpan Integer
+  = LitInt SourceSpan Integer Text
   | LitIntBase SourceSpan Integer Text
-  | LitFloat SourceSpan Double
+  | LitFloat SourceSpan Double Text
   | LitChar SourceSpan Char
   | LitString SourceSpan Text
   deriving (Eq, Show)
@@ -312,9 +312,9 @@ data ForeignSafety
 
 data Expr
   = EVar SourceSpan Text
-  | EInt SourceSpan Integer
+  | EInt SourceSpan Integer Text
   | EIntBase SourceSpan Integer Text
-  | EFloat SourceSpan Double
+  | EFloat SourceSpan Double Text
   | EChar SourceSpan Char
   | EString SourceSpan Text
   | EQuasiQuote SourceSpan Text Text

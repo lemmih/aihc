@@ -130,7 +130,7 @@ rhsExprs rhs =
 resolveExpr :: ResolveConfig -> Expr -> ResolveState -> (ResolvedExpr, ResolveState)
 resolveExpr cfg expr st =
   case expr of
-    EInt _ n -> (RInt n, st)
+    EInt _ n _ -> (RInt n, st)
     EIntBase _ n _ -> (RInt n, st)
     EApp _ f x ->
       let (f', st1) = resolveExpr cfg f st

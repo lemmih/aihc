@@ -13,7 +13,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Parser.Ast
 import Parser.Internal.Common
-import Parser.Lexer (LexTokenKind (..), lexTokenKind, lexTokenSpan)
+import Parser.Lexer (LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import qualified Text.Megaparsec as MP
 
@@ -89,11 +89,11 @@ infixOperatorParserExcept forbidden =
 
 intExprParser :: TokParser Expr
 intExprParser = withSpan $ do
-  n <- tokenSatisfy $ \tok ->
+  (n, repr) <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkInteger i -> Just i
+      TkInteger i -> Just (i, lexTokenText tok)
       _ -> Nothing
-  pure (`EInt` n)
+  pure (\span' -> EInt span' n repr)
 
 intBaseExprParser :: TokParser Expr
 intBaseExprParser = withSpan $ do
@@ -105,11 +105,11 @@ intBaseExprParser = withSpan $ do
 
 floatExprParser :: TokParser Expr
 floatExprParser = withSpan $ do
-  n <- tokenSatisfy $ \tok ->
+  (n, repr) <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkFloat x -> Just x
+      TkFloat x -> Just (x, lexTokenText tok)
       _ -> Nothing
-  pure (`EFloat` n)
+  pure (\span' -> EFloat span' n repr)
 
 charExprParser :: TokParser Expr
 charExprParser = withSpan $ do
@@ -252,11 +252,11 @@ literalParser = intLiteralParser <|> intBaseLiteralParser <|> floatLiteralParser
 
 intLiteralParser :: TokParser Literal
 intLiteralParser = withSpan $ do
-  n <- tokenSatisfy $ \tok ->
+  (n, repr) <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkInteger i -> Just i
+      TkInteger i -> Just (i, lexTokenText tok)
       _ -> Nothing
-  pure (`LitInt` n)
+  pure (\span' -> LitInt span' n repr)
 
 intBaseLiteralParser :: TokParser Literal
 intBaseLiteralParser = withSpan $ do
@@ -268,11 +268,11 @@ intBaseLiteralParser = withSpan $ do
 
 floatLiteralParser :: TokParser Literal
 floatLiteralParser = withSpan $ do
-  n <- tokenSatisfy $ \tok ->
+  (n, repr) <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkFloat x -> Just x
+      TkFloat x -> Just (x, lexTokenText tok)
       _ -> Nothing
-  pure (`LitFloat` n)
+  pure (\span' -> LitFloat span' n repr)
 
 charLiteralParser :: TokParser Literal
 charLiteralParser = withSpan $ do

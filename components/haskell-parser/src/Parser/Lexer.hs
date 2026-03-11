@@ -8,7 +8,7 @@ module Parser.Lexer
 where
 
 import Control.Monad (void)
-import Data.Char (isAlphaNum, isHexDigit, isOctDigit)
+import Data.Char (isAlphaNum, isDigit, isHexDigit, isOctDigit)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -328,46 +328,57 @@ intBaseToken :: LParser (Text, LexTokenKind)
 intBaseToken = do
   _ <- C.char '0'
   base <- C.char 'x' <|> C.char 'X' <|> C.char 'o' <|> C.char 'O'
-  digits <-
+  digitsRaw <-
     if base `elem` ['x', 'X']
-      then some (satisfy isHexDigit)
-      else some (satisfy isOctDigit)
-  let txt = T.pack ('0' : base : digits)
+      then digitsWithUnderscores isHexDigit
+      else digitsWithUnderscores isOctDigit
+  let txt = T.pack ('0' : base : digitsRaw)
+      digits = filter (/= '_') digitsRaw
       n =
         if base `elem` ['x', 'X']
-          then readHexLiteral txt
-          else readOctLiteral txt
+          then readHexLiteral (T.pack digits)
+          else readOctLiteral (T.pack digits)
   pure (txt, TkIntegerBase n txt)
 
 intToken :: LParser (Text, LexTokenKind)
 intToken = do
-  digits <- some C.digitChar
-  let txt = T.pack digits
+  digitsRaw <- digitsWithUnderscores isDigit
+  let txt = T.pack digitsRaw
+      digits = filter (/= '_') digitsRaw
   pure (txt, TkInteger (read digits))
 
 floatToken :: LParser (Text, LexTokenKind)
 floatToken = do
-  lhs <- some C.digitChar
+  lhsRaw <- digitsWithUnderscores isDigit
   repr <-
     try
       ( do
           _ <- C.char '.'
-          rhs <- some C.digitChar
+          rhsRaw <- digitsWithUnderscores isDigit
           expo <- MP.optional exponentPart
-          pure (lhs <> "." <> rhs <> fromMaybe "" expo)
+          pure (lhsRaw <> "." <> rhsRaw <> fromMaybe "" expo)
       )
       <|> do
         expo <- exponentPart
-        pure (lhs <> expo)
+        pure (lhsRaw <> expo)
   let txt = T.pack repr
-  pure (txt, TkFloat (read repr))
+      normalized = filter (/= '_') repr
+  pure (txt, TkFloat (read normalized))
 
 exponentPart :: LParser String
 exponentPart = do
   marker <- C.char 'e' <|> C.char 'E'
   sign <- MP.optional (C.char '+' <|> C.char '-')
-  ds <- some C.digitChar
+  ds <- digitsWithUnderscores isDigit
   pure (marker : maybe [] pure sign <> ds)
+
+digitsWithUnderscores :: (Char -> Bool) -> LParser String
+digitsWithUnderscores isDigitChar = do
+  first <- satisfy isDigitChar
+  rest <- many $ do
+    _ <- C.char '_'
+    some (satisfy isDigitChar)
+  pure (first : concatMap ('_' :) rest)
 
 charToken :: LParser (Text, LexTokenKind)
 charToken = do
@@ -435,13 +446,13 @@ readMaybeChar raw =
 
 readHexLiteral :: Text -> Integer
 readHexLiteral txt =
-  case readHex (T.unpack (T.drop 2 txt)) of
+  case readHex (T.unpack txt) of
     [(n, "")] -> n
     _ -> 0
 
 readOctLiteral :: Text -> Integer
 readOctLiteral txt =
-  case readOct (T.unpack (T.drop 2 txt)) of
+  case readOct (T.unpack txt) of
     [(n, "")] -> n
     _ -> 0
 

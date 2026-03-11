@@ -226,7 +226,7 @@ toExpr :: GenExpr -> Expr
 toExpr generated =
   case generated of
     GVar name -> EVar span0 name
-    GInt value -> EInt span0 value
+    GInt value -> EInt span0 value (T.pack (show value))
     GApp fn arg -> EApp span0 (toExpr fn) (toExpr arg)
 
 toModule :: GenModule -> Module

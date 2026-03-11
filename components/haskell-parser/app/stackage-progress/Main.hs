@@ -458,9 +458,9 @@ exprSpan :: Expr -> SourceSpan
 exprSpan expr =
   case expr of
     EVar span' _ -> span'
-    EInt span' _ -> span'
+    EInt span' _ _ -> span'
     EIntBase span' _ _ -> span'
-    EFloat span' _ -> span'
+    EFloat span' _ _ -> span'
     EChar span' _ -> span'
     EString span' _ -> span'
     EQuasiQuote span' _ _ -> span'
@@ -607,9 +607,9 @@ stripExpr :: Expr -> Expr
 stripExpr expr =
   case expr of
     EVar _ t -> EVar noSourceSpan t
-    EInt _ n -> EInt noSourceSpan n
+    EInt _ n repr -> EInt noSourceSpan n repr
     EIntBase _ n txt -> EIntBase noSourceSpan n txt
-    EFloat _ d -> EFloat noSourceSpan d
+    EFloat _ d repr -> EFloat noSourceSpan d repr
     EChar _ c -> EChar noSourceSpan c
     EString _ s -> EString noSourceSpan s
     EQuasiQuote _ q body -> EQuasiQuote noSourceSpan q body
@@ -699,9 +699,9 @@ stripPattern pat =
 stripLiteral :: Literal -> Literal
 stripLiteral lit =
   case lit of
-    LitInt _ i -> LitInt noSourceSpan i
+    LitInt _ i repr -> LitInt noSourceSpan i repr
     LitIntBase _ i txt -> LitIntBase noSourceSpan i txt
-    LitFloat _ d -> LitFloat noSourceSpan d
+    LitFloat _ d repr -> LitFloat noSourceSpan d repr
     LitChar _ c -> LitChar noSourceSpan c
     LitString _ s -> LitString noSourceSpan s
 

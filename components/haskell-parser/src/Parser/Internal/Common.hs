@@ -93,9 +93,9 @@ exprSourceSpan :: Expr -> SourceSpan
 exprSourceSpan expr =
   case expr of
     EVar span' _ -> span'
-    EInt span' _ -> span'
+    EInt span' _ _ -> span'
     EIntBase span' _ _ -> span'
-    EFloat span' _ -> span'
+    EFloat span' _ _ -> span'
     EChar span' _ -> span'
     EString span' _ -> span'
     EQuasiQuote span' _ _ -> span'

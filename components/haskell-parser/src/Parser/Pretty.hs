@@ -278,9 +278,9 @@ prettyPatternAtom pat =
 prettyLiteral :: Literal -> Doc ann
 prettyLiteral lit =
   case lit of
-    LitInt _ n -> pretty (show n)
+    LitInt _ _ repr -> pretty repr
     LitIntBase _ _ repr -> pretty repr
-    LitFloat _ n -> pretty (show n)
+    LitFloat _ _ repr -> pretty repr
     LitChar _ c -> pretty (show c)
     LitString _ s -> pretty (show (T.unpack s))
 
@@ -509,9 +509,9 @@ prettyExprPrec prec expr =
     EVar _ name
       | isOperatorToken name -> parens (pretty name)
       | otherwise -> pretty name
-    EInt _ value -> pretty (show value)
+    EInt _ _ repr -> pretty repr
     EIntBase _ _ repr -> pretty repr
-    EFloat _ value -> pretty (show value)
+    EFloat _ _ repr -> pretty repr
     EChar _ value -> pretty (show value)
     EString _ value -> pretty (show value)
     EQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
