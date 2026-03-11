@@ -83,6 +83,7 @@ data ExportSpec
 
 data ImportDecl = ImportDecl
   { importDeclSpan :: SourceSpan,
+    importDeclPackage :: Maybe Text,
     importDeclQualified :: Bool,
     importDeclQualifiedPost :: Bool,
     importDeclModule :: Text,
