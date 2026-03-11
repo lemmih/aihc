@@ -8,7 +8,7 @@ import Control.Exception (SomeException, displayException, try)
 import Control.Monad (forM)
 import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParser)
-import Data.Char (isSpace)
+import Data.Char (isAlphaNum, isSpace)
 import Data.Either (lefts)
 import Data.List (isPrefixOf, nub)
 import Data.Maybe (mapMaybe)
@@ -38,8 +38,10 @@ import qualified Parser
 import Parser.Ast
 import Parser.Pretty (prettyModule)
 import Parser.Types (ParseResult (..))
+import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesFileExist, getXdgDirectory)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
+import System.FilePath ((</>))
 import System.IO (hPutStrLn, stderr)
 import System.Process (readProcess)
 
@@ -153,11 +155,38 @@ dropWhileEnd p = reverse . dropWhile p . reverse
 
 loadStackageSnapshot :: String -> IO (Either String [PackageSpec])
 loadStackageSnapshot snapshot = do
-  let url = "https://www.stackage.org/" ++ snapshot ++ "/cabal.config"
-  fetched <- try (readProcess "curl" ["-s", "-f", url] "")
-  pure $ case fetched of
-    Left err -> Left (displayException (err :: SomeException))
-    Right body -> parseSnapshotConstraints body
+  cacheFile <- snapshotCacheFile snapshot
+  hasCache <- doesFileExist cacheFile
+  if hasCache
+    then do
+      cachedBody <- readFile cacheFile
+      pure (parseSnapshotConstraints cachedBody)
+    else do
+      let url = "https://www.stackage.org/" ++ snapshot ++ "/cabal.config"
+      fetched <- try (readProcess "curl" ["-s", "-f", url] "")
+      case fetched of
+        Left err -> pure (Left (displayException (err :: SomeException)))
+        Right body ->
+          case parseSnapshotConstraints body of
+            Left parseErr -> pure (Left parseErr)
+            Right specs -> do
+              writeFile cacheFile body
+              pure (Right specs)
+
+snapshotCacheFile :: String -> IO FilePath
+snapshotCacheFile snapshot = do
+  base <- getXdgDirectory XdgCache "aihc"
+  let dir = base </> "stackage"
+      file = sanitizeSnapshotName snapshot ++ "-cabal.config"
+  createDirectoryIfMissing True dir
+  pure (dir </> file)
+
+sanitizeSnapshotName :: String -> String
+sanitizeSnapshotName = map sanitizeChar
+  where
+    sanitizeChar c
+      | isAlphaNum c || c == '-' || c == '_' = c
+      | otherwise = '_'
 
 parseSnapshotConstraints :: String -> Either String [PackageSpec]
 parseSnapshotConstraints content = do
