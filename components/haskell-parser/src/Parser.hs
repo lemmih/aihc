@@ -21,15 +21,19 @@ import qualified Text.Megaparsec as MP
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
   languagePragmas <- MP.many languagePragmaParser
-  mName <- MP.optional (moduleHeaderParser <* MP.many (symbolLikeTok ";"))
+  mHeader <- MP.optional (moduleHeaderParser <* MP.many (symbolLikeTok ";"))
   imports <- MP.many (importDeclParser <* MP.many (symbolLikeTok ";"))
   decls <- MP.some (declParser <* MP.many (symbolLikeTok ";"))
+  let (mName, mExports) =
+        case mHeader of
+          Nothing -> (Nothing, Nothing)
+          Just (name, exports) -> (Just name, exports)
   pure $ \span' ->
     Module
       { moduleSpan = span',
         moduleName = mName,
         moduleLanguagePragmas = concat languagePragmas,
-        moduleExports = Nothing,
+        moduleExports = mExports,
         moduleImports = imports,
         moduleDecls = decls
       }
