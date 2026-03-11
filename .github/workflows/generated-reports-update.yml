@@ -48,6 +48,12 @@ jobs:
         uses: peter-evans/create-pull-request@v7
         with:
           commit-message: "chore(reports): update generated reports"
+          add-paths: |
+            README.md
+            docs/haskell-parser-extension-support.md
+            components/haskell-parser/README.md
+            components/haskell-cpp/README.md
+            components/haskell-name-resolution/README.md
           branch: "automation/generated-reports-update"
           title: "chore(reports): update generated reports"
           body: |
