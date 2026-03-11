@@ -1,3 +1,3 @@
-numeric-underscores-integers	literals	numeric-underscores-integers.hs	xfail	parser support pending
-numeric-underscores-floating	literals	numeric-underscores-floating.hs	xfail	parser support pending
-numeric-underscores-pattern	patterns	numeric-underscores-pattern.hs	xfail	parser support pending
+numeric-underscores-integers	literals	numeric-underscores-integers.hs	pass	parser now accepts NumericUnderscores integer literals
+numeric-underscores-floating	literals	numeric-underscores-floating.hs	pass	parser now accepts NumericUnderscores floating literals
+numeric-underscores-pattern	patterns	numeric-underscores-pattern.hs	pass	parser now accepts NumericUnderscores literals in patterns

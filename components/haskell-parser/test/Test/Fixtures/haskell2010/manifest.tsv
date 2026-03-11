@@ -126,8 +126,8 @@ expr-list-tuple	expressions	expressions/list-tuple.hs	pass	parser now supports l
 expr-sections	expressions	expressions/sections.hs	xfail	parser intentionally disabled
 expr-do-notation	expressions	expressions/do-notation.hs	pass	parser now handles do-notation with layout and explicit braces
 expr-where-clause	expressions	expressions/where-clause.hs	pass	parser now supports where clauses in declarations
-expr-list-comprehension	expressions	expressions/list-comprehension.hs	xfail	oracle roundtrip mismatch in current parser output
-expr-arithmetic-seq	expressions	expressions/arithmetic-seq.hs	xfail	oracle roundtrip mismatch in current parser output
+expr-list-comprehension	expressions	expressions/list-comprehension.hs	pass	parser now supports list comprehensions with generators and guards
+expr-arithmetic-seq	expressions	expressions/arithmetic-seq.hs	pass	parser now supports arithmetic sequence expressions
 
 expr-s3-errors-error	expressions	expressions/errors-error.hs	pass	parser now handles error application expression case
 expr-s3-errors-undefined	expressions	expressions/errors-undefined.hs	pass	parser now handles this expression atom case
@@ -140,7 +140,7 @@ expr-s3-atoms-literal-int	expressions	expressions/atoms-literal-int.hs	pass	pars
 expr-s3-atoms-literal-float	expressions	expressions/atoms-literal-float.hs	pass	parser now handles floating literal atom case
 expr-s3-atoms-literal-char	expressions	expressions/atoms-literal-char.hs	pass	parser now handles char literal atom case
 expr-s3-atoms-literal-string	expressions	expressions/atoms-literal-string.hs	pass	parser now handles string literal atom case
-expr-s3-atoms-literal-all	expressions	expressions/atoms-literal-all.hs	xfail	oracle roundtrip mismatch in current parser output
+expr-s3-atoms-literal-all	expressions	expressions/atoms-literal-all.hs	pass	parser now handles all haskell2010 literal atom categories
 expr-s3-operators-varsym-paren	expressions	expressions/operators-varsym-paren.hs	pass	parser now supports parenthesized symbolic operators as expressions
 expr-s3-operators-backtick-varid	expressions	expressions/operators-backtick-varid.hs	xfail	parser intentionally disabled
 expr-s3-operators-conop-colon	expressions	expressions/operators-conop-colon.hs	pass	parser now supports infix constructor operators in expressions
@@ -169,8 +169,8 @@ expr-s3-unit-expression	expressions	expressions/unit-expression.hs	pass	parser n
 expr-s3-parenthesized-expression	expressions	expressions/parenthesized-expression.hs	pass	parser now supports parenthesized expressions
 expr-s3-arithseq-from	expressions	expressions/arithseq-from.hs	pass	parser now supports section 3 arithmetic sequences from-form
 expr-s3-arithseq-from-then	expressions	expressions/arithseq-from-then.hs	pass	parser now supports section 3 arithmetic sequences from-then form
-expr-s3-arithseq-from-to	expressions	expressions/arithseq-from-to.hs	xfail	oracle roundtrip mismatch in current parser output
-expr-s3-arithseq-from-then-to	expressions	expressions/arithseq-from-then-to.hs	xfail	oracle roundtrip mismatch in current parser output
+expr-s3-arithseq-from-to	expressions	expressions/arithseq-from-to.hs	pass	parser now supports section 3 arithmetic sequences from-to form
+expr-s3-arithseq-from-then-to	expressions	expressions/arithseq-from-then-to.hs	pass	parser now supports section 3 arithmetic sequences from-then-to form
 expr-s3-listcomp-generator	expressions	expressions/listcomp-generator.hs	pass	parser now supports simple list-comprehension generator forms
 expr-s3-listcomp-guards	expressions	expressions/listcomp-guards.hs	pass	parser now supports simple list-comprehension guard forms
 expr-s3-listcomp-let-qualifier	expressions	expressions/listcomp-let-qualifier.hs	xfail	parser intentionally disabled
@@ -237,15 +237,15 @@ layout-where	layout	layout/where-layout.hs	pass	parser now supports where layout
 
 lexical-block-comments	lexical	lexical/block-comments.hs	pass	lexer now handles block comments
 lexical-strings-chars	lexical	lexical/strings-chars.hs	pass	parser now handles string and char literals
-lexical-numeric-literals	lexical	lexical/numeric-literals.hs	xfail	oracle roundtrip mismatch in current parser output
+lexical-numeric-literals	lexical	lexical/numeric-literals.hs	pass	parser now handles numeric literals in lexical suite
 lexical-operators	lexical	lexical/operators.hs	xfail	parser intentionally disabled
 
 hashable-xxh3-cpp-include	corpus	corpus/hashable/hashable-xxh3-cpp-include.hs	xfail	from hashable/src/Data/Hashable/XXH3.hs; covered by parser-test CPP preprocessing
 hashable-generic-instances-kind-arrow	corpus	corpus/hashable/hashable-generic-instances-kind-arrow.hs	xfail	from hashable/src/Data/Hashable/Generic/Instances.hs; parser rejects multiline LANGUAGE pragma lists
-hashable-mix-cpp-if	corpus	corpus/hashable/hashable-mix-cpp-if.hs	xfail	oracle roundtrip mismatch in current parser output
+hashable-mix-cpp-if	corpus	corpus/hashable/hashable-mix-cpp-if.hs	pass	from hashable/src/Data/Hashable/Mix.hs; parser now accepts this preprocessed case
 hashable-ffi-capi-calling-convention	corpus	corpus/hashable/hashable-ffi-capi-calling-convention.hs	xfail	from hashable/src/Data/Hashable/FFI.hs; parser does not support capi calling convention (CApiFFI)
 hashable-class-package-imports	corpus	corpus/hashable/hashable-class-package-imports.hs	xfail	from hashable/src/Data/Hashable/Class.hs; parser rejects package-qualified imports
 hashable-lowlevel-cpp-ifdef	corpus	corpus/hashable/hashable-lowlevel-cpp-ifdef.hs	pass	from hashable/src/Data/Hashable/LowLevel.hs; parser now accepts this preprocessed case
 hashable-properties-unboxed-tuples	corpus	corpus/hashable/hashable-properties-unboxed-tuples.hs	xfail	from hashable/tests/Properties.hs; parser rejects unboxed tuple syntax
 hashable-regress-cpp-have-mmap	corpus	corpus/hashable/hashable-regress-cpp-have-mmap.hs	xfail	from hashable/tests/Regress.hs; covered by parser-test CPP preprocessing
-hashable-xxhash-tests-numeric-underscores	corpus	corpus/hashable/hashable-xxhash-tests-numeric-underscores.hs	xfail	from hashable/tests/xxhash-tests.hs; parser rejects NumericUnderscores literals
+hashable-xxhash-tests-numeric-underscores	corpus	corpus/hashable/hashable-xxhash-tests-numeric-underscores.hs	pass	from hashable/tests/xxhash-tests.hs; parser now accepts NumericUnderscores literals

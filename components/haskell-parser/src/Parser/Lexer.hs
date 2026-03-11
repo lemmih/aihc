@@ -374,11 +374,11 @@ exponentPart = do
 
 digitsWithUnderscores :: (Char -> Bool) -> LParser String
 digitsWithUnderscores isDigitChar = do
-  first <- satisfy isDigitChar
+  firstChunk <- some (satisfy isDigitChar)
   rest <- many $ do
     _ <- C.char '_'
     some (satisfy isDigitChar)
-  pure (first : concatMap ('_' :) rest)
+  pure (concat (firstChunk : map ('_' :) rest))
 
 charToken :: LParser (Text, LexTokenKind)
 charToken = do
