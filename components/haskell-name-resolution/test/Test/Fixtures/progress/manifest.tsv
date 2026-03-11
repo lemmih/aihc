@@ -8,5 +8,5 @@ core-shadow-prelude	core	core/shadow-prelude.hs	pass	name-resolution now handles
 core-module-comments	core	core/module-comments.hs	pass	name-resolution now handles module comments
 modules-import-qualified	modules	modules/import-qualified.hs	xfail	parser intentionally disabled
 modules-import-hiding	modules	modules/import-hiding.hs	pass	name-resolution now accepts parser-supported hiding imports
-modules-export-list	modules	modules/export-list.hs	xfail	parser intentionally disabled
+modules-export-list	modules	modules/export-list.hs	pass	name-resolution now accepts parser-supported module export lists
 modules-import-as	modules	modules/import-as.hs	xfail	parser intentionally disabled

@@ -8,6 +8,7 @@ module Parser.Internal.Decl
   )
 where
 
+import Data.Char (isUpper)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -25,12 +26,58 @@ languagePragmaParser =
       TkPragmaLanguage names -> Just names
       _ -> Nothing
 
-moduleHeaderParser :: TokParser Text
+moduleHeaderParser :: TokParser (Text, Maybe [ExportSpec])
 moduleHeaderParser = do
   keywordTok TkKeywordModule
   name <- moduleNameParser
+  exports <- MP.optional exportSpecListParser
   keywordTok TkKeywordWhere
-  pure name
+  pure (name, exports)
+
+exportSpecListParser :: TokParser [ExportSpec]
+exportSpecListParser = do
+  symbolLikeTok "("
+  specs <- exportSpecParser `MP.sepBy` symbolLikeTok ","
+  symbolLikeTok ")"
+  pure specs
+
+exportSpecParser :: TokParser ExportSpec
+exportSpecParser =
+  withSpan $
+    MP.try exportModuleParser <|> exportNameParser
+
+exportModuleParser :: TokParser (SourceSpan -> ExportSpec)
+exportModuleParser = do
+  keywordTok TkKeywordModule
+  modName <- moduleNameParser
+  pure (`ExportModule` modName)
+
+exportNameParser :: TokParser (SourceSpan -> ExportSpec)
+exportNameParser = do
+  name <- identifierTextParser
+  members <- MP.optional exportMembersParser
+  pure $ \span' ->
+    case members of
+      Just Nothing -> ExportAll span' name
+      Just (Just names) -> ExportWith span' name names
+      Nothing
+        | isTypeName name -> ExportAbs span' name
+        | otherwise -> ExportVar span' name
+
+exportMembersParser :: TokParser (Maybe [Text])
+exportMembersParser = do
+  symbolLikeTok "("
+  members <-
+    (symbolLikeTok ".." >> pure Nothing)
+      <|> (Just <$> (identifierTextParser `MP.sepBy` symbolLikeTok ","))
+  symbolLikeTok ")"
+  pure members
+
+isTypeName :: Text -> Bool
+isTypeName txt =
+  case T.uncons txt of
+    Just (c, _) -> isUpper c
+    Nothing -> False
 
 importDeclParser :: TokParser ImportDecl
 importDeclParser = withSpan $ do
@@ -171,7 +218,11 @@ dataConDeclParser = withSpan $ do
     case lexTokenKind tok of
       TkIdentifier ident -> Just ident
       _ -> Nothing
-  pure $ \span' -> PrefixCon span' name []
+  mRecordFields <- MP.optional (symbolLikeTok "{" *> symbolLikeTok "}")
+  pure $ \span' ->
+    case mRecordFields of
+      Just () -> RecordCon span' name []
+      Nothing -> PrefixCon span' name []
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpan $ do
