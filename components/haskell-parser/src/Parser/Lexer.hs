@@ -8,12 +8,12 @@ module Parser.Lexer
 where
 
 import Control.Monad (void)
-import Data.Char (isAlphaNum, isHexDigit, isOctDigit)
+import Data.Char (digitToInt, isAlphaNum, isHexDigit, isOctDigit)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
-import Numeric (readHex, readOct)
+import Numeric (readHex, readInt, readOct)
 import Parser.Ast
 import Text.Megaparsec
   ( Parsec,
@@ -327,16 +327,19 @@ symbolToken =
 intBaseToken :: LParser (Text, LexTokenKind)
 intBaseToken = do
   _ <- C.char '0'
-  base <- C.char 'x' <|> C.char 'X' <|> C.char 'o' <|> C.char 'O'
+  base <- C.char 'x' <|> C.char 'X' <|> C.char 'o' <|> C.char 'O' <|> C.char 'b' <|> C.char 'B'
   digits <-
     if base `elem` ['x', 'X']
       then some (satisfy isHexDigit)
-      else some (satisfy isOctDigit)
+      else
+        if base `elem` ['o', 'O']
+          then some (satisfy isOctDigit)
+          else some (satisfy (`elem` ("01" :: String)))
   let txt = T.pack ('0' : base : digits)
-      n =
-        if base `elem` ['x', 'X']
-          then readHexLiteral txt
-          else readOctLiteral txt
+      n
+        | base `elem` ['x', 'X'] = readHexLiteral txt
+        | base `elem` ['o', 'O'] = readOctLiteral txt
+        | otherwise = readBinLiteral txt
   pure (txt, TkIntegerBase n txt)
 
 intToken :: LParser (Text, LexTokenKind)
@@ -442,6 +445,12 @@ readHexLiteral txt =
 readOctLiteral :: Text -> Integer
 readOctLiteral txt =
   case readOct (T.unpack (T.drop 2 txt)) of
+    [(n, "")] -> n
+    _ -> 0
+
+readBinLiteral :: Text -> Integer
+readBinLiteral txt =
+  case readInt 2 (`elem` ("01" :: String)) digitToInt (T.unpack (T.drop 2 txt)) of
     [(n, "")] -> n
     _ -> 0
 
