@@ -521,6 +521,10 @@ prettyExprPrec prec expr =
         ("if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyExprPrec 0 yes <+> "else" <+> prettyExprPrec 0 no)
     ELambdaPats _ pats body ->
       parenthesize (prec > 0) ("\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyExprPrec 0 body)
+    ELambdaCase _ alts ->
+      parenthesize
+        (prec > 0)
+        ("\\" <> "case" <+> braces (hsep (punctuate semi (map prettyCaseAlt alts))))
     EInfix _ lhs op rhs -> parenthesize (prec > 1) (prettyExprPrec 1 lhs <+> prettyExprOperator op <+> prettyExprPrec 1 rhs)
     ENegate _ inner -> parenthesize (prec > 2) ("-" <> prettyExprPrec 3 inner)
     ESectionL _ lhs op -> parens (prettyExprPrec 0 lhs <+> prettyExprOperator op)

@@ -178,7 +178,7 @@ expr-s3-listcomp-multi-generator	expressions	expressions/listcomp-multi-generato
 expr-s3-let-basic	expressions	expressions/let-basic.hs	pass	parser now supports basic let expressions
 expr-s3-let-multiple-decls	expressions	expressions/let-multiple-decls.hs	pass	parser now supports multiple let declarations
 expr-s3-case-basic	expressions	expressions/case-basic.hs	pass	parser now supports basic case alternatives
-expr-s3-case-guarded-alts	expressions	expressions/case-guarded-alts.hs	xfail	parser intentionally disabled
+expr-s3-case-guarded-alts	expressions	expressions/case-guarded-alts.hs	pass	parser now supports guarded case alternatives
 expr-s3-do-single-expression	expressions	expressions/do-single-expression.hs	pass	parser now supports single-expression do blocks
 expr-s3-do-bind-stmt	expressions	expressions/do-bind-stmt.hs	pass	parser now supports do bind statements
 expr-s3-do-let-stmt	expressions	expressions/do-let-stmt.hs	xfail	parser intentionally disabled

@@ -320,6 +320,7 @@ data Expr
   | EQuasiQuote SourceSpan Text Text
   | EIf SourceSpan Expr Expr Expr
   | ELambdaPats SourceSpan [Pattern] Expr
+  | ELambdaCase SourceSpan [CaseAlt]
   | EInfix SourceSpan Expr Text Expr
   | ENegate SourceSpan Expr
   | ESectionL SourceSpan Expr Text

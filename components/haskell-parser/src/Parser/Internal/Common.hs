@@ -101,6 +101,7 @@ exprSourceSpan expr =
     EQuasiQuote span' _ _ -> span'
     EIf span' _ _ _ -> span'
     ELambdaPats span' _ _ -> span'
+    ELambdaCase span' _ -> span'
     EInfix span' _ _ _ -> span'
     ENegate span' _ -> span'
     ESectionL span' _ _ -> span'
