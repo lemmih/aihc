@@ -17,6 +17,9 @@ library
     , Parser.Types
   other-modules:
       Parser.Lexer
+    , Parser.Internal.Common
+    , Parser.Internal.Expr
+    , Parser.Internal.Decl
   hs-source-dirs:   src
   build-depends:
       base >=4.16 && <5
