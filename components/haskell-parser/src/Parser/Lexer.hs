@@ -141,9 +141,19 @@ bolLayout st tok
           (inserted, contexts') = closeForDedent col (lexTokenSpan tok) (layoutContexts st)
           eqSemi =
             case contexts' of
-              LayoutImplicit indent : _ | col == indent -> [virtualSymbolToken ";" (lexTokenSpan tok)]
+              LayoutImplicit indent : _
+                | col == indent,
+                  not (suppressesVirtualSemicolon tok) ->
+                    [virtualSymbolToken ";" (lexTokenSpan tok)]
               _ -> []
        in (inserted <> eqSemi, st {layoutContexts = contexts'})
+
+suppressesVirtualSemicolon :: LexToken -> Bool
+suppressesVirtualSemicolon tok =
+  case lexTokenKind tok of
+    TkKeywordThen -> True
+    TkKeywordElse -> True
+    _ -> False
 
 closeForDedent :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
 closeForDedent col anchor = go []
