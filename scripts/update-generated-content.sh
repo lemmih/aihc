@@ -42,6 +42,7 @@ extension_markdown_cmd="${PARSER_EXTENSION_PROGRESS_CMD:-nix run .#parser-extens
 extension_progress_cmd="${PARSER_EXTENSION_PROGRESS_TEXT_CMD:-nix run .#parser-extension-progress}"
 cpp_cmd="${CPP_PROGRESS_CMD:-nix run .#cpp-progress}"
 name_resolution_cmd="${NAME_RESOLUTION_PROGRESS_CMD:-nix run .#name-resolution-progress}"
+stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#stackage-progress -- --snapshot lts-24.33 --checks parse}"
 
 tmpdir="$(mktemp -d)"
 cleanup() {
@@ -54,12 +55,14 @@ extension_out="$tmpdir/extension-progress.md"
 extension_progress_out="$tmpdir/extension-progress.txt"
 name_out="$tmpdir/name-resolution-progress.txt"
 cpp_out="$tmpdir/cpp-progress.txt"
+stackage_out="$tmpdir/stackage-progress.txt"
 
 run_cmd "$parser_cmd" >"$parser_out"
 run_cmd "$extension_markdown_cmd" | sed -n '/^# Haskell Parser Extension Support Status/,$p' >"$extension_out"
 run_cmd "$extension_progress_cmd" >"$extension_progress_out"
 run_cmd "$cpp_cmd" >"$cpp_out"
 run_cmd "$name_resolution_cmd" >"$name_out"
+run_cmd "$stackage_cmd" >"$stackage_out" || true
 
 parse_progress() {
 	local infile="$1"
@@ -138,6 +141,26 @@ parse_extension_progress() {
   ' "$infile"
 }
 
+parse_stackage_progress() {
+	local infile="$1"
+	tr '\r' '\n' <"$infile" | awk '
+    {
+      if ($1 ~ /^[0-9]+\/[0-9]+$/) {
+        split($1, parts, "/")
+        implemented = parts[1] + 0
+        total = parts[2] + 0
+      }
+    }
+    END {
+      if (total == "" || total <= 0) {
+        exit 2
+      }
+      complete = (implemented * 100.0) / total
+      printf "%d\n%d\n%.2f\n", implemented, total, complete
+    }
+  '
+}
+
 parser_vals=($(parse_progress "$parser_out"))
 parser_pass="${parser_vals[0]}"
 parser_xfail="${parser_vals[1]}"
@@ -175,6 +198,11 @@ ext_progress_vals=($(parse_extension_progress "$extension_progress_out"))
 ext_test_total="${ext_progress_vals[4]}"
 ext_implemented="${ext_progress_vals[5]}"
 
+stackage_vals=($(parse_stackage_progress "$stackage_out"))
+stackage_implemented="${stackage_vals[0]}"
+stackage_total="${stackage_vals[1]}"
+stackage_complete="${stackage_vals[2]}"
+
 parser_total_tests=$((parser_total + ext_test_total))
 parser_passing_tests=$((parser_implemented + ext_implemented))
 parser_total_complete="$(awk -v passing="$parser_passing_tests" -v total="$parser_total_tests" 'BEGIN { if (total <= 0) { printf "0.00" } else { printf "%.2f", (passing * 100.0) / total } }')"
@@ -193,6 +221,10 @@ EOF2
 
 cat >"$tmpdir/readme-root-cpp.txt" <<EOF2
 \`${cpp_implemented}/${cpp_total}\` (\`${cpp_complete}%\`)
+EOF2
+
+cat >"$tmpdir/readme-root-stackage.txt" <<EOF2
+\`${stackage_implemented}/${stackage_total}\` (\`${stackage_complete}%\`)
 EOF2
 
 cat >"$tmpdir/readme-parser-h2010.txt" <<EOF2
@@ -319,6 +351,7 @@ else
 fi
 
 replace_marker_inline README.md "parser-progress" "$tmpdir/readme-root-parser.txt"
+replace_marker_inline README.md "parser-stackage-progress" "$tmpdir/readme-root-stackage.txt"
 replace_marker_inline README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
 replace_marker_inline README.md "name-resolution-progress" "$tmpdir/readme-root-name.txt"
 replace_marker_block components/haskell-parser/README.md "haskell2010-progress" "$tmpdir/readme-parser-h2010.txt"

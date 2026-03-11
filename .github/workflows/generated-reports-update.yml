@@ -12,6 +12,8 @@ permissions:
 jobs:
   update-generated-reports:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    env:
+      XDG_CACHE_HOME: ${{ github.workspace }}/.cache
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -28,6 +30,16 @@ jobs:
           aws-access-key-id: ${{ vars.R2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - name: Cache Stackage and package downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/aihc/stackage
+            .cache/aihc/hackage
+          key: generated-reports-aihc-downloads-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            generated-reports-aihc-downloads-${{ runner.os }}-
 
       - name: Update generated reports
         run: nix run .#generate-reports
