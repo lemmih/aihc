@@ -119,7 +119,7 @@ decls-default	declarations	declarations/default.hs	xfail	default declarations un
 decls-deriving	declarations	declarations/deriving.hs	xfail	parser intentionally disabled
 
 expr-if-then-else	expressions	expressions/if-then-else.hs	pass	parser now handles this if-then-else form
-expr-case-of	expressions	expressions/case-of.hs	xfail	parser intentionally disabled
+expr-case-of	expressions	expressions/case-of.hs	pass	parser now supports simple case-of expressions
 expr-let-in	expressions	expressions/let-in.hs	xfail	parser intentionally disabled
 expr-lambda	expressions	expressions/lambda.hs	xfail	parser intentionally disabled
 expr-list-tuple	expressions	expressions/list-tuple.hs	xfail	list and tuple expressions unsupported
@@ -194,7 +194,7 @@ expr-s3-pattern-infix-constructor	expressions	expressions/pattern-infix-construc
 expr-s3-pattern-negative-literal	expressions	expressions/pattern-negative-literal.hs	xfail	roundtrip mismatch against oracle AST
 expr-s3-pattern-constructor-application	expressions	expressions/pattern-constructor-application.hs	xfail	parser intentionally disabled
 expr-s3-pattern-as-pattern	expressions	expressions/pattern-as-pattern.hs	xfail	parser intentionally disabled
-expr-s3-pattern-nullary-constructor	expressions	expressions/pattern-nullary-constructor.hs	xfail	parser intentionally disabled
+expr-s3-pattern-nullary-constructor	expressions	expressions/pattern-nullary-constructor.hs	pass	parser now handles nullary constructor case alternatives
 expr-s3-pattern-labeled	expressions	expressions/pattern-labeled.hs	xfail	parser intentionally disabled
 expr-s3-pattern-literal	expressions	expressions/pattern-literal.hs	xfail	parser intentionally disabled
 expr-s3-pattern-wildcard	expressions	expressions/pattern-wildcard.hs	xfail	parser intentionally disabled
@@ -226,11 +226,11 @@ types-inline-signature-lambda	types	types/inline-signature-lambda.hs	xfail	parse
 types-let-signature	types	types/let-signature.hs	xfail	local let type signatures unsupported
 types-guard-inline-signature	types	types/guard-inline-signature.hs	xfail	parser intentionally disabled
 types-list-type-constructor	types	types/list-type-constructor.hs	pass	parser now supports list type constructors
-types-maybe-type-constructor	types	types/maybe-type-constructor.hs	xfail	parser intentionally disabled
+types-maybe-type-constructor	types	types/maybe-type-constructor.hs	pass	parser now handles maybe type constructors
 types-function-type-constructor	types	types/function-type-constructor.hs	xfail	parser intentionally disabled
 types-function-type-constructor-partial	types	types/function-type-constructor-partial.hs	xfail	parser intentionally disabled
 types-tuple-type-constructor	types	types/tuple-type-constructor.hs	xfail	parser intentionally disabled
-types-nested-maybe-list	types	types/nested-maybe-list.hs	xfail	parser intentionally disabled
+types-nested-maybe-list	types	types/nested-maybe-list.hs	pass	parser now handles nested maybe/list type constructors
 
 layout-let	layout	layout/let-layout.hs	xfail	parser intentionally disabled
 layout-where	layout	layout/where-layout.hs	xfail	parser intentionally disabled

@@ -41,6 +41,7 @@
               runtimeInputs = [ pkgs.bash pkgs.cabal-install pkgs.ghc ];
               inherit text;
             }}/bin/${name}";
+            meta.description = "aihc app: ${name}";
           };
           mkReportsApp = name: text: {
             type = "app";
@@ -49,6 +50,7 @@
               runtimeInputs = [ pkgs.bash pkgs.nix ];
               inherit text;
             }}/bin/${name}";
+            meta.description = "aihc app: ${name}";
           };
         in {
           parser-test = mkApp "parser-test" ''

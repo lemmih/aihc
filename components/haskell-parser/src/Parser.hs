@@ -16,6 +16,7 @@ import qualified Data.Text as T
 import Data.Void (Void)
 import Parser.Ast
   ( CallConv (..),
+    CaseAlt (..),
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
@@ -43,7 +44,7 @@ import Text.Megaparsec.Pos (SourcePos (..))
 type TokParser = Parsec Void TokStream
 
 exprParser :: TokParser Expr
-exprParser = doExprParser <|> ifExprParser <|> infixExprParser
+exprParser = doExprParser <|> ifExprParser <|> caseExprParser <|> infixExprParser
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
@@ -354,6 +355,47 @@ atomExprParser =
     <|> charExprParser
     <|> stringExprParser
     <|> varExprParser
+
+patternParser :: TokParser Pattern
+patternParser = withSpan $ do
+  first <- identifierTextParser
+  rest <- MP.many identifierTextParser
+  pure $ \span' ->
+    case rest of
+      [] -> PVar span' first
+      _ -> PCon span' first (map (PVar span') rest)
+
+rhsParser :: TokParser Rhs
+rhsParser = withSpan $ do
+  operatorLikeTok "->"
+  body <- exprParser
+  pure (`UnguardedRhs` body)
+
+caseAltParser :: TokParser CaseAlt
+caseAltParser = withSpan $ do
+  pat <- patternParser
+  rhs <- rhsParser
+  pure $ \span' ->
+    CaseAlt
+      { caseAltSpan = span',
+        caseAltPattern = pat,
+        caseAltRhs = rhs
+      }
+
+caseExprParser :: TokParser Expr
+caseExprParser = withSpan $ do
+  keywordTok TkKeywordCase
+  scrutinee <- exprParser
+  keywordTok TkKeywordOf
+  alts <- bracedAlts <|> plainAlts
+  pure $ \span' -> ECase span' scrutinee alts
+  where
+    plainAlts = MP.some (caseAltParser <* MP.many (symbolLikeTok ";"))
+    bracedAlts = do
+      symbolLikeTok "{"
+      parsed <- plainAlts
+      symbolLikeTok "}"
+      pure parsed
 
 sameLineAtomExprParser :: Int -> TokParser Expr
 sameLineAtomExprParser expectedLine = do
