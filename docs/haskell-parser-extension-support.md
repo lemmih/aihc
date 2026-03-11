@@ -3,15 +3,15 @@
 ## Summary
 
 - Total Extensions: 58
-- Supported: 0
-- In Progress: 5
+- Supported: 1
+- In Progress: 4
 - Planned: 53
 
 ## Extension Status
 
 | Extension | Status | Tests Passing | Notes |
 |-----------|--------|---------------|-------|
-| ParallelListComp | In Progress | 0/1 | Parallel list comprehensions |
+| ParallelListComp | Supported | 1/1 | Parallel list comprehensions |
 | QuasiQuotes | In Progress | 0/3 | Quasi quotes |
 | TypeApplications | In Progress | 0/2 | Type applications |
 | ViewPatterns | In Progress | 0/3 | View patterns |
