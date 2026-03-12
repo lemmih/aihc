@@ -47,7 +47,8 @@ instance Arbitrary GenModuleHead where
       [ pure (GenModuleHead Nothing),
         do
           moduName <- genModuleName
-          let header = HSE.ModuleHead HSE.noSrcSpan (HSE.ModuleName HSE.noSrcSpan moduName) Nothing Nothing
+          exports <- genMaybeExportSpecList
+          let header = HSE.ModuleHead HSE.noSrcSpan (HSE.ModuleName HSE.noSrcSpan moduName) Nothing exports
           pure (GenModuleHead (Just header))
       ]
 
@@ -154,24 +155,9 @@ findFirstFailure opts seed = go 1 (qcGenStream seed)
 
 materializeCandidate :: GenModule -> Candidate
 materializeCandidate (GenModule modu0) =
-  let source0 = HSE.prettyPrint modu0
-      mode = hseParseMode
-   in case HSE.parseFileContentsWithMode mode source0 of
-        HSE.ParseFailed loc err ->
-          error
-            ( "materializeCandidate: generated AST failed to parse at "
-                <> show loc
-                <> " with error: "
-                <> err
-                <> "\nsource:\n"
-                <> source0
-            )
-        HSE.ParseOk modu1 ->
-          let source1 = HSE.exactPrint modu1 []
-           in Candidate
-                { candAst = modu1,
-                  candSource = source1
-                }
+  case normalizeCandidateAst "materializeCandidate" modu0 of
+    Left msg -> error msg
+    Right candidate -> candidate
 
 shrinkCandidate :: Options -> Candidate -> (Candidate, Int)
 shrinkCandidate opts = go 0
@@ -190,20 +176,19 @@ firstSuccessfulShrink candidate = tryCandidates (candidateTransforms candidate)
     tryCandidates :: [HSE.Module HSE.SrcSpanInfo] -> Maybe Candidate
     tryCandidates [] = Nothing
     tryCandidates (ast' : rest) =
-      let source' = HSE.exactPrint ast' []
-       in if oursFails source'
-            then
-              Just
-                Candidate
-                  { candAst = ast',
-                    candSource = source'
-                  }
+      case normalizeCandidateAst "firstSuccessfulShrink" ast' of
+        Left msg -> error msg
+        Right candidate' ->
+          if oursFails (candSource candidate')
+            then Just candidate'
             else tryCandidates rest
 
 candidateTransforms :: Candidate -> [HSE.Module HSE.SrcSpanInfo]
 candidateTransforms candidate =
   removeModuleHead (candAst candidate)
     <> shrinkModuleHeadName (candAst candidate)
+    <> removeModuleHeadExports (candAst candidate)
+    <> shrinkModuleHeadExports (candAst candidate)
     <> []
 
 -- TODO: Add leaf-pruning transforms for exports, imports, and decl lists.
@@ -228,6 +213,30 @@ shrinkModuleHeadName modu =
           decls
       | name' <- shrinkModuleName name
       ]
+    _ -> []
+
+removeModuleHeadExports :: HSE.Module HSE.SrcSpanInfo -> [HSE.Module HSE.SrcSpanInfo]
+removeModuleHeadExports modu =
+  case modu of
+    HSE.Module loc (Just (HSE.ModuleHead hLoc modName warning (Just _))) pragmas imports decls ->
+      [HSE.Module loc (Just (HSE.ModuleHead hLoc modName warning Nothing)) pragmas imports decls]
+    _ -> []
+
+shrinkModuleHeadExports :: HSE.Module HSE.SrcSpanInfo -> [HSE.Module HSE.SrcSpanInfo]
+shrinkModuleHeadExports modu =
+  case modu of
+    HSE.Module loc (Just (HSE.ModuleHead hLoc modName warning (Just (HSE.ExportSpecList eLoc specs)))) pragmas imports decls ->
+      let removeAt idx = take idx specs <> drop (idx + 1) specs
+          shrunkLists = [removeAt idx | idx <- [0 .. length specs - 1]] <> [[], specs]
+       in [ HSE.Module
+              loc
+              (Just (HSE.ModuleHead hLoc modName warning (Just (HSE.ExportSpecList eLoc specs'))))
+              pragmas
+              imports
+              decls
+          | specs' <- unique shrunkLists,
+            specs' /= specs
+          ]
     _ -> []
 
 shrinkModuleName :: String -> [String]
@@ -311,6 +320,107 @@ genModuleSegment = do
 moduleSegmentChars :: [Char]
 moduleSegmentChars = ['A' .. 'Z'] <> ['a' .. 'z'] <> ['0' .. '9'] <> "'"
 
+genMaybeExportSpecList :: Gen (Maybe (HSE.ExportSpecList HSE.SrcSpanInfo))
+genMaybeExportSpecList =
+  frequency
+    [ (3, pure Nothing),
+      (7, Just <$> genExportSpecList)
+    ]
+
+genExportSpecList :: Gen (HSE.ExportSpecList HSE.SrcSpanInfo)
+genExportSpecList = do
+  n <- chooseInt (0, 4)
+  specs <- vectorOf n genExportSpec
+  pure (HSE.ExportSpecList HSE.noSrcSpan specs)
+
+genExportSpec :: Gen (HSE.ExportSpec HSE.SrcSpanInfo)
+genExportSpec =
+  frequency
+    [ (4, HSE.EVar HSE.noSrcSpan <$> genVarQName),
+      (3, HSE.EAbs HSE.noSrcSpan (HSE.NoNamespace HSE.noSrcSpan) <$> genTypeQName),
+      (3, genEThingWith),
+      (2, HSE.EModuleContents HSE.noSrcSpan <$> genModuleNameNode)
+    ]
+
+genEThingWith :: Gen (HSE.ExportSpec HSE.SrcSpanInfo)
+genEThingWith = do
+  qtycon <- genTypeQName
+  n <- chooseInt (0, 3)
+  cnames <- vectorOf n genCName
+  let wildcard = HSE.NoWildcard HSE.noSrcSpan
+  pure (HSE.EThingWith HSE.noSrcSpan wildcard qtycon cnames)
+
+genVarQName :: Gen (HSE.QName HSE.SrcSpanInfo)
+genVarQName =
+  frequency
+    [ (4, HSE.UnQual HSE.noSrcSpan . HSE.Ident HSE.noSrcSpan <$> genVarIdent),
+      ( 1,
+        do
+          modu <- genModuleNameNode
+          HSE.Qual HSE.noSrcSpan modu . HSE.Ident HSE.noSrcSpan <$> genVarIdent
+      )
+    ]
+
+genTypeQName :: Gen (HSE.QName HSE.SrcSpanInfo)
+genTypeQName =
+  frequency
+    [ (4, HSE.UnQual HSE.noSrcSpan . HSE.Ident HSE.noSrcSpan <$> genConIdent),
+      ( 1,
+        do
+          modu <- genModuleNameNode
+          HSE.Qual HSE.noSrcSpan modu . HSE.Ident HSE.noSrcSpan <$> genConIdent
+      )
+    ]
+
+genCName :: Gen (HSE.CName HSE.SrcSpanInfo)
+genCName =
+  frequency
+    [ (1, HSE.VarName HSE.noSrcSpan . HSE.Ident HSE.noSrcSpan <$> genVarIdent),
+      (2, HSE.ConName HSE.noSrcSpan . HSE.Ident HSE.noSrcSpan <$> genConIdent)
+    ]
+
+genModuleNameNode :: Gen (HSE.ModuleName HSE.SrcSpanInfo)
+genModuleNameNode = HSE.ModuleName HSE.noSrcSpan <$> genModuleName
+
+genVarIdent :: Gen String
+genVarIdent = do
+  first <- elements ['a' .. 'z']
+  restLen <- chooseInt (0, 10)
+  rest <- vectorOf restLen (elements moduleSegmentChars)
+  let ident = first : rest
+  if ident `elem` reservedWords
+    then genVarIdent
+    else pure ident
+
+genConIdent :: Gen String
+genConIdent = genModuleSegment
+
+reservedWords :: [String]
+reservedWords =
+  [ "case",
+    "class",
+    "data",
+    "default",
+    "deriving",
+    "do",
+    "else",
+    "foreign",
+    "if",
+    "import",
+    "in",
+    "infix",
+    "infixl",
+    "infixr",
+    "instance",
+    "let",
+    "module",
+    "newtype",
+    "of",
+    "then",
+    "type",
+    "where"
+  ]
+
 splitModuleName :: String -> [String]
 splitModuleName raw =
   case raw of
@@ -337,3 +447,38 @@ isSegmentRestChar ch = isAlphaNum ch || ch == '\''
 
 qcGenStream :: Int -> [QCGen]
 qcGenStream seed = map mkQCGen [seed ..]
+
+normalizeCandidateAst :: String -> HSE.Module HSE.SrcSpanInfo -> Either String Candidate
+normalizeCandidateAst context modu0 =
+  let source0 = HSE.prettyPrint modu0
+      mode = hseParseMode
+   in case HSE.parseFileContentsWithMode mode source0 of
+        HSE.ParseFailed loc err ->
+          Left
+            ( context
+                <> ": internal bug: candidate AST failed to parse after prettyPrint at "
+                <> show loc
+                <> " with error: "
+                <> err
+                <> "\nsource:\n"
+                <> source0
+            )
+        HSE.ParseOk modu1 ->
+          let source1 = HSE.exactPrint modu1 []
+           in case HSE.parseFileContentsWithMode mode source1 of
+                HSE.ParseFailed loc err ->
+                  Left
+                    ( context
+                        <> ": internal bug: normalized exactPrint failed to parse at "
+                        <> show loc
+                        <> " with error: "
+                        <> err
+                        <> "\nsource:\n"
+                        <> source1
+                    )
+                HSE.ParseOk modu2 ->
+                  Right
+                    Candidate
+                      { candAst = modu2,
+                        candSource = HSE.exactPrint modu2 []
+                      }
