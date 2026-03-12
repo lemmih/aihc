@@ -162,6 +162,7 @@ data Pattern
   | PInfix SourceSpan Pattern Text Pattern
   | PView SourceSpan Expr Pattern
   | PAs SourceSpan Text Pattern
+  | PStrict SourceSpan Pattern
   | PIrrefutable SourceSpan Pattern
   | PNegLit SourceSpan Literal
   | PParen SourceSpan Pattern

@@ -223,13 +223,20 @@ buildPatternApp lhs rhs =
 
 patternAtomParser :: TokParser Pattern
 patternAtomParser =
-  MP.try irrefutablePatternParser
+  MP.try strictPatternParser
+    <|> MP.try irrefutablePatternParser
     <|> MP.try negativeLiteralPatternParser
     <|> wildcardPatternParser
     <|> literalPatternParser
     <|> listPatternParser
     <|> parenOrTuplePatternParser
     <|> varOrConPatternParser
+
+strictPatternParser :: TokParser Pattern
+strictPatternParser = withSpan $ do
+  operatorLikeTok "!"
+  inner <- patternAtomParser
+  pure (`PStrict` inner)
 
 irrefutablePatternParser :: TokParser Pattern
 irrefutablePatternParser = withSpan $ do
@@ -612,6 +619,7 @@ patternSourceSpan pat =
     PInfix span' _ _ _ -> span'
     PView span' _ _ -> span'
     PAs span' _ _ -> span'
+    PStrict span' _ -> span'
     PIrrefutable span' _ -> span'
     PNegLit span' _ -> span'
     PParen span' _ -> span'
