@@ -1,0 +1,5 @@
+instance-sig-basic	declarations	instance-sig-basic.hs	xfail	parser support pending
+instance-sig-constrained	declarations	instance-sig-constrained.hs	xfail	parser support pending
+instance-sig-multi-method	declarations	instance-sig-multi-method.hs	xfail	parser support pending
+instance-sig-where-layout	declarations	instance-sig-where-layout.hs	xfail	parser support pending
+instance-sig-default	declarations	instance-sig-default.hs	xfail	parser support pending

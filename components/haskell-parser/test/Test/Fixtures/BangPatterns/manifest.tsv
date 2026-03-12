@@ -1,0 +1,5 @@
+bang-fun-arg	patterns	bang-fun-arg.hs	xfail	parser support pending
+bang-let-binding	patterns	bang-let-binding.hs	xfail	parser support pending
+bang-case-alt	patterns	bang-case-alt.hs	xfail	parser support pending
+bang-lambda	patterns	bang-lambda.hs	xfail	parser support pending
+bang-where	patterns	bang-where.hs	xfail	parser support pending

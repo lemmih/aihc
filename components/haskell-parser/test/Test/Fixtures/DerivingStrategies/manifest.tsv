@@ -1,0 +1,5 @@
+deriving-stock-single	declarations	deriving-stock-single.hs	xfail	parser support pending
+deriving-stock-multi	declarations	deriving-stock-multi.hs	xfail	parser support pending
+deriving-newtype	declarations	deriving-newtype.hs	xfail	parser support pending
+deriving-multiple-clauses	declarations	deriving-multiple-clauses.hs	xfail	parser support pending
+deriving-newtype-list	declarations	deriving-newtype-list.hs	xfail	parser support pending

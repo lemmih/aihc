@@ -1,0 +1,5 @@
+mptc-class-basic	declarations	mptc-class-basic.hs	xfail	parser support pending
+mptc-instance-basic	declarations	mptc-instance-basic.hs	xfail	parser support pending
+mptc-three-params	declarations	mptc-three-params.hs	xfail	parser support pending
+mptc-superclass	declarations	mptc-superclass.hs	xfail	parser support pending
+mptc-constrained-method	declarations	mptc-constrained-method.hs	xfail	parser support pending
