@@ -1,1 +1,1 @@
-module A(,,)where
+module A (as) where
