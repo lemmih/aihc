@@ -1,0 +1,5 @@
+fundep-single	declarations	fundep-single.hs	xfail	parser support pending
+fundep-bidirectional	declarations	fundep-bidirectional.hs	xfail	parser support pending
+fundep-multi-left	declarations	fundep-multi-left.hs	xfail	parser support pending
+fundep-class-instance	declarations	fundep-class-instance.hs	xfail	parser support pending
+fundep-with-context	declarations	fundep-with-context.hs	xfail	parser support pending

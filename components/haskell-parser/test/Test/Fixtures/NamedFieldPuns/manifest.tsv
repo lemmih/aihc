@@ -1,0 +1,5 @@
+named-puns-construct	expressions	named-puns-construct.hs	xfail	parser support pending
+named-puns-pattern	expressions	named-puns-pattern.hs	xfail	parser support pending
+named-puns-case	expressions	named-puns-case.hs	xfail	parser support pending
+named-puns-let	expressions	named-puns-let.hs	xfail	parser support pending
+named-puns-mixed	expressions	named-puns-mixed.hs	xfail	parser support pending

@@ -6,14 +6,23 @@ where
 import ExtensionSupport (ExtensionSpec (..))
 import GHC.LanguageExtensions.Type
   ( Extension
-      ( BinaryLiterals,
+      ( BangPatterns,
+        BinaryLiterals,
+        DerivingStrategies,
         DoAndIfThenElse,
         EmptyCase,
+        EmptyDataDecls,
+        ExplicitForAll,
         ExplicitNamespaces,
+        FunctionalDependencies,
         GADTs,
         HexFloatLiterals,
         ImportQualifiedPost,
+        InstanceSigs,
+        KindSignatures,
         LambdaCase,
+        MultiParamTypeClasses,
+        NamedFieldPuns,
         NumericUnderscores,
         PackageImports,
         ParallelListComp,
@@ -40,4 +49,13 @@ resolveOracleExtensions spec =
     "PackageImports" -> pure [PackageImports]
     "ExplicitNamespaces" -> pure [ExplicitNamespaces]
     "ImportQualifiedPost" -> pure [ImportQualifiedPost]
+    "BangPatterns" -> pure [BangPatterns]
+    "DerivingStrategies" -> pure [DerivingStrategies]
+    "EmptyDataDecls" -> pure [EmptyDataDecls]
+    "ExplicitForAll" -> pure [ExplicitForAll]
+    "FunctionalDependencies" -> pure [FunctionalDependencies, MultiParamTypeClasses]
+    "InstanceSigs" -> pure [InstanceSigs]
+    "KindSignatures" -> pure [KindSignatures]
+    "MultiParamTypeClasses" -> pure [MultiParamTypeClasses]
+    "NamedFieldPuns" -> pure [NamedFieldPuns]
     _ -> fail ("Unsupported extension fixture without oracle mapping: " <> extName spec)
