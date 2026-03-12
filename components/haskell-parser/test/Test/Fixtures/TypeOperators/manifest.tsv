@@ -1,0 +1,4 @@
+type-operator-data-infix	declarations	type-operator-data-infix.hs	xfail	parser support pending
+type-operator-type-synonym	declarations	type-operator-type-synonym.hs	xfail	parser support pending
+type-operator-class	declarations	type-operator-class.hs	xfail	parser support pending
+type-operator-signature	declarations	type-operator-signature.hs	xfail	parser support pending

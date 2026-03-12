@@ -22,6 +22,7 @@ EmptyCase	EmptyCase	Empty Case
 EmptyDataDecls	EmptyDataDecls	Empty Data Decls
 EmptyDataDeriving	EmptyDataDeriving	Empty Data Deriving
 ExistentialQuantification	ExistentialQuantification	Existential Quantification
+ExplicitLevelImports	ExplicitLevelImports	Explicit Level Imports
 ExplicitForAll	ExplicitForAll	Explicit For All
 ExplicitNamespaces	ExplicitNamespaces	Explicit Namespaces
 FieldSelectors	FieldSelectors	Field Selectors

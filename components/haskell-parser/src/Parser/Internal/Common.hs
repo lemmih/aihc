@@ -129,6 +129,7 @@ typeSourceSpan ty =
     TVar span' _ -> span'
     TCon span' _ -> span'
     TQuasiQuote span' _ _ -> span'
+    TForall span' _ _ -> span'
     TApp span' _ _ -> span'
     TFun span' _ _ -> span'
     TTuple span' _ -> span'

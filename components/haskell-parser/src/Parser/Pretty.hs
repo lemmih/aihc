@@ -182,6 +182,8 @@ prettyType ty =
     TVar _ name -> pretty name
     TCon _ name -> pretty name
     TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
+    TForall _ binders inner ->
+      "forall" <+> hsep (map pretty binders) <> "." <+> prettyType inner
     TApp _ f x -> parenthesizeTypeApp f <+> parenthesizeTypeArg x
     TFun _ a b -> parenthesizeTypeFunLeft a <+> "->" <+> prettyType b
     TTuple _ elems -> parens (hsep (punctuate comma (map prettyType elems)))
@@ -193,6 +195,7 @@ prettyType ty =
 parenthesizeTypeFunLeft :: Type -> Doc ann
 parenthesizeTypeFunLeft ty =
   case ty of
+    TForall {} -> parens (prettyType ty)
     TFun {} -> parens (prettyType ty)
     TContext {} -> parens (prettyType ty)
     _ -> prettyType ty
@@ -201,6 +204,7 @@ parenthesizeTypeApp :: Type -> Doc ann
 parenthesizeTypeApp ty =
   case ty of
     TQuasiQuote {} -> prettyType ty
+    TForall {} -> parens (prettyType ty)
     TFun {} -> parens (prettyType ty)
     TContext {} -> parens (prettyType ty)
     _ -> prettyType ty
@@ -210,6 +214,7 @@ parenthesizeTypeArg ty =
   case ty of
     TQuasiQuote {} -> prettyType ty
     TApp {} -> parens (prettyType ty)
+    TForall {} -> parens (prettyType ty)
     TFun {} -> parens (prettyType ty)
     TContext {} -> parens (prettyType ty)
     _ -> prettyType ty
@@ -254,6 +259,7 @@ prettyPattern pat =
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> pretty op <+> prettyPatternAtom rhs
     PView _ viewExpr inner -> parens (prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner)
     PAs _ name inner -> pretty name <> "@" <> prettyPatternAtom inner
+    PStrict _ inner -> "!" <> prettyPatternAtom inner
     PIrrefutable _ inner -> "~" <> prettyPatternAtom inner
     PNegLit _ lit -> "-" <> prettyLiteral lit
     PParen _ inner -> parens (prettyPattern inner)
@@ -280,6 +286,7 @@ prettyPatternAtom pat =
     PList _ _ -> prettyPattern pat
     PTuple _ _ -> prettyPattern pat
     PParen _ _ -> prettyPattern pat
+    PStrict _ _ -> prettyPattern pat
     PView {} -> prettyPattern pat
     _ -> parens (prettyPattern pat)
 
@@ -375,6 +382,7 @@ prettyBangType bt
 prettyBangTypeAtom :: BangType -> Doc ann
 prettyBangTypeAtom bt =
   case bangType bt of
+    TForall {} -> parens (prettyBangType bt)
     TFun {} -> parens (prettyBangType bt)
     TContext {} -> parens (prettyBangType bt)
     _ -> prettyBangType bt

@@ -162,6 +162,7 @@ data Pattern
   | PInfix SourceSpan Pattern Text Pattern
   | PView SourceSpan Expr Pattern
   | PAs SourceSpan Text Pattern
+  | PStrict SourceSpan Pattern
   | PIrrefutable SourceSpan Pattern
   | PNegLit SourceSpan Literal
   | PParen SourceSpan Pattern
@@ -172,6 +173,7 @@ data Type
   = TVar SourceSpan Text
   | TCon SourceSpan Text
   | TQuasiQuote SourceSpan Text Text
+  | TForall SourceSpan [Text] Type
   | TApp SourceSpan Type Type
   | TFun SourceSpan Type Type
   | TTuple SourceSpan [Type]

@@ -1,0 +1,4 @@
+explicit-level-basic-modifiers	modules	explicit-level-basic-modifiers.hs	xfail	parser support pending
+explicit-level-with-import-list	modules	explicit-level-with-import-list.hs	xfail	parser support pending
+explicit-level-with-as	modules	explicit-level-with-as.hs	xfail	parser support pending
+explicit-level-with-hiding	modules	explicit-level-with-hiding.hs	xfail	parser support pending

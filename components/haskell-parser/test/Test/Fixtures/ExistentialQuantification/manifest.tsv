@@ -1,0 +1,4 @@
+existential-prefix-context	declarations	existential-prefix-context.hs	xfail	parser support pending
+existential-record-context	declarations	existential-record-context.hs	xfail	parser support pending
+existential-infix-constructor	declarations	existential-infix-constructor.hs	xfail	parser support pending
+existential-multi-constructor	declarations	existential-multi-constructor.hs	xfail	parser support pending

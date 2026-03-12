@@ -8,6 +8,7 @@ module Parser.Internal.Expr
   )
 where
 
+import Control.Monad (guard)
 import Data.Char (isLower, isUpper)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -223,13 +224,20 @@ buildPatternApp lhs rhs =
 
 patternAtomParser :: TokParser Pattern
 patternAtomParser =
-  MP.try irrefutablePatternParser
+  MP.try strictPatternParser
+    <|> MP.try irrefutablePatternParser
     <|> MP.try negativeLiteralPatternParser
     <|> wildcardPatternParser
     <|> literalPatternParser
     <|> listPatternParser
     <|> parenOrTuplePatternParser
     <|> varOrConPatternParser
+
+strictPatternParser :: TokParser Pattern
+strictPatternParser = withSpan $ do
+  operatorLikeTok "!"
+  inner <- patternAtomParser
+  pure (`PStrict` inner)
 
 irrefutablePatternParser :: TokParser Pattern
 irrefutablePatternParser = withSpan $ do
@@ -494,7 +502,15 @@ whereClauseParser = do
       pure parsed
 
 localDeclParser :: TokParser Decl
-localDeclParser = MP.try localFunctionDeclParser <|> localPatternDeclParser
+localDeclParser = MP.try localTypeSigDeclParser <|> MP.try localFunctionDeclParser <|> localPatternDeclParser
+
+localTypeSigDeclParser :: TokParser Decl
+localTypeSigDeclParser = withSpan $ do
+  names <- identifierTextParser `MP.sepBy1` symbolLikeTok ","
+  operatorLikeTok "::"
+  ty <- typeParser
+  guard (hasExplicitForall ty)
+  pure (\span' -> DeclTypeSig span' names ty)
 
 localFunctionDeclParser :: TokParser Decl
 localFunctionDeclParser = withSpan $ do
@@ -612,6 +628,7 @@ patternSourceSpan pat =
     PInfix span' _ _ _ -> span'
     PView span' _ _ -> span'
     PAs span' _ _ -> span'
+    PStrict span' _ -> span'
     PIrrefutable span' _ -> span'
     PNegLit span' _ -> span'
     PParen span' _ -> span'
@@ -659,7 +676,51 @@ simplePatternParser =
     <|> patternAtomParser
 
 typeParser :: TokParser Type
-typeParser = typeFunParser
+typeParser = MP.try forallTypeParser <|> typeFunParser
+
+forallTypeParser :: TokParser Type
+forallTypeParser = withSpan $ do
+  identifierExact "forall"
+  binders <- MP.some identifierTextParser
+  operatorLikeTok "."
+  inner <- MP.try contextTypeParser <|> typeFunParser
+  pure (\span' -> TForall span' binders inner)
+
+contextTypeParser :: TokParser Type
+contextTypeParser = do
+  constraints <- constraintsParser
+  operatorLikeTok "=>"
+  inner <- typeFunParser
+  pure (TContext (mergeSourceSpans (constraintSpanHead constraints) (typeSourceSpan inner)) constraints inner)
+
+constraintSpanHead :: [Constraint] -> SourceSpan
+constraintSpanHead constraints =
+  case constraints of
+    c : _ -> constraintSpan c
+    [] -> NoSourceSpan
+
+constraintsParser :: TokParser [Constraint]
+constraintsParser =
+  MP.try parenthesizedConstraintsParser <|> fmap pure constraintParser
+
+parenthesizedConstraintsParser :: TokParser [Constraint]
+parenthesizedConstraintsParser = do
+  symbolLikeTok "("
+  cs <- constraintParser `MP.sepBy` symbolLikeTok ","
+  symbolLikeTok ")"
+  pure cs
+
+constraintParser :: TokParser Constraint
+constraintParser = withSpan $ do
+  cls <- identifierTextParser
+  args <- MP.many typeAtomParser
+  pure $ \span' ->
+    Constraint
+      { constraintSpan = span',
+        constraintClass = cls,
+        constraintArgs = args,
+        constraintParen = False
+      }
 
 typeFunParser :: TokParser Type
 typeFunParser = do
@@ -730,3 +791,18 @@ sameLineTypeAtomParser expectedLine = do
   case lexTokenSpan nextTok of
     SourceSpan line _ _ _ | line == expectedLine -> typeAtomParser
     _ -> fail "line break"
+
+hasExplicitForall :: Type -> Bool
+hasExplicitForall ty =
+  case ty of
+    TForall {} -> True
+    TApp _ f x -> hasExplicitForall f || hasExplicitForall x
+    TFun _ a b -> hasExplicitForall a || hasExplicitForall b
+    TTuple _ elems -> any hasExplicitForall elems
+    TList _ inner -> hasExplicitForall inner
+    TParen _ inner -> hasExplicitForall inner
+    TContext _ constraints inner -> any constraintHasForall constraints || hasExplicitForall inner
+    _ -> False
+
+constraintHasForall :: Constraint -> Bool
+constraintHasForall constraint = any hasExplicitForall (constraintArgs constraint)

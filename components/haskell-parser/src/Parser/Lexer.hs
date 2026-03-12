@@ -194,6 +194,7 @@ stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
     TkKeywordDo -> st {layoutPendingLayout = True}
+    TkKeywordOf -> st {layoutPendingLayout = True}
     TkSymbol "{" -> st {layoutContexts = LayoutExplicit : layoutContexts st}
     TkSymbol "}" -> st {layoutContexts = popOneContext (layoutContexts st)}
     _ -> st
@@ -343,7 +344,7 @@ identifierToken :: LParser (Text, LexTokenKind)
 identifierToken = do
   first <- C.letterChar <|> C.char '_'
   rest <- many identTailChar
-  more <- many (C.char '.' *> ((:) <$> C.letterChar <*> many identTailChar))
+  more <- many (try (C.char '.' *> ((:) <$> C.letterChar <*> many identTailChar)))
   let base = first : rest
       chunks = base : more
       ident = T.intercalate "." (map T.pack chunks)

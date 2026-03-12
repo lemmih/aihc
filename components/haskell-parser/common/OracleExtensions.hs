@@ -12,7 +12,9 @@ import GHC.LanguageExtensions.Type
         DoAndIfThenElse,
         EmptyCase,
         EmptyDataDecls,
+        ExistentialQuantification,
         ExplicitForAll,
+        ExplicitLevelImports,
         ExplicitNamespaces,
         FunctionalDependencies,
         GADTs,
@@ -23,11 +25,18 @@ import GHC.LanguageExtensions.Type
         LambdaCase,
         MultiParamTypeClasses,
         NamedFieldPuns,
+        NamedWildCards,
         NumericUnderscores,
         PackageImports,
         ParallelListComp,
+        PatternGuards,
         QuasiQuotes,
+        RoleAnnotations,
+        StandaloneDeriving,
+        StandaloneKindSignatures,
+        TupleSections,
         TypeApplications,
+        TypeOperators,
         ViewPatterns
       ),
   )
@@ -52,10 +61,19 @@ resolveOracleExtensions spec =
     "BangPatterns" -> pure [BangPatterns]
     "DerivingStrategies" -> pure [DerivingStrategies]
     "EmptyDataDecls" -> pure [EmptyDataDecls]
+    "ExistentialQuantification" -> pure [ExistentialQuantification]
     "ExplicitForAll" -> pure [ExplicitForAll]
+    "ExplicitLevelImports" -> pure [ExplicitLevelImports]
     "FunctionalDependencies" -> pure [FunctionalDependencies, MultiParamTypeClasses]
     "InstanceSigs" -> pure [InstanceSigs]
     "KindSignatures" -> pure [KindSignatures]
     "MultiParamTypeClasses" -> pure [MultiParamTypeClasses]
     "NamedFieldPuns" -> pure [NamedFieldPuns]
+    "NamedWildCards" -> pure [NamedWildCards]
+    "PatternGuards" -> pure [PatternGuards]
+    "RoleAnnotations" -> pure [RoleAnnotations]
+    "StandaloneDeriving" -> pure [StandaloneDeriving]
+    "StandaloneKindSignatures" -> pure [StandaloneKindSignatures]
+    "TupleSections" -> pure [TupleSections]
+    "TypeOperators" -> pure [TypeOperators]
     _ -> fail ("Unsupported extension fixture without oracle mapping: " <> extName spec)

@@ -540,6 +540,7 @@ collectPatternExprs pat =
     PCon _ _ pats -> concatMap collectPatternExprs pats
     PInfix _ left _ right -> collectPatternExprs left <> collectPatternExprs right
     PAs _ _ inner -> collectPatternExprs inner
+    PStrict _ inner -> collectPatternExprs inner
     PIrrefutable _ inner -> collectPatternExprs inner
     PParen _ inner -> collectPatternExprs inner
     PRecord _ _ fields -> concatMap (collectPatternExprs . snd) fields
@@ -694,6 +695,7 @@ stripPattern pat =
     PInfix _ a op b -> PInfix noSourceSpan (stripPattern a) op (stripPattern b)
     PView _ expr inner -> PView noSourceSpan (stripExpr expr) (stripPattern inner)
     PAs _ n inner -> PAs noSourceSpan n (stripPattern inner)
+    PStrict _ inner -> PStrict noSourceSpan (stripPattern inner)
     PIrrefutable _ inner -> PIrrefutable noSourceSpan (stripPattern inner)
     PNegLit _ lit -> PNegLit noSourceSpan (stripLiteral lit)
     PParen _ inner -> PParen noSourceSpan (stripPattern inner)
@@ -714,6 +716,7 @@ stripType ty =
     TVar _ n -> TVar noSourceSpan n
     TCon _ n -> TCon noSourceSpan n
     TQuasiQuote _ q body -> TQuasiQuote noSourceSpan q body
+    TForall _ binders inner -> TForall noSourceSpan binders (stripType inner)
     TApp _ a b -> TApp noSourceSpan (stripType a) (stripType b)
     TFun _ a b -> TFun noSourceSpan (stripType a) (stripType b)
     TTuple _ tys -> TTuple noSourceSpan (map stripType tys)
