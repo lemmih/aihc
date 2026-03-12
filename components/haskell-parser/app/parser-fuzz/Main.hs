@@ -5,7 +5,7 @@ module Main (main) where
 
 import Control.DeepSeq (force)
 import Control.Exception (SomeException, evaluate, try)
-import Data.Char (isAlphaNum, isUpper)
+import Data.Char (isAlphaNum, isSpace, isUpper)
 import Data.List (intercalate)
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -164,7 +164,7 @@ firstSuccessfulShrink candidate = tryCandidates (candidateTransforms candidate)
       case mSource of
         Nothing -> tryCandidates rest
         Just source'
-          | oursFails source' ->
+          | isMeaningfulSource source' && oursFails source' ->
               pure
                 ( Just
                     Candidate
@@ -174,6 +174,9 @@ firstSuccessfulShrink candidate = tryCandidates (candidateTransforms candidate)
                       }
                 )
           | otherwise -> tryCandidates rest
+
+isMeaningfulSource :: String -> Bool
+isMeaningfulSource = any (not . isSpace)
 
 candidateTransforms :: Candidate -> [HSE.Module HSE.SrcSpanInfo]
 candidateTransforms candidate =
