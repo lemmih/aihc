@@ -1,0 +1,5 @@
+forall-top-level	types	forall-top-level.hs	xfail	parser support pending
+forall-with-context	types	forall-with-context.hs	xfail	parser support pending
+forall-nested-arrow	types	forall-nested-arrow.hs	xfail	parser support pending
+forall-class-method	types	forall-class-method.hs	xfail	parser support pending
+forall-local-signature	types	forall-local-signature.hs	xfail	parser support pending
