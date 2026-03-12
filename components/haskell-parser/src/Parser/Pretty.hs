@@ -254,6 +254,7 @@ prettyPattern pat =
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> pretty op <+> prettyPatternAtom rhs
     PView _ viewExpr inner -> parens (prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner)
     PAs _ name inner -> pretty name <> "@" <> prettyPatternAtom inner
+    PStrict _ inner -> "!" <> prettyPatternAtom inner
     PIrrefutable _ inner -> "~" <> prettyPatternAtom inner
     PNegLit _ lit -> "-" <> prettyLiteral lit
     PParen _ inner -> parens (prettyPattern inner)
@@ -280,6 +281,7 @@ prettyPatternAtom pat =
     PList _ _ -> prettyPattern pat
     PTuple _ _ -> prettyPattern pat
     PParen _ _ -> prettyPattern pat
+    PStrict _ _ -> prettyPattern pat
     PView {} -> prettyPattern pat
     _ -> parens (prettyPattern pat)
 

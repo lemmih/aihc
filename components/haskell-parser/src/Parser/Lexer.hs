@@ -194,6 +194,7 @@ stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
     TkKeywordDo -> st {layoutPendingLayout = True}
+    TkKeywordOf -> st {layoutPendingLayout = True}
     TkSymbol "{" -> st {layoutContexts = LayoutExplicit : layoutContexts st}
     TkSymbol "}" -> st {layoutContexts = popOneContext (layoutContexts st)}
     _ -> st
