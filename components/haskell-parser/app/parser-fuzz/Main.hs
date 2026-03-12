@@ -59,8 +59,12 @@ newtype GenModule = GenModule {unGenModule :: HSE.Module HSE.SrcSpanInfo}
 instance Arbitrary GenModule where
   arbitrary = do
     moduName <- genModuleName
-    let header = HSE.ModuleHead HSE.noSrcSpan (HSE.ModuleName HSE.noSrcSpan moduName) Nothing Nothing
-    pure (GenModule (HSE.Module HSE.noSrcSpan (Just header) [] [] []))
+    hasHeader <- arbitrary
+    let header =
+          if hasHeader
+            then Just (HSE.ModuleHead HSE.noSrcSpan (HSE.ModuleName HSE.noSrcSpan moduName) Nothing Nothing)
+            else Nothing
+    pure (GenModule (HSE.Module HSE.noSrcSpan header [] [] []))
 
 -- TODO: Add generators for module pragmas/imports/declarations.
 -- TODO: Extend generator to cover additional Haskell syntax supported by HSE.
@@ -176,7 +180,7 @@ firstSuccessfulShrink candidate = tryCandidates (candidateTransforms candidate)
           | otherwise -> tryCandidates rest
 
 isMeaningfulSource :: String -> Bool
-isMeaningfulSource = any (not . isSpace)
+isMeaningfulSource = not . all isSpace
 
 candidateTransforms :: Candidate -> [HSE.Module HSE.SrcSpanInfo]
 candidateTransforms candidate =
