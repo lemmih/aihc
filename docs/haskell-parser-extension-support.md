@@ -2,21 +2,22 @@
 
 ## Summary
 
-- Total Extensions: 58
-- Supported: 1
-- In Progress: 4
-- Planned: 53
+- Total Extensions: 59
+- Supported: 8
+- In Progress: 14
+- Planned: 37
 
 ## Extension Status
 
 | Extension | Status | Tests Passing | Notes |
 |-----------|--------|---------------|-------|
 | ParallelListComp | Supported | 1/1 | Parallel list comprehensions |
+| PackageImports | Supported | 3/3 | Package-qualified imports |
 | QuasiQuotes | In Progress | 0/3 | Quasi quotes |
 | TypeApplications | In Progress | 0/2 | Type applications |
 | ViewPatterns | In Progress | 0/3 | View patterns |
-| BangPatterns | Planned | - | Bang Patterns |
-| BinaryLiterals | Planned | - | Binary Literals |
+| BangPatterns | In Progress | 0/5 | Bang Patterns |
+| BinaryLiterals | Supported | 3/3 | Binary Literals |
 | ConstrainedClassMethods | Planned | - | Constrained Class Methods |
 | ConstraintKinds | Planned | - | Constraint Kinds |
 | DataKinds | Planned | - | Data Kinds |
@@ -26,34 +27,34 @@
 | DeriveGeneric | Planned | - | Derive Generic |
 | DeriveLift | Planned | - | Derive Lift |
 | DeriveTraversable | Planned | - | Derive Traversable |
-| DerivingStrategies | Planned | - | Deriving Strategies |
+| DerivingStrategies | In Progress | 0/5 | Deriving Strategies |
 | DisambiguateRecordFields | Planned | - | Disambiguate Record Fields |
-| DoAndIfThenElse | Planned | - | Do And If Then Else |
-| EmptyCase | Planned | - | Empty Case |
-| EmptyDataDecls | Planned | - | Empty Data Decls |
+| DoAndIfThenElse | Supported | 3/3 | Do And If Then Else |
+| EmptyCase | Supported | 4/4 | Empty Case |
+| EmptyDataDecls | In Progress | 4/5 | Empty Data Decls |
 | EmptyDataDeriving | Planned | - | Empty Data Deriving |
 | ExistentialQuantification | Planned | - | Existential Quantification |
-| ExplicitForAll | Planned | - | Explicit For All |
-| ExplicitNamespaces | Planned | - | Explicit Namespaces |
+| ExplicitForAll | In Progress | 0/5 | Explicit For All |
+| ExplicitNamespaces | In Progress | 0/3 | Explicit Namespaces |
 | FieldSelectors | Planned | - | Field Selectors |
 | FlexibleContexts | Planned | - | Flexible Contexts |
 | FlexibleInstances | Planned | - | Flexible Instances |
 | ForeignFunctionInterface | Planned | - | Foreign Function Interface |
-| GADTs | Planned | - | GADTs |
+| GADTs | In Progress | 0/3 | GADTs |
 | GADTSyntax | Planned | - | GADT Syntax |
 | GeneralisedNewtypeDeriving | Planned | - | Generalised Newtype Deriving |
-| HexFloatLiterals | Planned | - | Hex Float Literals |
+| HexFloatLiterals | Supported | 3/3 | Hex Float Literals |
 | ImplicitPrelude | Planned | - | Implicit Prelude |
-| ImportQualifiedPost | Planned | - | Import Qualified Post |
-| InstanceSigs | Planned | - | Instance Sigs |
-| KindSignatures | Planned | - | Kind Signatures |
-| LambdaCase | In Progress | 0/2 | Lambda Case |
+| ImportQualifiedPost | Supported | 3/3 | Import Qualified Post |
+| InstanceSigs | In Progress | 0/5 | Instance Sigs |
+| KindSignatures | In Progress | 0/5 | Kind Signatures |
+| LambdaCase | In Progress | 3/5 | Lambda Case |
 | MonoLocalBinds | Planned | - | Mono Local Binds |
 | MonomorphismRestriction | Planned | - | Monomorphism Restriction |
-| MultiParamTypeClasses | Planned | - | Multi Param Type Classes |
-| NamedFieldPuns | Planned | - | Named Field Puns |
+| MultiParamTypeClasses | In Progress | 0/5 | Multi Param Type Classes |
+| NamedFieldPuns | In Progress | 0/5 | Named Field Puns |
 | NamedWildCards | Planned | - | Named Wild Cards |
-| NumericUnderscores | Planned | - | Numeric Underscores |
+| NumericUnderscores | Supported | 3/3 | Numeric Underscores |
 | PatternGuards | Planned | - | Pattern Guards |
 | PolyKinds | Planned | - | Poly Kinds |
 | PostfixOperators | Planned | - | Postfix Operators |
