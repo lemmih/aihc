@@ -9,27 +9,8 @@ import CppSupport (preprocessForParser)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified GHC.Data.EnumSet as EnumSet
-import GHC.Data.FastString (mkFastString)
-import GHC.Data.StringBuffer (stringToStringBuffer)
-import GHC.Hs (GhcPs, HsModule)
-import GHC.LanguageExtensions.Type (Extension (ForeignFunctionInterface))
-import qualified GHC.Parser as GHCParser
-import GHC.Parser.Lexer
-  ( ParseResult (..),
-    getPsErrorMessages,
-    initParserState,
-    mkParserOpts,
-    unP,
-  )
-import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
-import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
-import GHC.Utils.Error (emptyDiagOpts, pprMessages)
-import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import HackageSupport (diagToText, downloadPackage, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
-import qualified Parser
-import Parser.Pretty (prettyModule)
-import Parser.Types (ParseResult (..))
+import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailed)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.Process (readProcess)
@@ -102,40 +83,35 @@ processFile packageRoot file = do
         if null cppErrors
           then Nothing
           else Just (T.intercalate "\n" cppErrors)
-      oursResult = Parser.parseModule Parser.defaultConfig source'
-  case oursResult of
-    ParseErr err ->
+  case validateParserDetailed source' of
+    Nothing ->
       pure
         FileResult
           { filePath = file,
-            parseError = True,
+            parseError = False,
             roundtripFail = False,
-            parseErrorMsg = Just (prefixCppErrors cppErrorMsg (T.pack (show err))),
+            parseErrorMsg = cppErrorMsg,
             roundtripErrorMsg = Nothing
           }
-    ParseOk parsed -> do
-      let rendered = prettyModule parsed
-      let sourceAst = oracleModuleAstFingerprint source'
-      let renderedAst = oracleModuleAstFingerprint rendered
-      case (sourceAst, renderedAst) of
-        (Right sa, Right ra)
-          | sa == ra ->
-              pure
-                FileResult
-                  { filePath = file,
-                    parseError = False,
-                    roundtripFail = False,
-                    parseErrorMsg = cppErrorMsg,
-                    roundtripErrorMsg = Nothing
-                  }
-        _ ->
+    Just err ->
+      case validationErrorKind err of
+        ValidationParseError ->
+          pure
+            FileResult
+              { filePath = file,
+                parseError = True,
+                roundtripFail = False,
+                parseErrorMsg = Just (prefixCppErrors cppErrorMsg (T.pack (validationErrorMessage err))),
+                roundtripErrorMsg = Nothing
+              }
+        ValidationRoundtripError ->
           pure
             FileResult
               { filePath = file,
                 parseError = False,
                 roundtripFail = True,
                 parseErrorMsg = cppErrorMsg,
-                roundtripErrorMsg = Just (prefixCppErrors cppErrorMsg "AST fingerprint mismatch")
+                roundtripErrorMsg = Just (prefixCppErrors cppErrorMsg (T.pack (validationErrorMessage err)))
               }
 
 printSummary :: [FileResult] -> IO ()
@@ -153,33 +129,3 @@ printSummary results = do
   putStrLn ("  Parse errors:    " ++ show parseErrs)
   putStrLn ("  Roundtrip fails: " ++ show roundtripFails)
   putStrLn ("  Success rate:    " ++ show (round successRate :: Int) ++ "%")
-
-oracleModuleAstFingerprint :: Text -> Either Text Text
-oracleModuleAstFingerprint input = do
-  parsed <- parseWithGhc input
-  pure (T.pack (showSDocUnsafe (ppr parsed)))
-
-parseWithGhc :: Text -> Either Text (HsModule GhcPs)
-#if __GLASGOW_HASKELL__ >= 910
-parseWithGhc input =
-  let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
-      opts = mkParserOpts exts emptyDiagOpts False False False False
-      buffer = stringToStringBuffer (T.unpack input)
-      start = mkRealSrcLoc (mkFastString "<hackage-tester>") 1 1
-   in case unP GHCParser.parseModule (initParserState opts buffer start) of
-        POk _ modu -> Right (unLoc modu)
-        PFailed st ->
-          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
-           in Left (T.pack rendered)
-#else
-parseWithGhc input =
-  let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
-      opts = mkParserOpts exts emptyDiagOpts [] False False False False
-      buffer = stringToStringBuffer (T.unpack input)
-      start = mkRealSrcLoc (mkFastString "<hackage-tester>") 1 1
-   in case unP GHCParser.parseModule (initParserState opts buffer start) of
-        POk _ modu -> Right (unLoc modu)
-        PFailed st ->
-          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
-           in Left (T.pack rendered)
-#endif

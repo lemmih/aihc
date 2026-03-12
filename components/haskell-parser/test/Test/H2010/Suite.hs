@@ -10,16 +10,13 @@ import Cpp (resultOutput)
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd)
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified Parser
-import Parser.Ast (Module)
-import Parser.Pretty (prettyModule)
-import Parser.Types (ParseResult (..))
+import ParserValidation (validateParser)
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
-import Test.Oracle (oracleModuleAstFingerprint, oracleParsesModule)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
@@ -125,30 +122,18 @@ evaluateCase meta = do
 evaluateCaseText :: CaseMeta -> Text -> IO Outcome
 evaluateCaseText meta source = do
   let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
-      oursResult = Parser.parseModule Parser.defaultConfig source'
-      oracleOk = oracleParsesModule source'
-      roundtripOk = moduleRoundtripsViaGhc source' oursResult
-  pure $ classify (caseExpected meta) oracleOk roundtripOk
+      validationOk = isNothing (validateParser source')
+  pure $ classify (caseExpected meta) validationOk
 
-classify :: Expected -> Bool -> Bool -> Outcome
-classify expected oracleOk roundtripOk =
+classify :: Expected -> Bool -> Outcome
+classify expected validationOk =
   case expected of
     ExpectPass
-      | oracleOk && roundtripOk -> OutcomePass
+      | validationOk -> OutcomePass
       | otherwise -> OutcomeFail
     ExpectXFail
-      | oracleOk && roundtripOk -> OutcomeXPass
+      | validationOk -> OutcomeXPass
       | otherwise -> OutcomeXFail
-
-moduleRoundtripsViaGhc :: Text -> ParseResult Module -> Bool
-moduleRoundtripsViaGhc source oursResult =
-  case oursResult of
-    ParseErr _ -> False
-    ParseOk parsed ->
-      let rendered = prettyModule parsed
-       in case (oracleModuleAstFingerprint source, oracleModuleAstFingerprint rendered) of
-            (Right sourceAst, Right renderedAst) -> sourceAst == renderedAst
-            _ -> False
 
 loadManifest :: IO [CaseMeta]
 loadManifest = do

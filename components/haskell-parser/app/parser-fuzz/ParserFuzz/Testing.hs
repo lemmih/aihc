@@ -4,11 +4,10 @@ import Data.Char (isAlphaNum, isUpper)
 import Data.List (intercalate)
 import Data.Text qualified as T
 import Language.Haskell.Exts qualified as HSE
-import Parser (defaultConfig, parseModule)
-import Parser.Types (ParseResult (..))
 import ParserFuzz.Arbitrary (generateCandidate, normalizeCandidateAst, qcGenStream)
 import ParserFuzz.CLI (Options (..))
 import ParserFuzz.Types (Candidate (..), SearchResult (..))
+import ParserValidation (validateParser)
 import System.Random (randomIO)
 import Test.QuickCheck (shrink)
 import Test.QuickCheck.Random (QCGen)
@@ -31,6 +30,11 @@ runWithOptions opts = do
       putStrLn "---8<---"
       putStrLn (candSource minimized)
       putStrLn "--->8---"
+      case validateParser (T.pack (candSource minimized)) of
+        Nothing -> pure ()
+        Just err -> do
+          putStrLn "Validation failure:"
+          putStrLn err
       case optOutput opts of
         Nothing -> pure ()
         Just path -> do
@@ -199,9 +203,9 @@ unique = foldr keep []
 
 oursFails :: String -> Bool
 oursFails source =
-  case parseModule defaultConfig (T.pack source) of
-    ParseErr _ -> True
-    ParseOk _ -> False
+  case validateParser (T.pack source) of
+    Nothing -> False
+    Just _ -> True
 
 splitModuleName :: String -> [String]
 splitModuleName raw =

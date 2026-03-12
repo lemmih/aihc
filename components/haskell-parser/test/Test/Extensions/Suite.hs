@@ -8,20 +8,15 @@ where
 import Control.Monad (when)
 import Cpp (resultOutput)
 import CppSupport (preprocessForParserWithoutIncludes)
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text.IO as TIO
 import ExtensionSupport
 import GHC.LanguageExtensions.Type (Extension)
 import OracleExtensions (resolveOracleExtensions)
-import qualified Parser
-import Parser.Ast (Module)
-import Parser.Pretty (prettyModule)
-import Parser.Types (ParseResult (..))
+import ParserValidation (validateParserWithExtensions)
 import System.FilePath ((</>))
-import Test.Oracle
-  ( oracleModuleAstFingerprintWithExtensions,
-    oracleParsesModuleWithExtensions,
-  )
+import Test.Oracle (oracleParsesModuleWithExtensions)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
@@ -103,17 +98,7 @@ evaluateCaseFromFile spec exts meta = do
 evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> Text -> IO (CaseMeta, Outcome, String)
 evaluateCase _spec exts meta source = do
   let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
-      parsed = Parser.parseModule Parser.defaultConfig source'
       oracleOk = oracleParsesModuleWithExtensions exts source'
-      roundtripOk = moduleRoundtripsViaGhc exts source' parsed
+      validationOk = isNothing (validateParserWithExtensions exts source')
+      roundtripOk = oracleOk && validationOk
   pure (finalizeOutcome meta oracleOk roundtripOk)
-
-moduleRoundtripsViaGhc :: [Extension] -> Text -> ParseResult Module -> Bool
-moduleRoundtripsViaGhc exts source oursResult =
-  case oursResult of
-    ParseErr _ -> False
-    ParseOk parsed ->
-      let rendered = prettyModule parsed
-       in case (oracleModuleAstFingerprintWithExtensions exts source, oracleModuleAstFingerprintWithExtensions exts rendered) of
-            (Right sourceAst, Right renderedAst) -> sourceAst == renderedAst
-            _ -> False

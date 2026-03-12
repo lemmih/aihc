@@ -41,6 +41,7 @@ test-suite spec
     , ExtensionSupport
     , GhcOracle
     , OracleExtensions
+    , ParserValidation
     , Test.Oracle
     , Test.H2010.Suite
     , Test.Extensions.Suite
@@ -57,6 +58,7 @@ test-suite spec
     , tasty-quickcheck
     , QuickCheck
     , ghc-lib-parser
+    , haskell-src-exts
   ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 
@@ -108,7 +110,9 @@ executable hackage-tester
   main-is:          Main.hs
   other-modules:
       CppSupport
+    , GhcOracle
     , HackageSupport
+    , ParserValidation
   build-depends:
       base >=4.16 && <5
     , aihc-parser
@@ -120,6 +124,7 @@ executable hackage-tester
     , Cabal
     , bytestring
     , process
+    , haskell-src-exts
   ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 
@@ -132,6 +137,7 @@ executable stackage-progress
       CppSupport
     , GhcOracle
     , HackageSupport
+    , ParserValidation
   build-depends:
       base >=4.16 && <5
     , aihc-parser
@@ -144,15 +150,19 @@ executable stackage-progress
     , async
     , Cabal
     , bytestring
+    , haskell-src-exts
   ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 
 executable parser-fuzz
   hs-source-dirs:
       app/parser-fuzz
+    , common
   main-is:          Main.hs
   other-modules:
-      ParserFuzz.CLI
+      GhcOracle
+    , ParserValidation
+    , ParserFuzz.CLI
     , ParserFuzz.Testing
     , ParserFuzz.Types
     , ParserFuzz.Arbitrary
@@ -164,5 +174,6 @@ executable parser-fuzz
     , optparse-applicative
     , random
     , text
+    , ghc-lib-parser
   ghc-options:        -Wall -Werror
   default-language: GHC2024

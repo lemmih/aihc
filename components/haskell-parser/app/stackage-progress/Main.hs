@@ -16,28 +16,11 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import GHC.Conc (getNumProcessors)
-import qualified GHC.Data.EnumSet as EnumSet
-import GHC.Data.FastString (mkFastString)
-import GHC.Data.StringBuffer (stringToStringBuffer)
-import GHC.Hs (GhcPs, HsModule)
-import GHC.LanguageExtensions.Type (Extension (ForeignFunctionInterface))
-import qualified GHC.Parser as GHCParser
-import GHC.Parser.Lexer
-  ( ParseResult (..),
-    getPsErrorMessages,
-    initParserState,
-    mkParserOpts,
-    unP,
-  )
-import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
-import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
-import GHC.Utils.Error (emptyDiagOpts, pprMessages)
-import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import HackageSupport (diagToText, downloadPackageQuietWithNetwork, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
 import qualified Parser
 import Parser.Ast
-import Parser.Pretty (prettyModule)
 import Parser.Types (ParseResult (..))
+import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailed)
 import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesFileExist, getXdgDirectory)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
@@ -339,7 +322,7 @@ checkFile opts packageRoot file = do
     ParseOk parsed -> do
       roundtripRes <-
         if CheckRoundtripGhc `elem` optChecks opts
-          then pure (checkRoundtrip file cppErrorMsg source' parsed)
+          then pure (checkRoundtrip file cppErrorMsg source')
           else pure (Right ())
       case roundtripRes of
         Left err -> pure (Left err)
@@ -352,45 +335,16 @@ needsParsedModule :: [Check] -> Bool
 needsParsedModule checks =
   CheckRoundtripGhc `elem` checks || CheckSourceSpan `elem` checks
 
-checkRoundtrip :: FilePath -> Maybe Text -> Text -> Module -> Either String ()
-checkRoundtrip file cppErrorMsg source' parsed =
-  let rendered = prettyModule parsed
-      sourceAst = oracleModuleAstFingerprint source'
-      renderedAst = oracleModuleAstFingerprint rendered
-   in case (sourceAst, renderedAst) of
-        (Right sa, Right ra)
-          | sa == ra -> Right ()
-        _ -> Left (T.unpack (prefixCppErrors cppErrorMsg ("roundtrip mismatch in " <> T.pack file)))
-
-oracleModuleAstFingerprint :: Text -> Either Text Text
-oracleModuleAstFingerprint input = do
-  parsed <- parseWithGhc input
-  pure (T.pack (showSDocUnsafe (ppr parsed)))
-
-parseWithGhc :: Text -> Either Text (HsModule GhcPs)
-#if __GLASGOW_HASKELL__ >= 910
-parseWithGhc input =
-  let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
-      opts = mkParserOpts exts emptyDiagOpts False False False False
-      buffer = stringToStringBuffer (T.unpack input)
-      start = mkRealSrcLoc (mkFastString "<stackage-progress>") 1 1
-   in case unP GHCParser.parseModule (initParserState opts buffer start) of
-        POk _ modu -> Right (unLoc modu)
-        PFailed st ->
-          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
-           in Left (T.pack rendered)
-#else
-parseWithGhc input =
-  let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
-      opts = mkParserOpts exts emptyDiagOpts [] False False False False
-      buffer = stringToStringBuffer (T.unpack input)
-      start = mkRealSrcLoc (mkFastString "<stackage-progress>") 1 1
-   in case unP GHCParser.parseModule (initParserState opts buffer start) of
-        POk _ modu -> Right (unLoc modu)
-        PFailed st ->
-          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
-           in Left (T.pack rendered)
-#endif
+checkRoundtrip :: FilePath -> Maybe Text -> Text -> Either String ()
+checkRoundtrip file cppErrorMsg source' =
+  case validateParserDetailed source' of
+    Nothing -> Right ()
+    Just err ->
+      case validationErrorKind err of
+        ValidationParseError ->
+          Left (T.unpack (prefixCppErrors cppErrorMsg ("parse failed in " <> T.pack file <> ": " <> T.pack (validationErrorMessage err))))
+        ValidationRoundtripError ->
+          Left (T.unpack (prefixCppErrors cppErrorMsg ("roundtrip mismatch in " <> T.pack file <> ": " <> T.pack (validationErrorMessage err))))
 
 checkSourceSpans :: FilePath -> Text -> Module -> Either String ()
 checkSourceSpans file source modu =
