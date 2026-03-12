@@ -8,6 +8,7 @@ modules-exports	modules	modules/exports.hs	pass	parser now supports explicit mod
 modules-import-qualified	modules	modules/import-qualified.hs	pass	parser now supports qualified imports with aliases
 modules-import-hiding	modules	modules/import-hiding.hs	pass	parser now supports hiding import lists
 modules-multi-imports	modules	modules/multi-imports.hs	pass	parser supports multiple plain imports
+modules-import-only	modules	modules/import-only.hs	pass	parser supports modules with imports and no declarations
 modules-import-as	modules	modules/import-as.hs	pass	parser now supports import aliases
 modules-multiline-definition	modules	modules/multiline-definition.hs	pass	parser now handles multiline module headers
 modules-multiline-definition-module-split	modules	modules/multiline-definition-module-split.hs	pass	parser now handles multiline module headers
@@ -41,7 +42,7 @@ modules-s5-import-qualified-as	modules	modules/s5-import-qualified-as.hs	pass	pa
 modules-s5-import-qualified-hiding-var	modules	modules/s5-import-qualified-hiding-var.hs	pass	parser now supports section 5 qualified hiding imports
 modules-s5-import-qualified	modules	modules/s5-import-qualified.hs	pass	parser now supports section 5 qualified imports
 modules-s5-module-body-impdecls-topdecls-braces	modules	modules/s5-module-body-impdecls-topdecls-braces.hs	pass	parser now supports section 5 braced module bodies with imports and declarations
-modules-s5-module-body-imports-only-braces	modules	modules/s5-module-body-imports-only-braces.hs	xfail	section 5 module variation unsupported
+modules-s5-module-body-imports-only-braces	modules	modules/s5-module-body-imports-only-braces.hs	pass	parser now supports section 5 braced module bodies with imports only
 modules-s5-module-body-topdecls-only-braces	modules	modules/s5-module-body-topdecls-only-braces.hs	pass	parser now supports section 5 braced module bodies with top-level declarations
 modules-s5-module-empty-exports	modules	modules/s5-module-empty-exports.hs	pass	parser now supports explicit empty module export lists
 modules-s5-module-explicit-no-exports	modules	modules/s5-module-explicit-no-exports.hs	pass	parser now supports explicit no-export module form
