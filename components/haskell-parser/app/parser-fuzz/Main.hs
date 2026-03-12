@@ -18,7 +18,8 @@ data Options = Options
     optMaxTests :: Int,
     optSize :: Int,
     optMaxShrinkPasses :: Int,
-    optOutput :: Maybe FilePath
+    optOutput :: Maybe FilePath,
+    optPrintGeneratedModules :: Bool
   }
 
 data SearchResult = SearchResult
@@ -112,19 +113,24 @@ optionsParser =
               <> OA.help "Write minimized source to PATH"
           )
       )
+    <*> OA.switch
+      ( OA.long "print-generated-modules"
+          <> OA.help "Print each generated module before testing it"
+      )
 
 runWithOptions :: Options -> IO ()
 runWithOptions opts = do
   seed <- resolveSeed (optSeed opts)
-  case findFirstFailure opts seed of
+  found <- findFirstFailure opts seed
+  case found of
     Nothing -> do
       putStrLn ("Seed: " <> show seed)
       putStrLn ("Tests tried: " <> show (optMaxTests opts))
       putStrLn "No failing module found."
-    Just found -> do
-      let (minimized, shrinksAccepted) = shrinkCandidate opts (srCandidate found)
+    Just result -> do
+      let (minimized, shrinksAccepted) = shrinkCandidate opts (srCandidate result)
       putStrLn ("Seed: " <> show seed)
-      putStrLn ("Tests tried: " <> show (srTestsTried found))
+      putStrLn ("Tests tried: " <> show (srTestsTried result))
       putStrLn ("Shrink passes accepted: " <> show shrinksAccepted)
       putStrLn "Minimized source:"
       putStrLn "---8<---"
@@ -140,19 +146,30 @@ resolveSeed :: Maybe Int -> IO Int
 resolveSeed (Just seed) = pure seed
 resolveSeed Nothing = randomIO
 
-findFirstFailure :: Options -> Int -> Maybe SearchResult
+findFirstFailure :: Options -> Int -> IO (Maybe SearchResult)
 findFirstFailure opts seed = go 1 (qcGenStream seed)
   where
-    go :: Int -> [QCGen] -> Maybe SearchResult
-    go _ [] = Nothing
+    go :: Int -> [QCGen] -> IO (Maybe SearchResult)
+    go _ [] = pure Nothing
     go idx (g : gs)
-      | idx > optMaxTests opts = Nothing
+      | idx > optMaxTests opts = pure Nothing
       | otherwise =
           let generated = unGen (arbitrary :: Gen GenModule) g (optSize opts)
               candidate = materializeCandidate generated
-           in if oursFails (candSource candidate)
-                then Just (SearchResult idx candidate)
-                else go (idx + 1) gs
+           in do
+                printGeneratedModule opts idx candidate
+                if oursFails (candSource candidate)
+                  then pure (Just (SearchResult idx candidate))
+                  else go (idx + 1) gs
+
+printGeneratedModule :: Options -> Int -> Candidate -> IO ()
+printGeneratedModule opts idx candidate
+  | not (optPrintGeneratedModules opts) = pure ()
+  | otherwise = do
+      putStrLn ("Generated module #" <> show idx <> ":")
+      putStrLn "---8<---"
+      putStrLn (candSource candidate)
+      putStrLn "--->8---"
 
 materializeCandidate :: GenModule -> Candidate
 materializeCandidate (GenModule modu0) =
