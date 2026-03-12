@@ -87,11 +87,6 @@
 
           parser-fuzz = mkApp "parser-fuzz" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-parser
             ${parserFuzzExe} "$@"
           '';
 
