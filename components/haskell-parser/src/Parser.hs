@@ -42,14 +42,14 @@ moduleBodyParser = MP.try bracedModuleBodyParser MP.<|> plainModuleBodyParser
   where
     plainModuleBodyParser = do
       imports <- MP.many (importDeclParser <* MP.many (symbolLikeTok ";"))
-      decls <- MP.some (declParser <* MP.many (symbolLikeTok ";"))
+      decls <- MP.many (declParser <* MP.many (symbolLikeTok ";"))
       pure (imports, decls)
 
     bracedModuleBodyParser = do
       symbolLikeTok "{"
       _ <- MP.many (symbolLikeTok ";")
       imports <- MP.many (importDeclParser <* MP.many (symbolLikeTok ";"))
-      decls <- MP.some (declParser <* MP.many (symbolLikeTok ";"))
+      decls <- MP.many (declParser <* MP.many (symbolLikeTok ";"))
       _ <- MP.many (symbolLikeTok ";")
       symbolLikeTok "}"
       pure (imports, decls)

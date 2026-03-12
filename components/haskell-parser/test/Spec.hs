@@ -40,7 +40,9 @@ buildTests = do
       [ testGroup "golden" [exprOk, exprErr, moduleOk, moduleErr],
         testGroup
           "parser"
-          [testCase "module parses declaration list" test_moduleParsesDecls],
+          [ testCase "module parses declaration list" test_moduleParsesDecls,
+            testCase "module parses empty file" test_moduleParsesEmptyFile
+          ],
         testGroup
           "properties"
           [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
@@ -95,6 +97,17 @@ test_moduleParsesDecls =
             pure ()
         other ->
           assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_moduleParsesEmptyFile :: Assertion
+test_moduleParsesEmptyFile =
+  case parseModule defaultConfig "" of
+    ParseErr err ->
+      assertFailure ("expected empty module parse success, got parse error: " <> errorBundlePretty err)
+    ParseOk modu ->
+      case (moduleName modu, moduleImports modu, moduleDecls modu) of
+        (Nothing, [], []) -> pure ()
+        other ->
+          assertFailure ("unexpected parsed empty module shape: " <> show other)
 
 prop_exprPrettyRoundTrip :: GenExpr -> Property
 prop_exprPrettyRoundTrip generated =
