@@ -155,11 +155,9 @@ findFirstFailure opts seed = go 1 (qcGenStream seed)
 
 materializeCandidate :: GenModule -> Candidate
 materializeCandidate (GenModule modu0) =
-  case normalizeCandidateAst modu0 of
-    Nothing ->
-      let source0 = HSE.prettyPrint modu0
-       in error ("materializeCandidate: generated AST failed to parse after prettyPrint\nsource:\n" <> source0)
-    Just candidate -> candidate
+  case normalizeCandidateAst "materializeCandidate" modu0 of
+    Left msg -> error msg
+    Right candidate -> candidate
 
 shrinkCandidate :: Options -> Candidate -> (Candidate, Int)
 shrinkCandidate opts = go 0
@@ -178,9 +176,9 @@ firstSuccessfulShrink candidate = tryCandidates (candidateTransforms candidate)
     tryCandidates :: [HSE.Module HSE.SrcSpanInfo] -> Maybe Candidate
     tryCandidates [] = Nothing
     tryCandidates (ast' : rest) =
-      case normalizeCandidateAst ast' of
-        Nothing -> tryCandidates rest
-        Just candidate' ->
+      case normalizeCandidateAst "firstSuccessfulShrink" ast' of
+        Left msg -> error msg
+        Right candidate' ->
           if oursFails (candSource candidate')
             then Just candidate'
             else tryCandidates rest
@@ -450,16 +448,37 @@ isSegmentRestChar ch = isAlphaNum ch || ch == '\''
 qcGenStream :: Int -> [QCGen]
 qcGenStream seed = map mkQCGen [seed ..]
 
-normalizeCandidateAst :: HSE.Module HSE.SrcSpanInfo -> Maybe Candidate
-normalizeCandidateAst modu0 =
+normalizeCandidateAst :: String -> HSE.Module HSE.SrcSpanInfo -> Either String Candidate
+normalizeCandidateAst context modu0 =
   let source0 = HSE.prettyPrint modu0
       mode = hseParseMode
    in case HSE.parseFileContentsWithMode mode source0 of
-        HSE.ParseFailed _ _ -> Nothing
+        HSE.ParseFailed loc err ->
+          Left
+            ( context
+                <> ": internal bug: candidate AST failed to parse after prettyPrint at "
+                <> show loc
+                <> " with error: "
+                <> err
+                <> "\nsource:\n"
+                <> source0
+            )
         HSE.ParseOk modu1 ->
           let source1 = HSE.exactPrint modu1 []
-           in Just
-                Candidate
-                  { candAst = modu1,
-                    candSource = source1
-                  }
+           in case HSE.parseFileContentsWithMode mode source1 of
+                HSE.ParseFailed loc err ->
+                  Left
+                    ( context
+                        <> ": internal bug: normalized exactPrint failed to parse at "
+                        <> show loc
+                        <> " with error: "
+                        <> err
+                        <> "\nsource:\n"
+                        <> source1
+                    )
+                HSE.ParseOk modu2 ->
+                  Right
+                    Candidate
+                      { candAst = modu2,
+                        candSource = HSE.exactPrint modu2 []
+                      }
