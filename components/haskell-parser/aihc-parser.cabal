@@ -149,6 +149,12 @@ executable parser-fuzz
   hs-source-dirs:
       app/parser-fuzz
   main-is:          Main.hs
+  other-modules:
+      ParserFuzz.CLI
+    , ParserFuzz.Testing
+    , ParserFuzz.Types
+    , ParserFuzz.Arbitrary
+    , ParserFuzz.Arbitrary.Helpers
   build-depends:
       base >=4.16 && <5
     , aihc-parser
