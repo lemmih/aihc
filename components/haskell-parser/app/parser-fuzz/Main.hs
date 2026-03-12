@@ -4,6 +4,7 @@ import Data.Char (isAlphaNum, isUpper)
 import Data.List (intercalate)
 import Data.Text qualified as T
 import Language.Haskell.Exts qualified as HSE
+import Language.Haskell.Exts.Build qualified as HSEB
 import Options.Applicative qualified as OA
 import Parser (defaultConfig, parseModule)
 import Parser.Types (ParseResult (..))
@@ -30,16 +31,16 @@ data Candidate = Candidate
     candSource :: String
   }
 
-newtype GenModule = GenModule {unGenModule :: HSE.Module HSE.SrcSpanInfo}
+newtype GenModule = GenModule {unGenModule :: HSE.Module ()}
   deriving (Show)
 
-newtype GenModuleHead = GenModuleHead {unGenModuleHead :: Maybe (HSE.ModuleHead HSE.SrcSpanInfo)}
+newtype GenModuleHead = GenModuleHead {unGenModuleHead :: Maybe (HSE.ModuleHead ())}
   deriving (Show)
 
 instance Arbitrary GenModule where
   arbitrary = do
     GenModuleHead header <- arbitrary
-    pure (GenModule (HSE.Module HSE.noSrcSpan header [] [] []))
+    pure (GenModule (HSE.Module () header [] [] []))
 
 instance Arbitrary GenModuleHead where
   arbitrary =
@@ -48,7 +49,7 @@ instance Arbitrary GenModuleHead where
         do
           moduName <- genModuleName
           exports <- genMaybeExportSpecList
-          let header = HSE.ModuleHead HSE.noSrcSpan (HSE.ModuleName HSE.noSrcSpan moduName) Nothing exports
+          let header = HSE.ModuleHead () (HSE.ModuleName () moduName) Nothing exports
           pure (GenModuleHead (Just header))
       ]
 
@@ -155,7 +156,7 @@ findFirstFailure opts seed = go 1 (qcGenStream seed)
 
 materializeCandidate :: GenModule -> Candidate
 materializeCandidate (GenModule modu0) =
-  case normalizeCandidateAst "materializeCandidate" modu0 of
+  case normalizeCandidateSource "materializeCandidate" (HSE.prettyPrint modu0) of
     Left msg -> error msg
     Right candidate -> candidate
 
@@ -320,67 +321,67 @@ genModuleSegment = do
 moduleSegmentChars :: [Char]
 moduleSegmentChars = ['A' .. 'Z'] <> ['a' .. 'z'] <> ['0' .. '9'] <> "'"
 
-genMaybeExportSpecList :: Gen (Maybe (HSE.ExportSpecList HSE.SrcSpanInfo))
+genMaybeExportSpecList :: Gen (Maybe (HSE.ExportSpecList ()))
 genMaybeExportSpecList =
   frequency
     [ (3, pure Nothing),
       (7, Just <$> genExportSpecList)
     ]
 
-genExportSpecList :: Gen (HSE.ExportSpecList HSE.SrcSpanInfo)
+genExportSpecList :: Gen (HSE.ExportSpecList ())
 genExportSpecList = do
   n <- chooseInt (0, 4)
   specs <- vectorOf n genExportSpec
-  pure (HSE.ExportSpecList HSE.noSrcSpan specs)
+  pure (HSE.ExportSpecList () specs)
 
-genExportSpec :: Gen (HSE.ExportSpec HSE.SrcSpanInfo)
+genExportSpec :: Gen (HSE.ExportSpec ())
 genExportSpec =
   frequency
-    [ (4, HSE.EVar HSE.noSrcSpan <$> genVarQName),
-      (3, HSE.EAbs HSE.noSrcSpan (HSE.NoNamespace HSE.noSrcSpan) <$> genTypeQName),
+    [ (4, HSE.EVar () <$> genVarQName),
+      (3, HSE.EAbs () (HSE.NoNamespace ()) <$> genTypeQName),
       (3, genEThingWith),
-      (2, HSE.EModuleContents HSE.noSrcSpan <$> genModuleNameNode)
+      (2, HSE.EModuleContents () <$> genModuleNameNode)
     ]
 
-genEThingWith :: Gen (HSE.ExportSpec HSE.SrcSpanInfo)
+genEThingWith :: Gen (HSE.ExportSpec ())
 genEThingWith = do
   qtycon <- genTypeQName
   n <- chooseInt (0, 3)
   cnames <- vectorOf n genCName
-  let wildcard = HSE.NoWildcard HSE.noSrcSpan
-  pure (HSE.EThingWith HSE.noSrcSpan wildcard qtycon cnames)
+  let wildcard = HSE.NoWildcard ()
+  pure (HSE.EThingWith () wildcard qtycon cnames)
 
-genVarQName :: Gen (HSE.QName HSE.SrcSpanInfo)
+genVarQName :: Gen (HSE.QName ())
 genVarQName =
   frequency
-    [ (4, HSE.UnQual HSE.noSrcSpan . HSE.Ident HSE.noSrcSpan <$> genVarIdent),
+    [ (4, HSE.UnQual () . HSEB.name <$> genVarIdent),
       ( 1,
         do
           modu <- genModuleNameNode
-          HSE.Qual HSE.noSrcSpan modu . HSE.Ident HSE.noSrcSpan <$> genVarIdent
+          HSE.Qual () modu . HSEB.name <$> genVarIdent
       )
     ]
 
-genTypeQName :: Gen (HSE.QName HSE.SrcSpanInfo)
+genTypeQName :: Gen (HSE.QName ())
 genTypeQName =
   frequency
-    [ (4, HSE.UnQual HSE.noSrcSpan . HSE.Ident HSE.noSrcSpan <$> genConIdent),
+    [ (4, HSE.UnQual () . HSEB.name <$> genConIdent),
       ( 1,
         do
           modu <- genModuleNameNode
-          HSE.Qual HSE.noSrcSpan modu . HSE.Ident HSE.noSrcSpan <$> genConIdent
+          HSE.Qual () modu . HSEB.name <$> genConIdent
       )
     ]
 
-genCName :: Gen (HSE.CName HSE.SrcSpanInfo)
+genCName :: Gen (HSE.CName ())
 genCName =
   frequency
-    [ (1, HSE.VarName HSE.noSrcSpan . HSE.Ident HSE.noSrcSpan <$> genVarIdent),
-      (2, HSE.ConName HSE.noSrcSpan . HSE.Ident HSE.noSrcSpan <$> genConIdent)
+    [ (1, HSE.VarName () . HSEB.name <$> genVarIdent),
+      (2, HSE.ConName () . HSEB.name <$> genConIdent)
     ]
 
-genModuleNameNode :: Gen (HSE.ModuleName HSE.SrcSpanInfo)
-genModuleNameNode = HSE.ModuleName HSE.noSrcSpan <$> genModuleName
+genModuleNameNode :: Gen (HSE.ModuleName ())
+genModuleNameNode = HSE.ModuleName () <$> genModuleName
 
 genVarIdent :: Gen String
 genVarIdent = do
@@ -450,8 +451,11 @@ qcGenStream seed = map mkQCGen [seed ..]
 
 normalizeCandidateAst :: String -> HSE.Module HSE.SrcSpanInfo -> Either String Candidate
 normalizeCandidateAst context modu0 =
-  let source0 = HSE.prettyPrint modu0
-      mode = hseParseMode
+  normalizeCandidateSource context (HSE.prettyPrint modu0)
+
+normalizeCandidateSource :: String -> String -> Either String Candidate
+normalizeCandidateSource context source0 =
+  let mode = hseParseMode
    in case HSE.parseFileContentsWithMode mode source0 of
         HSE.ParseFailed loc err ->
           Left
