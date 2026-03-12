@@ -1,4 +1,6 @@
 modules-minimal	modules	modules/minimal.hs	pass	parser supports minimal module parsing
+modules-empty-source	modules	modules/empty-source.hs	pass	parser supports completely empty source files
+modules-whitespace-source	modules	modules/whitespace-source.hs	pass	parser supports whitespace-only source files
 modules-implicit	modules	modules/implicit.hs	pass	parser supports implicit module parsing
 modules-application	modules	modules/application.hs	pass	parser now supports simple module application declarations
 modules-comments	modules	modules/comments.hs	pass	parser supports comment handling in modules
@@ -6,6 +8,7 @@ modules-exports	modules	modules/exports.hs	pass	parser now supports explicit mod
 modules-import-qualified	modules	modules/import-qualified.hs	pass	parser now supports qualified imports with aliases
 modules-import-hiding	modules	modules/import-hiding.hs	pass	parser now supports hiding import lists
 modules-multi-imports	modules	modules/multi-imports.hs	pass	parser supports multiple plain imports
+modules-import-only	modules	modules/import-only.hs	pass	parser supports modules with imports and no declarations
 modules-import-as	modules	modules/import-as.hs	pass	parser now supports import aliases
 modules-multiline-definition	modules	modules/multiline-definition.hs	pass	parser now handles multiline module headers
 modules-multiline-definition-module-split	modules	modules/multiline-definition-module-split.hs	pass	parser now handles multiline module headers
@@ -240,12 +243,12 @@ lexical-strings-chars	lexical	lexical/strings-chars.hs	pass	parser now handles s
 lexical-numeric-literals	lexical	lexical/numeric-literals.hs	pass	parser now handles numeric literals in lexical suite
 lexical-operators	lexical	lexical/operators.hs	xfail	parser intentionally disabled
 
-hashable-xxh3-cpp-include	corpus	corpus/hashable/hashable-xxh3-cpp-include.hs	pass	parser now accepts this preprocessed corpus case
+hashable-xxh3-cpp-include	corpus	corpus/hashable/hashable-xxh3-cpp-include.hs	pass	from hashable/src/Data/Hashable/XXH3.hs; covered by parser-test CPP preprocessing
 hashable-generic-instances-kind-arrow	corpus	corpus/hashable/hashable-generic-instances-kind-arrow.hs	xfail	from hashable/src/Data/Hashable/Generic/Instances.hs; parser rejects multiline LANGUAGE pragma lists
 hashable-mix-cpp-if	corpus	corpus/hashable/hashable-mix-cpp-if.hs	pass	from hashable/src/Data/Hashable/Mix.hs; parser now accepts this preprocessed case
 hashable-ffi-capi-calling-convention	corpus	corpus/hashable/hashable-ffi-capi-calling-convention.hs	xfail	from hashable/src/Data/Hashable/FFI.hs; parser does not support capi calling convention (CApiFFI)
 hashable-class-package-imports	corpus	corpus/hashable/hashable-class-package-imports.hs	xfail	from hashable/src/Data/Hashable/Class.hs; parser rejects package-qualified imports
 hashable-lowlevel-cpp-ifdef	corpus	corpus/hashable/hashable-lowlevel-cpp-ifdef.hs	pass	from hashable/src/Data/Hashable/LowLevel.hs; parser now accepts this preprocessed case
 hashable-properties-unboxed-tuples	corpus	corpus/hashable/hashable-properties-unboxed-tuples.hs	xfail	from hashable/tests/Properties.hs; parser rejects unboxed tuple syntax
-hashable-regress-cpp-have-mmap	corpus	corpus/hashable/hashable-regress-cpp-have-mmap.hs	pass	parser now accepts this preprocessed corpus case
+hashable-regress-cpp-have-mmap	corpus	corpus/hashable/hashable-regress-cpp-have-mmap.hs	pass	from hashable/tests/Regress.hs; covered by parser-test CPP preprocessing
 hashable-xxhash-tests-numeric-underscores	corpus	corpus/hashable/hashable-xxhash-tests-numeric-underscores.hs	pass	from hashable/tests/xxhash-tests.hs; parser now accepts NumericUnderscores literals
