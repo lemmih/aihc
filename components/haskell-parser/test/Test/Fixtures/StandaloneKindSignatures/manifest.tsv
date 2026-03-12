@@ -1,0 +1,4 @@
+standalone-kind-data	declarations	standalone-kind-data.hs	xfail	parser support pending
+standalone-kind-class	declarations	standalone-kind-class.hs	xfail	parser support pending
+standalone-kind-type-synonym	declarations	standalone-kind-type-synonym.hs	xfail	parser support pending
+standalone-kind-higher-order	declarations	standalone-kind-higher-order.hs	xfail	parser support pending

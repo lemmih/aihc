@@ -1,0 +1,4 @@
+role-single-parameter	declarations	role-single-parameter.hs	xfail	parser support pending
+role-multi-parameter	declarations	role-multi-parameter.hs	xfail	parser support pending
+role-with-infer	declarations	role-with-infer.hs	xfail	parser support pending
+role-on-newtype	declarations	role-on-newtype.hs	xfail	parser support pending

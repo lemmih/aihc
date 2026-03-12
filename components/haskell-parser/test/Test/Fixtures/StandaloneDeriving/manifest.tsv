@@ -1,0 +1,4 @@
+standalone-deriving-basic	declarations	standalone-deriving-basic.hs	xfail	parser support pending
+standalone-deriving-with-context	declarations	standalone-deriving-with-context.hs	xfail	parser support pending
+standalone-deriving-layout	declarations	standalone-deriving-layout.hs	xfail	parser support pending
+standalone-deriving-parenthesized	declarations	standalone-deriving-parenthesized.hs	xfail	parser support pending

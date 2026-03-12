@@ -1,0 +1,4 @@
+named-wildcard-top-signature	types	named-wildcard-top-signature.hs	pass
+named-wildcard-expression-signature	types	named-wildcard-expression-signature.hs	xfail	parser support pending
+named-wildcard-multi-hole	types	named-wildcard-multi-hole.hs	pass
+named-wildcard-forall	types	named-wildcard-forall.hs	xfail	parser support pending
