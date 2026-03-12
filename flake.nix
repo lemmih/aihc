@@ -28,7 +28,7 @@
       apps = forAllSystems (pkgs:
         let
           hsPkgs = mkHsPkgs pkgs;
-          h2010ProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "h2010-progress";
+          parserProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "parser-progress";
           extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
           parserFuzzExe = pkgs.lib.getExe' hsPkgs.aihc-parser "parser-fuzz";
           cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
@@ -72,7 +72,7 @@
               exit 1
             }
             cd components/haskell-parser
-            ${h2010ProgressExe}
+            ${parserProgressExe}
           '';
 
           parser-extension-progress = mkApp "parser-extension-progress" ''
@@ -117,7 +117,7 @@
               exit 1
             }
             cd components/haskell-parser
-            ${h2010ProgressExe} --strict
+            ${parserProgressExe} --strict
           '';
 
           parser-extension-progress-strict = mkApp "parser-extension-progress-strict" ''
@@ -257,7 +257,7 @@
             nativeBuildInputs = [ hsPkgs.aihc-parser ];
           } ''
             cd "$src/components/haskell-parser"
-            h2010-progress --strict
+            parser-progress --strict
             touch "$out"
           '';
           parserExtensionProgressStrict = pkgs.runCommand "aihc-parser-extension-progress-strict" {
