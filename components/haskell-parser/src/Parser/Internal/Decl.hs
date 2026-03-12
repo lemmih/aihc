@@ -135,6 +135,7 @@ declParser :: TokParser Decl
 declParser =
   MP.try foreignDeclParser
     <|> MP.try typeSigDeclParser
+    <|> MP.try newtypeDeclParser
     <|> dataDeclParser
     <|> valueDeclParser
 
@@ -207,14 +208,12 @@ foreignEntityFromString txt
 dataDeclParser :: TokParser Decl
 dataDeclParser = withSpan $ do
   keywordTok TkKeywordData
+  context <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
   typeName <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
       TkIdentifier ident -> Just ident
       _ -> Nothing
-  typeParams <- MP.many $ tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkIdentifier ident -> Just ident
-      _ -> Nothing
+  typeParams <- MP.many typeParamParser
   constructors <- MP.optional (operatorLikeTok "=" *> dataConDeclParser `MP.sepBy1` operatorLikeTok "|")
   derivingClause <- MP.optional derivingClauseParser
   pure $ \span' ->
@@ -222,12 +221,75 @@ dataDeclParser = withSpan $ do
       span'
       DataDecl
         { dataDeclSpan = span',
-          dataDeclContext = [],
+          dataDeclContext = fromMaybe [] context,
           dataDeclName = typeName,
           dataDeclParams = typeParams,
           dataDeclConstructors = fromMaybe [] constructors,
           dataDeclDeriving = derivingClause
         }
+
+newtypeDeclParser :: TokParser Decl
+newtypeDeclParser = withSpan $ do
+  identifierExact "newtype"
+  context <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
+  typeName <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident -> Just ident
+      _ -> Nothing
+  typeParams <- MP.many typeParamParser
+  constructor <- MP.optional (operatorLikeTok "=" *> newtypeConDeclParser)
+  derivingClause <- MP.optional derivingClauseParser
+  pure $ \span' ->
+    DeclNewtype
+      span'
+      NewtypeDecl
+        { newtypeDeclSpan = span',
+          newtypeDeclContext = fromMaybe [] context,
+          newtypeDeclName = typeName,
+          newtypeDeclParams = typeParams,
+          newtypeDeclConstructor = constructor,
+          newtypeDeclDeriving = derivingClause
+        }
+
+declContextParser :: TokParser [Constraint]
+declContextParser =
+  MP.try parenContextParser <|> ((: []) <$> constraintParser)
+
+parenContextParser :: TokParser [Constraint]
+parenContextParser = do
+  symbolLikeTok "("
+  constraints <- constraintParser `MP.sepBy` symbolLikeTok ","
+  symbolLikeTok ")"
+  pure constraints
+
+constraintParser :: TokParser Constraint
+constraintParser = withSpan $ do
+  className <- identifierTextParser
+  args <- MP.many constraintTypeParser
+  pure $ \span' ->
+    Constraint
+      { constraintSpan = span',
+        constraintClass = className,
+        constraintArgs = args,
+        constraintParen = False
+      }
+
+constraintTypeParser :: TokParser Type
+constraintTypeParser = withSpan $ do
+  ident <- identifierTextParser
+  pure $ \span' ->
+    case T.uncons ident of
+      Just (first, _)
+        | isUpper first -> TCon span' ident
+      _ -> TVar span' ident
+
+typeParamParser :: TokParser Text
+typeParamParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident
+        | ident /= "deriving" -> Just ident
+      _ -> Nothing
 
 derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do
@@ -244,15 +306,52 @@ derivingClauseParser = do
 
 dataConDeclParser :: TokParser DataConDecl
 dataConDeclParser = withSpan $ do
-  name <- tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkIdentifier ident -> Just ident
-      _ -> Nothing
+  name <- constructorNameParser
   mRecordFields <- MP.optional (symbolLikeTok "{" *> symbolLikeTok "}")
   pure $ \span' ->
     case mRecordFields of
       Just () -> RecordCon span' name []
       Nothing -> PrefixCon span' name []
+
+newtypeConDeclParser :: TokParser DataConDecl
+newtypeConDeclParser = newtypePrefixConDeclParser
+
+newtypePrefixConDeclParser :: TokParser DataConDecl
+newtypePrefixConDeclParser = withSpan $ do
+  name <- constructorNameParser
+  fields <- MP.many constructorArgParser
+  pure (\span' -> PrefixCon span' name fields)
+
+constructorArgParser :: TokParser BangType
+constructorArgParser = MP.try $ do
+  MP.notFollowedBy derivingKeywordParser
+  bangTypeParser
+
+derivingKeywordParser :: TokParser ()
+derivingKeywordParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident
+        | ident == "deriving" -> Just ()
+      _ -> Nothing
+
+bangTypeParser :: TokParser BangType
+bangTypeParser = withSpan $ do
+  strict <- MP.option False (operatorLikeTok "!" >> pure True)
+  ty <- typeParser
+  pure $ \span' ->
+    BangType
+      { bangSpan = span',
+        bangStrict = strict,
+        bangType = ty
+      }
+
+constructorNameParser :: TokParser Text
+constructorNameParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident -> Just ident
+      _ -> Nothing
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpan $ do
