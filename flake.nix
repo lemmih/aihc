@@ -30,6 +30,7 @@
           hsPkgs = mkHsPkgs pkgs;
           h2010ProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "h2010-progress";
           extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
+          parserFuzzExe = pkgs.lib.getExe' hsPkgs.aihc-parser "parser-fuzz";
           cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
           hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
           stackageProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "stackage-progress";
@@ -82,6 +83,11 @@
             }
             cd components/haskell-parser
             ${extensionProgressExe} "$@"
+          '';
+
+          parser-fuzz = mkApp "parser-fuzz" ''
+            set -euo pipefail
+            ${parserFuzzExe} "$@"
           '';
 
           hackage-tester = mkApp "hackage-tester" ''
