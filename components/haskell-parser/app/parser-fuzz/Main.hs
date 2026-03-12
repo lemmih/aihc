@@ -1,15 +1,13 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module Main (main) where
 
-import Data.Char (isAlphaNum, isSpace, isUpper)
+import Data.Char (isAlphaNum, isUpper)
 import Data.List (intercalate)
-import qualified Data.Text as T
-import Data.Time.Clock.POSIX (getPOSIXTime)
-import qualified Language.Haskell.Exts as HSE
-import qualified Options.Applicative as OA
+import Data.Text qualified as T
+import Language.Haskell.Exts qualified as HSE
+import Options.Applicative qualified as OA
 import Parser (defaultConfig, parseModule)
 import Parser.Types (ParseResult (..))
+import System.Random (randomIO)
 import Test.QuickCheck
 import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (QCGen, mkQCGen)
@@ -35,15 +33,23 @@ data Candidate = Candidate
 newtype GenModule = GenModule {unGenModule :: HSE.Module HSE.SrcSpanInfo}
   deriving (Show)
 
+newtype GenModuleHead = GenModuleHead {unGenModuleHead :: Maybe (HSE.ModuleHead HSE.SrcSpanInfo)}
+  deriving (Show)
+
 instance Arbitrary GenModule where
   arbitrary = do
-    moduName <- genModuleName
-    hasHeader <- arbitrary
-    let header =
-          if hasHeader
-            then Just (HSE.ModuleHead HSE.noSrcSpan (HSE.ModuleName HSE.noSrcSpan moduName) Nothing Nothing)
-            else Nothing
+    GenModuleHead header <- arbitrary
     pure (GenModule (HSE.Module HSE.noSrcSpan header [] [] []))
+
+instance Arbitrary GenModuleHead where
+  arbitrary =
+    oneof
+      [ pure (GenModuleHead Nothing),
+        do
+          moduName <- genModuleName
+          let header = HSE.ModuleHead HSE.noSrcSpan (HSE.ModuleName HSE.noSrcSpan moduName) Nothing Nothing
+          pure (GenModuleHead (Just header))
+      ]
 
 -- TODO: Add generators for module pragmas/imports/declarations.
 -- TODO: Extend generator to cover additional Haskell syntax supported by HSE.
@@ -70,7 +76,7 @@ optionsParser =
           OA.auto
           ( OA.long "seed"
               <> OA.metavar "N"
-              <> OA.help "Deterministic random seed (default: current POSIX time)"
+              <> OA.help "Deterministic random seed (default: randomIO)"
           )
       )
     <*> OA.option
@@ -130,7 +136,7 @@ runWithOptions opts = do
 
 resolveSeed :: Maybe Int -> IO Int
 resolveSeed (Just seed) = pure seed
-resolveSeed Nothing = floor <$> getPOSIXTime
+resolveSeed Nothing = randomIO
 
 findFirstFailure :: Options -> Int -> Maybe SearchResult
 findFirstFailure opts seed = go 1 (qcGenStream seed)
@@ -141,26 +147,31 @@ findFirstFailure opts seed = go 1 (qcGenStream seed)
       | idx > optMaxTests opts = Nothing
       | otherwise =
           let generated = unGen (arbitrary :: Gen GenModule) g (optSize opts)
-              mCandidate = materializeCandidate generated
-           in case mCandidate of
-                Just candidate
-                  | oursFails (candSource candidate) ->
-                      Just (SearchResult idx candidate)
-                _ -> go (idx + 1) gs
+              candidate = materializeCandidate generated
+           in if oursFails (candSource candidate)
+                then Just (SearchResult idx candidate)
+                else go (idx + 1) gs
 
-materializeCandidate :: GenModule -> Maybe Candidate
+materializeCandidate :: GenModule -> Candidate
 materializeCandidate (GenModule modu0) =
   let source0 = HSE.prettyPrint modu0
       mode = hseParseMode
    in case HSE.parseFileContentsWithMode mode source0 of
-        HSE.ParseFailed _ _ -> Nothing
+        HSE.ParseFailed loc err ->
+          error
+            ( "materializeCandidate: generated AST failed to parse at "
+                <> show loc
+                <> " with error: "
+                <> err
+                <> "\nsource:\n"
+                <> source0
+            )
         HSE.ParseOk modu1 ->
           let source1 = HSE.exactPrint modu1 []
-           in Just
-                Candidate
-                  { candAst = modu1,
-                    candSource = source1
-                  }
+           in Candidate
+                { candAst = modu1,
+                  candSource = source1
+                }
 
 shrinkCandidate :: Options -> Candidate -> (Candidate, Int)
 shrinkCandidate opts = go 0
@@ -180,7 +191,7 @@ firstSuccessfulShrink candidate = tryCandidates (candidateTransforms candidate)
     tryCandidates [] = Nothing
     tryCandidates (ast' : rest) =
       let source' = HSE.exactPrint ast' []
-       in if isMeaningfulSource source' && oursFails source'
+       in if oursFails source'
             then
               Just
                 Candidate
@@ -188,9 +199,6 @@ firstSuccessfulShrink candidate = tryCandidates (candidateTransforms candidate)
                     candSource = source'
                   }
             else tryCandidates rest
-
-isMeaningfulSource :: String -> Bool
-isMeaningfulSource = not . all isSpace
 
 candidateTransforms :: Candidate -> [HSE.Module HSE.SrcSpanInfo]
 candidateTransforms candidate =

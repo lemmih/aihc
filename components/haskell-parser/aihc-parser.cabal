@@ -155,7 +155,7 @@ executable parser-fuzz
     , haskell-src-exts
     , QuickCheck
     , optparse-applicative
+    , random
     , text
-    , time
   ghc-options:        -Wall -Werror
-  default-language: Haskell2010
+  default-language: GHC2024
