@@ -5,6 +5,7 @@ module Parser.Internal.Expr
     simplePatternParser,
     patternParser,
     typeParser,
+    typeAtomParser,
   )
 where
 

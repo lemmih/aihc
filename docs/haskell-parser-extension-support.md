@@ -2,10 +2,10 @@
 
 ## Summary
 
-- Total Extensions: 59
-- Supported: 8
-- In Progress: 14
-- Planned: 37
+- Total Extensions: 60
+- Supported: 10
+- In Progress: 21
+- Planned: 29
 
 ## Extension Status
 
@@ -16,7 +16,7 @@
 | QuasiQuotes | In Progress | 0/3 | Quasi quotes |
 | TypeApplications | In Progress | 0/2 | Type applications |
 | ViewPatterns | In Progress | 0/3 | View patterns |
-| BangPatterns | In Progress | 0/5 | Bang Patterns |
+| BangPatterns | Supported | 5/5 | Bang Patterns |
 | BinaryLiterals | Supported | 3/3 | Binary Literals |
 | ConstrainedClassMethods | Planned | - | Constrained Class Methods |
 | ConstraintKinds | Planned | - | Constraint Kinds |
@@ -33,8 +33,9 @@
 | EmptyCase | Supported | 4/4 | Empty Case |
 | EmptyDataDecls | In Progress | 4/5 | Empty Data Decls |
 | EmptyDataDeriving | Planned | - | Empty Data Deriving |
-| ExistentialQuantification | Planned | - | Existential Quantification |
-| ExplicitForAll | In Progress | 0/5 | Explicit For All |
+| ExistentialQuantification | In Progress | 0/4 | Existential Quantification |
+| ExplicitLevelImports | In Progress | 0/4 | Explicit Level Imports |
+| ExplicitForAll | Supported | 5/5 | Explicit For All |
 | ExplicitNamespaces | In Progress | 0/3 | Explicit Namespaces |
 | FieldSelectors | Planned | - | Field Selectors |
 | FlexibleContexts | Planned | - | Flexible Contexts |
@@ -53,21 +54,21 @@
 | MonomorphismRestriction | Planned | - | Monomorphism Restriction |
 | MultiParamTypeClasses | In Progress | 0/5 | Multi Param Type Classes |
 | NamedFieldPuns | In Progress | 0/5 | Named Field Puns |
-| NamedWildCards | Planned | - | Named Wild Cards |
+| NamedWildCards | In Progress | 3/4 | Named Wild Cards |
 | NumericUnderscores | Supported | 3/3 | Numeric Underscores |
-| PatternGuards | Planned | - | Pattern Guards |
+| PatternGuards | In Progress | 0/4 | Pattern Guards |
 | PolyKinds | Planned | - | Poly Kinds |
 | PostfixOperators | Planned | - | Postfix Operators |
 | RankNTypes | Planned | - | Rank N Types |
 | RelaxedPolyRec | Planned | - | Relaxed Poly Rec |
-| RoleAnnotations | Planned | - | Role Annotations |
+| RoleAnnotations | In Progress | 0/4 | Role Annotations |
 | ScopedTypeVariables | Planned | - | Scoped Type Variables |
-| StandaloneDeriving | Planned | - | Standalone Deriving |
-| StandaloneKindSignatures | Planned | - | Standalone Kind Signatures |
+| StandaloneDeriving | In Progress | 0/4 | Standalone Deriving |
+| StandaloneKindSignatures | In Progress | 0/4 | Standalone Kind Signatures |
 | StarIsType | Planned | - | Star Is Type |
 | TraditionalRecordSyntax | Planned | - | Traditional Record Syntax |
-| TupleSections | Planned | - | Tuple Sections |
-| TypeOperators | Planned | - | Type Operators |
+| TupleSections | In Progress | 0/4 | Tuple Sections |
+| TypeOperators | In Progress | 0/4 | Type Operators |
 | TypeSynonymInstances | Planned | - | Type Synonym Instances |
 | ImplicitStagePersistence | Planned | - | Implicit Stage Persistence |
 

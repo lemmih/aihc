@@ -12,6 +12,7 @@ module Parser.Ast
     DataDecl (..),
     Decl (..),
     DerivingClause (..),
+    DerivingStrategy (..),
     DoStmt (..),
     Expr (..),
     ExportSpec (..),
@@ -31,6 +32,7 @@ module Parser.Ast
     Literal (..),
     Match (..),
     Module (..),
+    WarningText (..),
     NewtypeDecl (..),
     OperatorName,
     Pattern (..),
@@ -64,10 +66,16 @@ type BinderName = Text
 
 type OperatorName = Text
 
+data WarningText
+  = DeprText SourceSpan Text
+  | WarnText SourceSpan Text
+  deriving (Eq, Show)
+
 data Module = Module
   { moduleSpan :: SourceSpan,
     moduleName :: Maybe Text,
     moduleLanguagePragmas :: [Text],
+    moduleWarningText :: Maybe WarningText,
     moduleExports :: Maybe [ExportSpec],
     moduleImports :: [ImportDecl],
     moduleDecls :: [Decl]
@@ -211,7 +219,7 @@ data DataDecl = DataDecl
     dataDeclName :: Text,
     dataDeclParams :: [Text],
     dataDeclConstructors :: [DataConDecl],
-    dataDeclDeriving :: Maybe DerivingClause
+    dataDeclDeriving :: [DerivingClause]
   }
   deriving (Eq, Show)
 
@@ -221,7 +229,7 @@ data NewtypeDecl = NewtypeDecl
     newtypeDeclName :: Text,
     newtypeDeclParams :: [Text],
     newtypeDeclConstructor :: Maybe DataConDecl,
-    newtypeDeclDeriving :: Maybe DerivingClause
+    newtypeDeclDeriving :: [DerivingClause]
   }
   deriving (Eq, Show)
 
@@ -245,9 +253,16 @@ data FieldDecl = FieldDecl
   }
   deriving (Eq, Show)
 
-newtype DerivingClause = DerivingClause
-  { derivingClasses :: [Text]
+data DerivingClause = DerivingClause
+  { derivingStrategy :: Maybe DerivingStrategy,
+    derivingClasses :: [Text]
   }
+  deriving (Eq, Show)
+
+data DerivingStrategy
+  = DerivingStock
+  | DerivingNewtype
+  | DerivingAnyclass
   deriving (Eq, Show)
 
 data ClassDecl = ClassDecl

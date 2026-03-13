@@ -15,6 +15,8 @@ modules-multiline-definition-module-split	modules	modules/multiline-definition-m
 modules-multiline-definition-where-split	modules	modules/multiline-definition-where-split.hs	pass	parser now handles multiline module headers
 modules-multiline-definition-export-list-split	modules	modules/multiline-definition-export-list-split.hs	pass	parser now supports multiline module export lists
 modules-multiline-definition-export-list-items-split	modules	modules/multiline-definition-export-list-items-split.hs	pass	parser now supports multiline module export list items
+modules-warning-roundtrip	modules	modules/warning-roundtrip.hs	pass	parser supports roundtrip of module warning pragmas
+modules-deprecated-roundtrip	modules	modules/deprecated-roundtrip.hs	pass	parser supports roundtrip of module deprecated pragmas
 
 modules-s5-export-module-modid	modules	modules/s5-export-module-modid.hs	pass	parser now supports section 5 module export entries
 modules-s5-export-qtycls-abstract	modules	modules/s5-export-qtycls-abstract.hs	pass	parser now supports section 5 abstract class/type export entries
@@ -89,9 +91,9 @@ decls-type-signature	declarations	declarations/type-signature.hs	pass	parser now
 decls-multiple-equations	declarations	declarations/multiple-equations.hs	pass	parser now supports multiple equations
 decls-pattern-binding	declarations	declarations/pattern-binding.hs	xfail	parser intentionally disabled
 decls-data	declarations	declarations/data.hs	pass
-decls-data-context	declarations	declarations/data-context.hs	xfail	parser intentionally disabled
-decls-data-prefix-positional	declarations	declarations/data-prefix-positional.hs	xfail	roundtrip mismatch against oracle AST
-decls-data-prefix-strict	declarations	declarations/data-prefix-strict.hs	xfail	parser intentionally disabled
+decls-data-context	declarations	declarations/data-context.hs	pass
+decls-data-prefix-positional	declarations	declarations/data-prefix-positional.hs	pass
+decls-data-prefix-strict	declarations	declarations/data-prefix-strict.hs	pass
 decls-data-infix	declarations	declarations/data-infix.hs	xfail	parser intentionally disabled
 decls-data-infix-strict-left	declarations	declarations/data-infix-strict-left.hs	xfail	parser intentionally disabled
 decls-data-infix-strict-right	declarations	declarations/data-infix-strict-right.hs	xfail	parser intentionally disabled
@@ -149,7 +151,7 @@ expr-s3-operators-backtick-varid	expressions	expressions/operators-backtick-vari
 expr-s3-operators-conop-colon	expressions	expressions/operators-conop-colon.hs	pass	parser now supports infix constructor operators in expressions
 expr-s3-operators-backtick-conid	expressions	expressions/operators-backtick-conid.hs	xfail	parser intentionally disabled
 expr-s3-application-left-assoc	expressions	expressions/application-left-assoc.hs	pass	parser now supports left-associative application
-expr-s3-application-constructor-partial	expressions	expressions/application-constructor-partial.hs	xfail	parser intentionally disabled
+expr-s3-application-constructor-partial	expressions	expressions/application-constructor-partial.hs	pass
 expr-s3-lambda-single-apat	expressions	expressions/lambda-single-apat.hs	pass	parser now supports single-pattern lambda forms
 expr-s3-lambda-multi-apat	expressions	expressions/lambda-multi-apat.hs	pass	parser now supports multi-pattern lambda forms
 expr-s3-lambda-pattern-apat	expressions	expressions/lambda-pattern-apat.hs	pass	parser now supports non-trivial lambda patterns
@@ -195,7 +197,7 @@ expr-s3-expr-type-signature-basic	expressions	expressions/expr-type-signature-ba
 expr-s3-expr-type-signature-context	expressions	expressions/expr-type-signature-context.hs	xfail	parser intentionally disabled
 expr-s3-pattern-infix-constructor	expressions	expressions/pattern-infix-constructor.hs	pass	parser now supports infix constructor patterns in case alternatives
 expr-s3-pattern-negative-literal	expressions	expressions/pattern-negative-literal.hs	pass	parser now supports negative literal patterns
-expr-s3-pattern-constructor-application	expressions	expressions/pattern-constructor-application.hs	xfail	parser intentionally disabled
+expr-s3-pattern-constructor-application	expressions	expressions/pattern-constructor-application.hs	pass
 expr-s3-pattern-as-pattern	expressions	expressions/pattern-as-pattern.hs	xfail	parser intentionally disabled
 expr-s3-pattern-nullary-constructor	expressions	expressions/pattern-nullary-constructor.hs	pass	parser now handles nullary constructor case alternatives
 expr-s3-pattern-labeled	expressions	expressions/pattern-labeled.hs	xfail	roundtrip mismatch against oracle AST
@@ -206,7 +208,7 @@ expr-s3-pattern-tuple	expressions	expressions/pattern-tuple.hs	pass	parser now s
 expr-s3-pattern-list	expressions	expressions/pattern-list.hs	pass	parser now supports list patterns
 expr-s3-pattern-irrefutable	expressions	expressions/pattern-irrefutable.hs	pass	parser now supports irrefutable patterns
 
-pat-constructor	patterns	patterns/constructor.hs	xfail	parser intentionally disabled
+pat-constructor	patterns	patterns/constructor.hs	pass
 pat-tuple-list	patterns	patterns/tuple-list.hs	pass	parser now supports tuple and list patterns
 pat-as-pattern	patterns	patterns/as-pattern.hs	xfail	parser intentionally disabled
 pat-irrefutable	patterns	patterns/irrefutable.hs	pass	parser now supports irrefutable patterns
