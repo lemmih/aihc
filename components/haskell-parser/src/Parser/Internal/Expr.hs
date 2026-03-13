@@ -373,17 +373,49 @@ parenExprParser = withSpan $ do
   case mClosed of
     Just () -> pure (`ETuple` [])
     Nothing -> do
-      first <- exprParser
-      mComma <- MP.optional (symbolLikeTok ",")
-      case mComma of
-        Nothing -> do
-          symbolLikeTok ")"
-          pure (`EParen` first)
-        Just () -> do
-          second <- exprParser
-          more <- MP.many (symbolLikeTok "," *> exprParser)
-          symbolLikeTok ")"
-          pure (`ETuple` (first : second : more))
+      -- Try to parse as tuple section first (e.g., "(,1)" or "(1,)")
+      -- If that fails, fall back to regular tuple/paren parsing
+      (MP.try parseTupleSection >>= \values -> pure (`ETupleSection` values))
+        MP.<|> do
+          first <- exprParser
+          mComma <- MP.optional (symbolLikeTok ",")
+          case mComma of
+            Nothing -> do
+              symbolLikeTok ")"
+              pure (`EParen` first)
+            Just () -> do
+              second <- exprParser
+              more <- MP.many (symbolLikeTok "," *> exprParser)
+              symbolLikeTok ")"
+              pure (`ETuple` (first : second : more))
+
+parseTupleSection :: TokParser [Maybe Expr]
+parseTupleSection = do
+  first <- MP.optional exprParser
+  _ <- symbolLikeTok ","
+  rest <- parseTupleSectionTail
+  MP.try $
+    do
+      symbolLikeTok ")"
+      let vals = first : rest
+      let hasMissing = any isNothing vals
+      if hasMissing && length vals > 1
+        then pure vals
+        else fail "not a tuple section"
+
+parseTupleSectionTail :: TokParser [Maybe Expr]
+parseTupleSectionTail = do
+  mComma <- MP.optional (symbolLikeTok ",")
+  case mComma of
+    Nothing -> pure []
+    Just () -> do
+      mExpr <- MP.optional exprParser
+      rest <- parseTupleSectionTail
+      pure (mExpr : rest)
+
+isNothing :: Maybe a -> Bool
+isNothing Nothing = True
+isNothing (Just _) = False
 
 listExprParser :: TokParser Expr
 listExprParser = withSpan $ do

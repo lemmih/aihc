@@ -228,6 +228,7 @@ renderExprAst expr =
     EWhereDecls _ body decls -> "EWhereDecls " <> par (renderExprAst body) <> " " <> showListWith renderDecl decls
     EList _ items -> "EList " <> showListWith renderExprAst items
     ETuple _ items -> "ETuple " <> showListWith renderExprAst items
+    ETupleSection _ items -> "ETupleSection " <> showListWith (maybeShow renderExprAst) items
     ETupleCon _ n -> "ETupleCon " <> show n
     ETypeApp _ fn ty -> "ETypeApp " <> par (renderExprAst fn) <> " " <> par (renderType ty)
     EApp _ fn arg -> "EApp " <> par (renderExprAst fn) <> " " <> par (renderExprAst arg)
@@ -568,6 +569,10 @@ renderMaybe renderValue value =
   case value of
     Nothing -> "Nothing"
     Just a -> "Just " <> par (renderValue a)
+
+maybeShow :: (a -> String) -> Maybe a -> String
+maybeShow _ Nothing = "Nothing"
+maybeShow renderOne (Just a) = "Just " <> par (renderOne a)
 
 showListWith :: (a -> String) -> [a] -> String
 showListWith renderOne xs = "[" <> T.unpack (T.intercalate ", " (map (T.pack . renderOne) xs)) <> "]"

@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Parser.Pretty
@@ -614,6 +615,20 @@ prettyExprPrec prec expr =
         (prettyExprPrec 0 body <+> "where" <+> braces (prettyInlineDecls decls))
     EList _ values -> brackets (hsep (punctuate comma (map (prettyExprPrec 0) values)))
     ETuple _ values -> parens (hsep (punctuate comma (map (prettyExprPrec 0) values)))
+    ETupleSection _ values ->
+      parens
+        ( hsep
+            ( punctuate
+                comma
+                ( map
+                    ( \case
+                        Just val -> prettyExprPrec 0 val
+                        Nothing -> mempty
+                    )
+                    values
+                )
+            )
+        )
     ETupleCon _ arity -> parens (pretty (T.replicate (max 1 (arity - 1)) ","))
 
 prettyBinding :: (Text, Expr) -> Doc ann
