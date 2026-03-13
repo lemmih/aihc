@@ -324,10 +324,17 @@ renderRhs rhs =
 renderGuardedRhs :: GuardedRhs -> String
 renderGuardedRhs grhs =
   "GuardedRhs {guards = "
-    <> showListWith renderExprAst (guardedRhsGuards grhs)
+    <> showListWith renderGuardQualifier (guardedRhsGuards grhs)
     <> ", body = "
     <> renderExprAst (guardedRhsBody grhs)
     <> "}"
+
+renderGuardQualifier :: GuardQualifier -> String
+renderGuardQualifier qualifier =
+  case qualifier of
+    GuardExpr _ expr -> "GuardExpr " <> par (renderExprAst expr)
+    GuardPat _ pat expr -> "GuardPat " <> par (renderPattern pat) <> " " <> par (renderExprAst expr)
+    GuardLet _ decls -> "GuardLet " <> showListWith renderDecl decls
 
 renderLiteral :: Literal -> String
 renderLiteral lit =

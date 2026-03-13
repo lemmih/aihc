@@ -210,7 +210,7 @@ pat-constructor	patterns	patterns/constructor.hs	xfail	parser intentionally disa
 pat-tuple-list	patterns	patterns/tuple-list.hs	pass	parser now supports tuple and list patterns
 pat-as-pattern	patterns	patterns/as-pattern.hs	xfail	parser intentionally disabled
 pat-irrefutable	patterns	patterns/irrefutable.hs	pass	parser now supports irrefutable patterns
-pat-guards	patterns	patterns/guards.hs	xfail	parser intentionally disabled
+pat-guards	patterns	patterns/guards.hs	pass
 pat-infix-constructor	patterns	patterns/infix-constructor.hs	pass	parser now supports infix constructor patterns
 pat-negative-literal	patterns	patterns/negative-literal.hs	pass	parser now supports negative literal patterns
 pat-labeled	patterns	patterns/labeled.hs	xfail	parser intentionally disabled

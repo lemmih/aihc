@@ -484,8 +484,15 @@ collectRhsExprs rhs =
 
 collectGuardedRhsExprs :: GuardedRhs -> [Expr]
 collectGuardedRhsExprs guarded =
-  concatMap collectExprTree (guardedRhsGuards guarded)
+  concatMap collectGuardQualifierExprs (guardedRhsGuards guarded)
     <> collectExprTree (guardedRhsBody guarded)
+
+collectGuardQualifierExprs :: GuardQualifier -> [Expr]
+collectGuardQualifierExprs qualifier =
+  case qualifier of
+    GuardExpr _ expr -> collectExprTree expr
+    GuardPat _ pat expr -> collectPatternExprs pat <> collectExprTree expr
+    GuardLet _ decls -> concatMap collectDeclExprs decls
 
 collectPatternExprs :: Pattern -> [Expr]
 collectPatternExprs pat =
@@ -632,9 +639,16 @@ stripGuardedRhs :: GuardedRhs -> GuardedRhs
 stripGuardedRhs guarded =
   GuardedRhs
     { guardedRhsSpan = noSourceSpan,
-      guardedRhsGuards = map stripExpr (guardedRhsGuards guarded),
+      guardedRhsGuards = map stripGuardQualifier (guardedRhsGuards guarded),
       guardedRhsBody = stripExpr (guardedRhsBody guarded)
     }
+
+stripGuardQualifier :: GuardQualifier -> GuardQualifier
+stripGuardQualifier qualifier =
+  case qualifier of
+    GuardExpr _ expr -> GuardExpr noSourceSpan (stripExpr expr)
+    GuardPat _ pat expr -> GuardPat noSourceSpan (stripPattern pat) (stripExpr expr)
+    GuardLet _ decls -> GuardLet noSourceSpan (map stripDecl decls)
 
 stripPattern :: Pattern -> Pattern
 stripPattern pat =

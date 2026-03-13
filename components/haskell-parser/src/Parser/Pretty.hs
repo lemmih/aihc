@@ -141,7 +141,7 @@ prettyFunctionMatchLines name match =
     GuardedRhss _ grhss ->
       prettyFunctionHead name (matchPats match)
         : [ "  |"
-              <+> hsep (punctuate comma (map (prettyExprPrec 0) (guardedRhsGuards grhs)))
+              <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
               <+> "="
               <+> prettyExprPrec 0 (guardedRhsBody grhs)
           | grhs <- grhss
@@ -166,15 +166,12 @@ prettyRhs rhs =
     UnguardedRhs _ expr -> "=" <+> prettyExprPrec 0 expr
     GuardedRhss _ guards ->
       hsep
-        ( punctuate
-            semi
-            [ "|"
-                <+> hsep (punctuate comma (map (prettyExprPrec 0) (guardedRhsGuards grhs)))
-                <+> "="
-                <+> prettyExprPrec 0 (guardedRhsBody grhs)
-            | grhs <- guards
-            ]
-        )
+        [ "|"
+            <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
+            <+> "="
+            <+> prettyExprPrec 0 (guardedRhsBody grhs)
+        | grhs <- guards
+        ]
 
 prettyType :: Type -> Doc ann
 prettyType ty =
@@ -609,16 +606,20 @@ prettyCaseAlt (CaseAlt _ pat rhs) =
       hsep
         [ prettyPattern pat,
           hsep
-            ( punctuate
-                semi
-                [ "|"
-                    <+> hsep (punctuate comma (map (prettyExprPrec 0) (guardedRhsGuards grhs)))
-                    <+> "->"
-                    <+> prettyExprPrec 0 (guardedRhsBody grhs)
-                | grhs <- grhss
-                ]
-            )
+            [ "|"
+                <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
+                <+> "->"
+                <+> prettyExprPrec 0 (guardedRhsBody grhs)
+            | grhs <- grhss
+            ]
         ]
+
+prettyGuardQualifier :: GuardQualifier -> Doc ann
+prettyGuardQualifier qualifier =
+  case qualifier of
+    GuardExpr _ expr -> prettyExprPrec 0 expr
+    GuardPat _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
+    GuardLet _ decls -> "let" <+> prettyInlineDecls decls
 
 prettyDoStmt :: DoStmt -> Doc ann
 prettyDoStmt stmt =
