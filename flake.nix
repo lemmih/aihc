@@ -69,6 +69,11 @@
 
           parser-progress = mkApp "parser-progress" ''
             set -euo pipefail
+            test -d components/haskell-parser || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-parser
             ${parserProgressExe}
           '';
 
@@ -84,6 +89,11 @@
 
           parser-extension-progress = mkApp "parser-extension-progress" ''
             set -euo pipefail
+            test -d components/haskell-parser || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-parser
             ${extensionProgressExe} "$@"
           '';
 
@@ -104,6 +114,11 @@
 
           parser-progress-strict = mkApp "parser-progress-strict" ''
             set -euo pipefail
+            test -d components/haskell-parser || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-parser
             ${parserProgressExe} --strict
           '';
 
@@ -119,6 +134,11 @@
 
           parser-extension-progress-strict = mkApp "parser-extension-progress-strict" ''
             set -euo pipefail
+            test -d components/haskell-parser || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-parser
             ${extensionProgressExe} --strict "$@"
           '';
 
@@ -132,19 +152,25 @@
             cabal test --test-show-details=direct
           '';
 
-          cpp-progress = {
-            type = "app";
-            program = cppProgressExe;
-            meta.description = "aihc app: cpp-progress";
-          };
+          cpp-progress = mkApp "cpp-progress" ''
+            set -euo pipefail
+            test -d components/haskell-cpp || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-cpp
+            ${cppProgressExe} "$@"
+          '';
 
-          cpp-progress-strict = {
-            type = "app";
-            program = "${pkgs.writeShellScript "cpp-progress-strict" ''
-              exec ${cppProgressExe} --strict "$@"
-            ''}";
-            meta.description = "aihc app: cpp-progress-strict";
-          };
+          cpp-progress-strict = mkApp "cpp-progress-strict" ''
+            set -euo pipefail
+            test -d components/haskell-cpp || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-cpp
+            ${cppProgressExe} --strict "$@"
+          '';
 
           name-resolution-test = mkApp "name-resolution-test" ''
             set -euo pipefail
@@ -158,11 +184,21 @@
 
           name-resolution-progress = mkApp "name-resolution-progress" ''
             set -euo pipefail
+            test -d components/haskell-name-resolution || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-name-resolution
             ${nameResolutionProgressExe}
           '';
 
           name-resolution-progress-strict = mkApp "name-resolution-progress-strict" ''
             set -euo pipefail
+            test -d components/haskell-name-resolution || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-name-resolution
             ${nameResolutionProgressExe} --strict
           '';
 
