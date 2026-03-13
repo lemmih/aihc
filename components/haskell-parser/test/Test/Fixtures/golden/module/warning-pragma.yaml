@@ -3,4 +3,4 @@ input: |
   module Demo {-# WARNING "test warning" #-} where
   x = 1
 status: pass
-ast: "Module {name = Just \"Demo\", languagePragmas = [], warningText = Just (WarnText \"\\\"test warning\\\"\"), exports = Nothing, imports = [], decls = [DeclValue (FunctionBind \"x\" [Match {pats = [], rhs = UnguardedRhs (EInt 1)}])]}"
+ast: Module {name = Just "Demo", languagePragmas = [], warningText = Just (WarnText "\"test warning\""), exports = Nothing, imports = [], decls = [DeclValue (FunctionBind "x" [Match {pats = [], rhs = UnguardedRhs (EInt 1)}])]}
