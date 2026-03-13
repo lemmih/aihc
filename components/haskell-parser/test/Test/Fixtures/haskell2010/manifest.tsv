@@ -106,15 +106,15 @@ decls-data-deriving-empty	declarations	declarations/data-deriving-empty.hs	pass	
 decls-data-abstract	declarations	declarations/data-abstract.hs	pass
 decls-newtype	declarations	declarations/newtype.hs	pass	parser now supports simple newtype declarations
 decls-type-synonym	declarations	declarations/type-synonym.hs	pass	parser now supports type synonym declarations
-decls-class	declarations	declarations/class.hs	xfail	parser intentionally disabled
+decls-class	declarations	declarations/class.hs	pass
 decls-class-minimal	declarations	declarations/class-minimal.hs	xfail	parser intentionally disabled
 decls-class-where-empty	declarations	declarations/class-where-empty.hs	xfail	parser intentionally disabled
 decls-class-super-simple	declarations	declarations/class-super-simple.hs	xfail	parser intentionally disabled
 decls-class-super-paren-empty	declarations	declarations/class-super-paren-empty.hs	xfail	parser intentionally disabled
 decls-class-super-paren-single	declarations	declarations/class-super-paren-single.hs	xfail	parser intentionally disabled
 decls-class-super-paren-multiple	declarations	declarations/class-super-paren-multiple.hs	xfail	parser intentionally disabled
-decls-class-cdecl-signature	declarations	declarations/class-cdecl-signature.hs	xfail	parser intentionally disabled
-decls-class-cdecl-signature-context	declarations	declarations/class-cdecl-signature-context.hs	xfail	parser intentionally disabled
+decls-class-cdecl-signature	declarations	declarations/class-cdecl-signature.hs	pass
+decls-class-cdecl-signature-context	declarations	declarations/class-cdecl-signature-context.hs	pass
 decls-class-cdecl-default-var	declarations	declarations/class-cdecl-default-var.hs	xfail	parser intentionally disabled
 decls-class-cdecl-default-funlhs	declarations	declarations/class-cdecl-default-funlhs.hs	xfail	parser intentionally disabled
 decls-class-cdecl-fixity	declarations	declarations/class-cdecl-fixity.hs	xfail	parser intentionally disabled
@@ -219,11 +219,11 @@ pat-labeled	patterns	patterns/labeled.hs	xfail	parser intentionally disabled
 pat-literal-wildcard-parenthesized	patterns	patterns/literal-wildcard-parenthesized.hs	pass	parser now supports literal, wildcard, and parenthesized patterns
 pat-contexts	patterns	patterns/contexts.hs	xfail	pattern matching contexts unsupported
 
-types-context	types	types/context.hs	xfail	parser intentionally disabled
+types-context	types	types/context.hs	pass
 types-tuple-list	types	types/tuple-list-types.hs	pass	parser now supports tuple type forms
 types-newtype-record	types	types/newtype-record.hs	xfail	parser intentionally disabled
 types-multi-vars-signature	types	types/multi-vars-signature.hs	pass	parser now supports multi-variable top-level signatures
-types-context-multi-vars	types	types/context-multi-vars.hs	xfail	parser intentionally disabled
+types-context-multi-vars	types	types/context-multi-vars.hs	pass
 types-signature-where	types	types/signature-where.hs	xfail	local type signatures in where bindings unsupported
 types-inline-signature-basic	types	types/inline-signature-basic.hs	xfail	parser intentionally disabled
 types-inline-signature-context	types	types/inline-signature-context.hs	xfail	parser intentionally disabled

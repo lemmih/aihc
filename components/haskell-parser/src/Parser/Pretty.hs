@@ -411,7 +411,8 @@ prettyClassDecl decl =
         hsep
           ( ["class"]
               <> contextPrefix (classDeclContext decl)
-              <> [pretty (classDeclName decl), pretty (classDeclParam decl)]
+              <> [pretty (classDeclName decl)]
+              <> map pretty (classDeclParams decl)
           )
    in case classDeclItems decl of
         [] -> headDoc

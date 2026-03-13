@@ -746,7 +746,7 @@ stripClassDecl d =
     { classDeclSpan = noSourceSpan,
       classDeclContext = map stripConstraint (classDeclContext d),
       classDeclName = classDeclName d,
-      classDeclParam = classDeclParam d,
+      classDeclParams = classDeclParams d,
       classDeclItems = map stripClassDeclItem (classDeclItems d)
     }
 

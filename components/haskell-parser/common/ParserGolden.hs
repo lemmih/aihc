@@ -470,8 +470,8 @@ renderClassDecl decl =
     <> showListWith renderConstraint (classDeclContext decl)
     <> ", name = "
     <> show (classDeclName decl)
-    <> ", param = "
-    <> show (classDeclParam decl)
+    <> ", params = "
+    <> show (classDeclParams decl)
     <> ", items = "
     <> showListWith renderClassDeclItem (classDeclItems decl)
     <> "}"
