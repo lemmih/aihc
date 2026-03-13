@@ -38,15 +38,16 @@ moduleParser = withSpan $ do
   languagePragmas <- MP.many (languagePragmaParser <* MP.many (symbolLikeTok ";"))
   mHeader <- MP.optional (moduleHeaderParser <* MP.many (symbolLikeTok ";"))
   (imports, decls) <- moduleBodyParser
-  let (mName, mExports) =
+  let (mName, mWarning, mExports) =
         case mHeader of
-          Nothing -> (Nothing, Nothing)
-          Just (name, exports) -> (Just name, exports)
+          Nothing -> (Nothing, Nothing, Nothing)
+          Just (name, warn, exports) -> (Just name, warn, exports)
   pure $ \span' ->
     Module
       { moduleSpan = span',
         moduleName = mName,
         moduleLanguagePragmas = concat languagePragmas,
+        moduleWarningText = mWarning,
         moduleExports = mExports,
         moduleImports = imports,
         moduleDecls = decls

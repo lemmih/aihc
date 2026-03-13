@@ -30,6 +30,7 @@ module Parser.Ast
     Literal (..),
     Match (..),
     Module (..),
+    WarningText (..),
     NewtypeDecl (..),
     OperatorName,
     Pattern (..),
@@ -63,10 +64,16 @@ type BinderName = Text
 
 type OperatorName = Text
 
+data WarningText
+  = DeprText SourceSpan Text
+  | WarnText SourceSpan Text
+  deriving (Eq, Show)
+
 data Module = Module
   { moduleSpan :: SourceSpan,
     moduleName :: Maybe Text,
     moduleLanguagePragmas :: [Text],
+    moduleWarningText :: Maybe WarningText,
     moduleExports :: Maybe [ExportSpec],
     moduleImports :: [ImportDecl],
     moduleDecls :: [Decl]

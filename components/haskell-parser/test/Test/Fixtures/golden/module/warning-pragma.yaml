@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  module Demo {-# WARNING "test warning" #-} where
+  x = 1
+status: pass
+ast: ""

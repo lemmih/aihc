@@ -50,8 +50,9 @@ instance Arbitrary GenModuleHead where
       [ pure (GenModuleHead Nothing),
         do
           moduName <- genModuleName
+          warning <- genMaybeWarningText
           exports <- genMaybeExportSpecList
-          let header = HSE.ModuleHead () (HSE.ModuleName () moduName) Nothing exports
+          let header = HSE.ModuleHead () (HSE.ModuleName () moduName) warning exports
           pure (GenModuleHead (Just header))
       ]
 
@@ -59,6 +60,7 @@ instance Arbitrary GenModuleHead where
   shrink (GenModuleHead (Just (HSE.ModuleHead () (HSE.ModuleName () moduName) warning exports))) =
     [GenModuleHead Nothing]
       <> [GenModuleHead (Just (HSE.ModuleHead () (HSE.ModuleName () moduName') warning exports)) | moduName' <- shrinkModuleName moduName]
+      <> [GenModuleHead (Just (HSE.ModuleHead () (HSE.ModuleName () moduName) warning' exports)) | warning' <- shrinkMaybeWarningText warning]
       <> [GenModuleHead (Just (HSE.ModuleHead () (HSE.ModuleName () moduName) warning exports')) | exports' <- shrinkMaybeExportSpecList exports]
 
 instance Arbitrary GenDecl where
@@ -228,6 +230,19 @@ shrinkMaybeExportSpecList mExports =
     Nothing -> []
     Just (HSE.ExportSpecList () specs) ->
       Nothing : [Just (HSE.ExportSpecList () specs') | specs' <- shrinkList shrinkExportSpec specs]
+
+shrinkMaybeWarningText :: Maybe (HSE.WarningText ()) -> [Maybe (HSE.WarningText ())]
+shrinkMaybeWarningText mWarning =
+  case mWarning of
+    Nothing -> []
+    Just warning ->
+      Nothing : [Just warning' | warning' <- shrinkWarningText warning]
+
+shrinkWarningText :: HSE.WarningText () -> [HSE.WarningText ()]
+shrinkWarningText warning =
+  case warning of
+    HSE.DeprText () msg -> HSE.DeprText () <$> shrink msg
+    HSE.WarnText () msg -> HSE.WarnText () <$> shrink msg
 
 shrinkExportSpec :: HSE.ExportSpec () -> [HSE.ExportSpec ()]
 shrinkExportSpec spec =
@@ -477,6 +492,27 @@ genExportSpecList = do
   n <- chooseInt (0, 4)
   specs <- vectorOf n genExportSpec
   pure (HSE.ExportSpecList () specs)
+
+genMaybeWarningText :: Gen (Maybe (HSE.WarningText ()))
+genMaybeWarningText =
+  frequency
+    [ (5, pure Nothing),
+      (1, Just <$> genWarningText)
+    ]
+
+genWarningText :: Gen (HSE.WarningText ())
+genWarningText = do
+  msg <- show <$> genWarningMessage
+  elements
+    [ HSE.DeprText () msg,
+      HSE.WarnText () msg
+    ]
+
+genWarningMessage :: Gen String
+genWarningMessage = do
+  len <- chooseInt (1, 50)
+  let chars = ['A' .. 'Z'] <> ['a' .. 'z'] <> ['0' .. '9'] <> " ,.!?"
+  vectorOf len (elements chars)
 
 genExportSpec :: Gen (HSE.ExportSpec ())
 genExportSpec =

@@ -27,13 +27,23 @@ languagePragmaParser =
       TkPragmaLanguage names -> Just names
       _ -> Nothing
 
-moduleHeaderParser :: TokParser (Text, Maybe [ExportSpec])
+moduleHeaderParser :: TokParser (Text, Maybe WarningText, Maybe [ExportSpec])
 moduleHeaderParser = do
   keywordTok TkKeywordModule
   name <- moduleNameParser
+  mWarning <- MP.optional warningTextParser
   exports <- MP.optional exportSpecListParser
   keywordTok TkKeywordWhere
-  pure (name, exports)
+  pure (name, mWarning, exports)
+
+warningTextParser :: TokParser WarningText
+warningTextParser =
+  withSpan $
+    tokenSatisfy $ \tok ->
+      case lexTokenKind tok of
+        TkPragmaWarning msg -> Just (`WarnText` msg)
+        TkPragmaDeprecated msg -> Just (`DeprText` msg)
+        _ -> Nothing
 
 exportSpecListParser :: TokParser [ExportSpec]
 exportSpecListParser = do

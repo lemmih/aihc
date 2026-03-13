@@ -56,6 +56,8 @@ data LexTokenKind
   | TkKeywordThen
   | TkKeywordElse
   | TkPragmaLanguage [Text]
+  | TkPragmaWarning Text
+  | TkPragmaDeprecated Text
   | TkIdentifier Text
   | TkOperator Text
   | TkInteger Integer
@@ -296,6 +298,8 @@ moduleLayoutOpenIndices toks =
         ( \(_, tok) ->
             case lexTokenKind tok of
               TkPragmaLanguage _ -> False
+              TkPragmaWarning _ -> False
+              TkPragmaDeprecated _ -> False
               _ -> True
         )
         indexedToks
@@ -371,6 +375,8 @@ lexTokenParser :: LParser LexToken
 lexTokenParser =
   lexWithSpan $
     try languagePragmaToken
+      <|> try pragmaWarningToken
+      <|> try pragmaDeprecatedToken
       <|> try quasiQuoteToken
       <|> try hexFloatToken
       <|> try floatToken
@@ -396,6 +402,24 @@ languagePragmaToken = do
 parseLanguagePragmaNames :: Text -> [Text]
 parseLanguagePragmaNames body =
   filter (not . T.null) (map (T.strip . T.takeWhile (/= '#')) (T.splitOn "," body))
+
+pragmaWarningToken :: LParser (Text, LexTokenKind)
+pragmaWarningToken = do
+  _ <- C.string "{-# WARNING"
+  _ <- many C.spaceChar
+  body <- manyTillText "#-}"
+  let msg = T.strip (T.pack body)
+      raw = "{-# WARNING " <> msg <> " #-}"
+  pure (raw, TkPragmaWarning msg)
+
+pragmaDeprecatedToken :: LParser (Text, LexTokenKind)
+pragmaDeprecatedToken = do
+  _ <- C.string "{-# DEPRECATED"
+  _ <- many C.spaceChar
+  body <- manyTillText "#-}"
+  let msg = T.strip (T.pack body)
+      raw = "{-# DEPRECATED " <> msg <> " #-}"
+  pure (raw, TkPragmaDeprecated msg)
 
 lexWithSpan :: LParser (Text, LexTokenKind) -> LParser LexToken
 lexWithSpan parser = do
