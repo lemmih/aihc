@@ -6,7 +6,7 @@ import Data.Text qualified as T
 import Language.Haskell.Exts qualified as HSE
 import Parser (defaultConfig, parseModule)
 import Parser.Types (ParseResult (..))
-import ParserFuzz.Arbitrary (generateCandidate, normalizeCandidateAst, qcGenStream)
+import ParserFuzz.Arbitrary (generateCandidate, normalizeCandidateAst, qcGenStream, shrinkGeneratedModule)
 import ParserFuzz.CLI (Options (..))
 import ParserFuzz.Types (Candidate (..), SearchResult (..))
 import System.Random (randomIO)
@@ -95,6 +95,7 @@ candidateTransforms candidate =
     <> shrinkModuleHeadName (candAst candidate)
     <> removeModuleHeadExports (candAst candidate)
     <> shrinkModuleHeadExports (candAst candidate)
+    <> shrinkGeneratedModule (candAst candidate)
     <> []
 
 -- TODO: Add leaf-pruning transforms for exports, imports, and decl lists.

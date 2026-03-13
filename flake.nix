@@ -37,15 +37,16 @@
           stackageProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "stackage-progress";
           nameResolutionProgressExe =
             pkgs.lib.getExe' hsPkgs.aihc-name-resolution "name-resolution-progress";
-          mkApp = name: text: {
+          mkAppWithInputs = name: runtimeInputs: text: {
             type = "app";
             program = "${pkgs.writeShellApplication {
               inherit name;
-              runtimeInputs = [ pkgs.bash pkgs.cabal-install pkgs.ghc ];
+              inherit runtimeInputs;
               inherit text;
             }}/bin/${name}";
             meta.description = "aihc app: ${name}";
           };
+          mkApp = name: text: mkAppWithInputs name [ pkgs.bash pkgs.cabal-install pkgs.ghc ] text;
           mkReportsApp = name: text: {
             type = "app";
             program = "${pkgs.writeShellApplication {
@@ -68,11 +69,6 @@
 
           parser-progress = mkApp "parser-progress" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-parser
             ${parserProgressExe}
           '';
 
@@ -88,11 +84,6 @@
 
           parser-extension-progress = mkApp "parser-extension-progress" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-parser
             ${extensionProgressExe} "$@"
           '';
 
@@ -103,31 +94,16 @@
 
           hackage-tester = mkApp "hackage-tester" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-parser
-            cabal update 2>/dev/null || true
             ${hackageTesterExe} "$@"
           '';
 
           stackage-progress = mkApp "stackage-progress" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
             ${stackageProgressExe} "$@"
           '';
 
           parser-progress-strict = mkApp "parser-progress-strict" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-parser
             ${parserProgressExe} --strict
           '';
 
@@ -143,11 +119,6 @@
 
           parser-extension-progress-strict = mkApp "parser-extension-progress-strict" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-parser
             ${extensionProgressExe} --strict "$@"
           '';
 
@@ -161,24 +132,24 @@
             cabal test --test-show-details=direct
           '';
 
-          cpp-progress = mkApp "cpp-progress" ''
+          cpp-progress = mkAppWithInputs "cpp-progress" [
+            pkgs.bash
+            pkgs.cabal-install
+            pkgs.ghc
+            pkgs.haskellPackages.cpphs
+          ] ''
             set -euo pipefail
-            test -d components/haskell-cpp || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-cpp
-            CPPHS_BIN='${pkgs.lib.getExe pkgs.haskellPackages.cpphs}' ${cppProgressExe}
+            ${cppProgressExe}
           '';
 
-          cpp-progress-strict = mkApp "cpp-progress-strict" ''
+          cpp-progress-strict = mkAppWithInputs "cpp-progress-strict" [
+            pkgs.bash
+            pkgs.cabal-install
+            pkgs.ghc
+            pkgs.haskellPackages.cpphs
+          ] ''
             set -euo pipefail
-            test -d components/haskell-cpp || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-cpp
-            CPPHS_BIN='${pkgs.lib.getExe pkgs.haskellPackages.cpphs}' ${cppProgressExe} --strict
+            ${cppProgressExe} --strict
           '';
 
           name-resolution-test = mkApp "name-resolution-test" ''
@@ -193,21 +164,11 @@
 
           name-resolution-progress = mkApp "name-resolution-progress" ''
             set -euo pipefail
-            test -d components/haskell-name-resolution || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-name-resolution
             ${nameResolutionProgressExe}
           '';
 
           name-resolution-progress-strict = mkApp "name-resolution-progress-strict" ''
             set -euo pipefail
-            test -d components/haskell-name-resolution || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-name-resolution
             ${nameResolutionProgressExe} --strict
           '';
 
@@ -302,7 +263,7 @@
             nativeBuildInputs = [ hsPkgs.aihc-cpp pkgs.haskellPackages.cpphs ];
           } ''
             cd "$src/components/haskell-cpp"
-            CPPHS_BIN='${pkgs.lib.getExe pkgs.haskellPackages.cpphs}' cpp-progress --strict
+            cpp-progress --strict
             touch "$out"
           '';
           nameResolutionProgressStrict = pkgs.runCommand "aihc-name-resolution-progress-strict" {
