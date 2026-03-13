@@ -12,6 +12,7 @@ module Parser.Ast
     DataDecl (..),
     Decl (..),
     DerivingClause (..),
+    DerivingStrategy (..),
     DoStmt (..),
     Expr (..),
     ExportSpec (..),
@@ -211,7 +212,7 @@ data DataDecl = DataDecl
     dataDeclName :: Text,
     dataDeclParams :: [Text],
     dataDeclConstructors :: [DataConDecl],
-    dataDeclDeriving :: Maybe DerivingClause
+    dataDeclDeriving :: [DerivingClause]
   }
   deriving (Eq, Show)
 
@@ -221,7 +222,7 @@ data NewtypeDecl = NewtypeDecl
     newtypeDeclName :: Text,
     newtypeDeclParams :: [Text],
     newtypeDeclConstructor :: Maybe DataConDecl,
-    newtypeDeclDeriving :: Maybe DerivingClause
+    newtypeDeclDeriving :: [DerivingClause]
   }
   deriving (Eq, Show)
 
@@ -245,9 +246,16 @@ data FieldDecl = FieldDecl
   }
   deriving (Eq, Show)
 
-newtype DerivingClause = DerivingClause
-  { derivingClasses :: [Text]
+data DerivingClause = DerivingClause
+  { derivingStrategy :: Maybe DerivingStrategy,
+    derivingClasses :: [Text]
   }
+  deriving (Eq, Show)
+
+data DerivingStrategy
+  = DerivingStock
+  | DerivingNewtype
+  | DerivingAnyclass
   deriving (Eq, Show)
 
 data ClassDecl = ClassDecl

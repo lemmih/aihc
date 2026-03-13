@@ -309,7 +309,7 @@ prettyDataDecl decl =
         prettyDeclHead (dataDeclContext decl) (dataDeclName decl) (dataDeclParams decl)
       ]
         <> ctorPart
-        <> derivingPart (dataDeclDeriving decl)
+        <> derivingParts (dataDeclDeriving decl)
     )
   where
     ctorPart =
@@ -324,7 +324,7 @@ prettyNewtypeDecl decl =
         prettyDeclHead (newtypeDeclContext decl) (newtypeDeclName decl) (newtypeDeclParams decl)
       ]
         <> ctorPart
-        <> derivingPart (newtypeDeclDeriving decl)
+        <> derivingParts (newtypeDeclDeriving decl)
     )
   where
     ctorPart =
@@ -332,15 +332,23 @@ prettyNewtypeDecl decl =
         Nothing -> []
         Just ctor -> ["=", prettyDataCon ctor]
 
-derivingPart :: Maybe DerivingClause -> [Doc ann]
-derivingPart mClause =
-  case mClause of
-    Nothing -> []
-    Just (DerivingClause classes) ->
-      case classes of
-        [] -> ["deriving", "()"]
-        [single] -> ["deriving", pretty single]
-        _ -> ["deriving", parens (hsep (punctuate comma (map pretty classes)))]
+derivingParts :: [DerivingClause] -> [Doc ann]
+derivingParts = concatMap derivingPart
+
+derivingPart :: DerivingClause -> [Doc ann]
+derivingPart (DerivingClause strategy classes) =
+  ["deriving"] <> strategyPart strategy <> classesPart classes
+  where
+    strategyPart Nothing = []
+    strategyPart (Just DerivingStock) = ["stock"]
+    strategyPart (Just DerivingNewtype) = ["newtype"]
+    strategyPart (Just DerivingAnyclass) = ["anyclass"]
+
+    classesPart [] = ["()"]
+    classesPart [single]
+      | Just DerivingStock <- strategy = [parens (pretty single)]
+      | otherwise = [pretty single]
+    classesPart _ = [parens (hsep (punctuate comma (map pretty classes)))]
 
 prettyDeclHead :: [Constraint] -> Text -> [Text] -> Doc ann
 prettyDeclHead constraints name params =
