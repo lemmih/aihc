@@ -9,18 +9,16 @@ module Test.Progress
   )
 where
 
+import qualified Control.Exception as E
 import Cpp (Config (..), IncludeRequest (..), Result (..), Step (..), preprocess)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd)
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import Language.Preprocessor.Cpphs (defaultCpphsOptions, runCpphs)
 import System.Directory (doesFileExist)
-import System.Environment (lookupEnv)
-import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeFileName, (</>))
-import System.Process (CreateProcess (..), proc, readCreateProcessWithExitCode)
 
 data Expected = ExpectPass | ExpectXFail deriving (Eq, Show)
 
@@ -107,14 +105,13 @@ resolveIncludePath rootPath req =
 
 runOracle :: FilePath -> IO (Either String Text)
 runOracle sourcePath = do
-  bin <- fromMaybe "cpphs" <$> lookupEnv "CPPHS_BIN"
-  let dir = takeDirectory sourcePath
-      file = takeFileName sourcePath
-      p = (proc bin [file]) {cwd = Just dir}
-  (code, out, err) <- readCreateProcessWithExitCode p ""
-  pure $ case code of
-    ExitSuccess -> Right (T.pack out)
-    ExitFailure n -> Left ("cpphs exited with " <> show n <> ": " <> err)
+  source <- TIO.readFile sourcePath
+  oracleOut <-
+    (E.try (runCpphs defaultCpphsOptions sourcePath (T.unpack source)) :: IO (Either E.SomeException String))
+  pure $
+    case oracleOut of
+      Right out -> Right (T.pack out)
+      Left err -> Left ("cpphs failed: " <> show err)
 
 loadManifest :: IO [CaseMeta]
 loadManifest = do

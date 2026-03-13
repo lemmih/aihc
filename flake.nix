@@ -132,25 +132,19 @@
             cabal test --test-show-details=direct
           '';
 
-          cpp-progress = mkAppWithInputs "cpp-progress" [
-            pkgs.bash
-            pkgs.cabal-install
-            pkgs.ghc
-            pkgs.haskellPackages.cpphs
-          ] ''
-            set -euo pipefail
-            ${cppProgressExe}
-          '';
+          cpp-progress = {
+            type = "app";
+            program = cppProgressExe;
+            meta.description = "aihc app: cpp-progress";
+          };
 
-          cpp-progress-strict = mkAppWithInputs "cpp-progress-strict" [
-            pkgs.bash
-            pkgs.cabal-install
-            pkgs.ghc
-            pkgs.haskellPackages.cpphs
-          ] ''
-            set -euo pipefail
-            ${cppProgressExe} --strict
-          '';
+          cpp-progress-strict = {
+            type = "app";
+            program = "${pkgs.writeShellScript "cpp-progress-strict" ''
+              exec ${cppProgressExe} --strict "$@"
+            ''}";
+            meta.description = "aihc app: cpp-progress-strict";
+          };
 
           name-resolution-test = mkApp "name-resolution-test" ''
             set -euo pipefail
@@ -260,7 +254,7 @@
           '';
           cppProgressStrict = pkgs.runCommand "aihc-cpp-progress-strict" {
             src = ./.;
-            nativeBuildInputs = [ hsPkgs.aihc-cpp pkgs.haskellPackages.cpphs ];
+            nativeBuildInputs = [ hsPkgs.aihc-cpp ];
           } ''
             cd "$src/components/haskell-cpp"
             cpp-progress --strict
