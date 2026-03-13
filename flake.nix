@@ -115,7 +115,6 @@
             pkgs.bash
             pkgs.cabal-install
             pkgs.ghc
-            pkgs.haskellPackages.cpphs
           ] ''
             set -euo pipefail
             ${cppProgressExe}
@@ -125,7 +124,6 @@
             pkgs.bash
             pkgs.cabal-install
             pkgs.ghc
-            pkgs.haskellPackages.cpphs
           ] ''
             set -euo pipefail
             ${cppProgressExe} --strict
@@ -231,7 +229,7 @@
           '';
           cppProgressStrict = pkgs.runCommand "aihc-cpp-progress-strict" {
             src = ./.;
-            nativeBuildInputs = [ hsPkgs.aihc-cpp pkgs.haskellPackages.cpphs ];
+            nativeBuildInputs = [ hsPkgs.aihc-cpp ];
           } ''
             cd "$src/components/haskell-cpp"
             cpp-progress --strict
