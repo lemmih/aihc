@@ -1,0 +1,7 @@
+extensions: []
+input: |
+  module where
+  x = 1
+ast: ""
+status: fail
+reason: invalid module header

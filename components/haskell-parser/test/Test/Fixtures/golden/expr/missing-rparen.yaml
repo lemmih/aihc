@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  (f x
+ast: ""
+status: fail
+reason: missing right parenthesis

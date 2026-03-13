@@ -1,0 +1,7 @@
+extensions: []
+input: |
+  do
+    x <- y
+    x
+ast: EDo [DoBind (PVar "x") (EVar "y"), DoExpr (EVar "x")]
+status: pass

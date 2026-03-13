@@ -1,0 +1,7 @@
+extensions: []
+input: |
+  module Demo where
+  id1 = f x
+  id2 = f (g 3)
+ast: Module {name = Just "Demo", languagePragmas = [], exports = Nothing, imports = [], decls = [DeclValue (FunctionBind "id1" [Match {pats = [], rhs = UnguardedRhs (EApp (EVar "f") (EVar "x"))}]), DeclValue (FunctionBind "id2" [Match {pats = [], rhs = UnguardedRhs (EApp (EVar "f") (EParen (EApp (EVar "g") (EInt 3))))}])]}
+status: pass

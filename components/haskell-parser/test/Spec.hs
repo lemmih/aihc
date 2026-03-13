@@ -2,20 +2,16 @@
 
 module Main (main) where
 
-import Control.Monad (forM)
-import Data.List (sort)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import Parser
 import Parser.Ast
 import Parser.Pretty (prettyExpr, prettyModule)
 import Parser.Types (ParseResult (..))
-import System.Directory (listDirectory)
-import System.FilePath ((</>))
 import Test.Extensions.Suite (extensionTests)
 import Test.H2010.Suite (h2010Tests)
 import Test.Lexer.Suite (lexerTests)
+import Test.Parser.Suite (parserGoldenTests)
 import Test.QuickCheck
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -29,17 +25,14 @@ main = buildTests >>= defaultMain
 
 buildTests :: IO TestTree
 buildTests = do
-  exprOk <- goldenGroup "golden/expr/ok" expectExprOk
-  exprErr <- goldenGroup "golden/expr/err" expectExprErr
-  moduleOk <- goldenGroup "golden/module/ok" expectModuleOk
-  moduleErr <- goldenGroup "golden/module/err" expectModuleErr
+  parserGolden <- parserGoldenTests
   h2010 <- h2010Tests
   extensions <- extensionTests
   lexer <- lexerTests
   pure $
     testGroup
       "aihc-parser"
-      [ testGroup "golden" [exprOk, exprErr, moduleOk, moduleErr],
+      [ parserGolden,
         lexer,
         testGroup
           "parser"
@@ -52,39 +45,6 @@ buildTests = do
         h2010,
         extensions
       ]
-
-goldenGroup :: FilePath -> (Text -> Assertion) -> IO TestTree
-goldenGroup relDir assertion = do
-  let dir = fixtureRoot </> relDir
-  files <- fmap sort (listDirectory dir)
-  tests <- forM files $ \name -> do
-    let path = dir </> name
-    pure $ testCase name (TIO.readFile path >>= assertion)
-  pure (testGroup relDir tests)
-
-expectExprOk :: Text -> Assertion
-expectExprOk input =
-  case parseExpr defaultConfig input of
-    ParseOk _ -> pure ()
-    ParseErr err -> assertFailure ("expected expr success, got parse error: " <> errorBundlePretty err)
-
-expectExprErr :: Text -> Assertion
-expectExprErr input =
-  case parseExpr defaultConfig input of
-    ParseOk ast -> assertFailure ("expected expr failure, got " <> show ast)
-    ParseErr _ -> pure ()
-
-expectModuleOk :: Text -> Assertion
-expectModuleOk input =
-  case parseModule defaultConfig input of
-    ParseOk _ -> pure ()
-    ParseErr err -> assertFailure ("expected module success, got parse error: " <> errorBundlePretty err)
-
-expectModuleErr :: Text -> Assertion
-expectModuleErr input =
-  case parseModule defaultConfig input of
-    ParseOk ast -> assertFailure ("expected module failure, got " <> show ast)
-    ParseErr _ -> pure ()
 
 test_moduleParsesDecls :: Assertion
 test_moduleParsesDecls =
@@ -256,6 +216,3 @@ toModule (GenModule decls) =
         | (name, expr) <- decls
         ]
     }
-
-fixtureRoot :: FilePath
-fixtureRoot = "test/Test/Fixtures"

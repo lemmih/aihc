@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  f @Int@Bool
+ast: ""
+status: fail
+reason: type application chain requires spaces before @

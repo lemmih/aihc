@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  module Demo where
+  x = 1
+ast: Module {name = Just "Demo", languagePragmas = [], exports = Nothing, imports = [], decls = [DeclValue (FunctionBind "x" [Match {pats = [], rhs = UnguardedRhs (EInt 1)}])]}
+status: pass

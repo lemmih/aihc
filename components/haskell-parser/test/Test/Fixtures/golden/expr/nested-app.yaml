@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  f (g 1)
+ast: EApp (EVar "f") (EParen (EApp (EVar "g") (EInt 1)))
+status: pass

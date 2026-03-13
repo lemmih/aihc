@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  data A deriving ()
+ast: Module {name = Nothing, languagePragmas = [], exports = Nothing, imports = [], decls = [DeclData (DataDecl {context = [], name = "A", params = [], constructors = [], deriving = Just (DerivingClause [])})]}
+status: pass

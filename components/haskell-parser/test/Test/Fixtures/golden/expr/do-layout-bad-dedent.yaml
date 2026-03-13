@@ -1,0 +1,8 @@
+extensions: []
+input: |
+  do
+    x
+   y
+ast: ""
+status: fail
+reason: invalid do-notation dedent

@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  42
+ast: EInt 42
+status: pass

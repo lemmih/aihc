@@ -41,6 +41,7 @@ test-suite spec
     , ExtensionSupport
     , GhcOracle
     , LexerGolden
+    , ParserGolden
     , OracleExtensions
     , ParserValidation
     , ShrinkUtils
@@ -48,6 +49,7 @@ test-suite spec
     , Test.H2010.Suite
     , Test.Extensions.Suite
     , Test.Lexer.Suite
+    , Test.Parser.Suite
   build-depends:
       base >=4.16 && <5
     , aihc-parser

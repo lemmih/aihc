@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  x = 1
+  y = x
+ast: Module {name = Nothing, languagePragmas = [], exports = Nothing, imports = [], decls = [DeclValue (FunctionBind "x" [Match {pats = [], rhs = UnguardedRhs (EInt 1)}]), DeclValue (FunctionBind "y" [Match {pats = [], rhs = UnguardedRhs (EVar "x")}])]}
+status: pass

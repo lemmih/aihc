@@ -1,0 +1,7 @@
+extensions: []
+input: |
+  module Demo where
+  x 1
+ast: ""
+status: fail
+reason: missing equals in declaration

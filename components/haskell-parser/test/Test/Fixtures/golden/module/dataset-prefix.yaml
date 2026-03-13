@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  module DatasetPrefix where
+  dataset = 5
+ast: Module {name = Just "DatasetPrefix", languagePragmas = [], exports = Nothing, imports = [], decls = [DeclValue (FunctionBind "dataset" [Match {pats = [], rhs = UnguardedRhs (EInt 5)}])]}
+status: pass
