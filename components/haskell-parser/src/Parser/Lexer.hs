@@ -26,6 +26,7 @@ import Text.Megaparsec
     anySingle,
     eof,
     getSourcePos,
+    lookAhead,
     many,
     notFollowedBy,
     runParser,
@@ -416,12 +417,12 @@ pragmaWarningToken = do
           pure (decoded, rawStr)
       )
       <|> ( do
-              body <- manyTillText "#-}"
+              body <- MP.manyTill anySingle (try (lookAhead (C.string "#-}")))
               let txt = T.strip (T.pack body)
               pure (txt, txt)
           )
   _ <- many C.spaceChar
-  _ <- try (void (C.string "#-}")) <|> pure ()
+  void (C.string "#-}")
   let raw = "{-# WARNING " <> rawMsg <> " #-}"
   pure (raw, TkPragmaWarning msg)
 
@@ -438,12 +439,12 @@ pragmaDeprecatedToken = do
           pure (decoded, rawStr)
       )
       <|> ( do
-              body <- manyTillText "#-}"
+              body <- MP.manyTill anySingle (try (lookAhead (C.string "#-}")))
               let txt = T.strip (T.pack body)
               pure (txt, txt)
           )
   _ <- many C.spaceChar
-  _ <- try (void (C.string "#-}")) <|> pure ()
+  void (C.string "#-}")
   let raw = "{-# DEPRECATED " <> rawMsg <> " #-}"
   pure (raw, TkPragmaDeprecated msg)
 
