@@ -364,6 +364,7 @@ data Expr
   | EWhereDecls SourceSpan Expr [Decl]
   | EList SourceSpan [Expr]
   | ETuple SourceSpan [Expr]
+  | ETupleSection SourceSpan [Maybe Expr]
   | ETupleCon SourceSpan Int
   | ETypeApp SourceSpan Expr Type
   | EApp SourceSpan Expr Expr

@@ -119,6 +119,7 @@ exprSourceSpan expr =
     EWhereDecls span' _ _ -> span'
     EList span' _ -> span'
     ETuple span' _ -> span'
+    ETupleSection span' _ -> span'
     ETupleCon span' _ -> span'
     ETypeApp span' _ _ -> span'
     EApp span' _ _ -> span'

@@ -438,6 +438,7 @@ exprSpan expr =
     EWhereDecls span' _ _ -> span'
     EList span' _ -> span'
     ETuple span' _ -> span'
+    ETupleSection span' _ -> span'
     ETupleCon span' _ -> span'
     ETypeApp span' _ _ -> span'
     EApp span' _ _ -> span'
@@ -590,6 +591,7 @@ stripExpr expr =
     EWhereDecls _ e decls -> EWhereDecls noSourceSpan (stripExpr e) (map stripDecl decls)
     EList _ es -> EList noSourceSpan (map stripExpr es)
     ETuple _ es -> ETuple noSourceSpan (map stripExpr es)
+    ETupleSection _ es -> ETupleSection noSourceSpan (map (fmap stripExpr) es)
     ETupleCon _ n -> ETupleCon noSourceSpan n
     ETypeApp _ e t -> ETypeApp noSourceSpan (stripExpr e) (stripType t)
     EApp _ f x -> EApp noSourceSpan (stripExpr f) (stripExpr x)
