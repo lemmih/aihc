@@ -15,7 +15,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Parser.Ast
 import Parser.Internal.Common
-import Parser.Internal.Expr (exprParser, simplePatternParser, typeParser)
+import Parser.Internal.Expr (equationRhsParser, simplePatternParser, typeParser)
 import Parser.Lexer (LexTokenKind (..), lexTokenKind)
 import Text.Megaparsec ((<|>))
 import qualified Text.Megaparsec as MP
@@ -415,8 +415,7 @@ valueDeclParser :: TokParser Decl
 valueDeclParser = withSpan $ do
   name <- identifierTextParser
   pats <- MP.many simplePatternParser
-  operatorLikeTok "="
-  rhsExpr <- exprParser
+  rhs <- equationRhsParser
   pure $ \span' ->
     DeclValue
       span'
@@ -426,7 +425,7 @@ valueDeclParser = withSpan $ do
           [ Match
               { matchSpan = span',
                 matchPats = pats,
-                matchRhs = UnguardedRhs span' rhsExpr
+                matchRhs = rhs
               }
           ]
       )

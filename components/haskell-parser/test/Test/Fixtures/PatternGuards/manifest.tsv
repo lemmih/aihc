@@ -1,4 +1,4 @@
-pattern-guard-single	patterns	pattern-guard-single.hs	xfail	parser support pending
-pattern-guard-multi-qualifiers	patterns	pattern-guard-multi-qualifiers.hs	xfail	parser support pending
-pattern-guard-case-alt	patterns	pattern-guard-case-alt.hs	xfail	parser support pending
-pattern-guard-with-let	patterns	pattern-guard-with-let.hs	xfail	parser support pending
+pattern-guard-single	patterns	pattern-guard-single.hs	pass
+pattern-guard-multi-qualifiers	patterns	pattern-guard-multi-qualifiers.hs	pass
+pattern-guard-case-alt	patterns	pattern-guard-case-alt.hs	pass
+pattern-guard-with-let	patterns	pattern-guard-with-let.hs	pass
