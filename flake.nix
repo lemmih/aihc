@@ -117,14 +117,13 @@
             meta.description = "aihc app: cpp-progress";
           };
 
-          cpp-progress-strict = mkAppWithInputs "cpp-progress-strict" [
-            pkgs.bash
-            pkgs.cabal-install
-            pkgs.ghc
-          ] ''
-            set -euo pipefail
-            ${cppProgressExe} --strict
-          '';
+          cpp-progress-strict = {
+            type = "app";
+            program = "${pkgs.writeShellScript "cpp-progress-strict" ''
+              exec ${cppProgressExe} --strict "$@"
+            ''}";
+            meta.description = "aihc app: cpp-progress-strict";
+          };
 
           name-resolution-test = mkApp "name-resolution-test" ''
             set -euo pipefail
