@@ -15,6 +15,8 @@ modules-multiline-definition-module-split	modules	modules/multiline-definition-m
 modules-multiline-definition-where-split	modules	modules/multiline-definition-where-split.hs	pass	parser now handles multiline module headers
 modules-multiline-definition-export-list-split	modules	modules/multiline-definition-export-list-split.hs	pass	parser now supports multiline module export lists
 modules-multiline-definition-export-list-items-split	modules	modules/multiline-definition-export-list-items-split.hs	pass	parser now supports multiline module export list items
+modules-warning-roundtrip	modules	modules/warning-roundtrip.hs	pass	parser supports roundtrip of module warning pragmas
+modules-deprecated-roundtrip	modules	modules/deprecated-roundtrip.hs	pass	parser supports roundtrip of module deprecated pragmas
 
 modules-s5-export-module-modid	modules	modules/s5-export-module-modid.hs	pass	parser now supports section 5 module export entries
 modules-s5-export-qtycls-abstract	modules	modules/s5-export-qtycls-abstract.hs	pass	parser now supports section 5 abstract class/type export entries

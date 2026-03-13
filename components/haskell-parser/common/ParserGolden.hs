@@ -232,12 +232,19 @@ renderExprAst expr =
     ETypeApp _ fn ty -> "ETypeApp " <> par (renderExprAst fn) <> " " <> par (renderType ty)
     EApp _ fn arg -> "EApp " <> par (renderExprAst fn) <> " " <> par (renderExprAst arg)
 
+renderWarningText :: WarningText -> String
+renderWarningText wt =
+  case wt of
+    DeprText _ msg -> "DeprText " <> show msg
+    WarnText _ msg -> "WarnText " <> show msg
+
 renderModuleAst :: Module -> String
 renderModuleAst modu =
   "Module {name = "
     <> show (moduleName modu)
     <> ", languagePragmas = "
     <> show (moduleLanguagePragmas modu)
+    <> maybe "" (\wt -> ", warningText = Just (" <> renderWarningText wt <> ")") (moduleWarningText modu)
     <> ", exports = "
     <> renderMaybe (showListWith renderExportSpec) (moduleExports modu)
     <> ", imports = "

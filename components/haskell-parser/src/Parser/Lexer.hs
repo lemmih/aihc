@@ -26,6 +26,7 @@ import Text.Megaparsec
     anySingle,
     eof,
     getSourcePos,
+    lookAhead,
     many,
     notFollowedBy,
     runParser,
@@ -56,6 +57,8 @@ data LexTokenKind
   | TkKeywordThen
   | TkKeywordElse
   | TkPragmaLanguage [Text]
+  | TkPragmaWarning Text
+  | TkPragmaDeprecated Text
   | TkIdentifier Text
   | TkOperator Text
   | TkInteger Integer
@@ -296,6 +299,8 @@ moduleLayoutOpenIndices toks =
         ( \(_, tok) ->
             case lexTokenKind tok of
               TkPragmaLanguage _ -> False
+              TkPragmaWarning _ -> False
+              TkPragmaDeprecated _ -> False
               _ -> True
         )
         indexedToks
@@ -371,6 +376,8 @@ lexTokenParser :: LParser LexToken
 lexTokenParser =
   lexWithSpan $
     try languagePragmaToken
+      <|> try pragmaWarningToken
+      <|> try pragmaDeprecatedToken
       <|> try quasiQuoteToken
       <|> try hexFloatToken
       <|> try floatToken
@@ -396,6 +403,50 @@ languagePragmaToken = do
 parseLanguagePragmaNames :: Text -> [Text]
 parseLanguagePragmaNames body =
   filter (not . T.null) (map (T.strip . T.takeWhile (/= '#')) (T.splitOn "," body))
+
+pragmaWarningToken :: LParser (Text, LexTokenKind)
+pragmaWarningToken = do
+  _ <- C.string "{-#"
+  _ <- many C.spaceChar
+  _ <- C.string "WARNING"
+  _ <- many C.spaceChar
+  (msg, rawMsg) <-
+    try
+      ( do
+          (rawStr, TkString decoded) <- stringToken
+          pure (decoded, rawStr)
+      )
+      <|> ( do
+              body <- MP.manyTill anySingle (try (lookAhead (C.string "#-}")))
+              let txt = T.strip (T.pack body)
+              pure (txt, txt)
+          )
+  _ <- many C.spaceChar
+  void (C.string "#-}")
+  let raw = "{-# WARNING " <> rawMsg <> " #-}"
+  pure (raw, TkPragmaWarning msg)
+
+pragmaDeprecatedToken :: LParser (Text, LexTokenKind)
+pragmaDeprecatedToken = do
+  _ <- C.string "{-#"
+  _ <- many C.spaceChar
+  _ <- C.string "DEPRECATED"
+  _ <- many C.spaceChar
+  (msg, rawMsg) <-
+    try
+      ( do
+          (rawStr, TkString decoded) <- stringToken
+          pure (decoded, rawStr)
+      )
+      <|> ( do
+              body <- MP.manyTill anySingle (try (lookAhead (C.string "#-}")))
+              let txt = T.strip (T.pack body)
+              pure (txt, txt)
+          )
+  _ <- many C.spaceChar
+  void (C.string "#-}")
+  let raw = "{-# DEPRECATED " <> rawMsg <> " #-}"
+  pure (raw, TkPragmaDeprecated msg)
 
 lexWithSpan :: LParser (Text, LexTokenKind) -> LParser LexToken
 lexWithSpan parser = do

@@ -43,11 +43,14 @@ prettyModule modu =
         Just name ->
           [ hsep
               ( ["module", pretty name]
+                  <> maybe [] prettyWarningText (moduleWarningText modu)
                   <> maybe [] (\specs -> [prettyExportSpecList specs]) (moduleExports modu)
                   <> ["where"]
               )
           ]
         Nothing -> []
+    prettyWarningText (DeprText _ msg) = ["{-# DEPRECATED", pretty (show msg), "#-}"]
+    prettyWarningText (WarnText _ msg) = ["{-# WARNING", pretty (show msg), "#-}"]
     importLines = map prettyImportDecl (moduleImports modu)
     declLines = concatMap prettyDeclLines (moduleDecls modu)
 

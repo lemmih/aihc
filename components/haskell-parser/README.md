@@ -19,7 +19,7 @@ Runtime outcomes are reported as:
 
 Current progress baseline:
 <!-- AUTO-GENERATED: START haskell2010-progress -->
-- `169/243` implemented (`69.54%` complete)
+- `212/361` implemented (`58.72%` complete)
 <!-- AUTO-GENERATED: END haskell2010-progress -->
 
 ## Extension Coverage Tracking
@@ -32,10 +32,10 @@ Each extension can provide a manifest at:
 
 Current extension baseline:
 <!-- AUTO-GENERATED: START extension-progress -->
-- Total tracked extensions: `59`
-- Supported: `8`
-- In Progress: `14`
-- Planned: `37`
+- Total tracked extensions: `60`
+- Supported: `10`
+- In Progress: `21`
+- Planned: `29`
 <!-- AUTO-GENERATED: END extension-progress -->
 
 Generated report:
