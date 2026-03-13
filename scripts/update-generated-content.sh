@@ -38,6 +38,7 @@ run_cmd() {
 }
 
 parser_cmd="${PARSER_PROGRESS_CMD:-nix run .#parser-progress}"
+lexer_cmd="${LEXER_PROGRESS_CMD:-nix run .#lexer-progress}"
 extension_markdown_cmd="${PARSER_EXTENSION_PROGRESS_CMD:-nix run .#parser-extension-progress -- --markdown}"
 extension_progress_cmd="${PARSER_EXTENSION_PROGRESS_TEXT_CMD:-nix run .#parser-extension-progress}"
 cpp_cmd="${CPP_PROGRESS_CMD:-nix run .#cpp-progress}"
@@ -51,6 +52,7 @@ cleanup() {
 trap cleanup EXIT
 
 parser_out="$tmpdir/parser-progress.txt"
+lexer_out="$tmpdir/lexer-progress.txt"
 extension_out="$tmpdir/extension-progress.md"
 extension_progress_out="$tmpdir/extension-progress.txt"
 name_out="$tmpdir/name-resolution-progress.txt"
@@ -58,6 +60,7 @@ cpp_out="$tmpdir/cpp-progress.txt"
 stackage_out="$tmpdir/stackage-progress.txt"
 
 run_cmd "$parser_cmd" >"$parser_out"
+run_cmd "$lexer_cmd" >"$lexer_out"
 run_cmd "$extension_markdown_cmd" | sed -n '/^# Haskell Parser Extension Support Status/,$p' >"$extension_out"
 run_cmd "$extension_progress_cmd" >"$extension_progress_out"
 run_cmd "$cpp_cmd" >"$cpp_out"
@@ -170,6 +173,15 @@ parser_total="${parser_vals[4]}"
 parser_implemented="${parser_vals[5]}"
 parser_complete="${parser_vals[6]}"
 
+lexer_vals=($(parse_progress "$lexer_out"))
+lexer_pass="${lexer_vals[0]}"
+lexer_xfail="${lexer_vals[1]}"
+lexer_xpass="${lexer_vals[2]}"
+lexer_fail="${lexer_vals[3]}"
+lexer_total="${lexer_vals[4]}"
+lexer_implemented="${lexer_vals[5]}"
+lexer_complete="${lexer_vals[6]}"
+
 name_vals=($(parse_progress "$name_out"))
 name_pass="${name_vals[0]}"
 name_xfail="${name_vals[1]}"
@@ -225,6 +237,10 @@ EOF2
 
 cat >"$tmpdir/readme-root-stackage.txt" <<EOF2
 \`${stackage_implemented}/${stackage_total}\` (\`${stackage_complete}%\`)
+EOF2
+
+cat >"$tmpdir/readme-root-lexer.txt" <<EOF2
+\`${lexer_implemented}/${lexer_total}\` (\`${lexer_complete}%\`)
 EOF2
 
 cat >"$tmpdir/readme-parser-h2010.txt" <<EOF2
@@ -351,6 +367,7 @@ else
 fi
 
 replace_marker_inline README.md "parser-progress" "$tmpdir/readme-root-parser.txt"
+replace_marker_inline README.md "lexer-progress" "$tmpdir/readme-root-lexer.txt"
 replace_marker_inline README.md "parser-stackage-progress" "$tmpdir/readme-root-stackage.txt"
 replace_marker_inline README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
 replace_marker_inline README.md "name-resolution-progress" "$tmpdir/readme-root-name.txt"

@@ -1,0 +1,6 @@
+extensions: []
+input: "-10"
+tokens:
+  - 'TkOperator "-"'
+  - 'TkInteger 10'
+status: pass

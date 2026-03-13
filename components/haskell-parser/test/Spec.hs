@@ -15,6 +15,7 @@ import System.Directory (listDirectory)
 import System.FilePath ((</>))
 import Test.Extensions.Suite (extensionTests)
 import Test.H2010.Suite (h2010Tests)
+import Test.Lexer.Suite (lexerTests)
 import Test.QuickCheck
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -34,10 +35,12 @@ buildTests = do
   moduleErr <- goldenGroup "golden/module/err" expectModuleErr
   h2010 <- h2010Tests
   extensions <- extensionTests
+  lexer <- lexerTests
   pure $
     testGroup
       "aihc-parser"
       [ testGroup "golden" [exprOk, exprErr, moduleOk, moduleErr],
+        lexer,
         testGroup
           "parser"
           [testCase "module parses declaration list" test_moduleParsesDecls],

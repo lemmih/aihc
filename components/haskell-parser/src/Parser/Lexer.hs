@@ -3,6 +3,9 @@
 module Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
+    LexerExtension (..),
+    lexTokensWithExtensions,
+    lexModuleTokensWithExtensions,
     lexTokens,
     lexModuleTokens,
   )
@@ -62,7 +65,11 @@ data LexTokenKind
   | TkString Text
   | TkSymbol Text
   | TkQuasiQuote Text Text
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Read)
+
+data LexerExtension
+  = NegativeLiterals
+  deriving (Eq, Ord, Show, Read)
 
 data LexToken = LexToken
   { lexTokenKind :: !LexTokenKind,
@@ -75,15 +82,86 @@ type LParser = Parsec Void Text
 
 lexTokens :: Text -> [LexToken]
 lexTokens input =
-  case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
-    Right toks -> applyLayoutTokens False toks
+  case lexTokensWithExtensions [] input of
+    Right toks -> toks
     Left _ -> []
 
 lexModuleTokens :: Text -> [LexToken]
 lexModuleTokens input =
-  case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
-    Right toks -> applyLayoutTokens True toks
+  case lexModuleTokensWithExtensions [] input of
+    Right toks -> toks
     Left _ -> []
+
+lexTokensWithExtensions :: [LexerExtension] -> Text -> Either String [LexToken]
+lexTokensWithExtensions exts input =
+  case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
+    Right toks -> Right (applyLayoutTokens False (applyExtensions exts toks))
+    Left err -> Left (MP.errorBundlePretty err)
+
+lexModuleTokensWithExtensions :: [LexerExtension] -> Text -> Either String [LexToken]
+lexModuleTokensWithExtensions exts input =
+  case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
+    Right toks -> Right (applyLayoutTokens True (applyExtensions exts toks))
+    Left err -> Left (MP.errorBundlePretty err)
+
+applyExtensions :: [LexerExtension] -> [LexToken] -> [LexToken]
+applyExtensions exts toks
+  | NegativeLiterals `elem` exts = applyNegativeLiterals toks
+  | otherwise = toks
+
+applyNegativeLiterals :: [LexToken] -> [LexToken]
+applyNegativeLiterals toks =
+  case toks of
+    minusTok : numTok : rest
+      | lexTokenKind minusTok == TkOperator "-",
+        tokensAdjacent minusTok numTok ->
+          case lexTokenKind numTok of
+            TkInteger n ->
+              negativeIntegerToken minusTok numTok n : applyNegativeLiterals rest
+            TkIntegerBase n repr ->
+              negativeIntegerBaseToken minusTok numTok n repr : applyNegativeLiterals rest
+            TkFloat n repr ->
+              negativeFloatToken minusTok numTok n repr : applyNegativeLiterals rest
+            _ -> minusTok : applyNegativeLiterals (numTok : rest)
+    tok : rest -> tok : applyNegativeLiterals rest
+    [] -> []
+
+tokensAdjacent :: LexToken -> LexToken -> Bool
+tokensAdjacent first second =
+  case (lexTokenSpan first, lexTokenSpan second) of
+    (SourceSpan _ _ firstEndLine firstEndCol, SourceSpan secondStartLine secondStartCol _ _) ->
+      firstEndLine == secondStartLine && firstEndCol == secondStartCol
+    _ -> False
+
+negativeIntegerToken :: LexToken -> LexToken -> Integer -> LexToken
+negativeIntegerToken minusTok numTok n =
+  LexToken
+    { lexTokenKind = TkInteger (negate n),
+      lexTokenText = lexTokenText minusTok <> lexTokenText numTok,
+      lexTokenSpan = combinedSpan minusTok numTok
+    }
+
+negativeIntegerBaseToken :: LexToken -> LexToken -> Integer -> Text -> LexToken
+negativeIntegerBaseToken minusTok numTok n repr =
+  LexToken
+    { lexTokenKind = TkIntegerBase (negate n) ("-" <> repr),
+      lexTokenText = lexTokenText minusTok <> lexTokenText numTok,
+      lexTokenSpan = combinedSpan minusTok numTok
+    }
+
+negativeFloatToken :: LexToken -> LexToken -> Double -> Text -> LexToken
+negativeFloatToken minusTok numTok n repr =
+  LexToken
+    { lexTokenKind = TkFloat (negate n) ("-" <> repr),
+      lexTokenText = lexTokenText minusTok <> lexTokenText numTok,
+      lexTokenSpan = combinedSpan minusTok numTok
+    }
+
+combinedSpan :: LexToken -> LexToken -> SourceSpan
+combinedSpan first second =
+  case (lexTokenSpan first, lexTokenSpan second) of
+    (SourceSpan sl sc _ _, SourceSpan _ _ el ec) -> SourceSpan sl sc el ec
+    _ -> NoSourceSpan
 
 data LayoutContext
   = LayoutExplicit

@@ -5,6 +5,13 @@ module Parser
     parseModule,
     defaultConfig,
     errorBundlePretty,
+    LexToken (..),
+    LexTokenKind (..),
+    LexerExtension (..),
+    lexTokens,
+    lexModuleTokens,
+    lexTokensWithExtensions,
+    lexModuleTokensWithExtensions,
   )
 where
 
@@ -13,7 +20,15 @@ import Parser.Ast (Decl, Expr, ImportDecl, Module (..))
 import Parser.Internal.Common (TokParser, symbolLikeTok, withSpan)
 import Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
 import Parser.Internal.Expr (exprParser)
-import Parser.Lexer (lexModuleTokens, lexTokens)
+import Parser.Lexer
+  ( LexToken (..),
+    LexTokenKind (..),
+    LexerExtension (..),
+    lexModuleTokens,
+    lexModuleTokensWithExtensions,
+    lexTokens,
+    lexTokensWithExtensions,
+  )
 import Parser.Types
 import Text.Megaparsec (runParser)
 import qualified Text.Megaparsec as MP
