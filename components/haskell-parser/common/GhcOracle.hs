@@ -5,6 +5,10 @@ module GhcOracle
     oracleParsesModuleWithExtensionsAt,
     oracleModuleAstFingerprintWithExtensions,
     oracleModuleAstFingerprintWithExtensionsAt,
+    oracleParsesModuleWithNames,
+    oracleParsesModuleWithNamesAt,
+    oracleDetailedParsesModuleWithNames,
+    oracleDetailedParsesModuleWithNamesAt,
   )
 where
 
@@ -16,7 +20,7 @@ import qualified GHC.Data.EnumSet as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Hs (GhcPs, HsModule)
-import GHC.LanguageExtensions.Type (Extension (ForeignFunctionInterface))
+import GHC.LanguageExtensions.Type (Extension (..))
 import GHC.Parser (parseModule)
 import GHC.Parser.Lexer
   ( ParseResult (..),
@@ -89,3 +93,99 @@ stripLanguagePragmaLines =
       case parseLanguagePragmaLine t of
         Just _ -> True
         Nothing -> False
+
+oracleParsesModuleWithNames :: [String] -> Maybe String -> Text -> Bool
+oracleParsesModuleWithNames = oracleParsesModuleWithNamesAt "oracle"
+
+oracleParsesModuleWithNamesAt :: String -> [String] -> Maybe String -> Text -> Bool
+oracleParsesModuleWithNamesAt sourceTag extNames langName input =
+  case oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input of
+    Left _ -> False
+    Right _ -> True
+
+oracleDetailedParsesModuleWithNames :: [String] -> Maybe String -> Text -> Either Text ()
+oracleDetailedParsesModuleWithNames = oracleDetailedParsesModuleWithNamesAt "oracle"
+
+oracleDetailedParsesModuleWithNamesAt :: String -> [String] -> Maybe String -> Text -> Either Text ()
+oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
+  let exts = mapMaybe parseExtension extNames
+      langExts = maybe [] languageExtensions langName
+      allExts = nub (exts <> langExts)
+   in case parseWithGhcWithExtensions sourceTag allExts input of
+        Left err ->
+          let extList = T.pack (show extNames)
+              langInfo = maybe "" (\l -> " Language: " <> T.pack l) langName
+           in Left (err <> "\n(Extensions: " <> extList <> langInfo <> ")")
+        Right _ -> Right ()
+
+parseExtension :: String -> Maybe Extension
+parseExtension name =
+  case name of
+    "BangPatterns" -> Just BangPatterns
+    "BinaryLiterals" -> Just BinaryLiterals
+    "DerivingStrategies" -> Just DerivingStrategies
+    "DoAndIfThenElse" -> Just DoAndIfThenElse
+    "EmptyCase" -> Just EmptyCase
+    "EmptyDataDecls" -> Just EmptyDataDecls
+    "ExistentialQuantification" -> Just ExistentialQuantification
+    "ExplicitForAll" -> Just ExplicitForAll
+    "ExplicitNamespaces" -> Just ExplicitNamespaces
+    "FunctionalDependencies" -> Just FunctionalDependencies
+    "GADTs" -> Just GADTs
+    "HexFloatLiterals" -> Just HexFloatLiterals
+    "ImportQualifiedPost" -> Just ImportQualifiedPost
+    "InstanceSigs" -> Just InstanceSigs
+    "KindSignatures" -> Just KindSignatures
+    "LambdaCase" -> Just LambdaCase
+    "MultiParamTypeClasses" -> Just MultiParamTypeClasses
+    "NamedFieldPuns" -> Just NamedFieldPuns
+    "NamedWildCards" -> Just NamedWildCards
+    "NumericUnderscores" -> Just NumericUnderscores
+    "PackageImports" -> Just PackageImports
+    "ParallelListComp" -> Just ParallelListComp
+    "PatternGuards" -> Just PatternGuards
+    "QuasiQuotes" -> Just QuasiQuotes
+    "RoleAnnotations" -> Just RoleAnnotations
+    "StandaloneDeriving" -> Just StandaloneDeriving
+    "StandaloneKindSignatures" -> Just StandaloneKindSignatures
+    "TupleSections" -> Just TupleSections
+    "TypeApplications" -> Just TypeApplications
+    "TypeOperators" -> Just TypeOperators
+    "ViewPatterns" -> Just ViewPatterns
+    "OverloadedStrings" -> Just OverloadedStrings
+    "ScopedTypeVariables" -> Just ScopedTypeVariables
+    "FlexibleContexts" -> Just FlexibleContexts
+    "FlexibleInstances" -> Just FlexibleInstances
+    "GeneralizedNewtypeDeriving" -> Just GeneralizedNewtypeDeriving
+    "DeriveGeneric" -> Just DeriveGeneric
+    "DeriveFunctor" -> Just DeriveFunctor
+    "DeriveDataTypeable" -> Just DeriveDataTypeable
+    "DeriveFoldable" -> Just DeriveFoldable
+    "DeriveTraversable" -> Just DeriveTraversable
+    "TypeFamilies" -> Just TypeFamilies
+    "ConstraintKinds" -> Just ConstraintKinds
+    "PolyKinds" -> Just PolyKinds
+    "DataKinds" -> Just DataKinds
+    "RankNTypes" -> Just RankNTypes
+    "GADTSyntax" -> Just GADTSyntax
+    "EmptyDataDeriving" -> Just EmptyDataDeriving
+    "MultiWayIf" -> Just MultiWayIf
+    "PatternSynonyms" -> Just PatternSynonyms
+    "RecordWildCards" -> Just RecordWildCards
+    "RecursiveDo" -> Just RecursiveDo
+    "Strict" -> Just Strict
+    "StrictData" -> Just StrictData
+    "TemplateHaskell" -> Just TemplateHaskell
+    "TemplateHaskellQuotes" -> Just TemplateHaskellQuotes
+    "UnboxedTuples" -> Just UnboxedTuples
+    "UnboxedSums" -> Just UnboxedSums
+    "UndecidableInstances" -> Just UndecidableInstances
+    "UnicodeSyntax" -> Just UnicodeSyntax
+    _ -> Nothing -- Ignore unknown ones for now
+
+languageExtensions :: String -> [Extension]
+languageExtensions lang =
+  case lang of
+    "Haskell98" -> []
+    "Haskell2010" -> [] -- GHC uses some by default anyway
+    _ -> []

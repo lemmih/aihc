@@ -63,6 +63,7 @@ test-suite spec
     , tasty-quickcheck
     , QuickCheck
     , ghc-lib-parser
+    , Cabal-syntax
     , haskell-src-exts
     , aeson
     , yaml
@@ -87,6 +88,7 @@ executable parser-progress
     , directory
     , filepath
     , ghc-lib-parser
+    , Cabal-syntax
   ghc-options:        -Wall -Werror
   default-language: Haskell2010
 
@@ -125,6 +127,7 @@ executable extension-progress
     , directory
     , filepath
     , ghc-lib-parser
+    , Cabal-syntax
     , time
   ghc-options:        -Wall -Werror
   default-language: Haskell2010
@@ -149,6 +152,7 @@ executable hackage-tester
     , filepath
     , ghc-lib-parser
     , Cabal
+    , Cabal-syntax
     , bytestring
     , process
     , haskell-src-exts
@@ -177,6 +181,7 @@ executable stackage-progress
     , process
     , async
     , Cabal
+    , Cabal-syntax
     , bytestring
     , haskell-src-exts
   ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
@@ -204,5 +209,7 @@ executable parser-fuzz
     , random
     , text
     , ghc-lib-parser
+    , Cabal-syntax
   ghc-options:        -Wall -Werror
-  default-language: GHC2024
+  default-language: GHC2021
+

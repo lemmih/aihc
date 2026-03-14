@@ -8,19 +8,20 @@ import Control.Monad (forM, when)
 import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParser)
 import Data.Char (isAlphaNum, isSpace)
-import Data.Either (lefts)
 import Data.List (isPrefixOf, nub)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import GHC.Conc (getNumProcessors)
-import HackageSupport (diagToText, downloadPackageQuietWithNetwork, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
+import qualified GhcOracle
+import HackageSupport (FileInfo (..), diagToText, downloadPackageQuietWithNetwork, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
+import qualified Language.Haskell.Exts as HSE
 import qualified Parser
 import Parser.Ast
 import Parser.Types (ParseResult (..))
 import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailed)
-import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesFileExist, getXdgDirectory)
+import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesFileExist, getHomeDirectory, getXdgDirectory)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
@@ -31,6 +32,8 @@ data Check
   = CheckParse
   | CheckRoundtripGhc
   | CheckSourceSpan
+  | CheckHse
+  | CheckGhc
   deriving (Eq, Show)
 
 data Options = Options
@@ -38,7 +41,10 @@ data Options = Options
     optChecks :: [Check],
     optJobs :: Maybe Int,
     optOffline :: Bool,
-    optPrintSucceeded :: Bool
+    optPrintSucceeded :: Bool,
+    optSanityCheck :: Bool,
+    optGhcErrorsFile :: Maybe FilePath,
+    optGhcErrorsLimit :: Int
   }
 
 data PackageSpec = PackageSpec
@@ -49,8 +55,11 @@ data PackageSpec = PackageSpec
 
 data PackageResult = PackageResult
   { package :: PackageSpec,
-    packageOk :: Bool,
-    packageReason :: String
+    packageOursOk :: Bool,
+    packageHseOk :: Bool,
+    packageGhcOk :: Bool,
+    packageReason :: String,
+    packageGhcError :: Maybe String
   }
 
 main :: IO ()
@@ -76,32 +85,57 @@ main = do
   jobs <- maybe getNumProcessors pure (optJobs opts)
   putProgressLine (ProgressState 0 0 total)
   results <- mapConcurrentlyChunksWithProgress jobs (runPackage opts) packages total
-  let successN = length [() | result <- results, packageOk result]
+  let successOursN = length [() | result <- results, packageOursOk result]
+      successHseN = length [() | result <- results, packageHseOk result]
+      successGhcN = length [() | result <- results, packageGhcOk result]
   putStrLn ""
 
   when (optPrintSucceeded opts) $ do
-    mapM_ putStrLn [formatPackage (package result) | result <- results, packageOk result]
+    mapM_ putStrLn [formatPackage (package result) | result <- results, packageOursOk result]
     putStrLn ""
 
-  if successN == total then exitSuccess else exitFailure
+  putStrLn "Parsing success rates:"
+  putStrLn $ "  AIHC: " ++ show successOursN ++ " / " ++ show total ++ " (" ++ show (pct successOursN total) ++ "%)"
+  when (optSanityCheck opts) $ do
+    putStrLn $ "  HSE:  " ++ show successHseN ++ " / " ++ show total ++ " (" ++ show (pct successHseN total) ++ "%)"
+  putStrLn $ "  GHC:  " ++ show successGhcN ++ " / " ++ show total ++ " (" ++ show (pct successGhcN total) ++ "%)"
+
+  case optGhcErrorsFile opts of
+    Nothing -> pure ()
+    Just path -> do
+      home <- getHomeDirectory
+      let sanitize = T.unpack . T.replace (T.pack home) "$HOME" . T.pack
+          ghcErrors = take (optGhcErrorsLimit opts) [(pkgName (package r), sanitize e) | r <- results, Just e <- [packageGhcError r]]
+      writeFile path $ unlines ["=== " ++ pkg ++ " ===\n" ++ err ++ "\n" | (pkg, err) <- ghcErrors]
+      putStrLn $ "GHC errors written to " ++ path
+
+  if successOursN == total then exitSuccess else exitFailure
 
 usage :: String
 usage =
   unlines
-    [ "Usage: cabal run stackage-progress -- [--snapshot lts-24.33] [--checks parse,roundtrip-ghc,source-span] [--jobs N] [--offline] [--print-succeeded]",
+    [ "Usage: cabal run stackage-progress -- [--snapshot lts-24.33] [--checks parse,roundtrip-ghc,source-span] [--jobs N] [--offline] [--print-succeeded] [--sanity-check]",
       "",
       "Defaults:",
       "  --snapshot lts-24.33",
       "  --checks parse",
       "  --jobs <num processors>",
       "  --offline false",
-      "  --print-succeeded false"
+      "  --print-succeeded false",
+      "  --sanity-check false",
+      "  --ghc-errors-file <path>",
+      "  --ghc-errors-limit 100"
     ]
 
 parseOptions :: [String] -> Either String Options
-parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False)
+parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False False Nothing 100)
   where
-    go opts [] = Right opts
+    go opts [] =
+      let opts' =
+            if optSanityCheck opts
+              then opts {optChecks = nub (optChecks opts ++ [CheckHse, CheckGhc])}
+              else opts
+       in Right opts'
     go opts ("--snapshot" : value : rest)
       | null value = Left "--snapshot requires a value"
       | otherwise = go opts {optSnapshot = value} rest
@@ -116,6 +150,14 @@ parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False)
       go opts {optOffline = True} rest
     go opts ("--print-succeeded" : rest) =
       go opts {optPrintSucceeded = True} rest
+    go opts ("--sanity-check" : rest) =
+      go opts {optSanityCheck = True} rest
+    go opts ("--ghc-errors-file" : path : rest) =
+      go opts {optGhcErrorsFile = Just path} rest
+    go opts ("--ghc-errors-limit" : value : rest) =
+      case reads value of
+        [(n, "")] | n >= 0 -> go opts {optGhcErrorsLimit = n} rest
+        _ -> Left "--ghc-errors-limit must be a non-negative integer"
     go _ ("--help" : _) = Left ""
     go _ (arg : _) = Left ("Unknown argument: " ++ arg)
 
@@ -252,8 +294,11 @@ runPackage opts spec = do
     Left err ->
       PackageResult
         { package = spec,
-          packageOk = False,
-          packageReason = displayException (err :: SomeException)
+          packageOursOk = False,
+          packageHseOk = False,
+          packageGhcOk = False,
+          packageReason = displayException (err :: SomeException),
+          packageGhcError = Nothing
         }
     Right pkgResult -> pkgResult
 
@@ -264,8 +309,11 @@ runPackageOrThrow opts spec = do
       pure
         PackageResult
           { package = spec,
-            packageOk = False,
-            packageReason = "installed package has no downloadable snapshot version"
+            packageOursOk = False,
+            packageHseOk = False,
+            packageGhcOk = False,
+            packageReason = "installed package has no downloadable snapshot version",
+            packageGhcError = Nothing
           }
     else do
       srcDir <- downloadPackageQuietWithNetwork (not (optOffline opts)) (pkgName spec) (pkgVersion spec)
@@ -275,34 +323,58 @@ runPackageOrThrow opts spec = do
           pure
             PackageResult
               { package = spec,
-                packageOk = False,
-                packageReason = "no target source files"
+                packageOursOk = False,
+                packageHseOk = False,
+                packageGhcOk = False,
+                packageReason = "no target source files",
+                packageGhcError = Nothing
               }
         else do
           fileResults <- forM files (checkFile opts srcDir)
-          let failures = lefts fileResults
-          if null failures
+          let oursFailures = [fromMaybe "ours failed" (fileError fr) | fr <- fileResults, not (fileOursOk fr)]
+              hseOk = all fileHseOk fileResults
+              ghcOk = all fileGhcOk fileResults
+              ghcError = case [e | fr <- fileResults, Just e <- [fileGhcError fr]] of
+                e : _ -> Just e
+                [] -> Nothing
+              oursOk = null oursFailures
+          if oursOk
             then
               pure
                 PackageResult
                   { package = spec,
-                    packageOk = True,
-                    packageReason = ""
+                    packageOursOk = True,
+                    packageHseOk = hseOk,
+                    packageGhcOk = ghcOk,
+                    packageReason = "",
+                    packageGhcError = ghcError
                   }
             else
               let firstFailure =
-                    case failures of
+                    case oursFailures of
                       f : _ -> f
                       [] -> "unknown failure"
                in pure
                     PackageResult
                       { package = spec,
-                        packageOk = False,
-                        packageReason = firstFailure
+                        packageOursOk = False,
+                        packageHseOk = hseOk,
+                        packageGhcOk = ghcOk,
+                        packageReason = firstFailure,
+                        packageGhcError = ghcError
                       }
 
-checkFile :: Options -> FilePath -> FilePath -> IO (Either String ())
-checkFile opts packageRoot file = do
+data FileResult = FileResult
+  { fileOursOk :: Bool,
+    fileHseOk :: Bool,
+    fileGhcOk :: Bool,
+    fileError :: Maybe String,
+    fileGhcError :: Maybe String
+  }
+
+checkFile :: Options -> FilePath -> FileInfo -> IO FileResult
+checkFile opts packageRoot info = do
+  let file = fileInfoPath info
   source <- TIO.readFile file
   preprocessed <- preprocessForParser file (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
@@ -313,7 +385,7 @@ checkFile opts packageRoot file = do
           else Just (T.intercalate "\n" cppErrors)
       oursResult = Parser.parseModule Parser.defaultConfig source'
 
-  case oursResult of
+  oursStatus <- case oursResult of
     ParseErr err ->
       if CheckParse `elem` optChecks opts || needsParsedModule (optChecks opts)
         then pure (Left (T.unpack (prefixCppErrors cppErrorMsg ("parse failed in " <> T.pack file <> ": " <> T.pack (show err)))))
@@ -329,6 +401,51 @@ checkFile opts packageRoot file = do
           if CheckSourceSpan `elem` optChecks opts
             then pure (checkSourceSpans file source' parsed)
             else pure (Right ())
+
+  hseOk <-
+    if CheckHse `elem` optChecks opts
+      then pure $ checkHse (fileInfoExtensions info) (fileInfoLanguage info) source'
+      else pure True
+
+  ghcOkResult <-
+    if CheckGhc `elem` optChecks opts
+      then pure $ GhcOracle.oracleDetailedParsesModuleWithNamesAt file (fileInfoExtensions info) (fileInfoLanguage info) source'
+      else pure (Right ())
+  let ghcOk = case ghcOkResult of Right () -> True; Left _ -> False
+      ghcErrMsg = case ghcOkResult of Left err -> Just (T.unpack err); Right () -> Nothing
+
+  pure
+    FileResult
+      { fileOursOk = case oursStatus of Right () -> True; Left _ -> False,
+        fileHseOk = hseOk,
+        fileGhcOk = ghcOk,
+        fileError = case oursStatus of Left err -> Just err; Right () -> Nothing,
+        fileGhcError = ghcErrMsg
+      }
+
+checkHse :: [String] -> Maybe String -> Text -> Bool
+checkHse extNames _langName source =
+  let exts = mapMaybe parseHseExtension extNames
+      mode = hseParseMode {HSE.extensions = HSE.glasgowExts ++ exts}
+   in case HSE.parseFileContentsWithMode mode (T.unpack source) of
+        HSE.ParseOk _ -> True
+        HSE.ParseFailed _ _ -> False
+
+parseHseExtension :: String -> Maybe HSE.Extension
+parseHseExtension name =
+  case name of
+    "LambdaCase" -> Just (HSE.EnableExtension HSE.LambdaCase)
+    "MultiWayIf" -> Just (HSE.EnableExtension HSE.MultiWayIf)
+    -- This is a bit tedious to map all, but for now we rely on glasgowExts
+    -- which covers many.
+    _ -> Nothing
+
+hseParseMode :: HSE.ParseMode
+hseParseMode =
+  HSE.defaultParseMode
+    { HSE.parseFilename = "<stackage-progress>",
+      HSE.extensions = HSE.glasgowExts
+    }
 
 needsParsedModule :: [Check] -> Bool
 needsParsedModule checks =
@@ -827,7 +944,7 @@ mapConcurrentlyChunksWithProgress n action items total =
     go done success acc (chunk : rest) = do
       batch <- mapConcurrently action chunk
       let done' = done + length batch
-          success' = success + length [() | result <- batch, packageOk result]
+          success' = success + length [() | result <- batch, packageOursOk result]
       putProgressLine (ProgressState done' success' total)
       go done' success' (batch : acc) rest
 
@@ -858,3 +975,7 @@ putProgressLine p =
           ++ " processed)"
       )
     hFlush stdout
+
+pct :: Int -> Int -> Int
+pct _ 0 = 100
+pct n total = (n * 100) `div` total
