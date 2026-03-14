@@ -13,3 +13,6 @@ warning-directive	diagnostics	warning-directive.hs	pass
 error-directive	diagnostics	error-directive.hs	pass
 isndef-alias	conditionals	isndef-alias.hs	pass
 endif-balance	conditionals	endif-balance.hs	pass
+pkg-ad	pkg	pkg-ad.hs	pass
+multiline-define	macro	multiline-define.hs	pass
+multiline-define-long	macro	multiline-define-long.hs	pass

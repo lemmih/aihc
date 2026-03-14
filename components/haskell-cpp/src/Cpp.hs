@@ -59,7 +59,7 @@ data Step
 
 preprocess :: Config -> Text -> Step
 preprocess cfg input =
-  processFile (configInputFile cfg) (T.lines input) 1 [] emptyState finish
+  processFile (configInputFile cfg) (joinMultiline 1 (T.lines input)) [] emptyState finish
   where
     finish st =
       Done
@@ -67,6 +67,21 @@ preprocess cfg input =
           { resultOutput = T.intercalate "\n" (reverse (stOutputRev st)),
             resultDiagnostics = reverse (stDiagnosticsRev st)
           }
+
+joinMultiline :: Int -> [Text] -> [(Int, Text)]
+joinMultiline _ [] = []
+joinMultiline n (l : ls)
+  | "\\" `T.isSuffixOf` l =
+      let (content, rest, count) = pull (T.init l) ls
+       in (n, content) : joinMultiline (n + count + 1) rest
+  | otherwise = (n, l) : joinMultiline (n + 1) ls
+  where
+    pull acc [] = (acc, [], 0)
+    pull acc (x : xs)
+      | "\\" `T.isSuffixOf` x =
+          let (res, r, c) = pull (acc <> T.init x) xs
+           in (res, r, c + 1)
+      | otherwise = (acc <> x, xs, 1)
 
 data EngineState = EngineState
   { stMacros :: !(Map Text Text),
@@ -95,12 +110,15 @@ currentActive (f : _) = frameCurrentActive f
 
 type Continuation = EngineState -> Step
 
-processFile :: FilePath -> [Text] -> Int -> [CondFrame] -> EngineState -> Continuation -> Step
-processFile _ [] _ _ st k = k st
-processFile filePath (line : restLines) lineNo stack st k =
+processFile :: FilePath -> [(Int, Text)] -> [CondFrame] -> EngineState -> Continuation -> Step
+processFile _ [] _ st k = k st
+processFile filePath ((lineNo, line) : restLines) stack st k =
   let active = currentActive stack
-      continue st' = processFile filePath restLines (lineNo + 1) stack st' k
-      continueWith stack' st' = processFile filePath restLines (lineNo + 1) stack' st' k
+      nextLineNo = case restLines of
+        (n, _) : _ -> n
+        [] -> lineNo + 1
+      continue st' = processFile filePath restLines stack st' k
+      continueWith stack' st' = processFile filePath restLines stack' st' k
       handleDirective directive =
         case directive of
           DirDefine name value ->
@@ -132,11 +150,10 @@ processFile filePath (line : restLines) lineNo stack st k =
                                 processFile
                                   filePath
                                   restLines
-                                  (lineNo + 1)
                                   stack
-                                  (emitLine (linePragma (lineNo + 1) filePath) stAfterInclude)
+                                  (emitLine (linePragma nextLineNo filePath) stAfterInclude)
                                   k
-                           in processFile includeTarget (T.lines includeText) 1 [] stWithIncludePragma resumeParent
+                           in processFile includeTarget (joinMultiline 1 (T.lines includeText)) [] stWithIncludePragma resumeParent
                  in NeedInclude req nextStep
               else continue st
           DirIf expr ->
