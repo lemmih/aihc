@@ -1,0 +1,17 @@
+pattern-synonyms-unidirectional-prefix	patterns	pattern-synonyms-unidirectional-prefix.hs	xfail	parser support pending
+pattern-synonyms-bidirectional-prefix	patterns	pattern-synonyms-bidirectional-prefix.hs	xfail	parser support pending
+pattern-synonyms-explicitly-bidirectional	patterns	pattern-synonyms-explicitly-bidirectional.hs	xfail	parser support pending
+pattern-synonyms-infix-symbol	patterns	pattern-synonyms-infix-symbol.hs	xfail	parser support pending
+pattern-synonyms-infix-backticks	patterns	pattern-synonyms-infix-backticks.hs	xfail	parser support pending
+pattern-synonyms-record-bidirectional	patterns	pattern-synonyms-record-bidirectional.hs	xfail	parser support pending
+pattern-synonyms-record-unidirectional	patterns	pattern-synonyms-record-unidirectional.hs	xfail	parser support pending
+pattern-synonyms-signature-basic	declarations	pattern-synonyms-signature-basic.hs	xfail	parser support pending
+pattern-synonyms-signature-dual-context	declarations	pattern-synonyms-signature-dual-context.hs	xfail	parser support pending
+pattern-synonyms-complete-pragma	declarations	pattern-synonyms-complete-pragma.hs	xfail	parser support pending
+pattern-synonyms-inline-pragmas	declarations	pattern-synonyms-inline-pragmas.hs	xfail	parser support pending
+pattern-synonyms-export-pattern-keyword	modules	pattern-synonyms-export-pattern-keyword.hs	xfail	parser support pending
+pattern-synonyms-import-pattern-keyword	modules	pattern-synonyms-import-pattern-keyword.hs	xfail	parser support pending
+pattern-synonyms-import-export-bundled	modules	pattern-synonyms-import-export-bundled.hs	xfail	parser support pending
+pattern-synonyms-export-data-keyword	modules	pattern-synonyms-export-data-keyword.hs	xfail	parser support pending
+pattern-synonyms-import-data-keyword	modules	pattern-synonyms-import-data-keyword.hs	xfail	parser support pending
+pattern-synonyms-import-export-bundled-data	modules	pattern-synonyms-import-export-bundled-data.hs	xfail	parser support pending
