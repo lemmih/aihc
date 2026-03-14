@@ -5,6 +5,7 @@ module HackageSupport
     downloadPackageQuiet,
     downloadPackageQuietWithNetwork,
     findTargetFilesFromCabal,
+    FileInfo (..),
     resolveIncludeBestEffort,
     diagToText,
     prefixCppErrors,
@@ -29,21 +30,19 @@ import Distribution.PackageDescription
     condExecutables,
     condLibrary,
     condSubLibraries,
+    defaultExtensions,
+    defaultLanguage,
     exeModules,
     exposedModules,
     hsSourceDirs,
     libBuildInfo,
     modulePath,
+    otherExtensions,
     otherModules,
   )
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Types.CondTree
-  ( CondBranch,
-    CondTree,
-    condBranchIfFalse,
-    condBranchIfTrue,
-    condTreeComponents,
-    condTreeData,
+  ( CondTree (condTreeData),
   )
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
 import Distribution.Utils.Path (getSymbolicPath)
@@ -115,7 +114,14 @@ getCacheDir = do
   cacheBase <- getXdgDirectory XdgCache "aihc"
   pure (cacheBase </> "hackage")
 
-findTargetFilesFromCabal :: FilePath -> IO [FilePath]
+data FileInfo = FileInfo
+  { fileInfoPath :: FilePath,
+    fileInfoExtensions :: [String],
+    fileInfoLanguage :: Maybe String
+  }
+  deriving (Show)
+
+findTargetFilesFromCabal :: FilePath -> IO [FileInfo]
 findTargetFilesFromCabal extractedRoot = do
   cabalFiles <- findCabalFiles extractedRoot
   cabalFile <-
@@ -143,33 +149,60 @@ findTargetFilesFromCabal extractedRoot = do
           )
   collectComponentFiles gpd cabalFile
 
-collectComponentFiles :: GenericPackageDescription -> FilePath -> IO [FilePath]
+collectComponentFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
 collectComponentFiles gpd cabalFile = do
   let packageRoot = takeDirectory cabalFile
+      -- We flatten the GPD to get a fixed set of components. This isn't perfect
+      -- as it might pick branches that aren't usually active, but it's better
+      -- than trying to resolve conditions without a proper environment.
       libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
       executableTrees = map snd (condExecutables gpd)
-      libraries = concatMap flattenCondTree libraryTrees
-      executables = concatMap flattenCondTree executableTrees
-  libraryFiles <- fmap concat (forM libraries (libraryFilesFor packageRoot))
-  executableFiles <- fmap concat (forM executables (executableFilesFor packageRoot))
-  dedupeExistingFiles (libraryFiles <> executableFiles)
 
-libraryFilesFor :: FilePath -> Library -> IO [FilePath]
-libraryFilesFor packageRoot library =
-  moduleFilesForBuildInfo packageRoot build moduleNames
-  where
-    build = libBuildInfo library
-    moduleNames = exposedModules library <> otherModules build <> autogenModules build
+  -- We use the flattened PD to get the actual components but they don't
+  -- easily map back to the files. Let's try to extract info from the CondTree
+  -- but also carry the BuildInfo.
 
-executableFilesFor :: FilePath -> Executable -> IO [FilePath]
-executableFilesFor packageRoot executable = do
+  libraryFiles <- fmap concat (forM libraryTrees (libraryFilesFor packageRoot))
+  executableFiles <- fmap concat (forM executableTrees (executableFilesFor packageRoot))
+
+  -- Dedupe by checking the path
+  let allFiles = libraryFiles <> executableFiles
+  pure (dedupeFiles allFiles)
+
+dedupeFiles :: [FileInfo] -> [FileInfo]
+dedupeFiles [] = []
+dedupeFiles (f : fs) = f : dedupeFiles (filter (\x -> fileInfoPath x /= fileInfoPath f) fs)
+
+libraryFilesFor :: FilePath -> CondTree v c Library -> IO [FileInfo]
+libraryFilesFor packageRoot tree = do
+  let library = condTreeData tree
+      build = libBuildInfo library
+      moduleNames = exposedModules library <> otherModules build <> autogenModules build
+      exts = extractExtensions build
+      lang = extractLanguage build
+  paths <- moduleFilesForBuildInfo packageRoot build moduleNames
+  pure [FileInfo path exts lang | path <- paths]
+
+executableFilesFor :: FilePath -> CondTree v c Executable -> IO [FileInfo]
+executableFilesFor packageRoot tree = do
+  let executable = condTreeData tree
+      build = buildInfo executable
+      moduleNames = otherModules build <> exeModules executable <> autogenModules build
+      mainPath = modulePath executable
+      exts = extractExtensions build
+      lang = extractLanguage build
   moduleFiles <- moduleFilesForBuildInfo packageRoot build moduleNames
   mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build]
-  pure (moduleFiles <> mainFiles)
-  where
-    build = buildInfo executable
-    moduleNames = otherModules build <> exeModules executable <> autogenModules build
-    mainPath = modulePath executable
+  pure [FileInfo path exts lang | path <- moduleFiles <> mainFiles]
+
+extractExtensions :: BuildInfo -> [String]
+extractExtensions bi = nub (map show (defaultExtensions bi <> otherExtensions bi))
+
+extractLanguage :: BuildInfo -> Maybe String
+extractLanguage bi =
+  case defaultLanguage bi of
+    Just lang -> Just (show lang)
+    Nothing -> Nothing
 
 moduleFilesForBuildInfo :: FilePath -> BuildInfo -> [ModuleName] -> IO [FilePath]
 moduleFilesForBuildInfo packageRoot build modules = do
@@ -187,15 +220,6 @@ sourceDirs packageRoot build =
   case map getSymbolicPath (hsSourceDirs build) of
     [] -> [packageRoot]
     dirs -> [packageRoot </> dir | dir <- dirs]
-
-flattenCondTree :: CondTree v c a -> [a]
-flattenCondTree tree =
-  condTreeData tree : concatMap flattenBranch (condTreeComponents tree)
-
-flattenBranch :: CondBranch v c a -> [a]
-flattenBranch branch =
-  flattenCondTree (condBranchIfTrue branch)
-    <> maybe [] flattenCondTree (condBranchIfFalse branch)
 
 findCabalFiles :: FilePath -> IO [FilePath]
 findCabalFiles dir = do
