@@ -1,0 +1,41 @@
+acid-state:
+oracle:55:9: error: [GHC-65719]
+    Illegal record syntax: {serialisationClassName :: Name,
+                            methodSerialiserName :: Name,
+                            makeEventSerialiser :: Name -> Type -> DecQ}
+oracle:69:5: error: [GHC-65719]
+    Illegal record syntax: SerialiserSpec
+                             {serialisationClassName = ''SafeCopy,
+                              methodSerialiserName = 'safeCopyMethodSerialiser,
+                              makeEventSerialiser = makeSafeCopyInstance}
+oracle:86:20: error: [GHC-58481] parse error on input `->'
+ad:
+oracle:3:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+adjunctions:
+oracle:37:17: error: [GHC-24180]
+    Operator applied to too few arguments: *
+advent-of-code-api:
+oracle:58:36: error: [GHC-58481] parse error on input `DayInt'
+aern2-mp:
+oracle:154:1: error: [GHC-58481] parse error on input `$'
+aern2-real:
+oracle:192:1: error: [GHC-58481] parse error on input `$'
+aeson:
+oracle:168:10: error: [GHC-72516] Parse error in pattern: #q
+aeson-better-errors:
+oracle:164:3: error: [GHC-65719]
+    Illegal record syntax: {rdrPath :: DList PathPiece,
+                            rdrValue :: A.Value}
+oracle:169:18: error: [GHC-65719]
+    Illegal record syntax: r {rdrPath = DList.snoc (rdrPath r) p}
+oracle:172:16: error: [GHC-65719]
+    Illegal record syntax: r {rdrValue = v}
+oracle:388:7: error: [GHC-53786]
+    (case ... of ...)-syntax in pattern
+AesonBson:
+oracle:36:1: error: [GHC-58481] parse error on input `import'
+aeson-gadt-th:
+oracle:36:1: error: [GHC-94426]
+    Invalid type signature:
+    A type signature should be of form <variables> :: <type>.

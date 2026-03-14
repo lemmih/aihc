@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  module Demo {-# DEPRECATED "use NewDemo instead" #-} where
+  x = 1
+status: pass
+ast: Module {name = Just "Demo", languagePragmas = [], warningText = Just (DeprText "use NewDemo instead"), exports = Nothing, imports = [], decls = [DeclValue (FunctionBind "x" [Match {pats = [], rhs = UnguardedRhs (EInt 1)}])]}

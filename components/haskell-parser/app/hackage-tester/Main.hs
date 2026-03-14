@@ -89,7 +89,7 @@ processFile packageRoot info = do
         if null cppErrors
           then Nothing
           else Just (T.intercalate "\n" cppErrors)
-  
+
   let ghcResult = GhcOracle.oracleDetailedParsesModuleWithNamesAt file (fileInfoExtensions info) (fileInfoLanguage info) source'
   case ghcResult of
     Left err ->

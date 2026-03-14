@@ -1,0 +1,34 @@
+=== acid-state ===
+/Users/lemmih/.cache/aihc/hackage/acid-state-0.16.1.4/acid-state-0.16.1.4/src/Data/Acid/TemplateHaskell.hs:55:9: error: [GHC-65719]
+    Illegal record syntax: {serialisationClassName :: Name,
+                            methodSerialiserName :: Name,
+                            makeEventSerialiser :: Name -> Type -> DecQ}
+/Users/lemmih/.cache/aihc/hackage/acid-state-0.16.1.4/acid-state-0.16.1.4/src/Data/Acid/TemplateHaskell.hs:69:5: error: [GHC-65719]
+    Illegal record syntax: SerialiserSpec
+                             {serialisationClassName = ''SafeCopy,
+                              methodSerialiserName = 'safeCopyMethodSerialiser,
+                              makeEventSerialiser = makeSafeCopyInstance}
+/Users/lemmih/.cache/aihc/hackage/acid-state-0.16.1.4/acid-state-0.16.1.4/src/Data/Acid/TemplateHaskell.hs:86:20: error: [GHC-58481]
+    parse error on input `->'
+(Extensions: [] Language: Haskell2010)
+
+=== ad ===
+/Users/lemmih/.cache/aihc/hackage/ad-4.5.6/ad-4.5.6/src/Numeric/AD/Internal/Kahn/Double.hs:3:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: ["EnableExtension BangPatterns","EnableExtension DeriveDataTypeable","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension FunctionalDependencies","EnableExtension GeneralizedNewtypeDeriving","EnableExtension MultiParamTypeClasses","EnableExtension PatternGuards","EnableExtension PatternSynonyms","EnableExtension Rank2Types","EnableExtension ScopedTypeVariables","EnableExtension TypeFamilies","EnableExtension TypeOperators","EnableExtension UndecidableInstances"] Language: Haskell2010)
+
+=== adjunctions ===
+/Users/lemmih/.cache/aihc/hackage/adjunctions-4.4.4/adjunctions-4.4.4/src/Data/Functor/Contravariant/Rep.hs:37:17: error: [GHC-24180]
+    Operator applied to too few arguments: *
+(Extensions: ["EnableExtension CPP","EnableExtension FunctionalDependencies","EnableExtension FlexibleContexts","EnableExtension MultiParamTypeClasses","EnableExtension Rank2Types","EnableExtension UndecidableInstances"] Language: Haskell2010)
+
+=== advent-of-code-api ===
+/Users/lemmih/.cache/aihc/hackage/advent-of-code-api-0.2.11.0/advent-of-code-api-0.2.11.0/src/Advent.hs:58:36: error: [GHC-58481]
+    parse error on input `DayInt'
+(Extensions: [] Language: Haskell2010)
+
+=== aern2-mp ===
+/Users/lemmih/.cache/aihc/hackage/aern2-mp-0.2.16.1/aern2-mp-0.2.16.1/src/AERN2/MP/Ball/Elementary.hs:154:1: error: [GHC-58481]
+    parse error on input `$'
+(Extensions: ["EnableExtension RebindableSyntax","EnableExtension ScopedTypeVariables","EnableExtension DeriveGeneric","EnableExtension TypeFamilies","EnableExtension TypeOperators","EnableExtension ConstraintKinds","EnableExtension DefaultSignatures","EnableExtension MultiParamTypeClasses","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension UndecidableInstances","EnableExtension TemplateHaskell"] Language: Haskell2010)
+

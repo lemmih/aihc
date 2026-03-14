@@ -42,7 +42,7 @@ import Distribution.PackageDescription
   )
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Types.CondTree
-  ( CondTree (condTreeData)
+  ( CondTree (condTreeData),
   )
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
 import Distribution.Utils.Path (getSymbolicPath)
@@ -157,21 +157,21 @@ collectComponentFiles gpd cabalFile = do
       -- than trying to resolve conditions without a proper environment.
       libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
       executableTrees = map snd (condExecutables gpd)
-      
-      -- We use the flattened PD to get the actual components but they don't 
-      -- easily map back to the files. Let's try to extract info from the CondTree
-      -- but also carry the BuildInfo.
-  
+
+  -- We use the flattened PD to get the actual components but they don't
+  -- easily map back to the files. Let's try to extract info from the CondTree
+  -- but also carry the BuildInfo.
+
   libraryFiles <- fmap concat (forM libraryTrees (libraryFilesFor packageRoot))
   executableFiles <- fmap concat (forM executableTrees (executableFilesFor packageRoot))
-  
+
   -- Dedupe by checking the path
   let allFiles = libraryFiles <> executableFiles
   pure (dedupeFiles allFiles)
 
 dedupeFiles :: [FileInfo] -> [FileInfo]
 dedupeFiles [] = []
-dedupeFiles (f:fs) = f : dedupeFiles (filter (\x -> fileInfoPath x /= fileInfoPath f) fs)
+dedupeFiles (f : fs) = f : dedupeFiles (filter (\x -> fileInfoPath x /= fileInfoPath f) fs)
 
 libraryFilesFor :: FilePath -> CondTree v c Library -> IO [FileInfo]
 libraryFilesFor packageRoot tree = do
@@ -199,7 +199,7 @@ extractExtensions :: BuildInfo -> [String]
 extractExtensions bi = nub (map show (defaultExtensions bi <> otherExtensions bi))
 
 extractLanguage :: BuildInfo -> Maybe String
-extractLanguage bi = 
+extractLanguage bi =
   case defaultLanguage bi of
     Just lang -> Just (show lang)
     Nothing -> Nothing
@@ -220,7 +220,6 @@ sourceDirs packageRoot build =
   case map getSymbolicPath (hsSourceDirs build) of
     [] -> [packageRoot]
     dirs -> [packageRoot </> dir | dir <- dirs]
-
 
 findCabalFiles :: FilePath -> IO [FilePath]
 findCabalFiles dir = do

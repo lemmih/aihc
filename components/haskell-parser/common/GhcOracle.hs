@@ -127,12 +127,12 @@ oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
   let exts = mapMaybe parseExtension extNames
       langExts = maybe [] languageExtensions langName
       allExts = nub (exts <> langExts)
-  in case parseWithGhcWithExtensions sourceTag allExts input of
-       Left err -> 
-         let extList = T.pack (show extNames)
-             langInfo = maybe "" (\l -> " Language: " <> T.pack l) langName
-         in Left (err <> "\n(Extensions: " <> extList <> langInfo <> ")")
-       Right _ -> Right ()
+   in case parseWithGhcWithExtensions sourceTag allExts input of
+        Left err ->
+          let extList = T.pack (show extNames)
+              langInfo = maybe "" (\l -> " Language: " <> T.pack l) langName
+           in Left (err <> "\n(Extensions: " <> extList <> langInfo <> ")")
+        Right _ -> Right ()
 
 parseExtension :: String -> Maybe Extension
 parseExtension name =

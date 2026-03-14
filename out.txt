@@ -1,0 +1,1268 @@
+=== acid-state ===
+/Users/lemmih/.cache/aihc/hackage/acid-state-0.16.1.4/acid-state-0.16.1.4/src/Data/Acid/TemplateHaskell.hs:55:9: error: [GHC-65719]
+    Illegal record syntax: {serialisationClassName :: Name,
+                            methodSerialiserName :: Name,
+                            makeEventSerialiser :: Name -> Type -> DecQ}
+/Users/lemmih/.cache/aihc/hackage/acid-state-0.16.1.4/acid-state-0.16.1.4/src/Data/Acid/TemplateHaskell.hs:69:5: error: [GHC-65719]
+    Illegal record syntax: SerialiserSpec
+                             {serialisationClassName = ''SafeCopy,
+                              methodSerialiserName = 'safeCopyMethodSerialiser,
+                              makeEventSerialiser = makeSafeCopyInstance}
+/Users/lemmih/.cache/aihc/hackage/acid-state-0.16.1.4/acid-state-0.16.1.4/src/Data/Acid/TemplateHaskell.hs:86:20: error: [GHC-58481]
+    parse error on input `->'
+(Extensions: [] Language: Haskell2010)
+
+=== ad ===
+/Users/lemmih/.cache/aihc/hackage/ad-4.5.6/ad-4.5.6/src/Numeric/AD/Internal/Kahn/Double.hs:3:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: ["EnableExtension BangPatterns","EnableExtension DeriveDataTypeable","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension FunctionalDependencies","EnableExtension GeneralizedNewtypeDeriving","EnableExtension MultiParamTypeClasses","EnableExtension PatternGuards","EnableExtension PatternSynonyms","EnableExtension Rank2Types","EnableExtension ScopedTypeVariables","EnableExtension TypeFamilies","EnableExtension TypeOperators","EnableExtension UndecidableInstances"] Language: Haskell2010)
+
+=== adjunctions ===
+/Users/lemmih/.cache/aihc/hackage/adjunctions-4.4.4/adjunctions-4.4.4/src/Data/Functor/Contravariant/Rep.hs:37:17: error: [GHC-24180]
+    Operator applied to too few arguments: *
+(Extensions: ["EnableExtension CPP","EnableExtension FunctionalDependencies","EnableExtension FlexibleContexts","EnableExtension MultiParamTypeClasses","EnableExtension Rank2Types","EnableExtension UndecidableInstances"] Language: Haskell2010)
+
+=== advent-of-code-api ===
+/Users/lemmih/.cache/aihc/hackage/advent-of-code-api-0.2.11.0/advent-of-code-api-0.2.11.0/src/Advent.hs:58:36: error: [GHC-58481]
+    parse error on input `DayInt'
+(Extensions: [] Language: Haskell2010)
+
+=== aern2-mp ===
+/Users/lemmih/.cache/aihc/hackage/aern2-mp-0.2.16.1/aern2-mp-0.2.16.1/src/AERN2/MP/Ball/Elementary.hs:154:1: error: [GHC-58481]
+    parse error on input `$'
+(Extensions: ["EnableExtension RebindableSyntax","EnableExtension ScopedTypeVariables","EnableExtension DeriveGeneric","EnableExtension TypeFamilies","EnableExtension TypeOperators","EnableExtension ConstraintKinds","EnableExtension DefaultSignatures","EnableExtension MultiParamTypeClasses","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension UndecidableInstances","EnableExtension TemplateHaskell"] Language: Haskell2010)
+
+=== aern2-real ===
+/Users/lemmih/.cache/aihc/hackage/aern2-real-0.2.16.1/aern2-real-0.2.16.1/src/AERN2/Real/Comparisons.hs:192:1: error: [GHC-58481]
+    parse error on input `$'
+(Extensions: ["EnableExtension RebindableSyntax","EnableExtension ScopedTypeVariables","EnableExtension TypeFamilies","EnableExtension TypeOperators","EnableExtension ConstraintKinds","EnableExtension DefaultSignatures","EnableExtension MultiParamTypeClasses","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension UndecidableInstances","EnableExtension TemplateHaskell"] Language: Haskell2010)
+
+=== aeson ===
+/Users/lemmih/.cache/aihc/hackage/aeson-2.2.3.0/aeson-2.2.3.0/src/Data/Aeson/RFC8785.hs:168:10: error: [GHC-72516]
+    Parse error in pattern: #q
+(Extensions: [] Language: Haskell2010)
+
+=== aeson-better-errors ===
+/Users/lemmih/.cache/aihc/hackage/aeson-better-errors-0.9.1.3/aeson-better-errors-0.9.1.3/src/Data/Aeson/BetterErrors/Internal.hs:164:3: error: [GHC-65719]
+    Illegal record syntax: {rdrPath :: DList PathPiece,
+                            rdrValue :: A.Value}
+/Users/lemmih/.cache/aihc/hackage/aeson-better-errors-0.9.1.3/aeson-better-errors-0.9.1.3/src/Data/Aeson/BetterErrors/Internal.hs:169:18: error: [GHC-65719]
+    Illegal record syntax: r {rdrPath = DList.snoc (rdrPath r) p}
+/Users/lemmih/.cache/aihc/hackage/aeson-better-errors-0.9.1.3/aeson-better-errors-0.9.1.3/src/Data/Aeson/BetterErrors/Internal.hs:172:16: error: [GHC-65719]
+    Illegal record syntax: r {rdrValue = v}
+/Users/lemmih/.cache/aihc/hackage/aeson-better-errors-0.9.1.3/aeson-better-errors-0.9.1.3/src/Data/Aeson/BetterErrors/Internal.hs:388:7: error: [GHC-53786]
+    (case ... of ...)-syntax in pattern
+(Extensions: [] Language: Haskell2010)
+
+=== AesonBson ===
+/Users/lemmih/.cache/aihc/hackage/AesonBson-0.4.1/AesonBson-0.4.1/Data/AesonBson.hs:36:1: error: [GHC-58481]
+    parse error on input `import'
+(Extensions: [] Language: Haskell2010)
+
+=== aeson-gadt-th ===
+/Users/lemmih/.cache/aihc/hackage/aeson-gadt-th-0.2.5.4/aeson-gadt-th-0.2.5.4/src/Data/Aeson/GADT/TH.hs:36:1: error: [GHC-94426]
+    Invalid type signature:
+    A type signature should be of form <variables> :: <type>.
+(Extensions: [] Language: Haskell2010)
+
+=== aeson-schemas ===
+/Users/lemmih/.cache/aihc/hackage/aeson-schemas-1.4.3.1/aeson-schemas-1.4.3.1/src/Data/Aeson/Schema/Utils/Compat.hs:27:1: error: [GHC-58481]
+    parse error on input `import'
+(Extensions: [] Language: Haskell2010)
+
+=== aeson-typescript ===
+/Users/lemmih/.cache/aihc/hackage/aeson-typescript-0.6.4.0/aeson-typescript-0.6.4.0/src/Data/Aeson/TypeScript/TH.hs:180:86: error: [GHC-51179]
+    Illegal \case
+/Users/lemmih/.cache/aihc/hackage/aeson-typescript-0.6.4.0/aeson-typescript-0.6.4.0/src/Data/Aeson/TypeScript/TH.hs:194:12: error: [GHC-65719]
+    Illegal record syntax: datatypeInfo' {datatypeCons = x}
+/Users/lemmih/.cache/aihc/hackage/aeson-typescript-0.6.4.0/aeson-typescript-0.6.4.0/src/Data/Aeson/TypeScript/TH.hs:195:13: error: [GHC-65719]
+    Illegal record syntax: ci {constructorFields = x}
+/Users/lemmih/.cache/aihc/hackage/aeson-typescript-0.6.4.0/aeson-typescript-0.6.4.0/src/Data/Aeson/TypeScript/TH.hs:217:34: error: [GHC-58481]
+    parse error on input `$'
+(Extensions: ["EnableExtension LambdaCase","EnableExtension MultiWayIf","EnableExtension NamedFieldPuns","EnableExtension OverloadedStrings","EnableExtension QuasiQuotes","EnableExtension RecordWildCards","EnableExtension ScopedTypeVariables","EnableExtension TupleSections","EnableExtension ViewPatterns"] Language: Haskell2010)
+
+=== aeson-unqualified-ast ===
+/Users/lemmih/.cache/aihc/hackage/aeson-unqualified-ast-1.0.0.3/aeson-unqualified-ast-1.0.0.3/src/library/Data/Aeson/UnqualifiedAst.hs:14:19: error: [GHC-87491]
+    Found `qualified' in postpositive position. 
+/Users/lemmih/.cache/aihc/hackage/aeson-unqualified-ast-1.0.0.3/aeson-unqualified-ast-1.0.0.3/src/library/Data/Aeson/UnqualifiedAst.hs:15:26: error: [GHC-87491]
+    Found `qualified' in postpositive position. 
+/Users/lemmih/.cache/aihc/hackage/aeson-unqualified-ast-1.0.0.3/aeson-unqualified-ast-1.0.0.3/src/library/Data/Aeson/UnqualifiedAst.hs:43:1: error: [GHC-94426]
+    Invalid type signature:
+    A type signature should be of form <variables> :: <type>.
+(Extensions: ["DisableExtension ImplicitPrelude","EnableExtension ImportQualifiedPost","EnableExtension PatternSynonyms"] Language: Haskell2010)
+
+=== aeson-warning-parser ===
+/Users/lemmih/.cache/aihc/hackage/aeson-warning-parser-0.1.1/aeson-warning-parser-0.1.1/src/Data/Aeson/WarningParser.hs:42:1: error: [GHC-58481]
+    parse error on input `import'
+(Extensions: [] Language: Haskell2010)
+
+=== aftovolio ===
+/Users/lemmih/.cache/aihc/hackage/aftovolio-0.8.0.0/aftovolio-0.8.0.0/Aftovolio/DataG.hs:29:11: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !frep2
+/Users/lemmih/.cache/aihc/hackage/aftovolio-0.8.0.0/aftovolio-0.8.0.0/Aftovolio/DataG.hs:30:9: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !l
+/Users/lemmih/.cache/aihc/hackage/aftovolio-0.8.0.0/aftovolio-0.8.0.0/Aftovolio/DataG.hs:31:9: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !m
+/Users/lemmih/.cache/aihc/hackage/aftovolio-0.8.0.0/aftovolio-0.8.0.0/Aftovolio/DataG.hs:32:9: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !tm
+/Users/lemmih/.cache/aihc/hackage/aftovolio-0.8.0.0/aftovolio-0.8.0.0/Aftovolio/DataG.hs:33:9: error: [GHC-65719]
+    Illegal record syntax: R {line = l, propertiesF = m,
+                              transPropertiesF = tm}
+/Users/lemmih/.cache/aihc/hackage/aftovolio-0.8.0.0/aftovolio-0.8.0.0/Aftovolio/DataG.hs:39:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: ["DisableExtension ImplicitPrelude","EnableExtension BangPatterns","EnableExtension DeriveGeneric","EnableExtension StrictData"] Language: Haskell2010)
+
+=== Agda ===
+/Users/lemmih/.cache/aihc/hackage/Agda-2.8.0/Agda-2.8.0/src/full/Agda/Compiler/Common.hs:35:45: error: [GHC-58481]
+    parse error on input `:|'
+(Extensions: ["EnableExtension BangPatterns","EnableExtension BlockArguments","EnableExtension ConstraintKinds","EnableExtension DefaultSignatures","EnableExtension DeriveFoldable","EnableExtension DeriveFunctor","EnableExtension DeriveGeneric","EnableExtension DeriveTraversable","EnableExtension DerivingStrategies","EnableExtension DerivingVia","EnableExtension ExistentialQuantification","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension FunctionalDependencies","EnableExtension GADTs","EnableExtension GeneralizedNewtypeDeriving","EnableExtension InstanceSigs","EnableExtension LambdaCase","EnableExtension MultiParamTypeClasses","EnableExtension MultiWayIf","EnableExtension NamedFieldPuns","EnableExtension OverloadedStrings","EnableExtension PatternSynonyms","EnableExtension RankNTypes","EnableExtension RecordWildCards","EnableExtension ScopedTypeVariables","EnableExtension StandaloneDeriving","EnableExtension TupleSections","EnableExtension TypeFamilies","EnableExtension TypeOperators","EnableExtension TypeSynonymInstances","EnableExtension ViewPatterns","EnableExtension TypeApplications","EnableExtension AllowAmbiguousTypes","EnableExtension ApplicativeDo","EnableExtension CPP","EnableExtension DataKinds","EnableExtension DeriveAnyClass","EnableExtension ImplicitParams","EnableExtension KindSignatures","EnableExtension MagicHash","EnableExtension NondecreasingIndentation","EnableExtension OverloadedLists","EnableExtension PartialTypeSignatures","EnableExtension PatternGuards","EnableExtension PolyKinds","EnableExtension RebindableSyntax","EnableExtension TemplateHaskell","EnableExtension UnboxedTuples","EnableExtension UndecidableInstances"] Language: Haskell2010)
+
+=== agda2lagda ===
+/Users/lemmih/.cache/aihc/hackage/agda2lagda-0.2023.6.9/agda2lagda-0.2023.6.9/src/LexicalStructure.hs:25:13: error: [GHC-58481]
+    parse error on input `CodeItem'
+(Extensions: ["EnableExtension DeriveFunctor","EnableExtension LambdaCase","EnableExtension MultiWayIf","EnableExtension PatternSynonyms","EnableExtension RecordWildCards","EnableExtension TupleSections"] Language: Haskell2010)
+
+=== alex ===
+/Users/lemmih/.cache/aihc/hackage/alex-3.5.4.0/alex-3.5.4.0/src/CharSet.hs:44:48: error: [GHC-58481]
+    parse error on input `:|'
+(Extensions: ["EnableExtension DeriveFunctor","EnableExtension PatternSynonyms","EnableExtension ScopedTypeVariables","EnableExtension TupleSections","EnableExtension CPP","EnableExtension FlexibleContexts","EnableExtension MagicHash","EnableExtension NondecreasingIndentation","EnableExtension OverloadedLists"] Language: Haskell2010)
+
+=== alex-tools ===
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:51:3: error: [GHC-65719]
+    Illegal record syntax: {lexemeText :: !Text,
+                            lexemeToken :: !t,
+                            lexemeRange :: !SourceRange}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:60:3: error: [GHC-65719]
+    Illegal record syntax: {sourceIndex :: !Int,
+                            sourceLine :: !Int,
+                            sourceColumn :: !Int,
+                            sourceFile :: !Text}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:81:8: error: [GHC-65719]
+    Illegal record syntax: SourcePos {}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:85:21: error: [GHC-65719]
+    Illegal record syntax: SourcePos
+                             {sourceIndex = sourceIndex p + 1, sourceLine = newLine,
+                              sourceColumn = newColumn, sourceFile = sourceFile p}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:102:3: error: [GHC-65719]
+    Illegal record syntax: {sourceFrom :: !SourcePos,
+                            sourceTo :: !SourcePos}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:133:13: error: [GHC-65719]
+    Illegal record syntax: SourceRange {sourceFrom = p, sourceTo = p}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:147:11: error: [GHC-65719]
+    Illegal record syntax: SourceRange
+                             {sourceFrom = sourceFrom (range x), sourceTo = sourceTo (range y)}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:154:24: error: [GHC-65719]
+    Illegal record syntax: {runA :: Input
+                                    -> Input -> Int -> s -> (s, a)}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:208:14: error: [GHC-65719]
+    Illegal record syntax: Lexeme
+                             {lexemeRange = r, lexemeToken = tok, lexemeText = txt}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:216:3: error: [GHC-65719]
+    Illegal record syntax: {inputPos :: {-# UNPACK #-} !SourcePos,
+                            inputText :: {-# UNPACK #-} !Text,
+                            inputPrev :: {-# UNPACK #-} !SourcePos,
+                            inputPrevChar :: {-# UNPACK #-} !Char}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:232:25: error: [GHC-65719]
+    Illegal record syntax: Input
+                             {inputPos = startPos file, inputPrev = beforeStartPos file,
+                              inputPrevChar = '\n', inputText = str}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:246:28: error: [GHC-65719]
+    Illegal record syntax: Input
+                             {inputPos = start,
+                              inputPrev = start
+                                            {sourceIndex = sourceIndex start - 1,
+                                             sourceColumn = sourceColumn start - 1},
+                              inputPrevChar = '\n', inputText = str}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:248:21: error: [GHC-65719]
+    Illegal record syntax: start
+                             {sourceIndex = sourceIndex start - 1,
+                              sourceColumn = sourceColumn start - 1}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:258:17: error: [GHC-65719]
+    Illegal record syntax: SourcePos
+                             {sourceIndex = 0, sourceLine = 1, sourceColumn = 1,
+                              sourceFile = file}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:265:23: error: [GHC-65719]
+    Illegal record syntax: SourcePos
+                             {sourceIndex = - 1, sourceLine = 0, sourceColumn = 0,
+                              sourceFile = file}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:279:26: error: [GHC-65719]
+    Illegal record syntax: p {sourceColumn = sourceColumn p - 1,
+                              sourceIndex = sourceIndex p - 1}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:283:26: error: [GHC-65719]
+    Illegal record syntax: p {sourceLine = sourceLine p - 1,
+                              sourceColumn = 1, sourceIndex = sourceIndex p - 1}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:298:3: error: [GHC-65719]
+    Illegal record syntax: {lexerInitialState :: s,
+                            lexerStateMode :: s -> Int,
+                            lexerEOF :: s -> SourcePos -> [Lexeme t]}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:311:15: error: [GHC-65719]
+    Illegal record syntax: LexerConfig
+                             {lexerInitialState = (), lexerStateMode = \ _ -> 0,
+                              lexerEOF = \ _ _ -> []}
+/Users/lemmih/.cache/aihc/hackage/alex-tools-0.6.1/alex-tools-0.6.1/src/AlexTools.hs:336:21: error: [GHC-58481]
+    parse error on input `$'
+(Extensions: ["EnableExtension TemplateHaskell"] Language: Haskell2010)
+
+=== alfred-margaret ===
+/Users/lemmih/.cache/aihc/hackage/alfred-margaret-2.1.0.2/alfred-margaret-2.1.0.2/src/Data/Text/Utf8.hs:96:5: error: [GHC-65719]
+    Illegal record syntax: {codeUnitIndex :: Int}
+/Users/lemmih/.cache/aihc/hackage/alfred-margaret-2.1.0.2/alfred-margaret-2.1.0.2/src/Data/Text/Utf8.hs:114:22: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !len
+/Users/lemmih/.cache/aihc/hackage/alfred-margaret-2.1.0.2/alfred-margaret-2.1.0.2/src/Data/Text/Utf8.hs:150:11: error: [GHC-04584]
+    Expression syntax in pattern: ByteArray ba #
+(Extensions: [] Language: Haskell2010)
+
+=== algebra ===
+/Users/lemmih/.cache/aihc/hackage/algebra-4.3.1/algebra-4.3.1/src/Numeric/Algebra/Incidence.hs:1:1: error: [GHC-21231]
+    unterminated `{-' at end of input
+(Extensions: ["EnableExtension TypeOperators","EnableExtension MultiParamTypeClasses","EnableExtension FlexibleInstances","EnableExtension FlexibleContexts","EnableExtension BangPatterns","EnableExtension ScopedTypeVariables","EnableExtension UndecidableInstances","EnableExtension PatternGuards","EnableExtension DeriveDataTypeable","EnableExtension RebindableSyntax","EnableExtension GeneralizedNewtypeDeriving"])
+
+=== algebraic-graphs ===
+/Users/lemmih/.cache/aihc/hackage/algebraic-graphs-0.7/algebraic-graphs-0.7/src/Algebra/Graph.hs:521:1: error: [GHC-58481]
+    parse error on input `buildg'
+(Extensions: ["EnableExtension ConstraintKinds","EnableExtension DeriveFunctor","EnableExtension DeriveGeneric","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension GADTs","EnableExtension GeneralizedNewtypeDeriving","EnableExtension MultiParamTypeClasses","EnableExtension RankNTypes","EnableExtension ScopedTypeVariables","EnableExtension TupleSections","EnableExtension TypeApplications","EnableExtension TypeFamilies","EnableExtension CPP","EnableExtension OverloadedStrings","EnableExtension RecordWildCards","EnableExtension ViewPatterns"] Language: Haskell2010)
+
+=== Allure ===
+/Users/lemmih/.cache/aihc/hackage/Allure-0.11.0.0/Allure-0.11.0.0/GameDefinition/Content/CaveKind.hs:11:13: error: [GHC-58481]
+    parse error on input `CAVE_ROGUE'
+(Extensions: ["EnableExtension MonoLocalBinds","EnableExtension ScopedTypeVariables","EnableExtension OverloadedStrings","EnableExtension BangPatterns","EnableExtension RecordWildCards","EnableExtension NamedFieldPuns","EnableExtension MultiWayIf","EnableExtension LambdaCase","EnableExtension DefaultSignatures","EnableExtension InstanceSigs","EnableExtension PatternSynonyms","EnableExtension StrictData","EnableExtension CPP","EnableExtension TypeApplications","EnableExtension TemplateHaskell","EnableExtension MultiParamTypeClasses","EnableExtension RankNTypes","EnableExtension TypeFamilies","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension DeriveFunctor","EnableExtension FunctionalDependencies","EnableExtension GeneralizedNewtypeDeriving","EnableExtension TupleSections","EnableExtension DeriveFoldable","EnableExtension DeriveTraversable","EnableExtension ExistentialQuantification","EnableExtension GADTs","EnableExtension StandaloneDeriving","EnableExtension DataKinds","EnableExtension KindSignatures","EnableExtension DeriveGeneric","EnableExtension DeriveLift"] Language: Haskell2010)
+
+=== ALUT ===
+/Users/lemmih/.cache/aihc/hackage/ALUT-2.4.0.3/ALUT-2.4.0.3/src/Sound/ALUT/Config.hs:54:16: error: [GHC-58481]
+    parse error on input `CALLCONV'
+(Extensions: ["EnableExtension CPP"] Language: Haskell2010)
+
+=== apecs ===
+/Users/lemmih/.cache/aihc/hackage/apecs-0.9.6/apecs-0.9.6/src/Apecs/Experimental/Stores.hs:26:25: error: [GHC-65719]
+    Illegal record syntax: {getStack :: [c]}
+/Users/lemmih/.cache/aihc/hackage/apecs-0.9.6/apecs-0.9.6/src/Apecs/Experimental/Stores.hs:33:1: error: [GHC-94426]
+    Invalid type signature:
+    A type signature should be of form <variables> :: <type>.
+(Extensions: [] Language: Haskell2010)
+
+=== apecs-physics ===
+/Users/lemmih/.cache/aihc/hackage/apecs-physics-0.4.6/apecs-physics-0.4.6/src/Apecs/Physics/Body.hs:27:96: error: [GHC-58481]
+    parse error on input `{'
+(Extensions: [] Language: Haskell2010)
+
+=== arithmoi ===
+/Users/lemmih/.cache/aihc/hackage/arithmoi-0.13.2.0/arithmoi-0.13.2.0/Math/NumberTheory/ArithmeticFunctions/Moebius.hs:53:21: error: [GHC-04584]
+    Expression syntax in pattern: I # i #
+(Extensions: [] Language: Haskell2010)
+
+=== array-chunks ===
+/Users/lemmih/.cache/aihc/hackage/array-chunks-0.1.4.2/array-chunks-0.1.4.2/src/Data/Chunks.hs:51:24: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: [] Language: Haskell2010)
+
+=== async ===
+/Users/lemmih/.cache/aihc/hackage/async-2.2.6/async-2.2.6/Control/Concurrent/Async/Internal.hs:58:3: error: [GHC-65719]
+    Illegal record syntax: {asyncThreadId :: {-# UNPACK #-} !ThreadId,
+                            _asyncWait :: STM (Either SomeException a)}
+/Users/lemmih/.cache/aihc/hackage/async-2.2.6/async-2.2.6/Control/Concurrent/Async/Internal.hs:108:5: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/async-2.2.6/async-2.2.6/Control/Concurrent/Async/Internal.hs:116:12: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/async-2.2.6/async-2.2.6/Control/Concurrent/Async/Internal.hs:170:5: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/async-2.2.6/async-2.2.6/Control/Concurrent/Async/Internal.hs:179:12: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/async-2.2.6/async-2.2.6/Control/Concurrent/Async/Internal.hs:807:39: error: [GHC-65719]
+    Illegal record syntax: {runConcurrently :: IO a}
+/Users/lemmih/.cache/aihc/hackage/async-2.2.6/async-2.2.6/Control/Concurrent/Async/Internal.hs:847:43: error: [GHC-65719]
+    Illegal record syntax: {runConcurrentlyE :: IO (Either e a)}
+/Users/lemmih/.cache/aihc/hackage/async-2.2.6/async-2.2.6/Control/Concurrent/Async/Internal.hs:898:33: error: [GHC-72516]
+    Parse error in pattern: #s1
+(Extensions: ["EnableExtension CPP","EnableExtension MagicHash","EnableExtension RankNTypes","EnableExtension UnboxedTuples"] Language: Haskell2010)
+
+=== async-pool ===
+/Users/lemmih/.cache/aihc/hackage/async-pool-0.9.2/async-pool-0.9.2/Control/Concurrent/Async/Pool/Async.hs:134:5: error: [GHC-65719]
+    Illegal record syntax: {tasks :: TVar TaskGraph,
+                            tokens :: TVar Int}
+/Users/lemmih/.cache/aihc/hackage/async-pool-0.9.2/async-pool-0.9.2/Control/Concurrent/Async/Pool/Async.hs:166:18: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/async-pool-0.9.2/async-pool-0.9.2/Control/Concurrent/Async/Pool/Async.hs:172:5: error: [GHC-65719]
+    Illegal record syntax: {pool :: Pool,
+                            avail :: TVar Int,
+                            pending :: TVar (IntMap (IO ThreadId, SomeTMVar))}
+/Users/lemmih/.cache/aihc/hackage/async-pool-0.9.2/async-pool-0.9.2/Control/Concurrent/Async/Pool/Async.hs:189:5: error: [GHC-65719]
+    Illegal record syntax: {taskGroup :: TaskGroup,
+                            taskHandle :: {-# UNPACK #-} !Handle,
+                            _asyncWait :: STM (Either SomeException a)}
+/Users/lemmih/.cache/aihc/hackage/async-pool-0.9.2/async-pool-0.9.2/Control/Concurrent/Async/Pool/Async.hs:229:35: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/async-pool-0.9.2/async-pool-0.9.2/Control/Concurrent/Async/Pool/Async.hs:235:44: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/async-pool-0.9.2/async-pool-0.9.2/Control/Concurrent/Async/Pool/Async.hs:317:39: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/async-pool-0.9.2/async-pool-0.9.2/Control/Concurrent/Async/Pool/Async.hs:323:48: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/async-pool-0.9.2/async-pool-0.9.2/Control/Concurrent/Async/Pool/Async.hs:678:39: error: [GHC-65719]
+    Illegal record syntax: {runConcurrently :: TaskGroup -> IO a}
+/Users/lemmih/.cache/aihc/hackage/async-pool-0.9.2/async-pool-0.9.2/Control/Concurrent/Async/Pool/Async.hs:719:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: [] Language: Haskell98)
+
+=== atomic-counter ===
+/Users/lemmih/.cache/aihc/hackage/atomic-counter-0.1.2.4/atomic-counter-0.1.2.4/src/Control/Concurrent/Counter/Lifted/ST.hs:38:30: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: [] Language: Haskell2010)
+
+=== attoparsec ===
+/Users/lemmih/.cache/aihc/hackage/attoparsec-0.14.4/attoparsec-0.14.4/internal/Data/Attoparsec/ByteString/FastSet.hs:36:23: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: [] Language: Haskell2010)
+
+=== attoparsec-aeson ===
+/Users/lemmih/.cache/aihc/hackage/attoparsec-aeson-2.2.2.0/attoparsec-aeson-2.2.2.0/src/Data/Aeson/Internal/ByteString.hs:23:12: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !sfp
+/Users/lemmih/.cache/aihc/hackage/attoparsec-aeson-2.2.2.0/attoparsec-aeson-2.2.2.0/src/Data/Aeson/Internal/ByteString.hs:23:17: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !slen
+/Users/lemmih/.cache/aihc/hackage/attoparsec-aeson-2.2.2.0/attoparsec-aeson-2.2.2.0/src/Data/Aeson/Internal/ByteString.hs:24:12: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !sfp
+/Users/lemmih/.cache/aihc/hackage/attoparsec-aeson-2.2.2.0/attoparsec-aeson-2.2.2.0/src/Data/Aeson/Internal/ByteString.hs:24:17: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !soff
+/Users/lemmih/.cache/aihc/hackage/attoparsec-aeson-2.2.2.0/attoparsec-aeson-2.2.2.0/src/Data/Aeson/Internal/ByteString.hs:24:23: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !slen
+/Users/lemmih/.cache/aihc/hackage/attoparsec-aeson-2.2.2.0/attoparsec-aeson-2.2.2.0/src/Data/Aeson/Internal/ByteString.hs:38:38: error: [GHC-58481]
+    parse error on input `->'
+(Extensions: [] Language: Haskell2010)
+
+=== attoparsec-uri ===
+/Users/lemmih/.cache/aihc/hackage/attoparsec-uri-0.0.9/attoparsec-uri-0.0.9/src/Data/URI/Auth.hs:1:1: error: [GHC-21231]
+    unterminated `{-' at end of input
+(Extensions: [] Language: Haskell2010)
+
+=== authenticate ===
+/Users/lemmih/.cache/aihc/hackage/authenticate-1.3.5.2/authenticate-1.3.5.2/OpenId2/Discovery.hs:88:5: error: [GHC-58481]
+    parse error on input `let'
+(Extensions: [] Language: Haskell2010)
+
+=== automaton ===
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:47:30: error: [GHC-87491]
+    Found `qualified' in postpositive position. 
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:84:37: error: [GHC-65719]
+    Illegal record syntax: {getAutomaton :: OptimizedStreamT (ReaderT a m) b}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:104:47: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state, step = \ s -> ReaderT $ \ a -> step a s}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:141:9: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state = JointState stateF0 stateG0,
+                              step = \ (JointState stateF stateG)
+                                       -> do Result stateG' b <- stepG stateG
+                                             ....}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:151:9: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state = state0,
+                              step = \ state
+                                       -> do b <- m
+                                             ....}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:160:9: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state = state0,
+                              step = \ state
+                                       -> do Result state' b <- step state
+                                             ....}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:174:30: error: [GHC-65719]
+    Illegal record syntax: StreamT {state, step}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:177:9: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state,
+                              step = \ s
+                                       -> ReaderT
+                                            (\ (b, d) -> fmap (, d) <$> runReaderT (step s) b)}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:193:9: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state = JointState stateL0 stateR0,
+                              step = \ (JointState stateL stateR)
+                                       -> ReaderT
+                                            $!
+                                              either
+                                                (runReaderT
+                                                   (mapResultState (`JointState` stateR) . fmap Left
+                                                      <$> stepL stateL))
+                                                (runReaderT
+                                                   (mapResultState (JointState stateL) . fmap Right
+                                                      <$> stepR stateR))}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:204:9: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state = state0,
+                              step = \ state
+                                       -> ReaderT
+                                            $!
+                                              either
+                                                (runReaderT . fmap (Result state . Left) $ m)
+                                                (runReaderT . fmap (fmap Right) $ step state)}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:215:9: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state = state0,
+                              step = \ state
+                                       -> ReaderT
+                                            $!
+                                              either
+                                                (runReaderT . fmap (fmap Left) $ step state)
+                                                (runReaderT . fmap (Result state . Right) $ m)}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:232:30: error: [GHC-65719]
+    Illegal record syntax: StreamT {state, step}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:235:9: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state,
+                              step = \ s
+                                       -> ReaderT
+                                            $ either
+                                                (fmap (fmap Left) . runReaderT (step s))
+                                                (pure . Result s . Right)}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:242:31: error: [GHC-65719]
+    Illegal record syntax: StreamT {state, step}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:245:9: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state,
+                              step = \ s
+                                       -> ReaderT
+                                            $ either
+                                                (pure . Result s . Left)
+                                                (fmap (fmap Right) . runReaderT (step s))}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:255:30: error: [GHC-65719]
+    Illegal record syntax: StreamT {state, step}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:258:9: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state,
+                              step = \ s
+                                       -> ReaderT
+                                            $ \ b
+                                                -> fmap fst
+                                                     <$>
+                                                       mfix
+                                                         ((. (snd . output)) $ ($ b) $ curry
+                                                            $ runReaderT
+                                                            $ step s)}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:281:25: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:305:33: error: [GHC-65719]
+    Illegal record syntax: StreamT {state, step}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:308:7: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state = JointState state c,
+                              step = \ (JointState s c)
+                                       -> ReaderT
+                                            $ \ a
+                                                -> (\ (Result s (b, c)) -> ...)
+                                                     <$> runReaderT (step s) ...}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:315:7: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state,
+                              step = \ c
+                                       -> ReaderT $ \ a -> (\ (b, c) -> ...) <$> runReaderT m ...}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:359:28: error: [GHC-65719]
+    Illegal record syntax: StreamT {state, step}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:370:47: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:375:13: error: [GHC-65719]
+    Illegal record syntax: Automaton {getAutomaton}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:376:10: error: [GHC-65719]
+    Illegal record syntax: Automaton {getAutomaton}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:389:12: error: [GHC-65719]
+    Illegal record syntax: Automaton {getAutomaton = Stateful StreamT {state,
+                                                                       step}}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:389:47: error: [GHC-65719]
+    Illegal record syntax: StreamT {state, step}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:390:5: error: [GHC-65719]
+    Illegal record syntax: Automaton
+                             {getAutomaton = Stateful
+                                               StreamT
+                                                 {state,
+                                                  step = step & fmap runReaderT & flip
+                                                           & fmap ResultStateT
+                                                           & f
+                                                           & fmap getResultStateT
+                                                           & flip
+                                                           & fmap ReaderT}}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:393:13: error: [GHC-65719]
+    Illegal record syntax: StreamT
+                             {state,
+                              step = step & fmap runReaderT & flip & fmap ResultStateT & f
+                                       & fmap getResultStateT
+                                       & flip
+                                       & fmap ReaderT}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:430:11: error: [GHC-65719]
+    Illegal record syntax: Automaton {getAutomaton = Stateful stream}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:433:16: error: [GHC-65719]
+    Illegal record syntax: StreamT {state, step}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:433:129: error: [GHC-51179]
+    Illegal \case
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:436:11: error: [GHC-65719]
+    Illegal record syntax: Automaton {getAutomaton = Stateless f}
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:439:35: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/automaton-1.5/automaton-1.5/src/Data/Automaton.hs:493:31: error: [GHC-58481]
+    parse error on input `->'
+(Extensions: ["EnableExtension Arrows","EnableExtension DataKinds","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension ImportQualifiedPost","EnableExtension MultiParamTypeClasses","EnableExtension NamedFieldPuns","DisableExtension StarIsType","EnableExtension TupleSections","EnableExtension TypeApplications","EnableExtension TypeFamilies","EnableExtension TypeOperators"] Language: Haskell2010)
+
+=== avro ===
+/Users/lemmih/.cache/aihc/hackage/avro-0.6.2.1/avro-0.6.2.1/src/Data/Avro/Deriving.hs:107:3: error: [GHC-65719]
+    Illegal record syntax: {fieldNameBuilder :: Text -> Field -> Text,
+                            fieldRepresentation :: TypeName
+                                                   -> Field -> (FieldStrictness, FieldUnpackedness),
+                            namespaceBehavior :: NamespaceBehavior}
+/Users/lemmih/.cache/aihc/hackage/avro-0.6.2.1/avro-0.6.2.1/src/Data/Avro/Deriving.hs:130:24: error: [GHC-65719]
+    Illegal record syntax: DeriveOptions
+                             {fieldNameBuilder = mkPrefixedFieldName,
+                              fieldRepresentation = mkLazyField,
+                              namespaceBehavior = IgnoreNamespaces}
+/Users/lemmih/.cache/aihc/hackage/avro-0.6.2.1/avro-0.6.2.1/src/Data/Avro/Deriving.hs:299:7: error: [GHC-58481]
+    parse error on input `instance'
+(Extensions: ["EnableExtension OverloadedStrings"] Language: Haskell2010)
+
+=== backprop ===
+/Users/lemmih/.cache/aihc/hackage/backprop-0.2.7.2/backprop-0.2.7.2/src/Numeric/Backprop.hs:104:11: error: [GHC-58481]
+    parse error on input `T2'
+(Extensions: [] Language: Haskell2010)
+
+=== base16 ===
+/Users/lemmih/.cache/aihc/hackage/base16-1.0/base16-1.0/src/Data/ByteString/Base16/Internal/Head.hs:44:5: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !dlen
+/Users/lemmih/.cache/aihc/hackage/base16-1.0/base16-1.0/src/Data/ByteString/Base16/Internal/Head.hs:62:5: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !q
+/Users/lemmih/.cache/aihc/hackage/base16-1.0/base16-1.0/src/Data/ByteString/Base16/Internal/Head.hs:63:5: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !r
+/Users/lemmih/.cache/aihc/hackage/base16-1.0/base16-1.0/src/Data/ByteString/Base16/Internal/Head.hs:75:5: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !q
+/Users/lemmih/.cache/aihc/hackage/base16-1.0/base16-1.0/src/Data/ByteString/Base16/Internal/Head.hs:91:5: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !q
+/Users/lemmih/.cache/aihc/hackage/base16-1.0/base16-1.0/src/Data/ByteString/Base16/Internal/Head.hs:98:21: error: [GHC-04584]
+    Expression syntax in pattern: SBS _ #
+/Users/lemmih/.cache/aihc/hackage/base16-1.0/base16-1.0/src/Data/ByteString/Base16/Internal/Head.hs:98:25: error: [GHC-95644]
+    Bang pattern in expression context: !ba
+    Did you mean to add a space after the '!'?
+/Users/lemmih/.cache/aihc/hackage/base16-1.0/base16-1.0/src/Data/ByteString/Base16/Internal/Head.hs:103:5: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !l
+/Users/lemmih/.cache/aihc/hackage/base16-1.0/base16-1.0/src/Data/ByteString/Base16/Internal/Head.hs:104:5: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !l'
+(Extensions: [] Language: Haskell2010)
+
+=== base16-bytestring ===
+/Users/lemmih/.cache/aihc/hackage/base16-bytestring-1.0.2.0/base16-bytestring-1.0.2.0/Data/ByteString/Base16/Internal.hs:25:23: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: [] Language: Haskell2010)
+
+=== base32 ===
+/Users/lemmih/.cache/aihc/hackage/base32-0.4/base32-0.4/src/Data/ByteString/Base32.hs:67:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: [] Language: Haskell2010)
+
+=== base64 ===
+/Users/lemmih/.cache/aihc/hackage/base64-1.0/base64-1.0/src/Data/ByteString/Base64/Internal/Tables.hs:30:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: [] Language: Haskell2010)
+
+=== base64-bytestring ===
+/Users/lemmih/.cache/aihc/hackage/base64-bytestring-1.2.1.0/base64-bytestring-1.2.1.0/Data/ByteString/Base64.hs:57:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: [] Language: Haskell2010)
+
+=== base-compat ===
+/Users/lemmih/.cache/aihc/hackage/base-compat-0.14.1/base-compat-0.14.1/src/Control/Exception/Compat.hs:8:41: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: [] Language: Haskell2010)
+
+=== base-compat-batteries ===
+/Users/lemmih/.cache/aihc/hackage/base-compat-batteries-0.14.1/base-compat-batteries-0.14.1/src/Data/Tuple/Compat.hs:6:5: error: [GHC-58481]
+    parse error on input `Solo'
+(Extensions: [] Language: Haskell2010)
+
+=== basement ===
+/Users/lemmih/.cache/aihc/hackage/basement-0.0.16/basement-0.0.16/Basement/Base16.hs:9:22: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: ["DisableExtension ImplicitPrelude","EnableExtension RebindableSyntax","EnableExtension TypeFamilies","EnableExtension BangPatterns","EnableExtension DeriveDataTypeable"] Language: Haskell2010)
+
+=== base-orphans ===
+/Users/lemmih/.cache/aihc/hackage/base-orphans-0.9.4/base-orphans-0.9.4/src/Data/Orphans/Prelude.hs:15:7: error: [GHC-58481]
+    parse error on input `module'
+(Extensions: [] Language: Haskell2010)
+
+=== battleship-combinatorics ===
+/Users/lemmih/.cache/aihc/hackage/battleship-combinatorics-0.0.1/battleship-combinatorics-0.0.1/src/Combinatorics/Battleship/Count/ShortenShip/Distribution.hs:35:29: error: [GHC-65719]
+    Illegal record syntax: {getDistr :: SV.Vector a}
+/Users/lemmih/.cache/aihc/hackage/battleship-combinatorics-0.0.1/battleship-combinatorics-0.0.1/src/Combinatorics/Battleship/Count/ShortenShip/Distribution.hs:84:23: error: [GHC-65719]
+    Illegal record syntax: {getRow :: SV.Vector a}
+/Users/lemmih/.cache/aihc/hackage/battleship-combinatorics-0.0.1/battleship-combinatorics-0.0.1/src/Combinatorics/Battleship/Count/ShortenShip/Distribution.hs:102:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: [] Language: Haskell98)
+
+=== beam-postgres ===
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:165:14: error: [GHC-65719]
+    Illegal record syntax: {buildPgSyntax :: PgSyntaxM ()}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:217:5: error: [GHC-65719]
+    Illegal record syntax: {pgCommandType :: PgCommandType,
+                            fromPgCommand :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:221:41: error: [GHC-65719]
+    Illegal record syntax: {fromPgSelect :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:223:51: error: [GHC-65719]
+    Illegal record syntax: {fromPgSelectTable :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:226:41: error: [GHC-65719]
+    Illegal record syntax: {fromPgInsert :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:229:41: error: [GHC-65719]
+    Illegal record syntax: {fromPgDelete :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:232:41: error: [GHC-65719]
+    Illegal record syntax: {fromPgUpdate :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:234:49: error: [GHC-65719]
+    Illegal record syntax: {fromPgExpression :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:235:77: error: [GHC-65719]
+    Illegal record syntax: {fromPgAggregationSetQuantifier :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:236:67: error: [GHC-65719]
+    Illegal record syntax: {fromPgSelectSetQuantifier :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:237:37: error: [GHC-65719]
+    Illegal record syntax: {fromPgFrom :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:238:49: error: [GHC-65719]
+    Illegal record syntax: {fromPgSchemaName :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:239:47: error: [GHC-65719]
+    Illegal record syntax: {fromPgTableName :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:240:69: error: [GHC-65719]
+    Illegal record syntax: {fromPgComparisonQuantifier :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:241:53: error: [GHC-65719]
+    Illegal record syntax: {fromPgExtractField :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:242:49: error: [GHC-65719]
+    Illegal record syntax: {fromPgProjection :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:243:45: error: [GHC-65719]
+    Illegal record syntax: {fromPgGrouping :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:244:39: error: [GHC-65719]
+    Illegal record syntax: {fromPgValue :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:245:51: error: [GHC-65719]
+    Illegal record syntax: {fromPgTableSource :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:246:47: error: [GHC-65719]
+    Illegal record syntax: {fromPgFieldName :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:247:53: error: [GHC-65719]
+    Illegal record syntax: {fromPgInsertValues :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:248:61: error: [GHC-65719]
+    Illegal record syntax: {fromPgInsertOnConflict :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:249:73: error: [GHC-65719]
+    Illegal record syntax: {fromPgInsertOnConflictTarget :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:250:73: error: [GHC-65719]
+    Illegal record syntax: {fromPgInsertOnConflictUpdate :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:251:57: error: [GHC-65719]
+    Illegal record syntax: {fromPgConflictAction :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:252:42: error: [GHC-65719]
+    Illegal record syntax: {pgOrderingSyntax :: PgSyntax,
+                            pgOrderingNullOrdering :: Maybe PgNullOrdering}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:253:64: error: [GHC-65719]
+    Illegal record syntax: {pgSelectLockingClauseStrength :: PgSelectLockingStrength,
+                            pgSelectLockingTables :: [T.Text],
+                            pgSelectLockingClauseOptions :: Maybe PgSelectLockingOptions}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:257:37: error: [GHC-65719]
+    Illegal record syntax: {fromPgCommonTableExpression :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:323:53: error: [GHC-65719]
+    Illegal record syntax: {fromPgCreateSchema :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:324:49: error: [GHC-65719]
+    Illegal record syntax: {fromPgDropSchema :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:326:51: error: [GHC-65719]
+    Illegal record syntax: {fromPgCreateTable :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:328:53: error: [GHC-65719]
+    Illegal record syntax: {fromPgColumnSchema :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:334:3: error: [GHC-65719]
+    Illegal record syntax: {pgDataTypeDescr :: PgDataTypeDescr,
+                            fromPgDataType :: PgSyntax,
+                            pgDataTypeSerialized :: BeamSerializedDataType}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:343:3: error: [GHC-65719]
+    Illegal record syntax: {fromPgColumnConstraintDefinition :: PgSyntax,
+                            pgColumnConstraintDefinitionSerialized :: BeamSerializedConstraintDefinition}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:351:3: error: [GHC-65719]
+    Illegal record syntax: {fromPgColumnConstraint :: PgSyntax,
+                            pgColumnConstraintSerialized :: BeamSerializedConstraint}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:354:59: error: [GHC-65719]
+    Illegal record syntax: {fromPgTableConstraint :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:357:3: error: [GHC-65719]
+    Illegal record syntax: {fromPgMatchType :: PgSyntax,
+                            pgMatchTypeSerialized :: BeamSerializedMatchType}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:362:3: error: [GHC-65719]
+    Illegal record syntax: {fromPgReferentialAction :: PgSyntax,
+                            pgReferentialActionSerialized :: BeamSerializedReferentialAction}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:365:47: error: [GHC-65719]
+    Illegal record syntax: {fromPgDropTable :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:366:49: error: [GHC-65719]
+    Illegal record syntax: {fromPgAlterTable :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:367:61: error: [GHC-65719]
+    Illegal record syntax: {fromPgAlterTableAction :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:368:63: error: [GHC-65719]
+    Illegal record syntax: {fromPgAlterColumnAction :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:369:51: error: [GHC-65719]
+    Illegal record syntax: {fromPgWindowFrame :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:370:63: error: [GHC-65719]
+    Illegal record syntax: {fromPgWindowFrameBounds :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:371:61: error: [GHC-65719]
+    Illegal record syntax: {fromPgWindowFrameBound :: ByteString
+                                                      -> PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:379:45: error: [GHC-65719]
+    Illegal record syntax: PgDataTypeDescrOid {}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:513:26: error: [GHC-65719]
+    Illegal record syntax: o {pgOrderingNullOrdering = Just
+                                                         PgNullOrderingNullsFirst}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:514:25: error: [GHC-65719]
+    Illegal record syntax: o {pgOrderingNullOrdering = Just
+                                                         PgNullOrderingNullsLast}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:563:30: error: [GHC-65719]
+    Illegal record syntax: pgTextType
+                             {pgDataTypeSerialized = characterLargeObjectType}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:564:27: error: [GHC-65719]
+    Illegal record syntax: pgByteaType
+                             {pgDataTypeSerialized = binaryLargeObjectType}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:738:30: error: [GHC-65719]
+    Illegal record syntax: {fromPgCustomExpression :: PgSyntax}
+/Users/lemmih/.cache/aihc/hackage/beam-postgres-0.5.4.4/beam-postgres-0.5.4.4/Database/Beam/Postgres/Syntax.hs:1245:12: error: [GHC-58481]
+    parse error on input `instance'
+(Extensions: ["EnableExtension ScopedTypeVariables","EnableExtension OverloadedStrings","EnableExtension MultiParamTypeClasses","EnableExtension RankNTypes","EnableExtension FlexibleInstances","EnableExtension DeriveDataTypeable","EnableExtension DeriveGeneric","EnableExtension StandaloneDeriving","EnableExtension TypeFamilies","EnableExtension GADTs","EnableExtension CPP","EnableExtension TypeApplications","EnableExtension FlexibleContexts"] Language: Haskell2010)
+
+=== beam-sqlite ===
+/Users/lemmih/.cache/aihc/hackage/beam-sqlite-0.5.6.0/beam-sqlite-0.5.6.0/Database/Beam/Sqlite/Connection.hs:163:45: error: [GHC-65719]
+    Illegal record syntax: {unSqliteScientific :: Scientific}
+/Users/lemmih/.cache/aihc/hackage/beam-sqlite-0.5.6.0/beam-sqlite-0.5.6.0/Database/Beam/Sqlite/Connection.hs:197:3: error: [GHC-65719]
+    Illegal record syntax: {runSqliteM :: ReaderT (String -> IO (),
+                                                   Connection) IO a}
+/Users/lemmih/.cache/aihc/hackage/beam-sqlite-0.5.6.0/beam-sqlite-0.5.6.0/Database/Beam/Sqlite/Connection.hs:216:19: error: [GHC-65719]
+    Illegal record syntax: ConversionFailed {errSQLType = typeString,
+                                             errHaskellType = hsString, errMessage = msg}
+/Users/lemmih/.cache/aihc/hackage/beam-sqlite-0.5.6.0/beam-sqlite-0.5.6.0/Database/Beam/Sqlite/Connection.hs:220:19: error: [GHC-65719]
+    Illegal record syntax: UnexpectedNull {}
+/Users/lemmih/.cache/aihc/hackage/beam-sqlite-0.5.6.0/beam-sqlite-0.5.6.0/Database/Beam/Sqlite/Connection.hs:222:19: error: [GHC-65719]
+    Illegal record syntax: Incompatible {errSQLType = typeString,
+                                         errHaskellType = hsString, errMessage = msg}
+/Users/lemmih/.cache/aihc/hackage/beam-sqlite-0.5.6.0/beam-sqlite-0.5.6.0/Database/Beam/Sqlite/Connection.hs:230:17: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/beam-sqlite-0.5.6.0/beam-sqlite-0.5.6.0/Database/Beam/Sqlite/Connection.hs:257:3: error: [GHC-58481]
+    parse error on input `instance'
+(Extensions: ["EnableExtension ScopedTypeVariables","EnableExtension OverloadedStrings","EnableExtension MultiParamTypeClasses","EnableExtension RankNTypes","EnableExtension FlexibleInstances","EnableExtension DeriveDataTypeable","EnableExtension DeriveGeneric","EnableExtension StandaloneDeriving","EnableExtension TypeFamilies","EnableExtension GADTs","EnableExtension CPP","EnableExtension TypeApplications","EnableExtension FlexibleContexts","EnableExtension ConstraintKinds","EnableExtension DerivingStrategies"] Language: Haskell2010)
+
+=== bencoding ===
+/Users/lemmih/.cache/aihc/hackage/bencoding-0.4.5.6/bencoding-0.4.5.6/src/Data/BEncode/Internal.hs:50:17: error: [GHC-04584]
+    Expression syntax in pattern: IS i #
+(Extensions: [] Language: Haskell2010)
+
+=== bifunctors ===
+/Users/lemmih/.cache/aihc/hackage/bifunctors-5.6.3/bifunctors-5.6.3/src/Data/Biapplicative.hs:140:20: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/bifunctors-5.6.3/bifunctors-5.6.3/src/Data/Biapplicative.hs:141:7: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/bifunctors-5.6.3/bifunctors-5.6.3/src/Data/Biapplicative.hs:146:10: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/bifunctors-5.6.3/bifunctors-5.6.3/src/Data/Biapplicative.hs:148:11: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/bifunctors-5.6.3/bifunctors-5.6.3/src/Data/Biapplicative.hs:152:11: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/bifunctors-5.6.3/bifunctors-5.6.3/src/Data/Biapplicative.hs:213:1: error: [GHC-58481]
+    parse error on input `traverseBiaList'
+(Extensions: [] Language: Haskell2010)
+
+=== bimaps ===
+/Users/lemmih/.cache/aihc/hackage/bimaps-0.1.0.2/bimaps-0.1.0.2/Data/Bijection/Class.hs:24:18: error: [GHC-24180]
+    Operator applied to too few arguments: *
+(Extensions: ["EnableExtension BangPatterns","EnableExtension ConstraintKinds","EnableExtension DeriveGeneric","EnableExtension FlexibleContexts","EnableExtension TupleSections","EnableExtension TypeFamilies","EnableExtension UndecidableInstances"] Language: Haskell2010)
+
+=== binance-exports ===
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:67:5: error: [GHC-65719]
+    Illegal record syntax: AppConfig {..}
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:84:27: error: [GHC-51179]
+    Illegal \case
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:100:19: error: [GHC-51179]
+    Illegal \case
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:119:5: error: [GHC-65719]
+    Illegal record syntax: {binanceCfg :: BinanceConfig,
+                            symbols :: [T.Text],
+                            year :: Maybe Integer,
+                            outputFile :: Maybe FilePath}
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:130:17: error: [GHC-65719]
+    Illegal record syntax: ConfigFile {..}
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:130:33: error: [GHC-65719]
+    Illegal record syntax: Args {..}
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:145:13: error: [GHC-65719]
+    Illegal record syntax: BinanceConfig
+                             {bcApiKey = apiKey, bcApiSecret = apiSecret}
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:150:12: error: [GHC-65719]
+    Illegal record syntax: AppConfig
+                             {year = argYear, outputFile = argOutputFile, ..}
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:160:5: error: [GHC-65719]
+    Illegal record syntax: {cfgApiKey :: Maybe T.Text,
+                            cfgApiSecret :: Maybe T.Text,
+                            cfgSymbols :: Maybe [T.Text]}
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:171:16: error: [GHC-65719]
+    Illegal record syntax: ConfigFile {..}
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:181:68: error: [GHC-51179]
+    Illegal \case
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:197:5: error: [GHC-65719]
+    Illegal record syntax: {argApiKey :: Maybe T.Text,
+                            argApiSecret :: Maybe T.Text,
+                            argSymbols :: [T.Text],
+                            argYear :: Maybe Integer,
+                            argOutputFile :: Maybe FilePath}
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:214:5: error: [GHC-65719]
+    Illegal record syntax: Args
+                             {argApiKey = def &= help "Binance API Key" &= name "k"
+                                            &= name "api-key"
+                                            &= explicit
+                                            &= typ "KEY",
+                              argApiSecret = def &= help "Binance API Secret" &= name "s"
+                                               &= name "api-secret"
+                                               &= explicit
+                                               &= typ "SECRET",
+                              argYear = Nothing &= help "Limit output to year" &= name "y"
+                                          &= name "year"
+                                          &= explicit
+                                          &= typ "YYYY",
+                              argOutputFile = Nothing
+                                                &=
+                                                  help
+                                                    "File to write the export to. Default: stdout"
+                                                &= name "o"
+                                                &= name "output-file"
+                                                &= explicit
+                                                &= typ "FILE",
+                              argSymbols = def &= args &= typ "SYMBOL [SYMBOL ...]"}
+/Users/lemmih/.cache/aihc/hackage/binance-exports-0.1.2.0/binance-exports-0.1.2.0/src/Console/Binance/Exports/Main.hs:255:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: ["EnableExtension DeriveGeneric","EnableExtension LambdaCase","EnableExtension NamedFieldPuns","EnableExtension OverloadedStrings","EnableExtension TupleSections","EnableExtension TypeApplications","EnableExtension TypeOperators","EnableExtension ViewPatterns"] Language: Haskell2010)
+
+=== binary-conduit ===
+/Users/lemmih/.cache/aihc/hackage/binary-conduit-1.3.1/binary-conduit-1.3.1/Data/Conduit/Serialization/Binary.hs:33:7: error: [GHC-65719]
+    Illegal record syntax: {unconsumed :: ByteString,
+                            offset :: ByteOffset,
+                            content :: String}
+/Users/lemmih/.cache/aihc/hackage/binary-conduit-1.3.1/binary-conduit-1.3.1/Data/Conduit/Serialization/Binary.hs:90:3: error: [GHC-58481]
+    parse error on input `where'
+(Extensions: [])
+
+=== binary-list ===
+/Users/lemmih/.cache/aihc/hackage/binary-list-1.1.1.2/binary-list-1.1.1.2/Data/BinaryList.hs:138:1: error: [GHC-58481]
+    parse error on input `lookup'
+(Extensions: ["EnableExtension CPP"] Language: Haskell2010)
+
+=== binary-orphans ===
+/Users/lemmih/.cache/aihc/hackage/binary-orphans-1.0.5/binary-orphans-1.0.5/src/Data/Binary/Orphans.hs:14:34: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: ["EnableExtension CPP"] Language: Haskell2010)
+
+=== binary-shared ===
+/Users/lemmih/.cache/aihc/hackage/binary-shared-0.8.3/binary-shared-0.8.3/src/Data/Binary/Shared.hs:98:87: error: [GHC-65719]
+    Illegal record syntax: {unObj :: alpha}
+/Users/lemmih/.cache/aihc/hackage/binary-shared-0.8.3/binary-shared-0.8.3/src/Data/Binary/Shared.hs:108:33: error: [GHC-58481]
+    parse error on input `then'
+(Extensions: [])
+
+=== bits ===
+/Users/lemmih/.cache/aihc/hackage/bits-0.6/bits-0.6/src/Data/Bits/Extras.hs:55:1: error: [GHC-58481]
+    parse error on input `integerLog2'
+(Extensions: [] Language: Haskell2010)
+
+=== bitset-word8 ===
+/Users/lemmih/.cache/aihc/hackage/bitset-word8-0.1.1.2/bitset-word8-0.1.1.2/src/Data/BitSetWord8/CharSets.hs:28:23: error: [GHC-58481]
+    parse error on input `$'
+(Extensions: [] Language: Haskell2010)
+
+=== bits-extra ===
+/Users/lemmih/.cache/aihc/hackage/bits-extra-0.0.2.3/bits-extra-0.0.2.3/src/Data/Bits/Pdep/Prim.hs:51:13: error: [GHC-04584]
+    Expression syntax in pattern: W64 # src #
+(Extensions: [] Language: Haskell2010)
+
+=== bitvec ===
+/Users/lemmih/.cache/aihc/hackage/bitvec-1.1.6.0/bitvec-1.1.6.0/src/Data/Bit/F2Poly.hs:45:25: error: [GHC-65719]
+    Illegal record syntax: {unF2Poly :: U.Vector Bit}
+/Users/lemmih/.cache/aihc/hackage/bitvec-1.1.6.0/bitvec-1.1.6.0/src/Data/Bit/F2Poly.hs:98:7: error: [GHC-58481]
+    parse error on input `|'
+(Extensions: [] Language: Haskell2010)
+
+=== bitwise-enum ===
+/Users/lemmih/.cache/aihc/hackage/bitwise-enum-1.0.1.2/bitwise-enum-1.0.1.2/Data/Enum/Memo.hs:23:12: error: [GHC-24180]
+    Operator applied to too few arguments: ∀
+(Extensions: [] Language: Haskell2010)
+
+=== blank-canvas ===
+/Users/lemmih/.cache/aihc/hackage/blank-canvas-0.7.5/blank-canvas-0.7.5/Graphics/Blank/Canvas.hs:24:1: error: [GHC-58481]
+    parse error on input `$'
+(Extensions: [] Language: Haskell2010)
+
+=== blas-hs ===
+/Users/lemmih/.cache/aihc/hackage/blas-hs-0.1.1.0/blas-hs-0.1.1.0/src/Blas/Primitive/Safe.hs:5:1: error: [GHC-58481]
+    parse error on input `{-# LINE'
+(Extensions: ["EnableExtension FlexibleInstances","EnableExtension ForeignFunctionInterface","EnableExtension TypeFamilies"])
+
+=== blaze-builder ===
+/Users/lemmih/.cache/aihc/hackage/blaze-builder-0.4.4.1/blaze-builder-0.4.4.1/Blaze/ByteString/Builder/HTTP.hs:40:86: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: [] Language: Haskell98)
+
+=== blaze-textual ===
+/Users/lemmih/.cache/aihc/hackage/blaze-textual-0.2.3.1/blaze-textual-0.2.3.1/Blaze/Text/Int.hs:101:10: error: [GHC-04584]
+    Expression syntax in pattern: S # i #
+(Extensions: [] Language: Haskell2010)
+
+=== bloomfilter ===
+/Users/lemmih/.cache/aihc/hackage/bloomfilter-2.0.1.3/bloomfilter-2.0.1.3/Data/BloomFilter.hs:92:18: error: [GHC-65719]
+    Illegal record syntax: {hashes :: !(a -> [Hash]),
+                            shift :: {-# UNPACK #-} !Int,
+                            mask :: {-# UNPACK #-} !Int,
+                            bitArray :: {-# UNPACK #-} !(UArray Int Hash)}
+/Users/lemmih/.cache/aihc/hackage/bloomfilter-2.0.1.3/bloomfilter-2.0.1.3/Data/BloomFilter.hs:103:9: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !_
+/Users/lemmih/.cache/aihc/hackage/bloomfilter-2.0.1.3/bloomfilter-2.0.1.3/Data/BloomFilter.hs:124:13: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/bloomfilter-2.0.1.3/bloomfilter-2.0.1.3/Data/BloomFilter.hs:190:12: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/bloomfilter-2.0.1.3/bloomfilter-2.0.1.3/Data/BloomFilter.hs:226:1: error: [GHC-58481]
+    parse error on input `{-# RULES'
+(Extensions: [] Language: Haskell2010)
+
+=== bluefin-internal ===
+/Users/lemmih/.cache/aihc/hackage/bluefin-internal-0.1.2.0/bluefin-internal-0.1.2.0/src/Bluefin/Internal.hs:20:23: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: ["EnableExtension BangPatterns","EnableExtension BinaryLiterals","EnableExtension ConstrainedClassMethods","EnableExtension ConstraintKinds","EnableExtension DeriveDataTypeable","EnableExtension DeriveFoldable","EnableExtension DeriveFunctor","EnableExtension DeriveGeneric","EnableExtension DeriveLift","EnableExtension DeriveTraversable","EnableExtension DoAndIfThenElse","EnableExtension EmptyCase","EnableExtension EmptyDataDecls","EnableExtension EmptyDataDeriving","EnableExtension ExistentialQuantification","EnableExtension ExplicitForAll","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension ForeignFunctionInterface","EnableExtension GADTSyntax","EnableExtension GeneralisedNewtypeDeriving","EnableExtension HexFloatLiterals","EnableExtension ImplicitPrelude","EnableExtension ImportQualifiedPost","EnableExtension InstanceSigs","EnableExtension KindSignatures","EnableExtension MonomorphismRestriction","EnableExtension MultiParamTypeClasses","EnableExtension NamedFieldPuns","EnableExtension NamedWildCards","EnableExtension NumericUnderscores","EnableExtension PatternGuards","EnableExtension PolyKinds","EnableExtension PostfixOperators","EnableExtension RankNTypes","EnableExtension RelaxedPolyRec","EnableExtension ScopedTypeVariables","EnableExtension StandaloneDeriving","EnableExtension StandaloneKindSignatures","EnableExtension StarIsType","EnableExtension TraditionalRecordSyntax","EnableExtension TupleSections","EnableExtension TypeApplications","EnableExtension TypeOperators","EnableExtension TypeSynonymInstances","DisableExtension ExplicitNamespaces","EnableExtension DataKinds","EnableExtension DerivingStrategies","EnableExtension GADTs","EnableExtension LambdaCase"] Language: Haskell2010)
+
+=== BNFC ===
+/Users/lemmih/.cache/aihc/hackage/BNFC-2.9.6.2/BNFC-2.9.6.2/src/BNFC/License.hs:10:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: ["EnableExtension DefaultSignatures","EnableExtension DoAndIfThenElse","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension LambdaCase","EnableExtension MultiWayIf","EnableExtension NamedFieldPuns","EnableExtension OverloadedStrings","EnableExtension PatternGuards","EnableExtension RecordWildCards","EnableExtension ScopedTypeVariables","EnableExtension TupleSections","EnableExtension TypeOperators"] Language: Haskell2010)
+
+=== BNFC-meta ===
+/Users/lemmih/.cache/aihc/hackage/BNFC-meta-0.6.1/BNFC-meta-0.6.1/Language/LBNF/Compiletime.hs:180:19: error: [GHC-65719]
+    Illegal record syntax: QuasiQuoter
+                             {quoteExp = handle . p >=> toQExp,
+                              quotePat = handle . p >=> toQPat}
+/Users/lemmih/.cache/aihc/hackage/BNFC-meta-0.6.1/BNFC-meta-0.6.1/Language/LBNF/Compiletime.hs:186:22: error: [GHC-65719]
+    Illegal record syntax: QuasiQuoter
+                             {quoteExp = handle . p >=> toQMExp,
+                              quotePat = handle . p >=> toQPat}
+/Users/lemmih/.cache/aihc/hackage/BNFC-meta-0.6.1/BNFC-meta-0.6.1/Language/LBNF/Compiletime.hs:227:18: error: [GHC-58481]
+    parse error on input `$'
+(Extensions: [])
+
+=== boltzmann-samplers ===
+/Users/lemmih/.cache/aihc/hackage/boltzmann-samplers-0.1.1.0/boltzmann-samplers-0.1.1.0/src/Boltzmann/Species.hs:38:20: error: [GHC-24180]
+    Operator applied to too few arguments: *
+(Extensions: [] Language: Haskell2010)
+
+=== Boolean ===
+/Users/lemmih/.cache/aihc/hackage/Boolean-0.2.4/Boolean-0.2.4/src/Data/Boolean.hs:144:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: [])
+
+=== boolsimplifier ===
+/Users/lemmih/.cache/aihc/hackage/boolsimplifier-0.1.8/boolsimplifier-0.1.8/Data/BoolSimplifier.hs:32:1: error: [GHC-21231]
+    unterminated `{-' at end of input
+(Extensions: [])
+
+=== bowtie ===
+/Users/lemmih/.cache/aihc/hackage/bowtie-0.7.0/bowtie-0.7.0/src/Bowtie/Attr.hs:14:78: error: [GHC-58481]
+    parse error on input `MemoFP'
+(Extensions: ["EnableExtension BangPatterns","EnableExtension ConstraintKinds","EnableExtension DataKinds","EnableExtension DeriveFunctor","EnableExtension DeriveFoldable","EnableExtension DeriveGeneric","EnableExtension DeriveTraversable","EnableExtension DerivingStrategies","EnableExtension DerivingVia","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension FunctionalDependencies","EnableExtension GADTs","EnableExtension GeneralizedNewtypeDeriving","EnableExtension LambdaCase","EnableExtension KindSignatures","EnableExtension MultiParamTypeClasses","EnableExtension PatternSynonyms","EnableExtension Rank2Types","EnableExtension ScopedTypeVariables","EnableExtension StandaloneDeriving","EnableExtension TupleSections","EnableExtension TypeApplications","EnableExtension TypeOperators","EnableExtension TypeFamilies"] Language: GHC2021)
+
+=== breakpoint ===
+/Users/lemmih/.cache/aihc/hackage/breakpoint-0.1.5.1/breakpoint-0.1.5.1/src/Debug/Breakpoint.hs:78:17: error: [GHC-58481]
+    parse error on input `='
+(Extensions: [] Language: Haskell2010)
+
+=== brick ===
+/Users/lemmih/.cache/aihc/hackage/brick-2.9/brick-2.9/src/Brick/Widgets/Core.hs:535:17: error: [GHC-65719]
+    Illegal record syntax: {contextPrimary :: Lens' (Context n) Int,
+                            contextSecondary :: Lens' (Context n) Int,
+                            imagePrimary :: V.Image -> Int,
+                            imageSecondary :: V.Image -> Int,
+                            limitPrimary :: Int -> Widget n -> Widget n,
+                            primaryWidgetSize :: Widget n -> Size,
+                            concatenatePrimary :: [V.Image] -> V.Image,
+                            concatenateSecondary :: [V.Image] -> V.Image,
+                            locationFromOffset :: Int -> Location,
+                            padImageSecondary :: Int -> V.Image -> V.Attr -> V.Image,
+                            loPrimary :: forall a. Lens' (Edges a) a,
+                            hiPrimary :: forall a. Lens' (Edges a) a,
+                            loSecondary :: forall a. Lens' (Edges a) a,
+                            hiSecondary :: forall a. Lens' (Edges a) a,
+                            locationFromPrimarySecondary :: Int -> Int -> Location,
+                            splitLoPrimary :: Int -> V.Image -> V.Image,
+                            splitHiPrimary :: Int -> V.Image -> V.Image,
+                            splitLoSecondary :: Int -> V.Image -> V.Image,
+                            splitHiSecondary :: Int -> V.Image -> V.Image,
+                            lookupPrimary :: Int -> BM.BorderMap DynBorder -> I.IMap DynBorder,
+                            insertSecondary :: Location
+                                               -> I.Run DynBorder
+                                                  -> BM.BorderMap DynBorder
+                                                     -> BM.BorderMap DynBorder}
+/Users/lemmih/.cache/aihc/hackage/brick-2.9/brick-2.9/src/Brick/Widgets/Core.hs:545:32: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/brick-2.9/brick-2.9/src/Brick/Widgets/Core.hs:546:32: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/brick-2.9/brick-2.9/src/Brick/Widgets/Core.hs:547:34: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/brick-2.9/brick-2.9/src/Brick/Widgets/Core.hs:548:34: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/brick-2.9/brick-2.9/src/Brick/Widgets/Core.hs:560:5: error: [GHC-65719]
+    Illegal record syntax: BoxRenderer
+                             {contextPrimary = availHeightL, contextSecondary = availWidthL,
+                              imagePrimary = V.imageHeight, imageSecondary = V.imageWidth,
+                              limitPrimary = vLimit, primaryWidgetSize = vSize,
+                              concatenatePrimary = V.vertCat, concatenateSecondary = V.horizCat,
+                              locationFromOffset = Location . (0,),
+                              padImageSecondary = \ amt img a -> let ... in V.horizCat [...],
+                              loPrimary = eTopL, hiPrimary = eBottomL, loSecondary = eLeftL,
+                              hiSecondary = eRightL,
+                              locationFromPrimarySecondary = \ r c -> Location (c, r),
+                              splitLoPrimary = V.cropBottom,
+                              splitHiPrimary = \ n img -> V.cropTop (V.imageHeight img - n) img,
+                              splitLoSecondary = V.cropRight,
+                              splitHiSecondary = \ n img
+                                                   -> V.cropLeft (V.imageWidth img - n) img,
+                              lookupPrimary = BM.lookupRow, insertSecondary = BM.insertH}
+/Users/lemmih/.cache/aihc/hackage/brick-2.9/brick-2.9/src/Brick/Widgets/Core.hs:587:5: error: [GHC-65719]
+    Illegal record syntax: BoxRenderer
+                             {contextPrimary = availWidthL, contextSecondary = availHeightL,
+                              imagePrimary = V.imageWidth, imageSecondary = V.imageHeight,
+                              limitPrimary = hLimit, primaryWidgetSize = hSize,
+                              concatenatePrimary = V.horizCat, concatenateSecondary = V.vertCat,
+                              locationFromOffset = Location . (, 0),
+                              padImageSecondary = \ amt img a -> let ... in V.vertCat [...],
+                              loPrimary = eLeftL, hiPrimary = eRightL, loSecondary = eTopL,
+                              hiSecondary = eBottomL,
+                              locationFromPrimarySecondary = \ c r -> Location (c, r),
+                              splitLoPrimary = V.cropRight,
+                              splitHiPrimary = \ n img -> V.cropLeft (V.imageWidth img - n) img,
+                              splitLoSecondary = V.cropBottom,
+                              splitHiSecondary = \ n img
+                                                   -> V.cropTop (V.imageHeight img - n) img,
+                              lookupPrimary = BM.lookupCol, insertSecondary = BM.insertV}
+/Users/lemmih/.cache/aihc/hackage/brick-2.9/brick-2.9/src/Brick/Widgets/Core.hs:1294:5: error: [GHC-65719]
+    Illegal record syntax: VScrollbarRenderer
+                             {renderVScrollbar = fill '█', renderVScrollbarTrough = fill ' ',
+                              renderVScrollbarHandleBefore = str "^",
+                              renderVScrollbarHandleAfter = str "v",
+                              scrollbarWidthAllocation = 1}
+/Users/lemmih/.cache/aihc/hackage/brick-2.9/brick-2.9/src/Brick/Widgets/Core.hs:1353:5: error: [GHC-65719]
+    Illegal record syntax: HScrollbarRenderer
+                             {renderHScrollbar = fill '█', renderHScrollbarTrough = fill ' ',
+                              renderHScrollbarHandleBefore = str "<",
+                              renderHScrollbarHandleAfter = str ">",
+                              scrollbarHeightAllocation = 1}
+/Users/lemmih/.cache/aihc/hackage/brick-2.9/brick-2.9/src/Brick/Widgets/Core.hs:1977:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: ["EnableExtension CPP"] Language: Haskell2010)
+
+=== bson-lens ===
+/Users/lemmih/.cache/aihc/hackage/bson-lens-0.1.1/bson-lens-0.1.1/src/Data/Bson/Lens.hs:40:1: error: [GHC-58481]
+    parse error on input `$'
+(Extensions: [] Language: Haskell2010)
+
+=== btrfs ===
+/Users/lemmih/.cache/aihc/hackage/btrfs-0.2.1.0/btrfs-0.2.1.0/Data/Word/Endian.hs:10:23: error: [GHC-25742]
+    Not a data constructor: `endian_type'
+/Users/lemmih/.cache/aihc/hackage/btrfs-0.2.1.0/btrfs-0.2.1.0/Data/Word/Endian.hs:10:35: error: [GHC-65719]
+    Illegal record syntax: {from :: native_type}
+(Extensions: [] Language: Haskell2010)
+
+=== bugsnag ===
+/Users/lemmih/.cache/aihc/hackage/bugsnag-1.2.0.1/bugsnag-1.2.0.1/src/Network/Bugsnag/CodeIndex.hs:33:3: error: [GHC-65719]
+    Illegal record syntax: {unCodeIndex :: Map FilePath FileIndex}
+/Users/lemmih/.cache/aihc/hackage/bugsnag-1.2.0.1/bugsnag-1.2.0.1/src/Network/Bugsnag/CodeIndex.hs:40:5: error: [GHC-58481]
+    parse error on input `$'
+(Extensions: ["EnableExtension BangPatterns","EnableExtension DataKinds","EnableExtension DeriveAnyClass","EnableExtension DeriveFoldable","EnableExtension DeriveFunctor","EnableExtension DeriveGeneric","EnableExtension DeriveLift","EnableExtension DeriveTraversable","EnableExtension DerivingStrategies","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension GADTs","EnableExtension GeneralizedNewtypeDeriving","EnableExtension LambdaCase","EnableExtension MultiParamTypeClasses","DisableExtension ImplicitPrelude","DisableExtension MonomorphismRestriction","EnableExtension OverloadedStrings","EnableExtension RankNTypes","EnableExtension RecordWildCards","EnableExtension ScopedTypeVariables","EnableExtension StandaloneDeriving","EnableExtension TypeApplications","EnableExtension TypeFamilies"] Language: Haskell2010)
+
+=== bugsnag-yesod ===
+/Users/lemmih/.cache/aihc/hackage/bugsnag-yesod-1.0.1.0/bugsnag-yesod-1.0.1.0/example/Main.hs:14:19: error: [GHC-65719]
+    Illegal record syntax: {appBugsnag :: Settings}
+/Users/lemmih/.cache/aihc/hackage/bugsnag-yesod-1.0.1.0/bugsnag-yesod-1.0.1.0/example/Main.hs:15:39: error: [GHC-58481]
+    parse error on input `|]'
+(Extensions: ["EnableExtension BangPatterns","EnableExtension DataKinds","EnableExtension DeriveAnyClass","EnableExtension DeriveFoldable","EnableExtension DeriveFunctor","EnableExtension DeriveGeneric","EnableExtension DeriveLift","EnableExtension DeriveTraversable","EnableExtension DerivingStrategies","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension GADTs","EnableExtension GeneralizedNewtypeDeriving","EnableExtension LambdaCase","EnableExtension MultiParamTypeClasses","DisableExtension ImplicitPrelude","DisableExtension MonomorphismRestriction","EnableExtension OverloadedStrings","EnableExtension RankNTypes","EnableExtension RecordWildCards","EnableExtension ScopedTypeVariables","EnableExtension StandaloneDeriving","EnableExtension TypeApplications","EnableExtension TypeFamilies"] Language: Haskell2010)
+
+=== bv ===
+/Users/lemmih/.cache/aihc/hackage/bv-0.5/bv-0.5/test/Properties.hs:26:8: error: [GHC-58481]
+    parse error on input `$'
+(Extensions: ["EnableExtension BangPatterns","EnableExtension DeriveDataTypeable","EnableExtension MagicHash"])
+
+=== bv-sized ===
+/Users/lemmih/.cache/aihc/hackage/bv-sized-1.0.7/bv-sized-1.0.7/src/Data/BitVector/Sized.hs:31:20: error: [GHC-58481]
+    parse error on input `BV'
+(Extensions: [] Language: Haskell2010)
+
+=== bytebuild ===
+/Users/lemmih/.cache/aihc/hackage/bytebuild-0.3.17.0/bytebuild-0.3.17.0/src/Data/Bytes/Builder.hs:29:12: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: [] Language: Haskell2010)
+
+=== bytehash ===
+/Users/lemmih/.cache/aihc/hackage/bytehash-0.1.1.2/bytehash-0.1.1.2/src/Data/Bytes/Hash.hs:42:7: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !addr
+/Users/lemmih/.cache/aihc/hackage/bytehash-0.1.1.2/bytehash-0.1.1.2/src/Data/Bytes/Hash.hs:48:6: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !ixPtr
+/Users/lemmih/.cache/aihc/hackage/bytehash-0.1.1.2/bytehash-0.1.1.2/src/Data/Bytes/Hash.hs:48:13: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !ixArr
+/Users/lemmih/.cache/aihc/hackage/bytehash-0.1.1.2/bytehash-0.1.1.2/src/Data/Bytes/Hash.hs:48:20: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !len
+/Users/lemmih/.cache/aihc/hackage/bytehash-0.1.1.2/bytehash-0.1.1.2/src/Data/Bytes/Hash.hs:48:25: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !acc
+/Users/lemmih/.cache/aihc/hackage/bytehash-0.1.1.2/bytehash-0.1.1.2/src/Data/Bytes/Hash.hs:70:11: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !addr
+/Users/lemmih/.cache/aihc/hackage/bytehash-0.1.1.2/bytehash-0.1.1.2/src/Data/Bytes/Hash.hs:70:17: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !b
+/Users/lemmih/.cache/aihc/hackage/bytehash-0.1.1.2/bytehash-0.1.1.2/src/Data/Bytes/Hash.hs:1101:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: [] Language: Haskell2010)
+
+=== byte-order ===
+/Users/lemmih/.cache/aihc/hackage/byte-order-0.1.3.1/byte-order-0.1.3.1/src/System/ByteOrder.hs:71:12: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/byte-order-0.1.3.1/byte-order-0.1.3.1/src/System/ByteOrder.hs:71:49: error: [GHC-65719]
+    Illegal record syntax: {getFixed :: a}
+/Users/lemmih/.cache/aihc/hackage/byte-order-0.1.3.1/byte-order-0.1.3.1/src/System/ByteOrder.hs:83:20: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: [] Language: Haskell2010)
+
+=== bytes ===
+/Users/lemmih/.cache/aihc/hackage/bytes-0.17.5/bytes-0.17.5/src/Data/Bytes/Get.hs:50:6: error: [GHC-25955]
+    Illegal symbol `forall' in type
+/Users/lemmih/.cache/aihc/hackage/bytes-0.17.5/bytes-0.17.5/src/Data/Bytes/Get.hs:53:23: error: [GHC-24180]
+    Operator applied to too few arguments: *
+(Extensions: [] Language: Haskell2010)
+
+=== byteslice ===
+/Users/lemmih/.cache/aihc/hackage/byteslice-0.2.15.0/byteslice-0.2.15.0/src/Data/Bytes.hs:171:16: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: [] Language: Haskell2010)
+
+=== bytesmith ===
+/Users/lemmih/.cache/aihc/hackage/bytesmith-0.3.14.0/bytesmith-0.3.14.0/src/Data/Bytes/Parser.hs:36:19: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: [] Language: Haskell2010)
+
+=== bytestring-encodings ===
+/Users/lemmih/.cache/aihc/hackage/bytestring-encodings-0.2.0.2/bytestring-encodings-0.2.0.2/Data/ByteString/Internal/Ascii.hs:41:15: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !p
+/Users/lemmih/.cache/aihc/hackage/bytestring-encodings-0.2.0.2/bytestring-encodings-0.2.0.2/Data/ByteString/Internal/Ascii.hs:41:18: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !q
+/Users/lemmih/.cache/aihc/hackage/bytestring-encodings-0.2.0.2/bytestring-encodings-0.2.0.2/Data/ByteString/Internal/Ascii.hs:50:14: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !p
+/Users/lemmih/.cache/aihc/hackage/bytestring-encodings-0.2.0.2/bytestring-encodings-0.2.0.2/Data/ByteString/Internal/Ascii.hs:50:17: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !q
+/Users/lemmih/.cache/aihc/hackage/bytestring-encodings-0.2.0.2/bytestring-encodings-0.2.0.2/Data/ByteString/Internal/Ascii.hs:62:12: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !w
+/Users/lemmih/.cache/aihc/hackage/bytestring-encodings-0.2.0.2/bytestring-encodings-0.2.0.2/Data/ByteString/Internal/Ascii.hs:66:11: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !w
+/Users/lemmih/.cache/aihc/hackage/bytestring-encodings-0.2.0.2/bytestring-encodings-0.2.0.2/Data/ByteString/Internal/Ascii.hs:70:14: error: [GHC-79767]
+    Illegal bang-pattern or strict binding
+    !b
+/Users/lemmih/.cache/aihc/hackage/bytestring-encodings-0.2.0.2/bytestring-encodings-0.2.0.2/Data/ByteString/Internal/Ascii.hs:77:24: error: [GHC-58481]
+    parse error on input `of'
+(Extensions: [] Language: Haskell2010)
+
+=== bytestring-strict-builder ===
+/Users/lemmih/.cache/aihc/hackage/bytestring-strict-builder-0.4.5.8/bytestring-strict-builder-0.4.5.8/library/ByteString/StrictBuilder/Population/UncheckedShifting.hs:27:36: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: ["DisableExtension ImplicitPrelude","DisableExtension MonomorphismRestriction","EnableExtension Arrows","EnableExtension BangPatterns","EnableExtension ConstraintKinds","EnableExtension DataKinds","EnableExtension DefaultSignatures","EnableExtension DeriveDataTypeable","EnableExtension DeriveFoldable","EnableExtension DeriveFunctor","EnableExtension DeriveGeneric","EnableExtension DeriveTraversable","EnableExtension EmptyDataDecls","EnableExtension FlexibleContexts","EnableExtension FlexibleInstances","EnableExtension FunctionalDependencies","EnableExtension GADTs","EnableExtension GeneralizedNewtypeDeriving","EnableExtension LambdaCase","EnableExtension LiberalTypeSynonyms","EnableExtension MagicHash","EnableExtension MultiParamTypeClasses","EnableExtension MultiWayIf","EnableExtension OverloadedStrings","EnableExtension ParallelListComp","EnableExtension PatternGuards","EnableExtension QuasiQuotes","EnableExtension RankNTypes","EnableExtension RecordWildCards","EnableExtension ScopedTypeVariables","EnableExtension StandaloneDeriving","EnableExtension TemplateHaskell","EnableExtension TupleSections","EnableExtension TypeFamilies","EnableExtension TypeOperators","EnableExtension UnboxedTuples"] Language: Haskell2010)
+
+=== bytestring-trie ===
+/Users/lemmih/.cache/aihc/hackage/bytestring-trie-0.2.7.6/bytestring-trie-0.2.7.6/src/Data/Trie/Internal/BitTwiddle.hs:46:13: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: [] Language: Haskell2010)
+
+=== bytezap ===
+/Users/lemmih/.cache/aihc/hackage/bytezap-1.6.0/bytezap-1.6.0/src/Bytezap/Common/TypeNats.hs:8:24: error: [GHC-58481]
+    parse error on input `#'
+(Extensions: ["EnableExtension LambdaCase","DisableExtension StarIsType","EnableExtension DerivingVia","EnableExtension DeriveAnyClass","EnableExtension GADTs","EnableExtension RoleAnnotations","EnableExtension DefaultSignatures","EnableExtension TypeFamilies","EnableExtension DataKinds","EnableExtension MagicHash"] Language: GHC2021)
+
+=== cabal-clean ===
+/Users/lemmih/.cache/aihc/hackage/cabal-clean-0.2.20230609/cabal-clean-0.2.20230609/src/License.hs:13:1: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: ["EnableExtension LambdaCase","EnableExtension RecordWildCards","EnableExtension TupleSections"] Language: Haskell2010)
+
+=== cabal-plan ===
+/Users/lemmih/.cache/aihc/hackage/cabal-plan-0.7.6.1/cabal-plan-0.7.6.1/src/Cabal/Plan.hs:127:6: error: [GHC-65719]
+    Illegal record syntax: {srType :: !(Maybe RepoType),
+                            srLocation :: !(Maybe Text),
+                            srModule :: !(Maybe Text),
+                            srBranch :: !(Maybe Text),
+                            srTag :: !(Maybe Text),
+                            srSubdir :: !(Maybe FilePath)}
+/Users/lemmih/.cache/aihc/hackage/cabal-plan-0.7.6.1/cabal-plan-0.7.6.1/src/Cabal/Plan.hs:161:6: error: [GHC-65719]
+    Illegal record syntax: {pjCabalVersion :: !Ver,
+                            pjCabalLibVersion :: !Ver,
+                            pjCompilerId :: !PkgId,
+                            pjArch :: !Text,
+                            pjOs :: !Text,
+                            pjUnits :: !(M.Map UnitId Unit)}
+/Users/lemmih/.cache/aihc/hackage/cabal-plan-0.7.6.1/cabal-plan-0.7.6.1/src/Cabal/Plan.hs:178:6: error: [GHC-65719]
+    Illegal record syntax: {uId :: !UnitId,
+                            uPId :: !PkgId,
+                            uType :: !UnitType,
+                            uSha256 :: !(Maybe Sha256),
+                            uCabalSha256 :: !(Maybe Sha256),
+                            uComps :: !(Map CompName CompInfo),
+                            uFlags :: !(Map FlagName Bool),
+                            uDistDir :: !(Maybe FilePath),
+                            uPkgSrc :: !(Maybe PkgLoc)}
+/Users/lemmih/.cache/aihc/hackage/cabal-plan-0.7.6.1/cabal-plan-0.7.6.1/src/Cabal/Plan.hs:222:5: error: [GHC-65719]
+    Illegal record syntax: {ciLibDeps :: Set UnitId,
+                            ciExeDeps :: Set UnitId,
+                            ciBinFile :: Maybe FilePath}
+/Users/lemmih/.cache/aihc/hackage/cabal-plan-0.7.6.1/cabal-plan-0.7.6.1/src/Cabal/Plan.hs:361:18: error: [GHC-65719]
+    Illegal record syntax: PlanJson {..}
+/Users/lemmih/.cache/aihc/hackage/cabal-plan-0.7.6.1/cabal-plan-0.7.6.1/src/Cabal/Plan.hs:376:17: error: [GHC-65719]
+    Illegal record syntax: Unit {..}
+/Users/lemmih/.cache/aihc/hackage/cabal-plan-0.7.6.1/cabal-plan-0.7.6.1/src/Cabal/Plan.hs:376:63: error: [GHC-65719]
+    Illegal record syntax: CompInfo {..}
+/Users/lemmih/.cache/aihc/hackage/cabal-plan-0.7.6.1/cabal-plan-0.7.6.1/src/Cabal/Plan.hs:409:14: error: [GHC-65719]
+    Illegal record syntax: Unit {..}
+/Users/lemmih/.cache/aihc/hackage/cabal-plan-0.7.6.1/cabal-plan-0.7.6.1/src/Cabal/Plan.hs:537:24: error: [GHC-65719]
+    Illegal record syntax: Just {}
+/Users/lemmih/.cache/aihc/hackage/cabal-plan-0.7.6.1/cabal-plan-0.7.6.1/src/Cabal/Plan.hs:586:3: error: [GHC-58481]
+    parse error on input `|'
+(Extensions: ["EnableExtension GeneralizedNewtypeDeriving","EnableExtension OverloadedStrings","EnableExtension RecordWildCards"] Language: Haskell2010)
+
+=== cabal-rpm ===
+/Users/lemmih/.cache/aihc/hackage/cabal-rpm-2.3.0/cabal-rpm-2.3.0/src/Types.hs:43:22: error: [GHC-58481]
+    parse error on input `Version'
+(Extensions: [] Language: Haskell2010)
+
+=== cacophony ===
+/Users/lemmih/.cache/aihc/hackage/cacophony-0.11.0/cacophony-0.11.0/src/Crypto/Noise/Cipher.hs:21:26: error: [GHC-24180]
+    Operator applied to too few arguments: *
+(Extensions: ["EnableExtension OverloadedStrings"] Language: Haskell2010)
+
+=== cairo ===
+/Users/lemmih/.cache/aihc/hackage/cairo-0.13.12.0/cairo-0.13.12.0/Graphics/Rendering/Cairo.hs:11:9: error: [GHC-58481]
+    parse error (possibly incorrect indentation or mismatched brackets)
+(Extensions: ["EnableExtension ForeignFunctionInterface"] Language: Haskell98)
+
+=== cairo-image ===
+/Users/lemmih/.cache/aihc/hackage/cairo-image-0.1.0.6/cairo-image-0.1.0.6/src/Data/CairoImage.hs:11:17: error: [GHC-58481]
+    parse error on input `PixelArgb32Premultiplied'
+(Extensions: [] Language: Haskell2010)
+
+=== call-stack ===
+/Users/lemmih/.cache/aihc/hackage/call-stack-0.4.0/call-stack-0.4.0/src/Data/CallStack.hs:18:22: error: [GHC-24180]
+    Operator applied to too few arguments: ?
+(Extensions: [] Language: Haskell2010)
+

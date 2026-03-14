@@ -10,7 +10,7 @@ import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParser)
 import Data.Char (isAlphaNum, isSpace)
 import Data.List (isPrefixOf, nub)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -104,8 +104,8 @@ main = do
   case optGhcErrorsFile opts of
     Nothing -> pure ()
     Just path -> do
-      let ghcErrors = take (optGhcErrorsLimit opts) [ (pkgName (package r), e) | r <- results, Just e <- [packageGhcError r] ]
-      writeFile path $ unlines [ "=== " ++ pkg ++ " ===\n" ++ err ++ "\n" | (pkg, err) <- ghcErrors ]
+      let ghcErrors = take (optGhcErrorsLimit opts) [(pkgName (package r), e) | r <- results, Just e <- [packageGhcError r]]
+      writeFile path $ unlines ["=== " ++ pkg ++ " ===\n" ++ err ++ "\n" | (pkg, err) <- ghcErrors]
       putStrLn $ "GHC errors written to " ++ path
 
   if successOursN == total then exitSuccess else exitFailure
@@ -129,11 +129,12 @@ usage =
 parseOptions :: [String] -> Either String Options
 parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False False Nothing 100)
   where
-    go opts [] = 
-        let opts' = if optSanityCheck opts 
-                    then opts { optChecks = nub (optChecks opts ++ [CheckHse, CheckGhc]) }
-                    else opts
-        in Right opts'
+    go opts [] =
+      let opts' =
+            if optSanityCheck opts
+              then opts {optChecks = nub (optChecks opts ++ [CheckHse, CheckGhc])}
+              else opts
+       in Right opts'
     go opts ("--snapshot" : value : rest)
       | null value = Left "--snapshot requires a value"
       | otherwise = go opts {optSnapshot = value} rest
@@ -329,12 +330,12 @@ runPackageOrThrow opts spec = do
               }
         else do
           fileResults <- forM files (checkFile opts srcDir)
-          let oursFailures = [err | Left err <- map (\fr -> if fileOursOk fr then Right () else Left (maybe "ours failed" id (fileError fr))) fileResults]
+          let oursFailures = [fromMaybe "ours failed" (fileError fr) | fr <- fileResults, not (fileOursOk fr)]
               hseOk = all fileHseOk fileResults
               ghcOk = all fileGhcOk fileResults
               ghcError = case [e | fr <- fileResults, Just e <- [fileGhcError fr]] of
-                           e : _ -> Just e
-                           [] -> Nothing
+                e : _ -> Just e
+                [] -> Nothing
               oursOk = null oursFailures
           if oursOk
             then
@@ -400,31 +401,34 @@ checkFile opts packageRoot info = do
             then pure (checkSourceSpans file source' parsed)
             else pure (Right ())
 
-  hseOk <- if CheckHse `elem` optChecks opts
-           then pure $ checkHse (fileInfoExtensions info) (fileInfoLanguage info) source'
-           else pure True
+  hseOk <-
+    if CheckHse `elem` optChecks opts
+      then pure $ checkHse (fileInfoExtensions info) (fileInfoLanguage info) source'
+      else pure True
 
-  ghcOkResult <- if CheckGhc `elem` optChecks opts
-           then pure $ GhcOracle.oracleDetailedParsesModuleWithNamesAt file (fileInfoExtensions info) (fileInfoLanguage info) source'
-           else pure (Right ())
+  ghcOkResult <-
+    if CheckGhc `elem` optChecks opts
+      then pure $ GhcOracle.oracleDetailedParsesModuleWithNamesAt file (fileInfoExtensions info) (fileInfoLanguage info) source'
+      else pure (Right ())
   let ghcOk = case ghcOkResult of Right () -> True; Left _ -> False
       ghcErrMsg = case ghcOkResult of Left err -> Just (T.unpack err); Right () -> Nothing
 
-  pure FileResult
-    { fileOursOk = case oursStatus of Right () -> True; Left _ -> False,
-      fileHseOk = hseOk,
-      fileGhcOk = ghcOk,
-      fileError = case oursStatus of Left err -> Just err; Right () -> Nothing,
-      fileGhcError = ghcErrMsg
-    }
+  pure
+    FileResult
+      { fileOursOk = case oursStatus of Right () -> True; Left _ -> False,
+        fileHseOk = hseOk,
+        fileGhcOk = ghcOk,
+        fileError = case oursStatus of Left err -> Just err; Right () -> Nothing,
+        fileGhcError = ghcErrMsg
+      }
 
 checkHse :: [String] -> Maybe String -> Text -> Bool
 checkHse extNames _langName source =
   let exts = mapMaybe parseHseExtension extNames
-      mode = hseParseMode { HSE.extensions = HSE.glasgowExts ++ exts }
-  in case HSE.parseFileContentsWithMode mode (T.unpack source) of
-       HSE.ParseOk _ -> True
-       HSE.ParseFailed _ _ -> False
+      mode = hseParseMode {HSE.extensions = HSE.glasgowExts ++ exts}
+   in case HSE.parseFileContentsWithMode mode (T.unpack source) of
+        HSE.ParseOk _ -> True
+        HSE.ParseFailed _ _ -> False
 
 parseHseExtension :: String -> Maybe HSE.Extension
 parseHseExtension name =
