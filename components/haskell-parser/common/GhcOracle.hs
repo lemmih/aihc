@@ -22,6 +22,7 @@ import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Hs (GhcPs, HsModule)
 import GHC.LanguageExtensions.Type (Extension (..))
 import GHC.Parser (parseModule)
+import GHC.Parser.Header (getOptions)
 import GHC.Parser.Lexer
   ( ParseResult (..),
     getPsErrorMessages,
@@ -57,11 +58,12 @@ oracleModuleAstFingerprintWithExtensionsAt sourceTag exts input = do
 
 parseWithGhcWithExtensions :: String -> [Extension] -> Text -> Either Text ([Text], HsModule GhcPs)
 parseWithGhcWithExtensions sourceTag extraExts input =
-  let parseExts = EnumSet.fromList (nub (ForeignFunctionInterface : extraExts)) :: EnumSet.EnumSet Extension
+  let baseExts = nub extraExts
+      languagePragmas = extractLanguagePragmas sourceTag baseExts input
+      pragmaExts = mapMaybe (parseExtension . T.unpack) languagePragmas
+      parseExts = EnumSet.fromList (nub (baseExts <> pragmaExts)) :: EnumSet.EnumSet Extension
       opts = mkParserOpts parseExts emptyDiagOpts False False False False
-      languagePragmas = extractLanguagePragmas input
-      sanitizedInput = stripLanguagePragmaLines input
-      buffer = stringToStringBuffer (T.unpack sanitizedInput)
+      buffer = stringToStringBuffer (T.unpack input)
       start = mkRealSrcLoc (mkFastString sourceTag) 1 1
    in case unP parseModule (initParserState opts buffer start) of
         POk _ modu -> Right (languagePragmas, unLoc modu)
@@ -69,30 +71,27 @@ parseWithGhcWithExtensions sourceTag extraExts input =
           let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
            in Left (T.pack rendered)
 
-extractLanguagePragmas :: Text -> [Text]
-extractLanguagePragmas =
-  concat . mapMaybe (parseLanguagePragmaLine . T.strip) . T.lines
-
-parseLanguagePragmaLine :: Text -> Maybe [Text]
-parseLanguagePragmaLine txt
-  | "{-#" `T.isPrefixOf` txt && "#-}" `T.isSuffixOf` txt =
-      case T.stripPrefix "LANGUAGE" (T.strip (T.dropEnd 3 (T.drop 3 txt))) of
-        Just rawNames ->
-          let names = filter (not . T.null) (map T.strip (T.splitOn "," rawNames))
-           in if null names then Nothing else Just names
-        Nothing -> Nothing
-  | otherwise = Nothing
-
-stripLanguagePragmaLines :: Text -> Text
-stripLanguagePragmaLines =
-  T.unlines
-    . filter (not . isLanguagePragmaLine . T.strip)
-    . T.lines
+extractLanguagePragmas :: String -> [Extension] -> Text -> [Text]
+extractLanguagePragmas sourceTag baseExts input =
+  let buffer = stringToStringBuffer (T.unpack input)
+      baseOpts =
+        mkParserOpts
+          (EnumSet.fromList baseExts :: EnumSet.EnumSet Extension)
+          emptyDiagOpts
+          False
+          False
+          False
+          False
+      (_warns, rawOptions) = getOptions baseOpts supportedLanguagePragmas buffer sourceTag
+   in mapMaybe optionToLanguagePragma rawOptions
   where
-    isLanguagePragmaLine t =
-      case parseLanguagePragmaLine t of
-        Just _ -> True
-        Nothing -> False
+    supportedLanguagePragmas = "CPP" : map show ([minBound .. maxBound] :: [Extension])
+
+    optionToLanguagePragma locatedOpt =
+      let opt = T.pack (unLoc locatedOpt)
+       in case T.stripPrefix "-X" opt of
+            Just pragmaName | not (T.null pragmaName) -> Just pragmaName
+            _ -> Nothing
 
 oracleParsesModuleWithNames :: [String] -> Maybe String -> Text -> Bool
 oracleParsesModuleWithNames = oracleParsesModuleWithNamesAt "oracle"
@@ -121,6 +120,7 @@ oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
 parseExtension :: String -> Maybe Extension
 parseExtension name =
   case name of
+    "CPP" -> Just Cpp
     "BangPatterns" -> Just BangPatterns
     "BinaryLiterals" -> Just BinaryLiterals
     "DerivingStrategies" -> Just DerivingStrategies
@@ -181,7 +181,7 @@ parseExtension name =
     "UnboxedSums" -> Just UnboxedSums
     "UndecidableInstances" -> Just UndecidableInstances
     "UnicodeSyntax" -> Just UnicodeSyntax
-    _ -> Nothing -- Ignore unknown ones for now
+    _ -> lookup name [(show ext, ext) | ext <- [minBound .. maxBound]]
 
 languageExtensions :: String -> [Extension]
 languageExtensions lang =
