@@ -95,7 +95,7 @@ extractLanguagePragmas sourceTag baseExts input =
           False
           False
    in case unP parseHeader (initParserState headerOpts buffer start) of
-        PFailed _ -> languagePragmas
+        PFailed _ -> []
         POk _ _ -> languagePragmas
   where
     supportedLanguagePragmas = "CPP" : map show ([minBound .. maxBound] :: [Extension])
