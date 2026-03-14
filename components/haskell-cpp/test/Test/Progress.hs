@@ -10,7 +10,7 @@ module Test.Progress
 where
 
 import qualified Control.Exception as E
-import Cpp (Config (..), IncludeRequest (..), Result (..), Step (..), preprocess)
+import Cpp (Config (..), Diagnostic (..), IncludeRequest (..), Result (..), Severity (..), Step (..), preprocess)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd)
 import Data.Text (Text)
@@ -66,6 +66,7 @@ classify expected ours oracle =
         (Right oursOut, Right oracleOut)
           | normalize oursOut == normalize oracleOut -> (OutcomePass, "")
           | otherwise -> (OutcomeFail, "preprocessed output differs from cpphs oracle")
+        (Left _, Left _) -> (OutcomePass, "")
         (Left oursErr, _) -> (OutcomeFail, "ours failed: " <> oursErr)
         (_, Left oracleErr) -> (OutcomeFail, "oracle failed: " <> oracleErr)
     ExpectXFail ->
@@ -73,6 +74,7 @@ classify expected ours oracle =
         (Right oursOut, Right oracleOut)
           | normalize oursOut == normalize oracleOut -> (OutcomeXPass, "expected xfail but now matches cpphs")
           | otherwise -> (OutcomeXFail, "")
+        (Left _, Left _) -> (OutcomeXPass, "expected xfail but now matches cpphs")
         _ -> (OutcomeXFail, "")
 
 normalize :: Text -> Text
@@ -90,7 +92,10 @@ isLinePragma line = "#line " `T.isPrefixOf` T.stripStart line
 runOurs :: FilePath -> Text -> IO (Either String Text)
 runOurs sourcePath source = do
   result <- drive (preprocess Config {configInputFile = takeFileName sourcePath} source)
-  pure (Right (resultOutput result))
+  let errors = [diagMessage d | d <- resultDiagnostics result, diagSeverity d == Error]
+  case errors of
+    [] -> pure (Right (resultOutput result))
+    (msg : _) -> pure (Left (T.unpack msg))
   where
     drive (Done result) = pure result
     drive (NeedInclude req k) = do

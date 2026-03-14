@@ -5,11 +5,11 @@ macro-expansion	macro	macro-expansion.hs	pass
 include-basic	include	include-basic.hs	pass
 ifdef-true	conditionals	ifdef-true.hs	pass
 ifndef-true	conditionals	ifndef-true.hs	pass
-if-boolean-and	conditionals	if-boolean-and.hs	xfail	if boolean expression is not implemented yet
-if-arithmetic	conditionals	if-arithmetic.hs	xfail	if arithmetic expression is not implemented yet
-if-comparison	conditionals	if-comparison.hs	xfail	if comparison expression is not implemented yet
-elseif-branch	conditionals	elseif-branch.hs	xfail	elseif-elif branch selection is not implemented yet
+if-boolean-and	conditionals	if-boolean-and.hs	pass
+if-arithmetic	conditionals	if-arithmetic.hs	pass
+if-comparison	conditionals	if-comparison.hs	pass
+elseif-branch	conditionals	elseif-branch.hs	pass
 warning-directive	diagnostics	warning-directive.hs	pass
-error-directive	diagnostics	error-directive.hs	xfail	error flow does not yet match cpphs behavior
+error-directive	diagnostics	error-directive.hs	pass
 isndef-alias	conditionals	isndef-alias.hs	pass
 endif-balance	conditionals	endif-balance.hs	pass
