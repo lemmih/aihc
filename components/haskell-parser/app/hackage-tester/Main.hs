@@ -6,9 +6,14 @@ module Main (main) where
 import Control.Monad (forM)
 import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParser)
+import qualified Data.ByteString.Char8 as BS
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import Distribution.Package (packageId, pkgVersion)
+import Distribution.PackageDescription (GenericPackageDescription (..))
+import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.Pretty (prettyShow)
 import qualified GhcOracle
 import HackageSupport (FileInfo (..), diagToText, downloadPackage, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
 import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailed)
@@ -47,14 +52,11 @@ getLatestVersion :: String -> IO (Maybe String)
 getLatestVersion packageName = do
   let url = "https://hackage.haskell.org/package/" ++ packageName ++ "/" ++ packageName ++ ".cabal"
   result <- readProcess "curl" ["-s", "-f", url] ""
-  let cabalContent = T.pack result
-      lines' = T.lines cabalContent
-      versionLines = filter (\l -> T.isPrefixOf "version:" (T.toLower (T.strip l))) lines'
-  pure $ case versionLines of
-    [] -> Nothing
-    (vline : _) ->
-      let (_, val) = T.break (== ':') vline
-       in Just (T.unpack (T.strip (T.drop 1 val)))
+  case runParseResult (parseGenericPackageDescription (BS.pack result)) of
+    (_, Left _) -> pure Nothing
+    (_, Right gpd) ->
+      let ver = pkgVersion (packageId (packageDescription gpd))
+       in pure (Just (prettyShow ver))
 
 data FileResult = FileResult
   { filePath :: FilePath,
