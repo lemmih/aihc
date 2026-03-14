@@ -3,8 +3,8 @@
 ## Summary
 
 - Total Extensions: 60
-- Supported: 10
-- In Progress: 21
+- Supported: 13
+- In Progress: 18
 - Planned: 29
 
 ## Extension Status
@@ -27,14 +27,14 @@
 | DeriveGeneric | Planned | - | Derive Generic |
 | DeriveLift | Planned | - | Derive Lift |
 | DeriveTraversable | Planned | - | Derive Traversable |
-| DerivingStrategies | In Progress | 0/5 | Deriving Strategies |
+| DerivingStrategies | Supported | 5/5 | Deriving Strategies |
 | DisambiguateRecordFields | Planned | - | Disambiguate Record Fields |
 | DoAndIfThenElse | Supported | 3/3 | Do And If Then Else |
 | EmptyCase | Supported | 4/4 | Empty Case |
 | EmptyDataDecls | In Progress | 4/5 | Empty Data Decls |
 | EmptyDataDeriving | Planned | - | Empty Data Deriving |
 | ExistentialQuantification | In Progress | 0/4 | Existential Quantification |
-| ExplicitLevelImports | In Progress | 0/4 | Explicit Level Imports |
+| ExplicitLevelImports | Supported | 4/4 | Explicit Level Imports |
 | ExplicitForAll | Supported | 5/5 | Explicit For All |
 | ExplicitNamespaces | In Progress | 0/3 | Explicit Namespaces |
 | FieldSelectors | Planned | - | Field Selectors |
@@ -47,12 +47,12 @@
 | HexFloatLiterals | Supported | 3/3 | Hex Float Literals |
 | ImplicitPrelude | Planned | - | Implicit Prelude |
 | ImportQualifiedPost | Supported | 3/3 | Import Qualified Post |
-| InstanceSigs | In Progress | 0/5 | Instance Sigs |
+| InstanceSigs | In Progress | 3/5 | Instance Sigs |
 | KindSignatures | In Progress | 0/5 | Kind Signatures |
 | LambdaCase | In Progress | 3/5 | Lambda Case |
 | MonoLocalBinds | Planned | - | Mono Local Binds |
 | MonomorphismRestriction | Planned | - | Monomorphism Restriction |
-| MultiParamTypeClasses | In Progress | 0/5 | Multi Param Type Classes |
+| MultiParamTypeClasses | Supported | 5/5 | Multi Param Type Classes |
 | NamedFieldPuns | In Progress | 0/5 | Named Field Puns |
 | NamedWildCards | In Progress | 3/4 | Named Wild Cards |
 | NumericUnderscores | Supported | 3/3 | Numeric Underscores |

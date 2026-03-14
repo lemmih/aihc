@@ -32,7 +32,7 @@ jobs:
           private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
       - name: Cache Stackage and package downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .cache/aihc/stackage
@@ -45,7 +45,7 @@ jobs:
         run: nix run .#generate-reports
 
       - name: Open pull request for generated updates
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.AUTOMATION_PR_TOKEN }}
           branch-token: ${{ secrets.AUTOMATION_PR_TOKEN }}
