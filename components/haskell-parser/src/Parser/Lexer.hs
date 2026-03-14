@@ -1,5 +1,46 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- |
+-- Module      : Parser.Lexer
+-- Description : Lex Haskell source into span-annotated tokens, then apply extensions and layout.
+--
+-- This module performs the pre-parse tokenization step for Haskell source code.
+-- It turns raw text into 'LexToken's that preserve:
+--
+-- * a semantic token classification ('LexTokenKind')
+-- * the original token text ('lexTokenText')
+-- * source location information ('lexTokenSpan')
+--
+-- The lexer runs in three phases:
+--
+-- 1. /Raw tokenization/ with Megaparsec ('lexTokenParser') while skipping trivia
+--    ('triviaConsumer').
+-- 2. /Extension rewrites/ ('applyExtensions'), for example @NegativeLiterals@ which
+--    folds @-@ plus an adjacent numeric literal into one literal token.
+-- 3. /Layout insertion/ ('applyLayoutTokens') that inserts virtual @{@, @;@ and @}@
+--    according to indentation (the offside rule), so the parser can treat implicit
+--    layout like explicit braces and semicolons.
+--
+-- Layout-sensitive syntax is the tricky part. The implementation tracks a stack of
+-- layout contexts and mirrors the @haskell-src-exts@ model summarized in
+-- @docs/hse-indentation-layout.md@:
+--
+-- * after layout-introducing keywords (currently @do@ and @of@, plus optional module
+--   body layout), mark a pending implicit block
+-- * if the next token is an explicit @{@, disable implicit insertion for that block
+-- * otherwise, open an implicit layout context at the next token column
+-- * at beginning-of-line tokens, dedent emits virtual @}@, equal-indent emits virtual
+--   @;@ (with a small suppression rule for @then@/@else@)
+--
+-- Keyword classification is intentionally lexical and exact. 'identifierToken'
+-- produces a keyword token /only/ when the full identifier text exactly matches a
+-- reserved word in 'keywordTokenKind'. That means:
+--
+-- * @where@ becomes 'TkKeywordWhere'
+-- * @where'@, @_where@, and @M.where@ remain identifiers
+--
+-- In other words, use keyword tokens only for exact reserved lexemes; contextual
+-- validity is left to the parser.
 module Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
@@ -70,10 +111,12 @@ data LexTokenKind
   | TkQuasiQuote Text Text
   deriving (Eq, Ord, Show, Read)
 
+-- | Lexer behaviors controlled by language extensions.
 data LexerExtension
   = NegativeLiterals
   deriving (Eq, Ord, Show, Read)
 
+-- | A token with both lexical meaning and precise source span.
 data LexToken = LexToken
   { lexTokenKind :: !LexTokenKind,
     lexTokenText :: !Text,
@@ -83,35 +126,55 @@ data LexToken = LexToken
 
 type LParser = Parsec Void Text
 
+-- | Convenience lexer entrypoint: no extensions, parse as expression/declaration stream.
+--
+-- Returns @[]@ on lexing errors.
 lexTokens :: Text -> [LexToken]
 lexTokens input =
   case lexTokensWithExtensions [] input of
     Right toks -> toks
     Left _ -> []
 
+-- | Convenience lexer entrypoint for full modules: no extensions, with module layout enabled.
+--
+-- Returns @[]@ on lexing errors.
 lexModuleTokens :: Text -> [LexToken]
 lexModuleTokens input =
   case lexModuleTokensWithExtensions [] input of
     Right toks -> toks
     Left _ -> []
 
+-- | Lex source text using explicit lexer extensions.
+--
+-- This runs raw tokenization, extension rewrites, and implicit-layout insertion.
+-- Module-top layout is /not/ enabled here.
 lexTokensWithExtensions :: [LexerExtension] -> Text -> Either String [LexToken]
 lexTokensWithExtensions exts input =
   case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
     Right toks -> Right (applyLayoutTokens False (applyExtensions exts toks))
     Left err -> Left (MP.errorBundlePretty err)
 
+-- | Lex module source text using explicit lexer extensions.
+--
+-- Like 'lexTokensWithExtensions', but also enables top-level module-body layout:
+-- when the source omits explicit braces, virtual layout tokens are inserted
+-- after @module ... where@ (or from the first non-pragma token in module-less files).
 lexModuleTokensWithExtensions :: [LexerExtension] -> Text -> Either String [LexToken]
 lexModuleTokensWithExtensions exts input =
   case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
     Right toks -> Right (applyLayoutTokens True (applyExtensions exts toks))
     Left err -> Left (MP.errorBundlePretty err)
 
+-- | Apply all extension-driven post-lexing rewrites in a deterministic order.
 applyExtensions :: [LexerExtension] -> [LexToken] -> [LexToken]
 applyExtensions exts toks
   | NegativeLiterals `elem` exts = applyNegativeLiterals toks
   | otherwise = toks
 
+-- | Implement @NegativeLiterals@ by merging @-@ and immediately adjacent numerics.
+--
+-- The merge only happens when there is no intervening whitespace/comments, and only
+-- for integer/base-integer/float tokens.
 applyNegativeLiterals :: [LexToken] -> [LexToken]
 applyNegativeLiterals toks =
   case toks of
@@ -129,6 +192,7 @@ applyNegativeLiterals toks =
     tok : rest -> tok : applyNegativeLiterals rest
     [] -> []
 
+-- | True when the second token starts exactly where the first one ends.
 tokensAdjacent :: LexToken -> LexToken -> Bool
 tokensAdjacent first second =
   case (lexTokenSpan first, lexTokenSpan second) of
@@ -136,6 +200,7 @@ tokensAdjacent first second =
       firstEndLine == secondStartLine && firstEndCol == secondStartCol
     _ -> False
 
+-- | Build a negative decimal integer token from @-@ and a positive literal token.
 negativeIntegerToken :: LexToken -> LexToken -> Integer -> LexToken
 negativeIntegerToken minusTok numTok n =
   LexToken
@@ -144,6 +209,7 @@ negativeIntegerToken minusTok numTok n =
       lexTokenSpan = combinedSpan minusTok numTok
     }
 
+-- | Build a negative non-decimal integer token from @-@ and a positive literal token.
 negativeIntegerBaseToken :: LexToken -> LexToken -> Integer -> Text -> LexToken
 negativeIntegerBaseToken minusTok numTok n repr =
   LexToken
@@ -152,6 +218,7 @@ negativeIntegerBaseToken minusTok numTok n repr =
       lexTokenSpan = combinedSpan minusTok numTok
     }
 
+-- | Build a negative float token from @-@ and a positive literal token.
 negativeFloatToken :: LexToken -> LexToken -> Double -> Text -> LexToken
 negativeFloatToken minusTok numTok n repr =
   LexToken
@@ -160,17 +227,24 @@ negativeFloatToken minusTok numTok n repr =
       lexTokenSpan = combinedSpan minusTok numTok
     }
 
+-- | Span that starts at the first token and ends at the second token.
 combinedSpan :: LexToken -> LexToken -> SourceSpan
 combinedSpan first second =
   case (lexTokenSpan first, lexTokenSpan second) of
     (SourceSpan sl sc _ _, SourceSpan _ _ el ec) -> SourceSpan sl sc el ec
     _ -> NoSourceSpan
 
+-- | Layout stack entries.
+--
+-- 'LayoutExplicit' means we are inside explicit braces, so indentation should not
+-- create virtual punctuation for that level.
+-- 'LayoutImplicit' stores the indentation column for an offside block.
 data LayoutContext
   = LayoutExplicit
   | LayoutImplicit !Int
   deriving (Eq, Show)
 
+-- | Mutable state threaded through the layout insertion pass.
 data LayoutState = LayoutState
   { layoutContexts :: [LayoutContext],
     layoutPendingLayout :: !Bool,
@@ -178,6 +252,11 @@ data LayoutState = LayoutState
   }
   deriving (Eq, Show)
 
+-- | Insert virtual layout tokens (@{@, @;@, @}@) according to indentation.
+--
+-- When @enableModuleLayout@ is True, a synthetic layout block is also considered for
+-- the module body (after @module ... where@, or from the first non-pragma token when
+-- the @module@ header is omitted).
 applyLayoutTokens :: Bool -> [LexToken] -> [LexToken]
 applyLayoutTokens enableModuleLayout toks =
   go initialState 0 toks
@@ -213,6 +292,19 @@ applyLayoutTokens enableModuleLayout toks =
           stAfterToken = stepTokenContext stAfterBOL tok
        in stAfterToken {layoutPrevLine = Just (tokenStartLine tok)}
 
+-- | If a layout-introducing token was seen previously, decide how to open that block.
+--
+-- Returns:
+--
+-- * tokens inserted before @tok@
+-- * updated state
+-- * whether BOL processing should be skipped for this token
+--
+-- If @tok@ is explicit @{@, pending layout is cancelled. Otherwise, we insert a
+-- virtual @{@ and either:
+--
+-- * immediately close it with virtual @}@ when indentation is not greater than parent
+-- * push a new implicit indentation context
 openPendingLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
 openPendingLayout st tok
   | not (layoutPendingLayout st) = ([], st, False)
@@ -235,6 +327,10 @@ openPendingLayout st tok
                     True
                   )
 
+-- | Handle beginning-of-line layout rules for the current token.
+--
+-- Dedent closes implicit blocks with virtual @}@. Matching indentation inserts a
+-- virtual @;@ unless suppressed by 'suppressesVirtualSemicolon'.
 bolLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 bolLayout st tok
   | not (isBOL st tok) = ([], st)
@@ -250,6 +346,10 @@ bolLayout st tok
               _ -> []
        in (inserted <> eqSemi, st {layoutContexts = contexts'})
 
+-- | Tokens that should not be preceded by an inserted virtual semicolon on EQ-indent.
+--
+-- This avoids producing a spurious statement separator before @then@/@else@ in common
+-- conditional layouts.
 suppressesVirtualSemicolon :: LexToken -> Bool
 suppressesVirtualSemicolon tok =
   case lexTokenKind tok of
@@ -257,6 +357,7 @@ suppressesVirtualSemicolon tok =
     TkKeywordElse -> True
     _ -> False
 
+-- | Pop implicit layout contexts while current column is less indented.
 closeForDedent :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
 closeForDedent col anchor = go []
   where
@@ -267,10 +368,15 @@ closeForDedent col anchor = go []
           | otherwise -> (reverse acc, contexts)
         _ -> (reverse acc, contexts)
 
+-- | Emit virtual closing braces for all still-open implicit layouts at EOF.
 closeAllImplicit :: [LayoutContext] -> SourceSpan -> [LexToken]
 closeAllImplicit contexts anchor =
   [virtualSymbolToken "}" anchor | LayoutImplicit _ <- contexts]
 
+-- | Update layout state from a real token.
+--
+-- @do@ and @of@ start pending implicit layout, and explicit braces push/pop
+-- 'LayoutExplicit'.
 stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
@@ -280,6 +386,13 @@ stepTokenContext st tok =
     TkSymbol "}" -> st {layoutContexts = popOneContext (layoutContexts st)}
     _ -> st
 
+-- | Determine token indices where module-level layout should begin.
+--
+-- Strategy:
+--
+-- * skip leading LANGUAGE/WARNING/DEPRECATED pragmas
+-- * if first token is @module@, start after the corresponding @where@ (if body exists)
+-- * otherwise, start from that first non-pragma token
 moduleLayoutOpenIndices :: [LexToken] -> IntSet.IntSet
 moduleLayoutOpenIndices toks =
   case firstNonPragma of
@@ -305,36 +418,42 @@ moduleLayoutOpenIndices toks =
         )
         indexedToks
 
+-- | Pop one layout context, if any.
 popOneContext :: [LayoutContext] -> [LayoutContext]
 popOneContext contexts =
   case contexts of
     _ : rest -> rest
     [] -> []
 
+-- | Current indentation baseline used for pending implicit layout opening.
 currentLayoutIndent :: [LayoutContext] -> Int
 currentLayoutIndent contexts =
   case contexts of
     LayoutImplicit indent : _ -> indent
     _ -> 0
 
+-- | True when @tok@ begins on a later line than the previously emitted token.
 isBOL :: LayoutState -> LexToken -> Bool
 isBOL st tok =
   case layoutPrevLine st of
     Just prevLine -> tokenStartLine tok > prevLine
     Nothing -> False
 
+-- | Start line of a token (defaults to 1 for missing spans).
 tokenStartLine :: LexToken -> Int
 tokenStartLine tok =
   case lexTokenSpan tok of
     SourceSpan line _ _ _ -> line
     NoSourceSpan -> 1
 
+-- | Start column of a token (defaults to 1 for missing spans).
 tokenStartCol :: LexToken -> Int
 tokenStartCol tok =
   case lexTokenSpan tok of
     SourceSpan _ col _ _ -> col
     NoSourceSpan -> 1
 
+-- | Zero-width EOF anchor span at the end of the final token.
 eofAnchorSpan :: [LexToken] -> SourceSpan
 eofAnchorSpan toks =
   case reverse toks of
@@ -344,6 +463,7 @@ eofAnchorSpan toks =
         NoSourceSpan -> NoSourceSpan
     [] -> NoSourceSpan
 
+-- | Construct a virtual punctuation token used by the layout pass.
 virtualSymbolToken :: Text -> SourceSpan -> LexToken
 virtualSymbolToken sym span' =
   LexToken
@@ -352,18 +472,26 @@ virtualSymbolToken sym span' =
       lexTokenSpan = span'
     }
 
+-- | Skip whitespace and non-pragma comments between tokens.
+--
+-- Pragmas are lexed as tokens, so @{-# ... #-}@ must not be consumed here.
 triviaConsumer :: LParser ()
 triviaConsumer = MP.skipMany (void C.spaceChar <|> lineCommentConsumer <|> try blockCommentConsumer)
 
+-- | Consume a line comment introduced by @--@.
 lineCommentConsumer :: LParser ()
 lineCommentConsumer = L.skipLineComment "--"
 
+-- | Consume a non-pragma nested block comment.
+--
+-- The initial @{-@ has been read, and @{-# ... #-}@ is excluded by caller.
 blockCommentConsumer :: LParser ()
 blockCommentConsumer = do
   _ <- C.string "{-"
   notFollowedBy (C.char '#')
   skipNestedBlockCommentBody 1
 
+-- | Skip the remaining body of a nested block comment.
 skipNestedBlockCommentBody :: Int -> LParser ()
 skipNestedBlockCommentBody depth
   | depth <= 0 = pure ()
@@ -372,6 +500,9 @@ skipNestedBlockCommentBody depth
         <|> try (C.string "-}" *> skipNestedBlockCommentBody (depth - 1))
         <|> (anySingle *> skipNestedBlockCommentBody depth)
 
+-- | Parse one lexical token and attach its source span.
+--
+-- Order matters here: more specific token forms must appear before more general ones.
 lexTokenParser :: LParser LexToken
 lexTokenParser =
   lexWithSpan $
@@ -389,6 +520,10 @@ lexTokenParser =
       <|> try identifierToken
       <|> operatorToken
 
+-- | Parse a @LANGUAGE@ pragma token.
+--
+-- The token kind stores parsed extension names, and token text is normalized to a
+-- canonical comma-separated representation.
 languagePragmaToken :: LParser (Text, LexTokenKind)
 languagePragmaToken = do
   _ <- C.string "{-#"
@@ -400,10 +535,14 @@ languagePragmaToken = do
       raw = "{-# LANGUAGE " <> T.intercalate ", " names <> " #-}"
   pure (raw, TkPragmaLanguage names)
 
+-- | Parse extension names from the body of a LANGUAGE pragma.
 parseLanguagePragmaNames :: Text -> [Text]
 parseLanguagePragmaNames body =
   filter (not . T.null) (map (T.strip . T.takeWhile (/= '#')) (T.splitOn "," body))
 
+-- | Parse a @WARNING@ pragma token.
+--
+-- Accepts both string-literal and raw-text message forms.
 pragmaWarningToken :: LParser (Text, LexTokenKind)
 pragmaWarningToken = do
   _ <- C.string "{-#"
@@ -426,6 +565,9 @@ pragmaWarningToken = do
   let raw = "{-# WARNING " <> rawMsg <> " #-}"
   pure (raw, TkPragmaWarning msg)
 
+-- | Parse a @DEPRECATED@ pragma token.
+--
+-- Accepts both string-literal and raw-text message forms.
 pragmaDeprecatedToken :: LParser (Text, LexTokenKind)
 pragmaDeprecatedToken = do
   _ <- C.string "{-#"
@@ -448,6 +590,7 @@ pragmaDeprecatedToken = do
   let raw = "{-# DEPRECATED " <> rawMsg <> " #-}"
   pure (raw, TkPragmaDeprecated msg)
 
+-- | Run a token parser while capturing start/end positions.
 lexWithSpan :: LParser (Text, LexTokenKind) -> LParser LexToken
 lexWithSpan parser = do
   start <- getSourcePos
@@ -460,6 +603,7 @@ lexWithSpan parser = do
         lexTokenSpan = mkSpan start end
       }
 
+-- | Convert Megaparsec source positions into project 'SourceSpan'.
 mkSpan :: MP.SourcePos -> MP.SourcePos -> SourceSpan
 mkSpan start end =
   SourceSpan
@@ -469,6 +613,10 @@ mkSpan start end =
       sourceSpanEndCol = unPos (MP.sourceColumn end)
     }
 
+-- | Parse identifiers (including dotted qualifiers) and classify exact keywords.
+--
+-- Keyword promotion is strict lexical equality against 'keywordTokenKind':
+-- qualified names and suffixed variants are always identifiers.
 identifierToken :: LParser (Text, LexTokenKind)
 identifierToken = do
   first <- C.letterChar <|> C.char '_'
@@ -480,18 +628,21 @@ identifierToken = do
       kind = fromMaybe (TkIdentifier ident) (keywordTokenKind ident)
   pure (ident, kind)
 
+-- | Identifier tail character after the first character.
 identTailChar :: LParser Char
 identTailChar =
   C.alphaNumChar
     <|> C.char '_'
     <|> C.char '\''
 
+-- | Parse symbolic operators such as @->@, @::@, or @+@.
 operatorToken :: LParser (Text, LexTokenKind)
 operatorToken = do
   op <- some (satisfy isSymbolicOpChar)
   let txt = T.pack op
   pure (txt, TkOperator txt)
 
+-- | Parse punctuation symbols handled as standalone tokens.
 symbolToken :: LParser (Text, LexTokenKind)
 symbolToken =
   choice2
@@ -509,6 +660,7 @@ symbolToken =
     choice2 xs =
       foldr1 (<|>) [try (C.string t >> pure (t, k)) | (t, k) <- xs]
 
+-- | Parse non-decimal integer literals (@0x@/@0o@/@0b@) with underscore separators.
 intBaseToken :: LParser (Text, LexTokenKind)
 intBaseToken = do
   _ <- C.char '0'
@@ -527,6 +679,7 @@ intBaseToken = do
         | otherwise = readBinLiteral txt
   pure (txt, TkIntegerBase n txt)
 
+-- | Parse decimal integer literals with underscore separators.
 intToken :: LParser (Text, LexTokenKind)
 intToken = do
   digitsRaw <- digitsWithUnderscores isDigit
@@ -534,6 +687,7 @@ intToken = do
       digits = filter (/= '_') digitsRaw
   pure (txt, TkInteger (read digits))
 
+-- | Parse decimal float literals (fractional and/or exponent form).
 floatToken :: LParser (Text, LexTokenKind)
 floatToken = do
   lhsRaw <- digitsWithUnderscores isDigit
@@ -552,6 +706,7 @@ floatToken = do
       normalized = filter (/= '_') repr
   pure (txt, TkFloat (read normalized) txt)
 
+-- | Parse hexadecimal floating-point literals with @p@/@P@ exponent.
 hexFloatToken :: LParser (Text, LexTokenKind)
 hexFloatToken = do
   _ <- C.char '0'
@@ -568,6 +723,7 @@ hexFloatToken = do
       value = parseHexFloatLiteral intDigits fracDigits expo
   pure (T.pack repr, TkFloat value (T.pack repr))
 
+-- | Parse hex-float exponent component (for example @p-3@).
 hexExponentPart :: LParser String
 hexExponentPart = do
   marker <- C.char 'p' <|> C.char 'P'
@@ -575,6 +731,7 @@ hexExponentPart = do
   ds <- some C.digitChar
   pure (marker : maybe [] pure sign <> ds)
 
+-- | Parse decimal-float exponent component (for example @e+12@).
 exponentPart :: LParser String
 exponentPart = do
   marker <- C.char 'e' <|> C.char 'E'
@@ -582,6 +739,7 @@ exponentPart = do
   ds <- digitsWithUnderscores isDigit
   pure (marker : maybe [] pure sign <> ds)
 
+-- | Parse one-or-more digits with optional underscore separators between chunks.
 digitsWithUnderscores :: (Char -> Bool) -> LParser String
 digitsWithUnderscores isDigitChar = do
   firstChunk <- some (satisfy isDigitChar)
@@ -590,6 +748,7 @@ digitsWithUnderscores isDigitChar = do
     some (satisfy isDigitChar)
   pure (concat (firstChunk : map ('_' :) rest))
 
+-- | Parse character literal and decode escapes via @reads@.
 charToken :: LParser (Text, LexTokenKind)
 charToken = do
   _ <- C.char '\''
@@ -599,6 +758,7 @@ charToken = do
     Just c -> pure (T.pack raw, TkChar c)
     Nothing -> fail "char literal"
 
+-- | Parse string literal and decode escapes via @reads@.
 stringToken :: LParser (Text, LexTokenKind)
 stringToken = do
   _ <- C.char '"'
@@ -610,6 +770,7 @@ stringToken = do
           _ -> T.pack body
   pure (T.pack raw, TkString decoded)
 
+-- | Parse quasi-quote literal of the form @[quoter|body|]@.
 quasiQuoteToken :: LParser (Text, LexTokenKind)
 quasiQuoteToken = do
   _ <- C.char '['
@@ -622,6 +783,7 @@ quasiQuoteToken = do
       b = T.pack body
   pure (T.pack raw, TkQuasiQuote q b)
 
+-- | Parse quasiquoter name (identifier with optional dotted qualifiers).
 takeQuoter :: LParser String
 takeQuoter = do
   first <- C.letterChar <|> C.char '_'
@@ -630,6 +792,7 @@ takeQuoter = do
   let base = first : rest
   pure (concat (base : map ('.' :) more))
 
+-- | Consume characters until @endCh@ (excluding terminator from result).
 manyTillChar :: Char -> LParser String
 manyTillChar endCh = go []
   where
@@ -639,6 +802,7 @@ manyTillChar endCh = go []
           ch <- anySingle
           go (ch : acc)
 
+-- | Consume characters until @end@ text marker (excluding terminator from result).
 manyTillText :: Text -> LParser String
 manyTillText end = go []
   where
@@ -648,41 +812,49 @@ manyTillText end = go []
           ch <- anySingle
           go (ch : acc)
 
+-- | Safe @reads@ helper for character literals.
 readMaybeChar :: String -> Maybe Char
 readMaybeChar raw =
   case reads raw of
     [(c, "")] -> Just c
     _ -> Nothing
 
+-- | Parse a @0x@/@0X@ literal text into an 'Integer' (underscores ignored).
 readHexLiteral :: Text -> Integer
 readHexLiteral txt =
   case readHex (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
     [(n, "")] -> n
     _ -> 0
 
+-- | Parse a @0o@/@0O@ literal text into an 'Integer' (underscores ignored).
 readOctLiteral :: Text -> Integer
 readOctLiteral txt =
   case readOct (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
     [(n, "")] -> n
     _ -> 0
 
+-- | Parse a @0b@/@0B@ literal text into an 'Integer' (underscores ignored).
 readBinLiteral :: Text -> Integer
 readBinLiteral txt =
   case readInt 2 (`elem` ("01" :: String)) digitToInt (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
     [(n, "")] -> n
     _ -> 0
 
+-- | Evaluate a hexadecimal floating-point literal from parsed components.
 parseHexFloatLiteral :: String -> String -> String -> Double
 parseHexFloatLiteral intDigits fracDigits expo =
   (parseHexDigits intDigits + parseHexFraction fracDigits) * (2 ^^ exponentValue expo)
 
+-- | Parse hex integer digits into a numeric value.
 parseHexDigits :: String -> Double
 parseHexDigits = foldl (\acc d -> acc * 16 + fromIntegral (digitToInt d)) 0
 
+-- | Parse hex fractional digits into a numeric value.
 parseHexFraction :: String -> Double
 parseHexFraction ds =
   sum [fromIntegral (digitToInt d) / (16 ^^ i) | (d, i) <- zip ds [1 :: Int ..]]
 
+-- | Decode exponent sign and magnitude from @e@/@p@-style exponent text.
 exponentValue :: String -> Int
 exponentValue expo =
   case expo of
@@ -691,12 +863,18 @@ exponentValue expo =
     _ : ds -> read ds
     _ -> 0
 
+-- | Characters allowed in symbolic operator tokens.
 isSymbolicOpChar :: Char -> Bool
 isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?\\^|-~" :: String)
 
+-- | Identifier character allowed after first position (and in dotted chunks).
 isIdentTailOrStart :: Char -> Bool
 isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
 
+-- | Reserved-word lookup used by 'identifierToken'.
+--
+-- Only exact lexemes are keywords. Any qualification or extra suffix means the
+-- token stays an identifier.
 keywordTokenKind :: Text -> Maybe LexTokenKind
 keywordTokenKind txt = case txt of
   "module" -> Just TkKeywordModule
