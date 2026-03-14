@@ -64,7 +64,7 @@ classify expected ours oracle =
     ExpectPass ->
       case (ours, oracle) of
         (Right oursOut, Right oracleOut)
-          | normalize oursOut == normalize oracleOut -> (OutcomePass, "")
+          | oursOut == oracleOut -> (OutcomePass, "")
           | otherwise -> (OutcomeFail, "preprocessed output differs from cpphs oracle")
         (Left _, Left _) -> (OutcomePass, "")
         (Left oursErr, _) -> (OutcomeFail, "ours failed: " <> oursErr)
@@ -72,22 +72,10 @@ classify expected ours oracle =
     ExpectXFail ->
       case (ours, oracle) of
         (Right oursOut, Right oracleOut)
-          | normalize oursOut == normalize oracleOut -> (OutcomeXPass, "expected xfail but now matches cpphs")
+          | oursOut == oracleOut -> (OutcomeXPass, "expected xfail but now matches cpphs")
           | otherwise -> (OutcomeXFail, "")
         (Left _, Left _) -> (OutcomeXPass, "expected xfail but now matches cpphs")
         _ -> (OutcomeXFail, "")
-
-normalize :: Text -> Text
-normalize =
-  T.unlines
-    . filter (not . T.null)
-    . filter (not . isLinePragma)
-    . map T.strip
-    . T.lines
-    . T.replace "\r\n" "\n"
-
-isLinePragma :: Text -> Bool
-isLinePragma line = "#line " `T.isPrefixOf` T.stripStart line
 
 runOurs :: FilePath -> Text -> IO (Either String Text)
 runOurs sourcePath source = do
