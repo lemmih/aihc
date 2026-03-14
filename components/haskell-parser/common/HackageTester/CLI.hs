@@ -26,7 +26,7 @@ parseOptionsPure args =
       let (msg, _) = OA.renderFailure failure "hackage-tester"
        in Left msg
     OA.CompletionInvoked _ ->
-      Left "help requested"
+      Left "shell completion requested"
 
 parserInfo :: OA.ParserInfo Options
 parserInfo =

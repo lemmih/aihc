@@ -2,8 +2,9 @@
 
 module Main (main) where
 
-import Control.Concurrent.Async (mapConcurrently)
-import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
+import Control.Concurrent (newChan, readChan, writeChan)
+import Control.Concurrent.Async (async, wait)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (unless, when)
 import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
@@ -12,6 +13,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBS8
+import Data.List (sortOn)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -39,28 +41,31 @@ data RunInfo = RunInfo
 main :: IO ()
 main = do
   opts <- parseOptionsIO
-  runResult <- try (runTester opts)
+  runResult <- try (runTester opts) :: IO (Either SomeException (Either Text Bool))
   case runResult of
     Left err -> do
       hPutStrLn stderr ("hackage-tester failed: " ++ displayException (err :: SomeException))
       exitFailure
-    Right ok -> if ok then exitSuccess else exitFailure
+    Right (Left err) -> do
+      hPutStrLn stderr (T.unpack err)
+      exitFailure
+    Right (Right ok) -> if ok then exitSuccess else exitFailure
 
-runTester :: Options -> IO Bool
+runTester :: Options -> IO (Either Text Bool)
 runTester opts = do
   putStrLn ("Testing package: " ++ optPackage opts)
 
-  version <-
+  versionResult <-
     case optVersion opts of
-      Just forced -> pure forced
-      Nothing -> do
-        versionResult <- getLatestVersion (optPackage opts)
-        case versionResult of
-          Left err -> do
-            hPutStrLn stderr (T.unpack err)
-            exitFailure
-          Right resolved -> pure resolved
+      Just forced -> pure (Right forced)
+      Nothing -> getLatestVersion (optPackage opts)
 
+  case versionResult of
+    Left err -> pure (Left err)
+    Right resolved -> runTesterWithVersion opts resolved
+
+runTesterWithVersion :: Options -> String -> IO (Either Text Bool)
+runTesterWithVersion opts version = do
   srcDir <- downloadPackage (optPackage opts) version
   files <- findTargetFilesFromCabal srcDir
 
@@ -68,18 +73,19 @@ runTester opts = do
     hPutStrLn stderr "No target source files found in package components"
     let summary = summarizeResults []
     emitSummary opts (RunInfo (optPackage opts) version summary)
-    exitFailure
+  if null files
+    then pure (Left "No target source files found in package components")
+    else do
+      putStrLn ("Found " ++ show (length files) ++ " Haskell source files")
 
-  putStrLn ("Found " ++ show (length files) ++ " Haskell source files")
+      jobs <- maybe getNumProcessors pure (optJobs opts)
+      results <- processFiles jobs srcDir files
 
-  jobs <- maybe getNumProcessors pure (optJobs opts)
-  results <- processFiles jobs srcDir files
+      unless (optJson opts) (printFailureDetails results)
 
-  unless (optJson opts) (printFailureDetails results)
-
-  let summary = summarizeResults results
-  emitSummary opts (RunInfo (optPackage opts) version summary)
-  pure (not (shouldFailSummary summary))
+      let summary = summarizeResults results
+      emitSummary opts (RunInfo (optPackage opts) version summary)
+      pure (Right (not (shouldFailSummary summary)))
 
 getLatestVersion :: String -> IO (Either Text String)
 getLatestVersion packageName = do
@@ -114,9 +120,9 @@ processFiles jobs packageRoot files = do
         printProgress counter total
         pure result
 
-  batches <- mapConcurrently (mapM worker) (chunksOf jobs files)
+  results <- mapConcurrentlyBounded jobs worker files
   putStrLn ""
-  pure (concat batches)
+  pure results
 
 printProgress :: MVar Int -> Int -> IO ()
 printProgress counter total = do
@@ -126,15 +132,27 @@ printProgress counter total = do
   putStr ("\rProcessed " ++ show done ++ "/" ++ show total)
   hFlush stdout
 
-chunksOf :: Int -> [a] -> [[a]]
-chunksOf n xs
-  | n <= 0 = [xs]
-  | otherwise = go xs
+mapConcurrentlyBounded :: Int -> (a -> IO b) -> [a] -> IO [b]
+mapConcurrentlyBounded jobs action items = do
+  let indexedItems = zip [0 :: Int ..] items
+      workerCount = max 1 (min jobs (length indexedItems))
+  queue <- newChan
+  results <- newMVar []
+  mapM_ (writeChan queue . Just) indexedItems
+  mapM_ (const (writeChan queue Nothing)) [1 .. workerCount]
+  workers <- mapM (\_ -> async (workerLoop queue results)) [1 .. workerCount]
+  mapM_ wait workers
+  ordered <- readMVar results
+  pure (map snd (sortOn fst ordered))
   where
-    go [] = []
-    go ys =
-      let (chunk, rest) = splitAt n ys
-       in chunk : go rest
+    workerLoop queue results = do
+      next <- readChan queue
+      case next of
+        Nothing -> pure ()
+        Just (idx, item) -> do
+          value <- action item
+          modifyMVar_ results (\acc -> pure ((idx, value) : acc))
+          workerLoop queue results
 
 processFile :: FilePath -> FileInfo -> IO FileResult
 processFile packageRoot info = do
