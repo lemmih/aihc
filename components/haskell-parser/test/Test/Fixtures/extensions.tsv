@@ -45,6 +45,7 @@ NamedFieldPuns	NamedFieldPuns	Named Field Puns
 NamedWildCards	NamedWildCards	Named Wild Cards
 NumericUnderscores	NumericUnderscores	Numeric Underscores
 PatternGuards	PatternGuards	Pattern Guards
+PatternSynonyms	PatternSynonyms	Pattern Synonyms
 PolyKinds	PolyKinds	Poly Kinds
 PostfixOperators	PostfixOperators	Postfix Operators
 RankNTypes	RankNTypes	Rank N Types

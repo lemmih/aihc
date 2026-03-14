@@ -30,6 +30,7 @@ import GHC.LanguageExtensions.Type
         PackageImports,
         ParallelListComp,
         PatternGuards,
+        PatternSynonyms,
         QuasiQuotes,
         RoleAnnotations,
         StandaloneDeriving,
@@ -71,6 +72,7 @@ resolveOracleExtensions spec =
     "NamedFieldPuns" -> pure [NamedFieldPuns]
     "NamedWildCards" -> pure [NamedWildCards]
     "PatternGuards" -> pure [PatternGuards]
+    "PatternSynonyms" -> pure [PatternSynonyms, ExplicitNamespaces]
     "RoleAnnotations" -> pure [RoleAnnotations]
     "StandaloneDeriving" -> pure [StandaloneDeriving]
     "StandaloneKindSignatures" -> pure [StandaloneKindSignatures]
