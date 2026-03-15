@@ -155,11 +155,11 @@ shrinkGeneratedModule modu =
         HSE.ParseOk parsed -> Just parsed
 
 genDataDecl :: Gen (HSE.Decl ())
-genDataDecl = do
+genDataDecl = sized $ \size -> do
   dataOrNew <- genDataOrNew
   mContext <- genMaybeContext
   declHead <- genDeclHead
-  constructors <- genConstructors dataOrNew
+  constructors <- genConstructors dataOrNew (size `div` 2)
   HSE.DataDecl () dataOrNew mContext declHead constructors <$> genDerivings
 
 genDataOrNew :: Gen (HSE.DataOrNew ())
@@ -285,13 +285,13 @@ shrinkAsst asst =
     HSE.IParam {} -> []
     HSE.ParenA () asst0 -> asst0 : [HSE.ParenA () asst1 | asst1 <- shrinkAsst asst0]
 
-genConstructors :: HSE.DataOrNew () -> Gen [HSE.QualConDecl ()]
-genConstructors dataOrNew =
+genConstructors :: HSE.DataOrNew () -> Int -> Gen [HSE.QualConDecl ()]
+genConstructors dataOrNew size =
   case dataOrNew of
-    HSE.NewType () -> (: []) <$> genNewtypeConstructor
+    HSE.NewType () -> (: []) <$> genNewtypeConstructor size
     HSE.DataType () -> do
-      count <- chooseInt (0, 4)
-      vectorOf count genConstructor
+      count <- chooseInt (0, min 3 (size + 1))
+      vectorOf count (scale (`div` 2) genConstructor)
 
 shrinkConstructors :: HSE.DataOrNew () -> [HSE.QualConDecl ()] -> [[HSE.QualConDecl ()]]
 shrinkConstructors dataOrNew constructors =
@@ -306,23 +306,107 @@ shrinkConstructors dataOrNew constructors =
       shrinkList shrinkConstructor constructors
 
 genConstructor :: Gen (HSE.QualConDecl ())
-genConstructor = do
-  constructorName <- genConNameNode
-  pure (HSE.QualConDecl () Nothing Nothing (HSE.ConDecl () constructorName []))
+genConstructor = sized $ \size ->
+  if size <= 1
+    then do
+      constructorName <- genConNameNode
+      pure (HSE.QualConDecl () Nothing Nothing (HSE.ConDecl () constructorName []))
+    else do
+      constructorName <- genConNameNode
+      frequency
+        [ ( 3,
+            do
+              n <- chooseInt (0, min 3 (size `div` 2))
+              fieldTys <- vectorOf n (genTypeField (size `div` 2))
+              pure (HSE.QualConDecl () Nothing Nothing (HSE.ConDecl () constructorName fieldTys))
+          ),
+          ( 2,
+            do
+              n <- chooseInt (0, min 2 (size `div` 2))
+              fields <- vectorOf n (genFieldDecl (size `div` 2))
+              pure (HSE.QualConDecl () Nothing Nothing (HSE.RecDecl () constructorName fields))
+          ),
+          ( 1,
+            do
+              lhs <- genTypeField (size `div` 2)
+              rhs <- genTypeField (size `div` 2)
+              pure (HSE.QualConDecl () Nothing Nothing (HSE.InfixConDecl () lhs constructorName rhs))
+          )
+        ]
 
-genNewtypeConstructor :: Gen (HSE.QualConDecl ())
-genNewtypeConstructor = do
+genFieldDecl :: Int -> Gen (HSE.FieldDecl ())
+genFieldDecl size = do
+  n <- chooseInt (1, 3)
+  names <- vectorOf n genVarNameNode
+  ty <- genTypeField size
+  pure (HSE.FieldDecl () names ty)
+
+genNewtypeConstructor :: Int -> Gen (HSE.QualConDecl ())
+genNewtypeConstructor size = do
   constructorName <- genConNameNode
-  fieldTy <- genTypeField
+  fieldTy <- genTypeField (max 0 (size - 1))
   pure (HSE.QualConDecl () Nothing Nothing (HSE.ConDecl () constructorName [fieldTy]))
 
-genTypeField :: Gen (HSE.Type ())
-genTypeField =
+genTypeField :: Int -> Gen (HSE.Type ())
+genTypeField size =
   frequency
-    [ (3, HSE.TyVar () <$> genVarNameNode),
-      (2, HSE.TyCon () . HSE.UnQual () <$> genConNameNode),
-      (1, HSE.TyList () . HSE.TyVar () <$> genVarNameNode)
+    [ (4, HSE.TyVar () <$> genVarNameNode),
+      (3, HSE.TyCon () . HSE.UnQual () <$> genConNameNode),
+      ( 2,
+        if size > 0
+          then do
+            innerSize <- chooseInt (0, size - 1)
+            HSE.TyList () <$> genTypeField innerSize
+          else HSE.TyVar () <$> genVarNameNode
+      ),
+      ( 2,
+        if size > 1
+          then do
+            innerSize <- chooseInt (0, size - 1)
+            HSE.TyParen () <$> genTypeField innerSize
+          else HSE.TyCon () . HSE.UnQual () <$> genConNameNode
+      ),
+      ( 1,
+        if size > 1
+          then do
+            let remaining = max 0 (size - 1)
+            lhsBudget <- chooseInt (0, remaining)
+            let rhsBudget = remaining - lhsBudget
+            lhs <- genTypeField lhsBudget
+            rhs <- genTypeField rhsBudget
+            pure (HSE.TyFun () lhs rhs)
+          else HSE.TyVar () <$> genVarNameNode
+      ),
+      ( 1,
+        if size > 1
+          then do
+            n <- chooseInt (2, min 5 (size + 1))
+            let remaining = max 0 (size - 1)
+            budgets <- genTypeBudgetPartition remaining n
+            tupleElems <- mapM genTypeField budgets
+            pure (HSE.TyTuple () HSE.Boxed tupleElems)
+          else HSE.TyCon () . HSE.UnQual () <$> genConNameNode
+      ),
+      ( 1,
+        if size > 1
+          then do
+            let remaining = max 0 (size - 1)
+            funcBudget <- chooseInt (0, remaining)
+            let argBudget = remaining - funcBudget
+            func <- genTypeField funcBudget
+            arg <- genTypeField argBudget
+            pure (HSE.TyApp () func arg)
+          else HSE.TyVar () <$> genVarNameNode
+      )
     ]
+
+genTypeBudgetPartition :: Int -> Int -> Gen [Int]
+genTypeBudgetPartition budget parts
+  | parts <= 1 = pure [max 0 budget]
+  | otherwise = do
+      current <- chooseInt (0, budget)
+      rest <- genTypeBudgetPartition (budget - current) (parts - 1)
+      pure (current : rest)
 
 isValidNewtypeConstructor :: HSE.QualConDecl () -> Bool
 isValidNewtypeConstructor qualConDecl =
