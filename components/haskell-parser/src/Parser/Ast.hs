@@ -60,13 +60,22 @@ import qualified Data.Text as T
 import Text.Read (readMaybe)
 
 data Extension
-  = BangPatterns
+  = AllowAmbiguousTypes
+  | ApplicativeDo
+  | Arrows
+  | BangPatterns
   | BinaryLiterals
+  | BlockArguments
   | CApiFFI
-  | CPP
   | ConstrainedClassMethods
   | ConstraintKinds
+  | CPP
+  | CUSKs
   | DataKinds
+  | DatatypeContexts
+  | DeepSubsumption
+  | DefaultSignatures
+  | DeriveAnyClass
   | DeriveDataTypeable
   | DeriveFoldable
   | DeriveFunctor
@@ -74,8 +83,10 @@ data Extension
   | DeriveLift
   | DeriveTraversable
   | DerivingStrategies
+  | DerivingVia
   | DisambiguateRecordFields
   | DoAndIfThenElse
+  | DuplicateRecordFields
   | EmptyCase
   | EmptyDataDecls
   | EmptyDataDeriving
@@ -83,57 +94,108 @@ data Extension
   | ExplicitForAll
   | ExplicitLevelImports
   | ExplicitNamespaces
+  | ExtendedDefaultRules
+  | ExtendedLiterals
   | FieldSelectors
   | FlexibleContexts
   | FlexibleInstances
   | ForeignFunctionInterface
+  | FunctionalDependencies
   | GADTs
   | GADTSyntax
   | GeneralizedNewtypeDeriving
+  | GHC2021
+  | GHC2024
+  | GHCForeignImportPrim
+  | Haskell2010
+  | Haskell98
   | HexFloatLiterals
+  | ImplicitParams
   | ImplicitPrelude
   | ImplicitStagePersistence
   | ImportQualifiedPost
+  | ImpredicativeTypes
+  | IncoherentInstances
   | InstanceSigs
+  | InterruptibleFFI
   | KindSignatures
   | LambdaCase
+  | LexicalNegation
+  | LiberalTypeSynonyms
+  | LinearTypes
+  | ListTuplePuns
   | MagicHash
+  | MonadComprehensions
   | MonoLocalBinds
   | MonomorphismRestriction
+  | MultilineStrings
   | MultiParamTypeClasses
   | MultiWayIf
+  | NamedDefaults
   | NamedFieldPuns
   | NamedWildCards
   | NegativeLiterals
+  | NondecreasingIndentation
+  | NPlusKPatterns
+  | NullaryTypeClasses
+  | NumDecimals
   | NumericUnderscores
+  | OrPatterns
+  | OverlappingInstances
+  | OverloadedLabels
+  | OverloadedLists
+  | OverloadedRecordDot
+  | OverloadedRecordUpdate
   | OverloadedStrings
   | PackageImports
   | ParallelListComp
+  | PartialTypeSignatures
   | PatternGuards
   | PatternSynonyms
   | PolyKinds
   | PostfixOperators
+  | QualifiedDo
+  | QualifiedStrings
+  | QuantifiedConstraints
   | QuasiQuotes
   | RankNTypes
+  | RebindableSyntax
+  | RecordWildCards
+  | RecursiveDo
   | RelaxedPolyRec
+  | RequiredTypeArguments
   | RoleAnnotations
+  | SafeHaskell
   | ScopedTypeVariables
   | StandaloneDeriving
   | StandaloneKindSignatures
   | StarIsType
+  | StaticPointers
+  | Strict
+  | StrictData
   | TemplateHaskell
   | TemplateHaskellQuotes
   | TraditionalRecordSyntax
+  | TransformListComp
+  | Trustworthy
   | TupleSections
+  | TypeAbstractions
   | TypeApplications
+  | TypeData
   | TypeFamilies
+  | TypeFamilyDependencies
+  | TypeInType
   | TypeOperators
   | TypeSynonymInstances
   | UnboxedSums
   | UnboxedTuples
   | UndecidableInstances
+  | UndecidableSuperClasses
   | UnicodeSyntax
+  | UnliftedDatatypes
   | UnliftedFFITypes
+  | UnliftedNewtypes
+  | UnsafeHaskell
   | ViewPatterns
   deriving (Eq, Ord, Show, Read, Enum, Bounded)
 
@@ -146,7 +208,11 @@ allKnownExtensions :: [Extension]
 allKnownExtensions = [minBound .. maxBound]
 
 extensionName :: Extension -> Text
-extensionName = T.pack . show
+extensionName ext =
+  case ext of
+    SafeHaskell -> T.pack "Safe"
+    UnsafeHaskell -> T.pack "Unsafe"
+    _ -> T.pack (show ext)
 
 extensionSettingName :: ExtensionSetting -> Text
 extensionSettingName setting =
@@ -161,7 +227,10 @@ parseExtensionName raw =
     trimmed = T.strip raw
     aliases =
       [ ("Cpp", CPP),
-        ("GeneralisedNewtypeDeriving", GeneralizedNewtypeDeriving)
+        ("GeneralisedNewtypeDeriving", GeneralizedNewtypeDeriving),
+        ("Rank2Types", RankNTypes),
+        ("Safe", SafeHaskell),
+        ("Unsafe", UnsafeHaskell)
       ]
 
 parseExtensionSettingName :: Text -> Maybe ExtensionSetting

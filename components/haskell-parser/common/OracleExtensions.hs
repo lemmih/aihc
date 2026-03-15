@@ -12,6 +12,8 @@ import Parser.Ast (parseExtensionName)
 resolveOracleExtensions :: ExtensionSpec -> IO [GHC.Extension]
 resolveOracleExtensions spec =
   case extName spec of
+    "Haskell2010" -> pure []
+    "Haskell98" -> pure []
     "FunctionalDependencies" -> resolveMany ["FunctionalDependencies", "MultiParamTypeClasses"]
     "PatternSynonyms" -> resolveMany ["PatternSynonyms", "ExplicitNamespaces"]
     name -> resolveMany [name]
