@@ -2,6 +2,8 @@ module HseExtensions
   ( toHseExtension,
     fromHseExtension,
     toHseExtensions,
+    toHseExtensionSetting,
+    toHseExtensionSettings,
     fromExtensionNames,
   )
 where
@@ -14,8 +16,7 @@ import Text.Read (readMaybe)
 
 toHseExtension :: Ast.Extension -> Maybe HSE.Extension
 toHseExtension ext =
-  HSE.EnableExtension
-    <$> listToMaybe [known | name <- hseKnownNameCandidates ext, Just known <- [readMaybe name]]
+  HSE.EnableExtension <$> toHseKnownExtension ext
 
 fromHseExtension :: HSE.Extension -> Maybe Ast.Extension
 fromHseExtension hseExt =
@@ -27,9 +28,22 @@ fromHseExtension hseExt =
 toHseExtensions :: [Ast.Extension] -> [HSE.Extension]
 toHseExtensions = mapMaybe toHseExtension
 
+toHseExtensionSetting :: Ast.ExtensionSetting -> Maybe HSE.Extension
+toHseExtensionSetting setting =
+  case setting of
+    Ast.EnableExtension ext -> toHseExtension ext
+    Ast.DisableExtension ext -> HSE.DisableExtension <$> toHseKnownExtension ext
+
+toHseExtensionSettings :: [Ast.ExtensionSetting] -> [HSE.Extension]
+toHseExtensionSettings = mapMaybe toHseExtensionSetting
+
 fromExtensionNames :: [String] -> [HSE.Extension]
 fromExtensionNames names =
-  toHseExtensions (mapMaybe (Ast.parseExtensionName . T.pack) names)
+  toHseExtensionSettings (mapMaybe (Ast.parseExtensionSettingName . T.pack) names)
+
+toHseKnownExtension :: Ast.Extension -> Maybe HSE.KnownExtension
+toHseKnownExtension ext =
+  listToMaybe [known | name <- hseKnownNameCandidates ext, Just known <- [readMaybe name]]
 
 hseKnownNameCandidates :: Ast.Extension -> [String]
 hseKnownNameCandidates ext =

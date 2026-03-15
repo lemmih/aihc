@@ -96,7 +96,7 @@ data LexTokenKind
   | TkKeywordIf
   | TkKeywordThen
   | TkKeywordElse
-  | TkPragmaLanguage [Extension]
+  | TkPragmaLanguage [ExtensionSetting]
   | TkPragmaWarning Text
   | TkPragmaDeprecated Text
   | TkIdentifier Text
@@ -526,13 +526,13 @@ languagePragmaToken = do
   _ <- many C.spaceChar
   body <- manyTillText "#-}"
   let names = parseLanguagePragmaNames (T.pack body)
-      raw = "{-# LANGUAGE " <> T.intercalate ", " (map extensionName names) <> " #-}"
+      raw = "{-# LANGUAGE " <> T.intercalate ", " (map extensionSettingName names) <> " #-}"
   pure (raw, TkPragmaLanguage names)
 
 -- | Parse extension names from the body of a LANGUAGE pragma.
-parseLanguagePragmaNames :: Text -> [Extension]
+parseLanguagePragmaNames :: Text -> [ExtensionSetting]
 parseLanguagePragmaNames body =
-  mapMaybe (parseExtensionName . T.strip . T.takeWhile (/= '#')) (T.splitOn "," body)
+  mapMaybe (parseExtensionSettingName . T.strip . T.takeWhile (/= '#')) (T.splitOn "," body)
 
 -- | Parse a @WARNING@ pragma token.
 --

@@ -5,6 +5,8 @@ module Test.HackageTester.Suite
   )
 where
 
+import qualified Data.Text as T
+import GhcOracle (oracleDetailedParsesModuleWithNamesAt)
 import HackageTester.CLI (Options (..), parseOptionsPure)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), shouldFailSummary, summarizeResults)
 import Test.Tasty (TestTree, testGroup)
@@ -25,6 +27,10 @@ hackageTesterTests =
         "summary"
         [ testCase "counts outcomes correctly" test_summaryCountsOutcomes,
           testCase "fails when no files were processed" test_zeroFilesFails
+        ],
+      testGroup
+        "oracle"
+        [ testCase "accepts No-prefixed LANGUAGE pragmas" test_oracleAcceptsNoPrefixedLanguagePragma
         ]
     ]
 
@@ -69,6 +75,22 @@ test_summaryCountsOutcomes = do
 test_zeroFilesFails :: Assertion
 test_zeroFilesFails =
   assertBool "expected empty run to fail" (shouldFailSummary (summarizeResults []))
+
+test_oracleAcceptsNoPrefixedLanguagePragma :: Assertion
+test_oracleAcceptsNoPrefixedLanguagePragma =
+  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+    Left err ->
+      assertBool
+        ("expected NoMonomorphismRestriction pragma to be accepted, got: " <> T.unpack err)
+        False
+    Right () -> pure ()
+  where
+    source =
+      T.unlines
+        [ "{-# LANGUAGE NoMonomorphismRestriction #-}",
+          "module A where",
+          "x = 1"
+        ]
 
 assertLeftContaining :: String -> Either String a -> Assertion
 assertLeftContaining needle result =

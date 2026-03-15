@@ -14,7 +14,6 @@ module GhcOracle
   )
 where
 
-import Control.Monad ((<=<))
 import Data.List (nub)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
@@ -57,15 +56,14 @@ oracleModuleAstFingerprintWithExtensionsAt sourceTag exts input = do
   let pragmaFingerprint =
         if null pragmas
           then ""
-          else "LANGUAGE " <> T.intercalate "," (map Ast.extensionName pragmas) <> "\n"
+          else "LANGUAGE " <> T.intercalate "," (map Ast.extensionSettingName pragmas) <> "\n"
   pure (pragmaFingerprint <> T.pack (showSDocUnsafe (ppr parsed)))
 
-parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text ([Ast.Extension], HsModule GhcPs)
+parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text ([Ast.ExtensionSetting], HsModule GhcPs)
 parseWithGhcWithExtensions sourceTag extraExts input =
   let baseExts = nub extraExts
       languagePragmas = extractLanguagePragmas sourceTag baseExts input
-      pragmaExts = mapMaybe toGhcExtension languagePragmas
-      parseExts = EnumSet.fromList (nub (baseExts <> pragmaExts)) :: EnumSet.EnumSet GHC.Extension
+      parseExts = foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) languagePragmas
       opts = mkParserOpts parseExts emptyDiagOpts False False False False
       buffer = stringToStringBuffer (T.unpack input)
       start = mkRealSrcLoc (mkFastString sourceTag) 1 1
@@ -75,7 +73,15 @@ parseWithGhcWithExtensions sourceTag extraExts input =
           let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
            in Left (T.pack rendered)
 
-extractLanguagePragmas :: String -> [GHC.Extension] -> Text -> [Ast.Extension]
+applyExtensionSetting :: EnumSet.EnumSet GHC.Extension -> Ast.ExtensionSetting -> EnumSet.EnumSet GHC.Extension
+applyExtensionSetting exts setting =
+  case setting of
+    Ast.EnableExtension ext ->
+      maybe exts (`EnumSet.insert` exts) (toGhcExtension ext)
+    Ast.DisableExtension ext ->
+      maybe exts (`EnumSet.delete` exts) (toGhcExtension ext)
+
+extractLanguagePragmas :: String -> [GHC.Extension] -> Text -> [Ast.ExtensionSetting]
 extractLanguagePragmas sourceTag baseExts input =
   let buffer = stringToStringBuffer (T.unpack input)
       baseOpts =
@@ -89,12 +95,18 @@ extractLanguagePragmas sourceTag baseExts input =
       (_warns, rawOptions) = getOptions baseOpts supportedLanguagePragmas buffer sourceTag
    in mapMaybe optionToLanguagePragma rawOptions
   where
-    supportedLanguagePragmas = "CPP" : map show ([minBound .. maxBound] :: [GHC.Extension])
+    supportedLanguagePragmas =
+      "CPP" : concatMap (includeNegative . show) ([minBound .. maxBound] :: [GHC.Extension])
+
+    includeNegative extName =
+      case extName of
+        "Cpp" -> [extName, "NoCPP", "NoCpp"]
+        _ -> [extName, "No" <> extName]
 
     optionToLanguagePragma locatedOpt =
       let opt = T.pack (unLoc locatedOpt)
        in case T.stripPrefix "-X" opt of
-            Just pragmaName | not (T.null pragmaName) -> Ast.parseExtensionName pragmaName
+            Just pragmaName | not (T.null pragmaName) -> Ast.parseExtensionSettingName pragmaName
             _ -> Nothing
 
 oracleParsesModuleWithNames :: [String] -> Maybe String -> Text -> Bool
@@ -111,9 +123,9 @@ oracleDetailedParsesModuleWithNames = oracleDetailedParsesModuleWithNamesAt "ora
 
 oracleDetailedParsesModuleWithNamesAt :: String -> [String] -> Maybe String -> Text -> Either Text ()
 oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
-  let exts = mapMaybe (toGhcExtension <=< Ast.parseExtensionName . T.pack) extNames
+  let extSettings = mapMaybe (Ast.parseExtensionSettingName . T.pack) extNames
       langExts = maybe [] languageExtensions langName
-      allExts = nub (exts <> langExts)
+      allExts = EnumSet.toList (foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
    in case parseWithGhcWithExtensions sourceTag allExts input of
         Left err ->
           let extList = T.pack (show extNames)

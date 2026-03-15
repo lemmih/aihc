@@ -16,6 +16,7 @@ module Parser.Ast
     DoStmt (..),
     Expr (..),
     Extension (..),
+    ExtensionSetting (..),
     ExportSpec (..),
     FieldDecl (..),
     FixityAssoc (..),
@@ -45,8 +46,10 @@ module Parser.Ast
     declValueBinderNames,
     allKnownExtensions,
     extensionName,
+    extensionSettingName,
     noSourceSpan,
     parseExtensionName,
+    parseExtensionSettingName,
     valueDeclBinderName,
   )
 where
@@ -102,7 +105,6 @@ data Extension
   | NamedFieldPuns
   | NamedWildCards
   | NegativeLiterals
-  | NoImplicitPrelude
   | NumericUnderscores
   | OverloadedStrings
   | PackageImports
@@ -135,11 +137,22 @@ data Extension
   | ViewPatterns
   deriving (Eq, Ord, Show, Read, Enum, Bounded)
 
+data ExtensionSetting
+  = EnableExtension Extension
+  | DisableExtension Extension
+  deriving (Eq, Ord, Show, Read)
+
 allKnownExtensions :: [Extension]
 allKnownExtensions = [minBound .. maxBound]
 
 extensionName :: Extension -> Text
 extensionName = T.pack . show
+
+extensionSettingName :: ExtensionSetting -> Text
+extensionSettingName setting =
+  case setting of
+    EnableExtension ext -> extensionName ext
+    DisableExtension ext -> T.pack "No" <> extensionName ext
 
 parseExtensionName :: Text -> Maybe Extension
 parseExtensionName raw =
@@ -150,6 +163,16 @@ parseExtensionName raw =
       [ ("Cpp", CPP),
         ("GeneralisedNewtypeDeriving", GeneralizedNewtypeDeriving)
       ]
+
+parseExtensionSettingName :: Text -> Maybe ExtensionSetting
+parseExtensionSettingName raw =
+  case T.stripPrefix (T.pack "No") trimmed of
+    Just rest
+      | not (T.null rest) ->
+          DisableExtension <$> parseExtensionName rest
+    _ -> EnableExtension <$> parseExtensionName trimmed
+  where
+    trimmed = T.strip raw
 
 data SourceSpan
   = NoSourceSpan
@@ -176,7 +199,7 @@ data WarningText
 data Module = Module
   { moduleSpan :: SourceSpan,
     moduleName :: Maybe Text,
-    moduleLanguagePragmas :: [Extension],
+    moduleLanguagePragmas :: [ExtensionSetting],
     moduleWarningText :: Maybe WarningText,
     moduleExports :: Maybe [ExportSpec],
     moduleImports :: [ImportDecl],
