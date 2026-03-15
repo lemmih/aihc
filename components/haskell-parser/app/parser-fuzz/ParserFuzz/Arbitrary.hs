@@ -103,7 +103,7 @@ hseParseMode :: HSE.ParseMode
 hseParseMode =
   HSE.defaultParseMode
     { HSE.parseFilename = "<generated>",
-      HSE.extensions = HSE.glasgowExts
+      HSE.extensions = []
     }
 
 normalizeCandidateAst :: String -> HSE.Module HSE.SrcSpanInfo -> Either String Candidate

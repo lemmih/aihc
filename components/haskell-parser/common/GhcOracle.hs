@@ -9,9 +9,12 @@ module GhcOracle
     oracleParsesModuleWithNamesAt,
     oracleDetailedParsesModuleWithNames,
     oracleDetailedParsesModuleWithNamesAt,
+    toGhcExtension,
+    fromGhcExtension,
   )
 where
 
+import Control.Monad ((<=<))
 import Data.List (nub)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
@@ -20,7 +23,7 @@ import qualified GHC.Data.EnumSet as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Hs (GhcPs, HsModule)
-import GHC.LanguageExtensions.Type (Extension (..))
+import qualified GHC.LanguageExtensions.Type as GHC
 import GHC.Parser (parseModule)
 import GHC.Parser.Header (getOptions)
 import GHC.Parser.Lexer
@@ -34,34 +37,35 @@ import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
+import qualified Parser.Ast as Ast
 
-oracleParsesModuleWithExtensions :: [Extension] -> Text -> Bool
+oracleParsesModuleWithExtensions :: [GHC.Extension] -> Text -> Bool
 oracleParsesModuleWithExtensions = oracleParsesModuleWithExtensionsAt "oracle"
 
-oracleParsesModuleWithExtensionsAt :: String -> [Extension] -> Text -> Bool
+oracleParsesModuleWithExtensionsAt :: String -> [GHC.Extension] -> Text -> Bool
 oracleParsesModuleWithExtensionsAt sourceTag exts input =
   case parseWithGhcWithExtensions sourceTag exts input of
     Left _ -> False
     Right _ -> True
 
-oracleModuleAstFingerprintWithExtensions :: [Extension] -> Text -> Either Text Text
+oracleModuleAstFingerprintWithExtensions :: [GHC.Extension] -> Text -> Either Text Text
 oracleModuleAstFingerprintWithExtensions = oracleModuleAstFingerprintWithExtensionsAt "oracle"
 
-oracleModuleAstFingerprintWithExtensionsAt :: String -> [Extension] -> Text -> Either Text Text
+oracleModuleAstFingerprintWithExtensionsAt :: String -> [GHC.Extension] -> Text -> Either Text Text
 oracleModuleAstFingerprintWithExtensionsAt sourceTag exts input = do
   (pragmas, parsed) <- parseWithGhcWithExtensions sourceTag exts input
   let pragmaFingerprint =
         if null pragmas
           then ""
-          else "LANGUAGE " <> T.intercalate "," pragmas <> "\n"
+          else "LANGUAGE " <> T.intercalate "," (map Ast.extensionName pragmas) <> "\n"
   pure (pragmaFingerprint <> T.pack (showSDocUnsafe (ppr parsed)))
 
-parseWithGhcWithExtensions :: String -> [Extension] -> Text -> Either Text ([Text], HsModule GhcPs)
+parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text ([Ast.Extension], HsModule GhcPs)
 parseWithGhcWithExtensions sourceTag extraExts input =
   let baseExts = nub extraExts
       languagePragmas = extractLanguagePragmas sourceTag baseExts input
-      pragmaExts = mapMaybe (parseExtension . T.unpack) languagePragmas
-      parseExts = EnumSet.fromList (nub (baseExts <> pragmaExts)) :: EnumSet.EnumSet Extension
+      pragmaExts = mapMaybe toGhcExtension languagePragmas
+      parseExts = EnumSet.fromList (nub (baseExts <> pragmaExts)) :: EnumSet.EnumSet GHC.Extension
       opts = mkParserOpts parseExts emptyDiagOpts False False False False
       buffer = stringToStringBuffer (T.unpack input)
       start = mkRealSrcLoc (mkFastString sourceTag) 1 1
@@ -71,12 +75,12 @@ parseWithGhcWithExtensions sourceTag extraExts input =
           let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
            in Left (T.pack rendered)
 
-extractLanguagePragmas :: String -> [Extension] -> Text -> [Text]
+extractLanguagePragmas :: String -> [GHC.Extension] -> Text -> [Ast.Extension]
 extractLanguagePragmas sourceTag baseExts input =
   let buffer = stringToStringBuffer (T.unpack input)
       baseOpts =
         mkParserOpts
-          (EnumSet.fromList baseExts :: EnumSet.EnumSet Extension)
+          (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension)
           emptyDiagOpts
           False
           False
@@ -85,12 +89,12 @@ extractLanguagePragmas sourceTag baseExts input =
       (_warns, rawOptions) = getOptions baseOpts supportedLanguagePragmas buffer sourceTag
    in mapMaybe optionToLanguagePragma rawOptions
   where
-    supportedLanguagePragmas = "CPP" : map show ([minBound .. maxBound] :: [Extension])
+    supportedLanguagePragmas = "CPP" : map show ([minBound .. maxBound] :: [GHC.Extension])
 
     optionToLanguagePragma locatedOpt =
       let opt = T.pack (unLoc locatedOpt)
        in case T.stripPrefix "-X" opt of
-            Just pragmaName | not (T.null pragmaName) -> Just pragmaName
+            Just pragmaName | not (T.null pragmaName) -> Ast.parseExtensionName pragmaName
             _ -> Nothing
 
 oracleParsesModuleWithNames :: [String] -> Maybe String -> Text -> Bool
@@ -107,7 +111,7 @@ oracleDetailedParsesModuleWithNames = oracleDetailedParsesModuleWithNamesAt "ora
 
 oracleDetailedParsesModuleWithNamesAt :: String -> [String] -> Maybe String -> Text -> Either Text ()
 oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
-  let exts = mapMaybe parseExtension extNames
+  let exts = mapMaybe (toGhcExtension <=< Ast.parseExtensionName . T.pack) extNames
       langExts = maybe [] languageExtensions langName
       allExts = nub (exts <> langExts)
    in case parseWithGhcWithExtensions sourceTag allExts input of
@@ -117,73 +121,18 @@ oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
            in Left (err <> "\n(Extensions: " <> extList <> langInfo <> ")")
         Right _ -> Right ()
 
-parseExtension :: String -> Maybe Extension
-parseExtension name =
-  case name of
-    "CPP" -> Just Cpp
-    "BangPatterns" -> Just BangPatterns
-    "BinaryLiterals" -> Just BinaryLiterals
-    "DerivingStrategies" -> Just DerivingStrategies
-    "DoAndIfThenElse" -> Just DoAndIfThenElse
-    "EmptyCase" -> Just EmptyCase
-    "EmptyDataDecls" -> Just EmptyDataDecls
-    "ExistentialQuantification" -> Just ExistentialQuantification
-    "ExplicitForAll" -> Just ExplicitForAll
-    "ExplicitNamespaces" -> Just ExplicitNamespaces
-    "FunctionalDependencies" -> Just FunctionalDependencies
-    "GADTs" -> Just GADTs
-    "HexFloatLiterals" -> Just HexFloatLiterals
-    "ImportQualifiedPost" -> Just ImportQualifiedPost
-    "InstanceSigs" -> Just InstanceSigs
-    "KindSignatures" -> Just KindSignatures
-    "LambdaCase" -> Just LambdaCase
-    "MultiParamTypeClasses" -> Just MultiParamTypeClasses
-    "NamedFieldPuns" -> Just NamedFieldPuns
-    "NamedWildCards" -> Just NamedWildCards
-    "NumericUnderscores" -> Just NumericUnderscores
-    "PackageImports" -> Just PackageImports
-    "ParallelListComp" -> Just ParallelListComp
-    "PatternGuards" -> Just PatternGuards
-    "QuasiQuotes" -> Just QuasiQuotes
-    "RoleAnnotations" -> Just RoleAnnotations
-    "StandaloneDeriving" -> Just StandaloneDeriving
-    "StandaloneKindSignatures" -> Just StandaloneKindSignatures
-    "TupleSections" -> Just TupleSections
-    "TypeApplications" -> Just TypeApplications
-    "TypeOperators" -> Just TypeOperators
-    "ViewPatterns" -> Just ViewPatterns
-    "OverloadedStrings" -> Just OverloadedStrings
-    "ScopedTypeVariables" -> Just ScopedTypeVariables
-    "FlexibleContexts" -> Just FlexibleContexts
-    "FlexibleInstances" -> Just FlexibleInstances
-    "GeneralizedNewtypeDeriving" -> Just GeneralizedNewtypeDeriving
-    "DeriveGeneric" -> Just DeriveGeneric
-    "DeriveFunctor" -> Just DeriveFunctor
-    "DeriveDataTypeable" -> Just DeriveDataTypeable
-    "DeriveFoldable" -> Just DeriveFoldable
-    "DeriveTraversable" -> Just DeriveTraversable
-    "TypeFamilies" -> Just TypeFamilies
-    "ConstraintKinds" -> Just ConstraintKinds
-    "PolyKinds" -> Just PolyKinds
-    "DataKinds" -> Just DataKinds
-    "RankNTypes" -> Just RankNTypes
-    "GADTSyntax" -> Just GADTSyntax
-    "EmptyDataDeriving" -> Just EmptyDataDeriving
-    "MultiWayIf" -> Just MultiWayIf
-    "PatternSynonyms" -> Just PatternSynonyms
-    "RecordWildCards" -> Just RecordWildCards
-    "RecursiveDo" -> Just RecursiveDo
-    "Strict" -> Just Strict
-    "StrictData" -> Just StrictData
-    "TemplateHaskell" -> Just TemplateHaskell
-    "TemplateHaskellQuotes" -> Just TemplateHaskellQuotes
-    "UnboxedTuples" -> Just UnboxedTuples
-    "UnboxedSums" -> Just UnboxedSums
-    "UndecidableInstances" -> Just UndecidableInstances
-    "UnicodeSyntax" -> Just UnicodeSyntax
-    _ -> lookup name [(show ext, ext) | ext <- [minBound .. maxBound]]
+toGhcExtension :: Ast.Extension -> Maybe GHC.Extension
+toGhcExtension ext =
+  lookup (toGhcExtensionName ext) [(show ghcExt, ghcExt) | ghcExt <- [minBound .. maxBound]]
+  where
+    toGhcExtensionName Ast.CPP = "Cpp"
+    toGhcExtensionName Ast.GeneralizedNewtypeDeriving = "GeneralisedNewtypeDeriving"
+    toGhcExtensionName other = T.unpack (Ast.extensionName other)
 
-languageExtensions :: String -> [Extension]
+fromGhcExtension :: GHC.Extension -> Maybe Ast.Extension
+fromGhcExtension ghcExt = Ast.parseExtensionName (T.pack (show ghcExt))
+
+languageExtensions :: String -> [GHC.Extension]
 languageExtensions lang =
   case lang of
     "Haskell98" -> []

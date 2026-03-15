@@ -20,7 +20,7 @@ import Parser.Lexer (LexTokenKind (..), lexTokenKind)
 import Text.Megaparsec ((<|>))
 import qualified Text.Megaparsec as MP
 
-languagePragmaParser :: TokParser [Text]
+languagePragmaParser :: TokParser [Extension]
 languagePragmaParser =
   tokenSatisfy $ \tok ->
     case lexTokenKind tok of

@@ -42,6 +42,7 @@ test-suite spec
     , GhcOracle
     , HackageTester.CLI
     , HackageTester.Model
+    , HseExtensions
     , LexerGolden
     , ParserGolden
     , OracleExtensions
@@ -147,6 +148,7 @@ executable hackage-tester
     , HackageSupport
     , HackageTester.CLI
     , HackageTester.Model
+    , HseExtensions
     , ParserValidation
     , ShrinkUtils
   build-depends:
@@ -179,6 +181,7 @@ executable stackage-progress
       CppSupport
     , GhcOracle
     , HackageSupport
+    , HseExtensions
     , ParserValidation
     , ShrinkUtils
   build-depends:
@@ -205,6 +208,7 @@ executable parser-fuzz
   main-is:          Main.hs
   other-modules:
       GhcOracle
+    , HseExtensions
     , ParserValidation
     , ShrinkUtils
     , ParserFuzz.CLI

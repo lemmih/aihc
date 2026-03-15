@@ -16,6 +16,7 @@ import qualified Data.Text.IO as TIO
 import GHC.Conc (getNumProcessors)
 import qualified GhcOracle
 import HackageSupport (FileInfo (..), diagToText, downloadPackageQuietWithNetwork, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
+import HseExtensions (fromExtensionNames)
 import qualified Language.Haskell.Exts as HSE
 import qualified Parser
 import Parser.Ast
@@ -425,26 +426,16 @@ checkFile opts packageRoot info = do
 
 checkHse :: [String] -> Maybe String -> Text -> Bool
 checkHse extNames _langName source =
-  let exts = mapMaybe parseHseExtension extNames
-      mode = hseParseMode {HSE.extensions = HSE.glasgowExts ++ exts}
+  let mode = hseParseMode {HSE.extensions = fromExtensionNames extNames}
    in case HSE.parseFileContentsWithMode mode (T.unpack source) of
         HSE.ParseOk _ -> True
         HSE.ParseFailed _ _ -> False
-
-parseHseExtension :: String -> Maybe HSE.Extension
-parseHseExtension name =
-  case name of
-    "LambdaCase" -> Just (HSE.EnableExtension HSE.LambdaCase)
-    "MultiWayIf" -> Just (HSE.EnableExtension HSE.MultiWayIf)
-    -- This is a bit tedious to map all, but for now we rely on glasgowExts
-    -- which covers many.
-    _ -> Nothing
 
 hseParseMode :: HSE.ParseMode
 hseParseMode =
   HSE.defaultParseMode
     { HSE.parseFilename = "<stackage-progress>",
-      HSE.extensions = HSE.glasgowExts
+      HSE.extensions = []
     }
 
 needsParsedModule :: [Check] -> Bool

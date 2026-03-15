@@ -44,7 +44,6 @@
 module Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
-    LexerExtension (..),
     lexTokensWithExtensions,
     lexModuleTokensWithExtensions,
     lexTokens,
@@ -56,7 +55,7 @@ import Control.Monad (void)
 import Data.Char (digitToInt, isAlphaNum, isDigit, isHexDigit, isOctDigit)
 import qualified Data.IntSet as IntSet
 import Data.List (find)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -97,7 +96,7 @@ data LexTokenKind
   | TkKeywordIf
   | TkKeywordThen
   | TkKeywordElse
-  | TkPragmaLanguage [Text]
+  | TkPragmaLanguage [Extension]
   | TkPragmaWarning Text
   | TkPragmaDeprecated Text
   | TkIdentifier Text
@@ -109,11 +108,6 @@ data LexTokenKind
   | TkString Text
   | TkSymbol Text
   | TkQuasiQuote Text Text
-  deriving (Eq, Ord, Show, Read)
-
--- | Lexer behaviors controlled by language extensions.
-data LexerExtension
-  = NegativeLiterals
   deriving (Eq, Ord, Show, Read)
 
 -- | A token with both lexical meaning and precise source span.
@@ -148,7 +142,7 @@ lexModuleTokens input =
 --
 -- This runs raw tokenization, extension rewrites, and implicit-layout insertion.
 -- Module-top layout is /not/ enabled here.
-lexTokensWithExtensions :: [LexerExtension] -> Text -> Either String [LexToken]
+lexTokensWithExtensions :: [Extension] -> Text -> Either String [LexToken]
 lexTokensWithExtensions exts input =
   case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
     Right toks -> Right (applyLayoutTokens False (applyExtensions exts toks))
@@ -159,14 +153,14 @@ lexTokensWithExtensions exts input =
 -- Like 'lexTokensWithExtensions', but also enables top-level module-body layout:
 -- when the source omits explicit braces, virtual layout tokens are inserted
 -- after @module ... where@ (or from the first non-pragma token in module-less files).
-lexModuleTokensWithExtensions :: [LexerExtension] -> Text -> Either String [LexToken]
+lexModuleTokensWithExtensions :: [Extension] -> Text -> Either String [LexToken]
 lexModuleTokensWithExtensions exts input =
   case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
     Right toks -> Right (applyLayoutTokens True (applyExtensions exts toks))
     Left err -> Left (MP.errorBundlePretty err)
 
 -- | Apply all extension-driven post-lexing rewrites in a deterministic order.
-applyExtensions :: [LexerExtension] -> [LexToken] -> [LexToken]
+applyExtensions :: [Extension] -> [LexToken] -> [LexToken]
 applyExtensions exts toks
   | NegativeLiterals `elem` exts = applyNegativeLiterals toks
   | otherwise = toks
@@ -532,13 +526,13 @@ languagePragmaToken = do
   _ <- many C.spaceChar
   body <- manyTillText "#-}"
   let names = parseLanguagePragmaNames (T.pack body)
-      raw = "{-# LANGUAGE " <> T.intercalate ", " names <> " #-}"
+      raw = "{-# LANGUAGE " <> T.intercalate ", " (map extensionName names) <> " #-}"
   pure (raw, TkPragmaLanguage names)
 
 -- | Parse extension names from the body of a LANGUAGE pragma.
-parseLanguagePragmaNames :: Text -> [Text]
+parseLanguagePragmaNames :: Text -> [Extension]
 parseLanguagePragmaNames body =
-  filter (not . T.null) (map (T.strip . T.takeWhile (/= '#')) (T.splitOn "," body))
+  mapMaybe (parseExtensionName . T.strip . T.takeWhile (/= '#')) (T.splitOn "," body)
 
 -- | Parse a @WARNING@ pragma token.
 --

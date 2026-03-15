@@ -10,10 +10,13 @@ module ParserValidation
   )
 where
 
+import Control.Monad ((<=<))
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.LanguageExtensions.Type (Extension)
 import qualified GhcOracle
+import HseExtensions (toHseExtension)
 import qualified Language.Haskell.Exts as HSE
 import Parser (defaultConfig, parseModule)
 import Parser.Pretty (prettyModule)
@@ -169,7 +172,7 @@ commonSuffixLen xs ys =
 
 optionalShrunkDiagnostic :: [Extension] -> Text -> String
 optionalShrunkDiagnostic exts source =
-  case shrinkFailingModule (stillFails exts) source of
+  case shrinkFailingModule exts (stillFails exts) source of
     Nothing -> ""
     Just shrunk ->
       if T.strip shrunk == T.strip source
@@ -189,11 +192,11 @@ stillFails exts source =
     Nothing -> False
     Just _ -> True
 
-shrinkFailingModule :: (Text -> Bool) -> Text -> Maybe Text
-shrinkFailingModule fails source
+shrinkFailingModule :: [Extension] -> (Text -> Bool) -> Text -> Maybe Text
+shrinkFailingModule exts fails source
   | not (fails source) = Nothing
   | otherwise =
-      case parseCandidate source of
+      case parseCandidate exts source of
         Nothing -> Nothing
         Just candidate0 -> Just (runShrinks candidate0)
   where
@@ -213,7 +216,7 @@ shrinkFailingModule fails source
       where
         tryCandidates [] = Nothing
         tryCandidates (ast' : rest) =
-          case normalizeCandidateAst ast' of
+          case normalizeCandidateAst exts ast' of
             Nothing -> tryCandidates rest
             Just candidate'
               | fails (candSource candidate') -> Just candidate'
@@ -226,7 +229,7 @@ hseParseMode :: HSE.ParseMode
 hseParseMode =
   HSE.defaultParseMode
     { HSE.parseFilename = "<validate-parser>",
-      HSE.extensions = HSE.glasgowExts
+      HSE.extensions = []
     }
 
 data ShrinkCandidate = ShrinkCandidate
@@ -234,20 +237,20 @@ data ShrinkCandidate = ShrinkCandidate
     candSource :: Text
   }
 
-parseCandidate :: Text -> Maybe ShrinkCandidate
-parseCandidate source0 =
-  case HSE.parseFileContentsWithMode hseParseMode (T.unpack source0) of
+parseCandidate :: [Extension] -> Text -> Maybe ShrinkCandidate
+parseCandidate exts source0 =
+  case HSE.parseFileContentsWithMode (hseParseModeFor exts) (T.unpack source0) of
     HSE.ParseFailed _ _ -> Nothing
-    HSE.ParseOk modu0 -> normalizeCandidateAst modu0
+    HSE.ParseOk modu0 -> normalizeCandidateAst exts modu0
 
-normalizeCandidateAst :: HSE.Module HSE.SrcSpanInfo -> Maybe ShrinkCandidate
-normalizeCandidateAst modu0 =
+normalizeCandidateAst :: [Extension] -> HSE.Module HSE.SrcSpanInfo -> Maybe ShrinkCandidate
+normalizeCandidateAst exts modu0 =
   let source0 = HSE.prettyPrint modu0
-   in case HSE.parseFileContentsWithMode hseParseMode source0 of
+   in case HSE.parseFileContentsWithMode (hseParseModeFor exts) source0 of
         HSE.ParseFailed _ _ -> Nothing
         HSE.ParseOk modu1 ->
           let source1 = HSE.exactPrint modu1 []
-           in case HSE.parseFileContentsWithMode hseParseMode source1 of
+           in case HSE.parseFileContentsWithMode (hseParseModeFor exts) source1 of
                 HSE.ParseFailed _ _ -> Nothing
                 HSE.ParseOk modu2 ->
                   Just
@@ -264,3 +267,14 @@ trimSegment segment =
       let candidate = take n segment,
       not (null candidate)
     ]
+
+hseParseModeFor :: [Extension] -> HSE.ParseMode
+hseParseModeFor exts =
+  hseParseMode
+    { HSE.extensions =
+        mapMaybe
+          ( toHseExtension
+              <=< GhcOracle.fromGhcExtension
+          )
+          exts
+    }

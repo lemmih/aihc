@@ -22,11 +22,12 @@ import Data.Text.Encoding (encodeUtf8)
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Y
 import Parser
-  ( LexToken (..),
+  ( Extension,
+    LexToken (..),
     LexTokenKind,
-    LexerExtension (..),
     lexTokensWithExtensions,
   )
+import Parser.Ast (parseExtensionName)
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import Text.Read (readMaybe)
@@ -49,7 +50,7 @@ data LexerCase = LexerCase
   { caseId :: !String,
     caseCategory :: !String,
     casePath :: !FilePath,
-    caseExtensions :: ![LexerExtension],
+    caseExtensions :: ![Extension],
     caseInput :: !Text,
     caseTokens :: ![LexTokenKind],
     caseStatus :: !ExpectedStatus,
@@ -83,7 +84,7 @@ parseLexerCaseText path source = do
       Left err -> Left ("Invalid YAML fixture " <> path <> ": " <> Y.prettyPrintParseException err)
       Right parsed -> Right parsed
   (extNames, inputText, tokenTexts, statusText, reasonText) <- parseYamlFixture path value
-  exts <- mapM (parseExtensionName path) extNames
+  exts <- mapM (parseFixtureExtensionName path) extNames
   toks <- mapM (parseTokenKind path) tokenTexts
   status <- parseStatus path statusText
   reason <- validateReason path status (T.unpack reasonText)
@@ -178,11 +179,11 @@ listFixtureFiles dir = do
       )
       entries
 
-parseExtensionName :: FilePath -> Text -> Either String LexerExtension
-parseExtensionName path name =
-  case T.unpack name of
-    "NegativeLiterals" -> Right NegativeLiterals
-    other -> Left ("Unknown lexer extension in " <> path <> ": " <> other)
+parseFixtureExtensionName :: FilePath -> Text -> Either String Extension
+parseFixtureExtensionName path name =
+  case parseExtensionName name of
+    Just ext -> Right ext
+    Nothing -> Left ("Unknown lexer extension in " <> path <> ": " <> T.unpack name)
 
 parseTokenKind :: FilePath -> Text -> Either String LexTokenKind
 parseTokenKind path raw =

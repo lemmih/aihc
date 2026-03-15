@@ -7,7 +7,7 @@ module Parser
     errorBundlePretty,
     LexToken (..),
     LexTokenKind (..),
-    LexerExtension (..),
+    Extension (..),
     lexTokens,
     lexModuleTokens,
     lexTokensWithExtensions,
@@ -16,14 +16,13 @@ module Parser
 where
 
 import Data.Text (Text)
-import Parser.Ast (Decl, Expr, ImportDecl, Module (..))
+import Parser.Ast (Decl, Expr, Extension (..), ImportDecl, Module (..))
 import Parser.Internal.Common (TokParser, symbolLikeTok, withSpan)
 import Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
 import Parser.Internal.Expr (exprParser)
 import Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
-    LexerExtension (..),
     lexModuleTokens,
     lexModuleTokensWithExtensions,
     lexTokens,
