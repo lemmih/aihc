@@ -194,6 +194,7 @@
       --gc ${gc} \
       --store "$store" \
       --build-root "$TMPDIR/.aihc-cache" \
+      "''${package_flags[@]}" \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
       :
@@ -636,7 +637,11 @@
       ${pkgs.lib.concatMapStringsSep "\n" installExtraForTarget backends}
     '';
 
-  mkExampleTest = exampleName:
+  mkExampleTest = exampleName: let
+    extraNames = exampleExtraHackagePackages.${exampleName} or [];
+    packageFlags =
+      pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames;
+  in
     mkSourceCheck "aihc-example-${exampleName}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
       set -euo pipefail
       export GHCRTS=-N1
@@ -644,6 +649,7 @@
       export LC_ALL=C.UTF-8
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
+      package_flags=(${packageFlags})
 
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
