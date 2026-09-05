@@ -36,7 +36,7 @@ import Control.Exception (bracket)
 import Control.Monad (filterM, foldM, forM, unless, when)
 import Data.List (find, isInfixOf, isPrefixOf, nub, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -133,7 +133,37 @@ runBuildExe options = do
           }
   compiled <- compileModules compileConfig compileRequest
   createDirectoryIfMissing True (takeDirectory output)
-  linkExecutable target output (compileObjectPaths compiled) (map packageArchive selected) entry runtime
+  linkExecutable
+    target
+    output
+    (compileObjectPaths compiled)
+    (map packageArchive (linkOrderedPackages selected))
+    entry
+    runtime
+
+-- | Put a package before the packages it depends on.
+-- GNU ld searches each archive once, so a later archive cannot satisfy an
+-- earlier archive.
+linkOrderedPackages :: [InstalledPackage] -> [InstalledPackage]
+linkOrderedPackages packages =
+  reverse (snd (foldl visit (Set.empty, []) packages))
+  where
+    byIdentity =
+      Map.fromList
+        [ (packageIdentity package, package)
+        | package <- packages
+        ]
+    packageIdentity = packageManifestIdentity . installedManifest
+    visit (seen, ordered) package
+      | Set.member (packageIdentity package) seen = (seen, ordered)
+      | otherwise =
+          let seenSelf = Set.insert (packageIdentity package) seen
+              dependencies =
+                mapMaybe
+                  (`Map.lookup` byIdentity)
+                  (packageManifestDependencies (installedManifest package))
+              (seenDeps, orderedDeps) = foldl visit (seenSelf, ordered) dependencies
+           in (seenDeps, orderedDeps ++ [package])
 
 implicitConstraint :: Text -> PackageConstraint
 implicitConstraint name =
