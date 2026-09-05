@@ -8,6 +8,7 @@ module Aihc.Native
     NativeTarget (..),
     RuntimeGarbageCollector (..),
     RuntimePlan (..),
+    WasmSysroot (..),
     backendArchiver,
     backendCompiler,
     buildAddrLiteralPool,
@@ -24,25 +25,27 @@ module Aihc.Native
     renderNativeTarget,
     runtimePlan,
     supportedNativePrimitiveNames,
+    wasmSysroot,
   )
 where
 
 import Aihc.Grin.Syntax
+import Control.Monad (filterM)
 import Data.Bits (shiftR, (.&.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BL
-import Data.List (intersperse)
-import Data.Maybe (fromMaybe)
+import Data.List (intercalate, intersperse)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
 import Paths_aihc (getDataFileName)
-import System.Directory (findExecutable)
+import System.Directory (doesFileExist, findExecutable)
 import System.Environment (lookupEnv)
-import System.FilePath (takeDirectory)
+import System.FilePath (takeDirectory, (</>))
 import System.Info qualified as System
 
 -- | The fixed linked global that starts each executable.
@@ -144,7 +147,7 @@ nativeTargetTriple target =
     AppleArm64 -> "arm64-apple-darwin"
     LinuxAmd64 -> "x86_64-unknown-linux-gnu"
     Llvm -> "llvm"
-    Wasm32Wasip3 -> "wasm32-unknown-unknown"
+    Wasm32Wasip3 -> "wasm32-wasip1"
 
 -- | Render the stable store directory for one compilation target.
 nativeTargetStoreDirectory :: NativeTarget -> FilePath
@@ -162,11 +165,100 @@ backendCompiler target =
     Llvm -> pure ("clang", ["-Wno-override-module", "-O2"])
     Wasm32Wasip3 -> do
       compiler <- fromMaybe "clang" <$> lookupEnv "AIHC_WASM_CLANG"
-      pure (compiler, ["--target=wasm32-unknown-unknown", "-mtail-call", "-mmultivalue", "-mreference-types", "-msign-ext"])
+      pure
+        ( compiler,
+          [ "--target=" <> nativeTargetTriple target,
+            "-mtail-call",
+            "-mmultivalue",
+            "-mreference-types",
+            "-msign-ext"
+          ]
+        )
     AppleArm64 -> nativeCompiler
     LinuxAmd64 -> nativeCompiler
   where
     nativeCompiler = pure ("clang", ["--target=" <> nativeTargetTriple target])
+
+-- | The WASI sysroot that supplies libc to the WebAssembly target. The
+-- runtime allocates, copies memory, and aborts through libc like every other
+-- target, so a sysroot is required rather than optional.
+--
+-- The header and archive directories are recorded separately. Their names
+-- follow the triple the sysroot was built for, wasi-libc renamed that from
+-- @wasm32-wasi@ to @wasm32-wasip1@, and an installation can carry one name
+-- for its headers and the other for its archives. Reading both from the
+-- directory itself keeps every installation usable without a version test.
+data WasmSysroot = WasmSysroot
+  { wasmSysrootInclude :: !FilePath,
+    wasmSysrootLibc :: !FilePath
+  }
+  deriving (Eq, Show)
+
+-- | Locate the WASI sysroot. @AIHC_WASM_SYSROOT@ names one directly.
+-- Otherwise the well-known installation prefixes are searched, so an
+-- ordinary Homebrew or wasi-sdk installation needs no configuration.
+wasmSysroot :: IO WasmSysroot
+wasmSysroot = do
+  override <- lookupEnv "AIHC_WASM_SYSROOT"
+  case override of
+    Just root -> do
+      found <- readWasmSysroot root
+      maybe (ioError (userError (missingWasmSysrootMessage (Just root)))) pure found
+    Nothing -> do
+      found <- traverse readWasmSysroot wasmSysrootCandidates
+      case catMaybes found of
+        sysroot : _ -> pure sysroot
+        [] -> ioError (userError (missingWasmSysrootMessage Nothing))
+
+-- | Read one candidate directory, which is a sysroot when it holds both the
+-- headers and the libc archive of a supported target directory.
+readWasmSysroot :: FilePath -> IO (Maybe WasmSysroot)
+readWasmSysroot root = do
+  includes <- filterM (\directory -> doesFileExist (directory </> "stdlib.h")) [root </> "include" </> name | name <- wasmSysrootTargetNames]
+  archives <- filterM doesFileExist [root </> "lib" </> name </> "libc.a" | name <- wasmSysrootTargetNames]
+  pure $ case (includes, archives) of
+    (include : _, archive : _) -> Just WasmSysroot {wasmSysrootInclude = include, wasmSysrootLibc = archive}
+    _ -> Nothing
+
+-- | The target directory names wasi-libc has used, newest first.
+wasmSysrootTargetNames :: [FilePath]
+wasmSysrootTargetNames = ["wasm32-wasip1", "wasm32-wasi"]
+
+-- | The installation prefixes searched when the environment names none.
+wasmSysrootCandidates :: [FilePath]
+wasmSysrootCandidates =
+  [ "/opt/homebrew/opt/wasi-libc/share/wasi-sysroot",
+    "/usr/local/opt/wasi-libc/share/wasi-sysroot",
+    "/home/linuxbrew/.linuxbrew/opt/wasi-libc/share/wasi-sysroot",
+    "/opt/wasi-sdk/share/wasi-sysroot",
+    "/usr/local/share/wasi-sysroot",
+    "/usr/share/wasi-sysroot"
+  ]
+
+missingWasmSysrootMessage :: Maybe FilePath -> String
+missingWasmSysrootMessage rejected =
+  unlines
+    ( introduction
+        <> [ "",
+             "Install one and, when it is outside a standard prefix, set",
+             "AIHC_WASM_SYSROOT to the directory holding include/<target> and",
+             "lib/<target>/libc.a:",
+             "",
+             "  brew install wasi-libc",
+             "  https://github.com/WebAssembly/wasi-sdk/releases",
+             "",
+             "The searched prefixes are:"
+           ]
+        <> ["  " <> candidate | candidate <- wasmSysrootCandidates]
+    )
+  where
+    introduction =
+      case rejected of
+        Just root ->
+          [ "AIHC_WASM_SYSROOT does not name a WASI sysroot: " <> root,
+            "It holds no " <> intercalate " or " [name <> "/libc.a" | name <- wasmSysrootTargetNames] <> " under lib."
+          ]
+        Nothing -> ["The wasm32-wasip3 target requires a WASI sysroot and none was found."]
 
 -- | Select an archive tool that keeps object files for the selected target.
 backendArchiver :: NativeTarget -> IO FilePath

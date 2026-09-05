@@ -16,7 +16,7 @@ import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, read
 import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Native (NativeTarget (..), backendCompiler, nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, wasmSysroot)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -34,7 +34,7 @@ import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (Package (..), PackageId (..))
 import Control.Exception (bracket)
 import Control.Monad (filterM, foldM, forM, unless, when)
-import Data.List (find, nub, sortOn)
+import Data.List (find, isInfixOf, isPrefixOf, nub, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Set qualified as Set
@@ -438,24 +438,51 @@ ensureRuntime storeRoot target garbageCollector = do
 linkExecutable :: NativeTarget -> FilePath -> [FilePath] -> [FilePath] -> FilePath -> FilePath -> IO ()
 linkExecutable Wasm32Wasip3 output objects archives entry runtime =
   withTemporaryDirectory "aihc-wasm-link" $ \directory -> do
+    sysroot <- wasmSysroot
     let coreModule = directory </> "program.wasm"
+    -- The libc archive follows every other input. A linker takes only the
+    -- members that resolve a symbol it has already seen, so this pulls the
+    -- allocator, the memory routines, and the math functions the runtime
+    -- leaves undefined, and nothing else.
     runTool
       "wasm-ld"
       ( ["--no-entry", "--export-memory", "--allow-undefined"]
           <> objects
           <> archives
-          <> ["--whole-archive", entry, runtime, "--no-whole-archive", "-o", coreModule]
+          <> ["--whole-archive", entry, runtime, "--no-whole-archive"]
+          <> [wasmSysrootLibc sysroot, "-o", coreModule]
       )
-    runTool "wasm-tools" ["component", "new", coreModule, "-o", output]
+    buildComponent coreModule output
     runTool "wasm-tools" ["validate", output]
 linkExecutable target output objects archives entry runtime = do
   (compiler, arguments) <- backendCompiler target
   runTool compiler (arguments <> objects <> archives <> [entry, runtime, "-o", output])
 
+-- | Encode the linked core module as a component. The component model has no
+-- way to describe a WASI preview 1 import, so a runtime unit that reaches a
+-- libc function needing one fails here rather than at run time. The notice
+-- names that cause, which the encoder reports only as an unresolved import.
+buildComponent :: FilePath -> FilePath -> IO ()
+buildComponent coreModule output = do
+  result <- readProcessWithExitCode "wasm-tools" ["component", "new", coreModule, "-o", output] ""
+  case result of
+    (ExitSuccess, _, _) -> pure ()
+    (exitCode, stdout, stderr) -> do
+      let reported = if null stderr then stdout else stderr
+          notice
+            | "wasi_snapshot_preview1" `isInfixOf` reported =
+                reported
+                  <> "\n\nAIHC notice: the program imports WASI preview 1. The runtime reaches\n\
+                     \WASI through the preview 3 bindings only, so this comes from a libc\n\
+                     \function that needs the host, such as one of the stdio, exit, or clock\n\
+                     \families. Implement it in the P3 IO backend instead.\n"
+            | otherwise = reported
+      ioError (userError ("wasm-tools failed (" <> show exitCode <> "): " <> notice))
+
 runTool :: FilePath -> [String] -> IO ()
 runTool tool arguments = do
   result <-
-    if tool == "clang" && "--target=wasm32-unknown-unknown" `elem` arguments
+    if tool == "clang" && any ("--target=wasm32" `isPrefixOf`) arguments
       then readWasmClangProcessWithExitCode tool arguments
       else readProcessWithExitCode tool arguments ""
   case result of

@@ -12,7 +12,7 @@ import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Lower (lowerEntry, lowerModule, wasip3Target)
-import Aihc.Native (NativeTarget (Wasm32Wasip3), backendCompiler, executableEntryName)
+import Aihc.Native (NativeTarget (Wasm32Wasip3), WasmSysroot (..), backendCompiler, executableEntryName, wasmSysroot)
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
 import Aihc.Wasm.Lir (compileLirModule)
@@ -330,7 +330,8 @@ programTest tools expected program = do
         (_, backendArguments) <- backendCompiler Wasm32Wasip3
         runTool (toolsClang available) (backendArguments <> ["-c", assemblyPath, "-o", programObject])
         runTool (toolsClang available) (toolsClangArguments available <> ["-O1", "-std=c11", "-nostdlib", "-ffreestanding", "-Wall", "-Wextra", "-Werror", "-c", stubPath, "-o", stubObject])
-        runTool "wasm-ld" ["--no-entry", "--export-memory", "--allow-undefined", programObject, stubObject, "--whole-archive", entry, runtime, "--no-whole-archive", "-o", coreModule]
+        sysroot <- wasmSysroot
+        runTool "wasm-ld" ["--no-entry", "--export-memory", "--allow-undefined", programObject, stubObject, "--whole-archive", entry, runtime, "--no-whole-archive", wasmSysrootLibc sysroot, "-o", coreModule]
         runTool "wasm-tools" ["component", "new", coreModule, "-o", component]
         (exit, out, err) <- readProcessWithExitCode "wasmtime" ["run", "-C", "cache=n", "-S", "cli", component] ""
         assertEqual ("program stderr: " <> err) ExitSuccess exit

@@ -17,6 +17,7 @@
       inherit sources;
     };
     docs = import ./scripts/nix/docs.nix {};
+    mkWasiSysroot = import ./scripts/nix/wasi-sysroot.nix;
     mkPackages = import ./scripts/nix/packages.nix {
       inherit (docs) mkUserGuide;
     };
@@ -26,10 +27,11 @@
     };
     mkChecks = import ./scripts/nix/checks.nix {
       inherit (core) projectHsPackages;
-      inherit sources;
+      inherit sources mkWasiSysroot;
       inherit (haskell) mkHsPkgsForChecks;
     };
     mkDevShells = import ./scripts/nix/dev-shells.nix {
+      inherit mkWasiSysroot;
       inherit (haskell) mkHsPkgs;
     };
   in {

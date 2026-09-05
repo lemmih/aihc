@@ -55,9 +55,6 @@ data-files:
   compiler/native/runtime/aihc_stable_name.lir
   compiler/wasm/runtime/aihc_wasip3.c
   compiler/wasm/runtime/aihc_wasm_internal.h
-  compiler/wasm/runtime/aihc_wasm_libc.c
-  compiler/wasm/runtime/include/stdlib.h
-  compiler/wasm/runtime/include/string.h
   compiler/wasm/runtime/wit/command.wit
   compiler/wasm/runtime/wit/deps/cli.wit
   compiler/wasm/runtime/wit/deps/filesystem.wit
