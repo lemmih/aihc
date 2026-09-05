@@ -20,6 +20,8 @@
   # This example uses more than the temporary 100 MB heap limit.
   disabledExampleNames = ["unboxed-tail-recursion"];
   exampleNames = builtins.filter (name: !builtins.elem name disabledExampleNames) allExampleNames;
+  # Package C sources need a WASI C library that this runtime does not give.
+  wasip3ExampleNames = builtins.filter (name: name != "bytestring") exampleNames;
   cTidyCompilerFlags =
     ["-std=c11" "-Wall" "-Wextra" "-Wpedantic"]
     ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
@@ -190,7 +192,7 @@
     if timeout --foreground --kill-after=5s 120s ${aihcExe} build-exe "$source" \
       --target ${backend} \
       --gc ${gc} \
-      --store ${exampleToolchain} \
+      --store "$store" \
       --build-root "$TMPDIR/.aihc-cache" \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
@@ -529,6 +531,11 @@
 
   hackage = import ./hackage-packages.nix;
   hackageInstallTargets = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
+  exampleExtraHackagePackages = {
+    bytestring = ["deepseq" "bytestring"];
+  };
+  findHackagePackage = name:
+    pkgs.lib.findFirst (package: package.name == name) (throw "missing Hackage package ${name}") hackage.packages;
 
   # Install a Hackage package into a copy of the example toolchain store so
   # the core libraries are reused instead of installed again.
@@ -596,8 +603,38 @@
     pkgs.coreutils
     pkgs.diffutils
     pkgs.findutils
+    pkgs.llvmPackages.bintools
     pkgs.llvmPackages.clang
   ];
+
+  mkExampleExtraInstall = exampleName: let
+    extraNames = exampleExtraHackagePackages.${exampleName} or [];
+    extraPackages = map findHackagePackage extraNames;
+    linkWorkspaceEntry = package: ''
+      ln -sfn ${hackage.fetchPackage pkgs package} "$workspace/${package.name}"
+    '';
+    installExtraForTarget = target:
+      pkgs.lib.concatMapStringsSep "\n" (package: ''
+        ${aihcExe} install "$workspace/${package.name}" --store "$store" --target ${target}
+      '')
+      extraPackages;
+  in
+    if extraNames == []
+    then ''
+      store=${exampleToolchain}
+    ''
+    else ''
+      store="$TMPDIR/example-store"
+      cp -R --no-preserve=mode ${exampleToolchain} "$store"
+      coreLibsRoot="$TMPDIR/aihc-core-libs-root"
+      mkdir -p "$coreLibsRoot"
+      ln -sfn ${sources.coreLibrariesSrc pkgs}/core-libs "$coreLibsRoot/core-libs"
+      export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
+      workspace="$TMPDIR/workspace"
+      mkdir -p "$workspace"
+      ${pkgs.lib.concatMapStrings linkWorkspaceEntry extraPackages}
+      ${pkgs.lib.concatMapStringsSep "\n" installExtraForTarget backends}
+    '';
 
   mkExampleTest = exampleName:
     mkSourceCheck "aihc-example-${exampleName}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
@@ -617,6 +654,7 @@
         exit 1
       fi
 
+      ${mkExampleExtraInstall exampleName}
       ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest (exampleCompilationMatrix exampleName)}
       touch "$out"
     '';
@@ -782,13 +820,13 @@
       name = exampleName;
       path = mkWasip3ExampleTest exampleName;
     })
-    exampleNames;
+    wasip3ExampleNames;
 
   # Every example gets one incremental WASI smoke test. Nix schedules these
   # derivations in parallel against the immutable shared library and runtime
   # artifacts. Whole-program linking has focused CLI coverage because it
   # intentionally recompiles the merged dependency bodies.
-  wasip3ExampleTest = assert exampleNames != [];
+  wasip3ExampleTest = assert wasip3ExampleNames != [];
     pkgs.linkFarm "aihc-wasip3-example-test" wasip3ExampleCases;
 in {
   resolve-tests = resolveTests;

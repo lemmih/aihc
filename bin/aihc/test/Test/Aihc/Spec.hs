@@ -88,6 +88,7 @@ tests =
             testCase "prints timings independently from verbose output" (test_installTimingOutput primStore),
             testCase "reports all frontend errors in stable dependency order" (test_installResolveError primStore),
             testCase "writes Core for a ccall import" (test_installFcCcall primStore),
+            testCase "compiles Cabal c-sources into the library archive" (test_installCSources primStore),
             testCase "retains and repairs GRIN only with keep-grin" (test_installKeepGrin primStore),
             testCase "writes target-specific objects and library archives" (test_installTargetArchives primStore),
             -- This one installs aihc-prim into an empty store on purpose: it is
@@ -531,6 +532,19 @@ assertCoreFile path = do
   case Fc.parseProgram core of
     Left parseError -> assertFailure ("invalid Core file " <> path <> ": " <> Fc.renderParseError parseError)
     Right _ -> pure ()
+
+test_installCSources :: IO SeedStore -> Assertion
+test_installCSources getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/c-sources"
+  withSandbox getStore "aihc-install-c-sources" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    result <- install (InstallOptions fixtureRoot (Just storeRoot) False False False False False False False AppleArm64)
+    let archivePath = installStorePath result </> "lib" </> "libdemo.a"
+    assertFileExists archivePath
+    members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
+    assertEqual "archive members" ["Demo.o", "cbits_helper.o"] (sort members)
+    symbols <- readProcess "nm" [archivePath] ""
+    assertBool "archive defines the C symbol" ("aihc_c_add" `isInfixOf` symbols)
 
 test_installFcCcall :: IO SeedStore -> Assertion
 test_installFcCcall getStore =

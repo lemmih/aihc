@@ -629,11 +629,11 @@ Foreign libraries and linker options come from package configuration. They do no
 
 ## Library archives
 
-After all module objects exist, put them in `lib/lib{pkg_name}.a`. Create the native archive symbol index.
+After all module objects exist, compile C sources from the Cabal `c-sources` field. Put the module objects and the C objects in `lib/lib{pkg_name}.a`. Create the native archive symbol index.
 
-The archive is a derived package artifact. A build can recreate it from the module objects, but storage avoids repeated archive construction.
+The archive is a derived package artifact. A build can recreate it from the module objects and C objects, but storage avoids repeated archive construction.
 
-The archive must contain separate module object members. This layout lets the linker extract only required members.
+The archive must contain separate object members. This layout lets the linker extract only required members.
 
 An incremental executable link uses its object files, dependency archives, the RTS, and configured foreign libraries.
 
@@ -651,8 +651,9 @@ An incremental executable link uses its object files, dependency archives, the R
 8. Desugar each checked module to its own System FC artifact.
 9. Lower each System FC artifact through GRIN to one object artifact.
 10. Release each temporary GRIN program.
-11. Build the library archive from all module objects.
-12. Write the package index and publish the immutable package directory.
+11. Compile C sources from the Cabal file.
+12. Build the library archive from all module objects and C objects.
+13. Write the package index and publish the immutable package directory.
 
 Independent ready SCCs can run at the same time. Modules can also run at the same time after their SCC type check completes.
 
