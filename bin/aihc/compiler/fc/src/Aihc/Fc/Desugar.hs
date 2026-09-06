@@ -893,20 +893,12 @@ convertSynonym env info =
           Right []
       | Just body <- tsiBody synonym -> do
           kindVars <- extraKindVars env (tciTyCon info) (tsiParams synonym)
-          -- A synonym with fewer parameters than its kind has arrows gets one
-          -- binder for each remaining arrow. The saturated body then has the
-          -- result kind of the synonym.
-          let (etaKinds, bodyKind) = splitKindArrows (synonymResultKind (tciKindScheme info) (tsiParams synonym))
-              etaVars =
-                [ setTyVarKind kind (TyVarId ("eta" <> T.pack (show index)) (Unique (negate index)))
-                | (index, kind) <- zip [1 :: Int ..] etaKinds
-                ]
-              tyVars = kindVars <> tsiParams synonym <> etaVars
+          let tyVars = kindVars <> tsiParams synonym
               bindersEnv = withTyVars tyVars env
-              saturatedBody = foldl mkAppTy body (map TcTyVar etaVars)
+              bodyKind = synonymResultKind (tciKindScheme info) (tsiParams synonym)
           binders <- withConversionContext "binders" (mapM (tyVarBinder bindersEnv) tyVars)
-          result <- withConversionContext "result" (convertKind bindersEnv bodyKind)
-          convertedBody <- withConversionContext "body" (convertTypeWithExpectedKind bindersEnv (Just bodyKind) saturatedBody)
+          result <- withConversionContext "result" (synonymResult bindersEnv (tciKindScheme info) (tsiParams synonym))
+          convertedBody <- withConversionContext "body" (convertTypeWithExpectedKind bindersEnv (Just bodyKind) body)
           pure
             [ DeclSynonym
                 SynonymDecl
@@ -920,14 +912,21 @@ convertSynonym env info =
       | otherwise -> Left ("type synonym " <> T.unpack (tciName info) <> " has no body")
     Nothing -> Left ("type synonym " <> T.unpack (tciName info) <> " has no synonym info")
 
--- | The argument kinds and the result kind of a kind with arrows.
-splitKindArrows :: TcType -> ([TcType], TcType)
-splitKindArrows kind =
-  case kind of
-    KFun argument result ->
-      let (arguments, final) = splitKindArrows result
-       in (argument : arguments, final)
-    _ -> ([], kind)
+-- | The result kind of a synonym. An eta-reduced synonym such as
+-- @type RDoc = Doc@ keeps arrows after its parameters. They become the
+-- binders that a type constructor kind has, so the kind of the body
+-- matches the declared result.
+synonymResult :: ConvertEnv -> TypeScheme -> [TyVarId] -> Either String Type
+synonymResult env scheme params =
+  residualKind (0 :: Int) (synonymResultKind scheme params)
+  where
+    residualKind index kind =
+      case kind of
+        KFun argument result -> do
+          binder <- kindBinder env (T.pack ("eta" <> show index)) argument
+          converted <- residualKind (index + 1) result
+          pure (TyForAll binder converted)
+        _ -> convertKind env kind
 
 synonymResultKind :: TypeScheme -> [TyVarId] -> TcType
 synonymResultKind scheme params =

@@ -2048,16 +2048,36 @@ binderEntry name binder ty = do
   key <- requiredBinderKey name
   pure [(key, (binder, ty))]
 
+-- | The constructor pattern under the wrappers of a pattern. A string literal
+-- pattern peels to the list pattern of its characters.
 peelPattern :: Syn.Pattern -> Syn.Pattern
-peelPattern pattern' =
-  case pattern' of
-    Syn.PAnn _ inner -> peelPattern inner
-    Syn.PParen inner -> peelPattern inner
-    Syn.PStrict inner -> peelPattern inner
-    Syn.PIrrefutable inner -> peelPattern inner
-    Syn.PAs _ inner -> peelPattern inner
-    Syn.PTypeSig inner _ -> peelPattern inner
-    _ -> pattern'
+peelPattern pattern' = go pattern'
+  where
+    go inner =
+      case inner of
+        Syn.PAnn _ next -> go next
+        Syn.PParen next -> go next
+        Syn.PStrict next -> go next
+        Syn.PIrrefutable next -> go next
+        Syn.PAs _ next -> go next
+        Syn.PTypeSig next _ -> go next
+        Syn.PLit literal
+          | Just expanded <- stringLiteralListPattern (patternType pattern') literal -> expanded
+        _ -> inner
+
+-- | A string literal pattern as the list pattern of its characters. The
+-- element type comes from the checked list type of the pattern, so every
+-- character pattern carries the type that the match compiler needs.
+stringLiteralListPattern :: Maybe TcType -> Syn.Literal -> Maybe Syn.Pattern
+stringLiteralListPattern patternTy literal =
+  case (Syn.peelLiteralAnn literal, patternTy) of
+    (Syn.LitString value source, Just (TcTyCon tyCon [elementType]))
+      | tyConName tyCon == "[]" ->
+          Just (Syn.PList [characterPattern elementType source char | char <- T.unpack value])
+    _ -> Nothing
+  where
+    characterPattern elementType source char =
+      Syn.PAnn (Syn.mkAnnotation (TcAnnotation elementType [] [] [] [] [])) (Syn.PLit (Syn.LitChar char source))
 
 requiredPatternType :: Syn.Pattern -> ValueM TcType
 requiredPatternType pattern' =
@@ -2840,7 +2860,15 @@ desugarListCompPattern resultType binder ty pattern' success failure =
     Syn.PAs name inner -> do
       locals <- binderEntry name binder ty
       withLocals locals (desugarListCompPattern resultType binder ty inner success failure)
-    _ -> desugarListCompConstructorPattern resultType binder pattern' success failure
+    _ -> do
+      -- The wrappers above are peeled off, so the pattern can have lost
+      -- its checked type. A list pattern needs it for its synthesized
+      -- tail, and a newtype pattern reads its type arguments from it.
+      let typed =
+            case patternType pattern' of
+              Just _ -> pattern'
+              Nothing -> Syn.PAnn (Syn.mkAnnotation (TcAnnotation ty [] [] [] [] [])) pattern'
+      desugarListCompConstructorPattern resultType binder typed success failure
 
 desugarListCompConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
 desugarListCompConstructorPattern resultType binder pattern' success failure = do

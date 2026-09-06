@@ -475,7 +475,10 @@ moduleScope packageId exports modu =
     `unionScope` listConstructorScope
     `unionScope` builtinScope
   where
-    ownScope = topLevelScope packageId modu
+    -- A module's own top-level names are also in scope qualified by the
+    -- module name, so @M.x@ inside module @M@ names the local @x@.
+    ownScope = insertQualifiedModule (moduleKey modu) unqualifiedOwnScope unqualifiedOwnScope
+    unqualifiedOwnScope = topLevelScope packageId modu
     preludeScope = lookupImportedModule packageId Nothing "Prelude" exports
     -- Implicit Prelude: names available unqualified AND as Prelude.xxx
     implicitPrelude

@@ -74,6 +74,7 @@ module Data.List.NonEmpty
 where
 
 import Control.Applicative (Alternative (many))
+import Data.Foldable (Foldable (..))
 import Data.Semigroup (Semigroup (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import Prelude
@@ -115,6 +116,11 @@ instance (Show a) => Show (NonEmpty a) where
     showParen
       (precedence > 5)
       (showsPrec 6 value . showString " :| " . showsPrec 6 values)
+
+instance Foldable NonEmpty where
+  foldr f initial (value :| values) = f value (foldr f initial values)
+  foldMap f (value :| values) = f value <> foldMap f values
+  null _ = False
 
 instance Functor NonEmpty where
   fmap f ((:|) value values) = f value :| mapList f values

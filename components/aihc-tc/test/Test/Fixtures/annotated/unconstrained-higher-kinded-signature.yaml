@@ -1,0 +1,40 @@
+annotated:
+- |-
+  module Main where
+  data Proxy t = Proxy
+       │         └─ type: ∀ t. Proxy t
+       └─ type: Type → Type
+  newtype Tagged s b = Tagged b
+          │            └─ type: ∀ s b. b → Tagged s b
+          └─ type: Type → Type → Type
+  proxy :: Tagged s a -> proxy s -> a
+  proxy (Tagged x) _ = x
+  │      │      │  └─ type: proxy s
+  │      │      └─ type: a
+  │      └─ type: Tagged s a
+  └─ type: ∀ s a proxy. Tagged s a → proxy s → a
+  reproxy :: proxy a -> Proxy b
+  reproxy _ = Proxy
+  │       │   └─ type: Proxy b; type-args: b
+  │       └─ type: proxy a
+  └─ type: ∀ proxy a b. proxy a → Proxy b
+  asTaggedTypeOf :: s -> tagged s b -> s
+  asTaggedTypeOf s _ = s
+  │              │ └─ type: tagged s b
+  │              └─ type: s
+  └─ type: ∀ s tagged b. s → tagged s b → s
+extensions: []
+modules:
+- |
+  module Main where
+  data Proxy t = Proxy
+  newtype Tagged s b = Tagged b
+  proxy :: Tagged s a -> proxy s -> a
+  proxy (Tagged x) _ = x
+  reproxy :: proxy a -> Proxy b
+  reproxy _ = Proxy
+  asTaggedTypeOf :: s -> tagged s b -> s
+  asTaggedTypeOf s _ = s
+reason: an unconstrained type variable that is applied in a signature keeps its
+  arrow kind instead of defaulting to Type
+status: pass

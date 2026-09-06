@@ -1,0 +1,5 @@
+config {name = "aihc"
+        targets = [arm64, llvm]
+        ratio = 0.75
+        count = 3}
+one line (1.0e-2)

@@ -91,6 +91,7 @@ stockDerivingRequirement className =
     "Ord" -> Just Nothing
     "Enum" -> Just Nothing
     "Bounded" -> Just Nothing
+    "Ix" -> Just Nothing
     "Show" -> Just Nothing
     "Read" -> Just Nothing
     "Data" -> Just (Just DeriveDataTypeable)

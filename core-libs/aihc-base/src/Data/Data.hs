@@ -1,7 +1,8 @@
 {-# LANGUAGE RankNTypes #-}
 
 module Data.Data
-  ( Data (..),
+  ( module Data.Typeable,
+    Data (..),
     Constr,
     DataType,
     Fixity (..),
@@ -21,7 +22,7 @@ module Data.Data
 where
 
 import Data.Maybe (Maybe (..))
-import Data.Typeable (Typeable, gcast1, gcast2)
+import Data.Typeable
 import GHC.Base (String)
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int)
@@ -46,8 +47,8 @@ class (Typeable a) => Data a where
   toConstr :: a -> Constr
   dataTypeOf :: a -> DataType
 
-  -- The type checker has no kind polymorphism, so these methods have no
-  -- Typeable constraint on the type constructor.
+  -- The casts carry no Typeable context: Typeable is not kind polymorphic
+  -- here, and 'gcast1' and 'gcast2' need none.
   dataCast1 :: (forall d. (Data d) => c (t d)) -> Maybe (c a)
   dataCast1 _ = Nothing
   dataCast2 :: (forall d e. (Data d, Data e) => c (t d e)) -> Maybe (c a)
