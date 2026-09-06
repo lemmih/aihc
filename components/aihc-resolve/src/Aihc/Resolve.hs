@@ -764,11 +764,6 @@ resolveExpr expr =
   case expr of
     EAnn ann inner ->
       EAnn ann <$> withPushedSpan ann (resolveExpr inner)
-    -- The parser gives the tuple constructor @(,)@ as a name of commas. It
-    -- is the tuple section with no fields.
-    EVar name
-      | Just arity <- tupleConstructorArity name ->
-          resolveExpr (ETuple Boxed (replicate arity Nothing))
     EVar name ->
       EVar <$> resolveTermUse name
     -- An implicit parameter has no lexical binder. The type checker
@@ -1006,7 +1001,8 @@ annotatePatternLiteral pat lit = do
         _ -> [conversion, "=="]
 
 -- | The arity of a boxed tuple constructor that the parser gives as a name
--- of commas, like @(,)@ or @(,,)@.
+-- of commas in a pattern, like @(,) a b@. The expression form is already a
+-- tuple section. See ai-haskell-compiler/aihc-parser#15.
 tupleConstructorArity :: Name -> Maybe Int
 tupleConstructorArity name
   | Nothing <- nameQualifier name,
