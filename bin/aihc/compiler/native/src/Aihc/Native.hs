@@ -21,6 +21,7 @@ module Aihc.Native
     parseNativeTarget,
     renderLinkedFunctionSymbol,
     renderLinkedConstructorInfoSymbol,
+    renderLinkedPartialConstructorInfoSymbol,
     renderLinkedGlobalSymbol,
     renderNativeTarget,
     runtimePlan,
@@ -189,10 +190,18 @@ escapeCodes = [(ascii source, ascii code) | (source, code) <- table]
 renderLinkedGlobalSymbol :: Text -> Text
 renderLinkedGlobalSymbol = renderLinkedFunctionSymbol
 
--- | Render the object symbol for one constructor application stage.
+-- | Render the object symbol for the saturated form of one constructor.
 renderLinkedConstructorInfoSymbol :: Text -> Int -> Text
 renderLinkedConstructorInfoSymbol name remaining =
   "aihc_c_" <> renderLinkedFunctionSymbol name <> "_" <> T.pack (show remaining)
+
+-- | Render the object symbol for the unsaturated form of one constructor.
+-- Every stage between the bare constructor and the saturated one shares this
+-- info table and records its own width in the object, so one constructor
+-- needs one such symbol however many arguments it takes.
+renderLinkedPartialConstructorInfoSymbol :: Text -> Text
+renderLinkedPartialConstructorInfoSymbol name =
+  "aihc_constructor_" <> renderLinkedFunctionSymbol name <> "_partial"
 
 hostNativeTarget :: Maybe NativeTarget
 hostNativeTarget

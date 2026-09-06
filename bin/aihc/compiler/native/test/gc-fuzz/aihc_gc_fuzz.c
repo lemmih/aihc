@@ -442,6 +442,15 @@ static const char *kind_name(AihcObjectKind kind) {
   }
 }
 
+/* The payload of one object. A partial constructor spends field zero on the
+   count of the slots it has filled, so its fields start one slot later. */
+static AihcSlot *entry_fields(Entry *entry) {
+  if (entry->info->object_kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR) {
+    return aihc_partial_fields(entry->address);
+  }
+  return entry->address->fields;
+}
+
 static void print_object(AihcValue *object) {
   const AihcInfo *info = aihc_value_info_table(object);
   uintptr_t identity = info->identity;
@@ -474,17 +483,17 @@ static void print_object(AihcValue *object) {
     printf("\n");
     return;
   }
+  const AihcSlot *fields = entry_fields(entry);
   printf("obj %" PRIuPTR " %s %" PRIuPTR, identity,
          kind_name(info->object_kind), info->field_count);
   for (uint64_t index = 0; index < info->field_count; ++index) {
     if (entry->pointers[index]) {
-      print_pointer(object->fields[index]);
+      print_pointer(fields[index]);
     } else {
-      if (entry->has_shadow[index] &&
-          entry->shadow[index] != object->fields[index]) {
+      if (entry->has_shadow[index] && entry->shadow[index] != fields[index]) {
         violation("non-pointer field changed");
       }
-      printf(" w%" PRIx64, object->fields[index]);
+      printf(" w%" PRIx64, fields[index]);
     }
   }
   printf("\n");
@@ -788,13 +797,28 @@ static void command_new(char **tokens, size_t count) {
   info->frame_kind = AIHC_FRAME_NONE;
   info->object_kind = kind;
   info->srt = srt_of(parse_signed(tokens[4]));
-  uint64_t words = aihc_object_words(info);
+  /* A partial constructor carries its applied count in field zero and shares
+     one info table with the saturated form the count is measured against. */
+  int partial = kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR;
+  if (partial) {
+    AihcInfo *saturated = checked_calloc(1, sizeof(*saturated));
+    saturated->identity = identity;
+    saturated->field_count = field_count;
+    saturated->field_is_pointer = pointers;
+    saturated->frame_kind = AIHC_FRAME_NONE;
+    saturated->object_kind = AIHC_OBJECT_NODE;
+    info->next = saturated;
+  }
+  uint64_t words = partial ? 2 + field_count : aihc_object_words(info);
   if (words > reserved_words) {
     fail("block exceeds its reservation");
   }
   reserved_words -= words;
   AihcValue *object = aihc_gc_allocate(machine, words);
   object->header = (AihcSlot)(uintptr_t)info;
+  if (partial) {
+    object->fields[0] = field_count;
+  }
   entry->defined = 1;
   entry->address = object;
   entry->info = info;
@@ -858,7 +882,7 @@ static void command_set(char **tokens, size_t count) {
     aihc_array_elements(entry->address)[index] = value;
     return;
   }
-  entry->address->fields[index] = value;
+  entry_fields(entry)[index] = value;
   if (is_word) {
     entry->shadow[index] = value;
     entry->has_shadow[index] = 1;

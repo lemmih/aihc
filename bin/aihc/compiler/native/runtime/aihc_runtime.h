@@ -96,9 +96,18 @@ struct AihcSrt {
 struct AihcInfo {
   uintptr_t identity;
   AihcEntry entry;
+  /* The slots an object of this info table holds. A partial constructor is
+     the exception: every stage of one constructor shares a single info table,
+     so the count of the slots filled so far lives in the object and this word
+     is zero. See aihc_value_count. */
   uintptr_t field_count;
   uintptr_t remaining_arity;
+  /* One byte per slot of the saturated object. A partial constructor indexes
+     the same array as the finished one: the slots it has filled are a prefix
+     of the slots the saturated constructor holds. */
   const uint8_t *field_is_pointer;
+  /* The info table of the saturated constructor, for a partial constructor.
+     Null for every other kind. */
   const AihcInfo *next;
   /* Backend-owned dynamic entry. Lir gives this word its own callable
      type. */
@@ -116,6 +125,9 @@ struct AihcValue {
   /* Ordinarily an unmodified info-table pointer. During semispace collection,
      a forwarded from-space object temporarily holds its to-space address. */
   AihcSlot header;
+  /* A partial constructor and a boxed array both spend field zero on a count
+     and hold their payload from field one. Reach that payload through
+     aihc_partial_fields and aihc_array_elements rather than by hand. */
   AihcSlot fields[];
 };
 
@@ -172,7 +184,31 @@ static inline uint64_t aihc_value_arity(const AihcValue *value) {
   return aihc_value_info_table(value)->remaining_arity;
 }
 
+/* The slots a partial constructor has filled. It lives in the object because
+   every stage of one constructor shares a single info table. */
+static inline uint64_t aihc_partial_applied(const AihcValue *value) {
+  return value->fields[0];
+}
+
+/* The slots a partial constructor still needs. The saturated info table names
+   the full width. */
+static inline uint64_t aihc_partial_total(const AihcValue *value) {
+  return aihc_value_info_table(value)->next->field_count;
+}
+
+static inline AihcSlot *aihc_partial_fields(AihcValue *value) {
+  return value->fields + 1;
+}
+
+static inline const AihcSlot *
+aihc_partial_fields_const(const AihcValue *value) {
+  return value->fields + 1;
+}
+
 static inline uint64_t aihc_value_count(const AihcValue *value) {
+  if (aihc_value_kind(value) == AIHC_OBJECT_PARTIAL_CONSTRUCTOR) {
+    return aihc_partial_applied(value);
+  }
   return aihc_value_info_table(value)->field_count;
 }
 
@@ -194,6 +230,10 @@ extern const AihcSrt *aihc_current_srt;
 
 AihcValue *aihc_make_node(AihcMachine *machine, const AihcInfo *info);
 AihcValue *aihc_make_node_unchecked(AihcMachine *machine, const AihcInfo *info);
+AihcValue *aihc_make_partial(AihcMachine *machine, const AihcInfo *info,
+                             uint64_t applied);
+AihcValue *aihc_make_partial_unchecked(AihcMachine *machine,
+                                       const AihcInfo *info, uint64_t applied);
 void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
                       AihcSlot *roots);
 AihcMachine *aihc_machine_new(uint64_t global_count);

@@ -38,7 +38,7 @@ The `next` table gives the correct field layout for the next source argument.
 
 ## Application stages
 
-A function or constructor has one info table for each required application stage.
+A function has one info table for each required application stage.
 An underapplication copies the object and its fields into a new object.
 The new object header points to the `next` table.
 A saturated closure can enter its generated code without this copy.
@@ -52,7 +52,18 @@ stored fields:    0  ->  1  ->  2
 
 The last table has no `next` value.
 A saturated function can enter its generated code.
-A saturated constructor is a data node and does not enter code.
+
+A constructor works differently.
+It has two tables however many arguments it takes: one for the saturated node,
+and one shared by every stage that still wants arguments.
+An unsaturated constructor object stores in its first field the count of the
+fields it holds, and its own fields follow from the second.
+The shared table gives the saturated table as its `next` value, which is where
+the run-time system reads the full width and the complete pointer map.
+The slots an unsaturated constructor has filled are a prefix of the slots the
+saturated one holds, so one pointer map serves both.
+A saturated constructor is a data node, does not enter code, and stores no
+count.
 
 ## Suspended function example
 
@@ -99,20 +110,30 @@ data Pair a b = Pair a b
 
 `Pair` has arity two.
 AIHC can represent `Pair`, `Pair first`, and `Pair first second` as managed objects.
-The backend supplies three linked info tables:
+The backend supplies two info tables:
 
-| Object | Stored fields | Remaining arity | Object kind | `next` |
-| --- | ---: | ---: | --- | --- |
-| `Pair` | 0 | 2 | Partial constructor | Table for `Pair first`. |
-| `Pair first` | 1 | 1 | Partial constructor | Table for `Pair first second`. |
-| `Pair first second` | 2 | 0 | Node | Null. |
+| Table | Object kind | `field_count` | `next` |
+| --- | --- | ---: | --- |
+| `Pair` partial | Partial constructor | 2 | The saturated table. |
+| `Pair` saturated | Node | 2 | Null. |
 
-All three tables use the saturated constructor table as their `identity` value.
+`Pair` and `Pair first` both use the partial table and differ only in the count
+they store:
+
+| Object | Stored count | Stored fields |
+| --- | ---: | ---: |
+| `Pair` | 0 | 0 |
+| `Pair first` | 1 | 1 |
+| `Pair first second` | None | 2 |
+
+Both tables use the saturated constructor table as their `identity` value.
 This stable identity lets case code compare a value with the `Pair` constructor.
-The final table also gives the complete pointer map for both constructor fields.
+Both tables also give the complete pointer map for both constructor fields.
 
 Constructor application uses the common slow application path.
 This path allocates the object for the next stage and copies the stored fields.
+An application that fills the last field allocates a saturated node instead,
+which drops the stored count.
 The final object is a data node, so its entry addresses are null.
 
 Nullary constructors have only the saturated table.
@@ -139,7 +160,7 @@ It emits the tables and entry adapters with ARM64 sections, symbols, and calling
 
 The LLVM backend emits constant values of the `%AihcInfo` type.
 It puts a `tailcc` adapter in `backend_entry` for an enterable object.
-It emits only constructor stages that the current compilation unit requires.
+It emits only the constructor tables that the current compilation unit requires.
 Linked constructor table names keep constructor identities equal across compilation units.
 
 ### WebAssembly
