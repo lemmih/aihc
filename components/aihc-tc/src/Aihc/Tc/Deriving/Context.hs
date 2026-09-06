@@ -113,7 +113,17 @@ inferableObligations plan =
       | tcDerivingClassName plan == "Eq",
         Right obligations <- stockEqObligations plan ->
           Just (concat obligations)
+      | isSimpleStockClass (tcDerivingClassName plan),
+        Right obligations <- stockFieldObligations plan ->
+          Just (concat obligations)
     _ -> Nothing
+
+-- | The stock classes of kind @Type@ whose derived instance context is the
+-- class at every constructor field, as for Eq. Their dictionaries are not
+-- generated yet; the inferred context lets the instances take part in
+-- instance resolution, such as the Ord superclass of a Real instance.
+isSimpleStockClass :: Text -> Bool
+isSimpleStockClass className = className `elem` ["Ord", "Show", "Read", "Bounded", "Enum", "Ix"]
 
 inferPlanContext :: DerivingEnv -> TcDerivingPlan -> TcM TcDerivingPlan
 inferPlanContext environment plan =
@@ -145,6 +155,17 @@ inferPlanContext environment plan =
                       pure plan
                     Right inferred ->
                       pure plan {tcDerivingContext = TcDerivingExplicitContext inferred}
+      | isSimpleStockClass (tcDerivingClassName plan),
+        TcDerivingInferContext <- context,
+        Right _ <- stockFieldObligations plan ->
+          case inferredContext environment plan of
+            Left predicate -> do
+              emitError
+                (tcDerivingSourceSpan plan)
+                (UnsolvedWanted predicate (InstOrigin (tcDerivingClassName plan)))
+              pure plan
+            Right inferred ->
+              pure plan {tcDerivingContext = TcDerivingExplicitContext inferred}
     _ -> pure plan
 
 inferredContext :: DerivingEnv -> TcDerivingPlan -> Either Pred [Pred]
@@ -281,7 +302,7 @@ derivingPlanInstanceInfo :: (Text, Text) -> TcDerivingPlan -> Maybe InstanceInfo
 derivingPlanInstanceInfo origin plan =
   case (tcDerivingStrategy plan, tcDerivingContext plan) of
     (strategy, TcDerivingExplicitContext context)
-      | strategy == TcDerivingAnyclass || isValidStockEqPlan plan ->
+      | strategy == TcDerivingAnyclass || isValidStockEqPlan plan || isSimpleStockPlan plan ->
           Just
             InstanceInfo
               { iiClassName = tcDerivingClassName plan,
@@ -312,15 +333,42 @@ stockEqObligations plan = do
   targetArguments <- stockEqTargetArguments dataType plan
   validateStockEqClass plan
   validateStockEqDataType dataType
-  let substitution =
-        Map.fromList
-          [ (tvUnique tyVar, argument)
-          | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
-          ]
-  pure
-    [ [ClassPred (tcDerivingClassTyCon plan) [applySubst substitution (dcfiType field)] | field <- dciFields constructor]
-    | constructor <- dtiConstructors dataType
-    ]
+  pure (stockFieldPredicates plan dataType targetArguments)
+
+isSimpleStockPlan :: TcDerivingPlan -> Bool
+isSimpleStockPlan plan =
+  tcDerivingStrategy plan == TcDerivingStock
+    && isSimpleStockClass (tcDerivingClassName plan)
+    && case stockFieldObligations plan of
+      Right {} -> True
+      Left {} -> False
+
+-- | The class at every constructor field of the target, per constructor,
+-- for a stock class of kind @Type@ other than Eq.
+stockFieldObligations :: TcDerivingPlan -> Either String [[Pred]]
+stockFieldObligations plan = do
+  dataType <-
+    maybe
+      (Left "stock deriving requires checked datatype metadata")
+      Right
+      (tcDerivingDataType plan)
+  targetArguments <- stockEqTargetArguments dataType plan
+  case tcDerivingClassTyVars plan of
+    [_] -> Right ()
+    _ -> Left "stock deriving requires a class with one parameter"
+  pure (stockFieldPredicates plan dataType targetArguments)
+
+stockFieldPredicates :: TcDerivingPlan -> DataTypeInfo -> [TcType] -> [[Pred]]
+stockFieldPredicates plan dataType targetArguments =
+  [ [ClassPred (tcDerivingClassTyCon plan) [applySubst substitution (dcfiType field)] | field <- dciFields constructor]
+  | constructor <- dtiConstructors dataType
+  ]
+  where
+    substitution =
+      Map.fromList
+        [ (tvUnique tyVar, argument)
+        | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
+        ]
 
 stockEqTargetArguments :: DataTypeInfo -> TcDerivingPlan -> Either String [TcType]
 stockEqTargetArguments dataType plan =

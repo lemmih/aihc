@@ -664,7 +664,7 @@ defaultKindMetas kind =
           incomplete <- containsUnsolvedMeta solved'
           defaulted <-
             if tracked && incomplete
-              then unifyKinds solved' KType >> pure KType
+              then defaultIncompleteKind solved'
               else defaultKindMetas solved'
           writeMetaTv unique defaulted
           pure defaulted
@@ -695,6 +695,22 @@ defaultKindMetas kind =
             <*> mapM defaultKindPred antecedents
             <*> defaultKindPred consequent
     defaultVariable variable = setTyVarKind <$> defaultKindMetas (tvKind variable) <*> pure variable
+
+-- | Default a tracked kind that still has unsolved metas. A function kind
+-- keeps its shape and defaults each side, so an unconstrained type variable
+-- that is applied in a signature (@proxy s@) keeps an arrow kind. Any other
+-- incomplete kind, such as @TYPE r@ with an unsolved representation, is the
+-- lifted type kind.
+defaultIncompleteKind :: TcType -> TcM TcType
+defaultIncompleteKind kind = do
+  kind' <- zonkKind kind
+  case kind' of
+    TcFunTy argument result -> TcFunTy <$> defaultIncompleteKind argument <*> defaultIncompleteKind result
+    _ -> do
+      incomplete <- containsUnsolvedMeta kind'
+      if incomplete
+        then unifyKinds kind' KType >> pure KType
+        else defaultKindMetas kind'
 
 containsUnsolvedMeta :: TcType -> TcM Bool
 containsUnsolvedMeta ty =

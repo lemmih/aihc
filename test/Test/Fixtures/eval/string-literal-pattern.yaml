@@ -1,0 +1,30 @@
+modules:
+  - |
+    module Test where
+
+    import GHC.Types (Char)
+
+    data Token = Keyword | Name | Blank
+
+    classify :: [Char] -> Token
+    classify "where" = Keyword
+    classify "" = Blank
+    classify _ = Name
+
+    data Pair = Pair [Char] [Char]
+
+    pairs :: [Pair]
+    pairs = [Pair "Tagged" "a", Pair "Other" "b", Pair "Tagged" "c"]
+
+    -- A string pattern inside a comprehension generator, as in Read instances.
+    matched :: [[Char]]
+    matched = [rest | Pair "Tagged" rest <- pairs]
+
+    result :: (Token, Token, Token, [[Char]])
+    result = (classify "where", classify "wher", classify "", matched)
+output: |
+  (Keyword,Name,Blank,(: (: 'a' []) (: (: 'c' []) [])))
+expression: |
+  result
+status: pass
+reason: a string literal pattern matches the characters of the scrutinee

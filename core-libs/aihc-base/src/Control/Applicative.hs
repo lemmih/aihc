@@ -11,13 +11,10 @@ module Control.Applicative
 where
 
 import Data.Monoid (Monoid (..))
-import Prelude (Applicative (..), Functor (..), Maybe (..), (++), (<$>))
+import Prelude (Applicative (..), Functor (..), Maybe (..), (++))
 
 liftA :: (Applicative f) => (a -> b) -> f a -> f b
 liftA = fmap
-
-liftA2 :: (Applicative f) => (a -> b -> c) -> f a -> f b -> f c
-liftA2 function left right = function <$> left <*> right
 
 newtype Const a b = Const {getConst :: a}
 

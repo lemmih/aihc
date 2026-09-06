@@ -5,6 +5,7 @@ module Data.Bifunctor
   )
 where
 
+import Control.Applicative (Const (..))
 import Data.Kind (Type)
 import Prelude (Either (..), id, (.))
 
@@ -26,3 +27,9 @@ instance Bifunctor (,) where
 instance Bifunctor Either where
   bimap onFirst _ (Left value) = Left (onFirst value)
   bimap _ onSecond (Right value) = Right (onSecond value)
+
+instance Bifunctor Const where
+  bimap onFirst _ (Const value) = Const (onFirst value)
+
+instance Bifunctor ((,,) x) where
+  bimap onFirst onSecond (extra, valueOne, valueTwo) = (extra, onFirst valueOne, onSecond valueTwo)

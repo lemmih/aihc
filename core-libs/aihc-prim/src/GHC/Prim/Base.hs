@@ -34,7 +34,9 @@ class (Functor f) => Applicative (f :: Type -> Type) where
   (<*>) :: f (a -> b) -> f a -> f b
   (*>) :: f a -> f b -> f b
   (<*) :: f a -> f b -> f a
+  liftA2 :: (a -> b -> c) -> f a -> f b -> f c
   first *> second = fmap (\_ value -> value) first <*> second
+  liftA2 function left right = fmap function left <*> right
   first <* second = fmap (\value _ -> value) first <*> second
 
 infixl 4 <*>, *>, <*
