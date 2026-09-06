@@ -564,7 +564,18 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
       dependencyInstanceProviders = Map.unions (map installedInstanceProviders loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
       baseIdentity = packageBaseIdentity resolvePackage dependencyExports
-      stockPackages = nub (primIdentity : baseIdentity : mapMaybe (packageIdentityNamed resolvePackage dependencyExports) stockClassPackageNames)
+      stockPackages =
+        nub
+          ( primIdentity
+              : baseIdentity
+              : [ identity
+                | identity <-
+                    packageId resolvePackage
+                      : [dependencyIdentity | ModuleKey (Package _ dependencyIdentity) _ <- Map.keys dependencyExports]
+                        <> map fst (Set.toList (Set.unions (Map.elems dependencyInstanceProviders))),
+                  any (`isStockPackageIdentity` identity) stockClassPackageNames
+                ]
+          )
   backendPhaseTimings <- newIORef mempty
   let taskContext =
         PackageTaskContext
@@ -665,8 +676,16 @@ packageIdentityNamed resolvePackage dependencyExports name
 
 -- | The core-library packages whose classes stock deriving accepts: the
 -- Haskell report classes, and the classes behind the deriving extensions.
+-- A class can come from a transitive dependency, so the identities are
+-- gathered from every package the instance closure knows.
 stockClassPackageNames :: [Text]
 stockClassPackageNames = ["aihc-prim", "aihc-base", "aihc-internal", "aihc-template-haskell"]
+
+-- | Whether a store identity such as @aihc-internal-9.1204.0-5e72@ names
+-- the given package.
+isStockPackageIdentity :: Text -> PackageId -> Bool
+isStockPackageIdentity name (PackageId identity) =
+  identity == name || (name <> "-") `T.isPrefixOf` identity
 
 packageStoreDirectory :: [InstalledPackage] -> FilePath -> IO FilePath
 packageStoreDirectory dependencies root = do
