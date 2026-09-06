@@ -16,7 +16,7 @@ import Aihc.Grin.Tidy (tidyGrinProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, unless, when, zipWithM)
+import Control.Monad (foldM, mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', runStateT)
 import Data.Map.Strict (Map)
@@ -1413,15 +1413,10 @@ constructorTag = stableGlobalName
 -- like the partial application of a function next to it. A nullary
 -- constructor is not one of these: its node is a complete value whose
 -- identity @casMutVar#@ and pointer equality can observe, so its name still
--- refers to the one object the backends give it. An unboxed tuple has no node
--- at all.
+-- refers to the one object the backends give it.
 partialConstructorArity :: LowerEnv -> Fc.Name -> Maybe Int
-partialConstructorArity env name
-  | "(#" `T.isPrefixOf` Fc.nameText name = Nothing
-  | otherwise =
-      case Map.lookup name (lowerConstructorArities env) of
-        Just arity | arity > 0 -> Just arity
-        _ -> Nothing
+partialConstructorArity env name =
+  mfilter (> 0) (Map.lookup name (lowerConstructorArities env))
 
 lookupGlobalName :: LowerEnv -> Fc.Name -> LowerM Text
 lookupGlobalName env name =
