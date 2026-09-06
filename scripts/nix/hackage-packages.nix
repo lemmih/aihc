@@ -30,6 +30,11 @@ let
       hash = "sha256-YGP+ZsyP6onvdd7QbEGQJLPFH2kSubQnVfO/YgpjcwY=";
     }
     {
+      name = "split";
+      version = "0.2.5.1";
+      hash = "sha256-cgX0dtppA/mKggnrVXQ/gpjCgnRlBQVEWFoaEPMRwrU=";
+    }
+    {
       name = "bytestring";
       version = "0.12.2.0";
       hash = "sha256-bBKEw1dWp24YUf+wrQYNqQ/eDqnM3m1ZtyFy6g1ZFq0=";
