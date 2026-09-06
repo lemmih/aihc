@@ -1114,9 +1114,6 @@ compileInstruction ctx (Instruction results operation) =
         CConvention -> canonicalizeRegister ty register
         AihcConvention -> []
 
-registerIndex :: Arm64Register -> Int
-registerIndex register = fromEnum register - fromEnum X0
-
 minimumSigned :: Type -> Integer
 minimumSigned ty = negate (2 ^ (typeBits ty - 1))
 
