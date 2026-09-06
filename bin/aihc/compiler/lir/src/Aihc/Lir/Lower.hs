@@ -411,7 +411,7 @@ lowerEnvironment options gcProgram =
 
 -- | The Lir symbol of one GRIN function.
 functionSymbol :: FunctionName -> Symbol
-functionSymbol (FunctionName name) = Symbol ("aihc_lir_function_" <> renderLinkedFunctionSymbol name)
+functionSymbol (FunctionName name) = Symbol ("aihc_f_" <> renderLinkedFunctionSymbol name)
 
 constructorInfoSymbol :: Text -> Int -> Symbol
 constructorInfoSymbol name remaining = Symbol (renderLinkedConstructorInfoSymbol name remaining)
@@ -685,7 +685,7 @@ internBitmap bytes
 lowerInfo :: RuntimeInfo -> LowerM ()
 lowerInfo info = do
   target <- targetM
-  let stub = Symbol (unSymbol (infoSymbol info) <> "_enter")
+  let stub = Symbol (unSymbol (infoSymbol info) <> "_e")
       fields = infoFields info
       word = wordField target
   bitmap <- internBitmap (infoBitmap info)
