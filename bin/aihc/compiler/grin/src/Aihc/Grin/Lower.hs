@@ -789,8 +789,8 @@ lowerArgument env expression continuation = do
 lowerLazy :: LowerEnv -> Text -> Fc.Expr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerLazy env0 hint expression0 continuation =
   case expression of
-    -- A name with no global of its own -- a partially applied constructor,
-    -- a private function -- falls through to the node shape below, which
+    -- A name with no global of its own — a partially applied constructor,
+    -- a private function — falls through to the node shape below, which
     -- builds the very node the global would have held.
     Fc.ExVar name
       | Just variables <- Map.lookup name (lowerLocals env) ->
