@@ -37,7 +37,7 @@ library
   default-extensions: NoGeneralizedNewtypeDeriving
   build-depends:
     aihc-internal ==9.1204.0,
-    base >=4.21 && <4.22
+    base >=4.21 && <4.22,
 
   default-language: GHC2021
 

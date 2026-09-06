@@ -4,7 +4,6 @@ version: 9.1204.0
 build-type: Simple
 license: NONE
 synopsis: API-compatible standin for ghc-internal
-
 description:
   The Template Haskell modules under GHC.Internal.TH carry the real
   implementation that aihc-template-haskell re-exports, as in GHC 9.12.

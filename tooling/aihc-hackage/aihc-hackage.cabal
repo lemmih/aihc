@@ -48,9 +48,9 @@ test-suite spec
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
     aihc-hackage,
-    containers,
     base >=4.16 && <5,
     bytestring,
+    containers,
     directory,
     filepath,
     hedgehog,
