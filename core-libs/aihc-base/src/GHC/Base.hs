@@ -5,6 +5,7 @@
 module GHC.Base
   ( module GHC.Prim.Base,
     module GHC.Prim,
+    ord,
     unsafeChr,
     build,
     augment,
@@ -21,11 +22,17 @@ module GHC.Base
   )
 where
 
-import GHC.Char (unsafeChr)
 import GHC.Int (Int (..))
 import GHC.Prim
 import GHC.Prim.Base
-import GHC.Types (Bool (..), Char, RuntimeRep, TYPE, Type, isTrue#)
+import GHC.Types (Bool (..), Char (..), RuntimeRep, TYPE, Type, isTrue#)
+
+-- | Convert a code point to a character without a range check.
+unsafeChr :: Int -> Char
+unsafeChr (I# value) = C# (chr# value)
+
+ord :: Char -> Int
+ord (C# value) = I# (ord# value)
 
 build :: (forall b. (a -> b -> b) -> b -> b) -> [a]
 build generate = generate (:) []

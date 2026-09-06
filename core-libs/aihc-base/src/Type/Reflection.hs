@@ -11,7 +11,7 @@ module Type.Reflection
     Module (..),
     eqTypeRep,
     typeOf,
-    typeRepArgs,
+    splitApps,
     typeRepTyCon,
     tyConName,
     rnfTypeRep,
@@ -44,8 +44,9 @@ class Typeable a where
 typeRepTyCon :: TypeRep a -> TyCon
 typeRepTyCon (TypeRep tyCon _) = tyCon
 
-typeRepArgs :: TypeRep a -> [SomeTypeRep]
-typeRepArgs (TypeRep _ arguments) = arguments
+-- | The type constructor of a type and its arguments.
+splitApps :: TypeRep a -> (TyCon, [SomeTypeRep])
+splitApps (TypeRep tyCon arguments) = (tyCon, arguments)
 
 tyConName :: TyCon -> String
 tyConName (TyCon name) = name

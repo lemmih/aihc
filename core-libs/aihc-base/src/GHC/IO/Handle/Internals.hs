@@ -38,6 +38,7 @@ module GHC.IO.Handle.Internals
     ioe_finalizedHandle,
     ioe_bufsiz,
     hClose_help,
+    hLookAhead_,
     HandleFinalizer,
     handleFinalizer,
     debugIO,
@@ -67,12 +68,14 @@ import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.IORef (IORef, newIORef, readIORef, writeIORef)
 import GHC.Int (Int)
 import GHC.Internal.Classes (Eq (..), Ord (..))
+import GHC.Internal.IO.Handle.Read (fillIfEmpty, readUtf8Char)
 import GHC.Internal.IO.Types hiding (flushWriteBuffer)
 import GHC.Internal.IO.Types qualified as Buffered (emptyWriteBuffer, flushWriteBuffer, newBuffer)
 import GHC.MVar (MVar, newMVar, putMVar, takeMVar)
 import GHC.Num (Num (..))
 import GHC.Real (fromIntegral)
 import GHC.Show (Show (..))
+import GHC.Types (Char)
 import GHC.Word (Word8)
 
 -- ---------------------------------------------------------------------
@@ -466,3 +469,19 @@ debugIO _ = return ()
 
 traceIO :: String -> IO ()
 traceIO _ = return ()
+
+-- | The next character of a readable handle, left in the buffer.
+hLookAhead_ :: Handle__ -> IO Char
+hLookAhead_ handle_@Handle__ {haByteBuffer} = do
+  flushCharReadBuffer handle_
+  filled <- fillIfEmpty handle_
+  case filled of
+    False -> ioe_EOF
+    True -> do
+      buffer <- readIORef haByteBuffer
+      result <- readUtf8Char handle_
+      case result of
+        Nothing -> ioe_EOF
+        Just character -> do
+          writeIORef haByteBuffer buffer
+          return character

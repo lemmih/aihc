@@ -95,7 +95,7 @@ where
 
 import GHC.IO.Encoding (TextEncoding, char8, latin1, mkTextEncoding, utf8, utf8_bom)
 import GHC.IO.Handle
-import GHC.IO.Handle.Text (hGetBuf, hGetBufNonBlocking, hGetBufSome, hGetChar, hGetContents, hGetContents', hGetLine, hLookAhead, hPutBuf, hPutBufNonBlocking, hPutChar, hPutStr, hPutStrLn, hWaitForInput)
+import GHC.IO.Handle.Text (hGetBuf, hGetBufNonBlocking, hGetBufSome, hGetChar, hGetContents, hGetContents', hGetLine, hPutBuf, hPutBufNonBlocking, hPutChar, hPutStr, hPutStrLn, hWaitForInput)
 import GHC.IO.IOMode (IOMode (..))
 import GHC.IO.StdHandles (openBinaryFile, openFile, stderr, stdin, stdout, withBinaryFile, withFile)
 import Prelude (Bool (..), Char, FilePath, IO, Read (..), Show (..), String, error, pure, read, return, (>>=))

@@ -10,9 +10,8 @@ module GHC.IO.Console
 where
 
 import GHC.Base (Monad (return))
-import GHC.Event (awaitIO)
 import GHC.IO (IO)
-import GHC.IO.Runtime (IOHandle, raiseIOErrorRaw, stdoutHandle, submitWrite, takeResult, writeMemoryByte)
+import GHC.IO.Runtime (IOHandle, awaitIO, raiseIOErrorRaw, stdoutHandle, submitWrite, takeResult, writeMemoryByte)
 import GHC.Int (Int (..))
 import GHC.Prim
   ( Addr#,

@@ -1646,7 +1646,7 @@ addReferencedFacts complete interface =
     callStackSupportTerms =
       [ (key, scheme)
       | (package', moduleName') <- Set.toList callStackModules,
-        identifier <- ["pushCallSite", "emptyCallStack"],
+        identifier <- ["pushCallStack", "emptyCallStack"],
         let key = TcTermGlobal package' moduleName' identifier,
         key `Map.notMember` tcInterfaceTermMap interface,
         Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]

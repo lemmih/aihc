@@ -18,6 +18,7 @@ module GHC.Stack
   )
 where
 
+import GHC.Internal.Stack (popCallStack, prettyCallStack, prettySrcLoc)
 import GHC.Stack.Types
   ( CallStack (..),
     HasCallStack,
@@ -26,9 +27,6 @@ import GHC.Stack.Types
     freezeCallStack,
     fromCallSiteList,
     getCallStack,
-    popCallStack,
-    prettyCallStack,
-    prettySrcLoc,
     pushCallStack,
   )
 

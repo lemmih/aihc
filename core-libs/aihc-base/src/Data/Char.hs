@@ -34,7 +34,8 @@ module Data.Char
   )
 where
 
-import GHC.Char (chr, ord)
+import GHC.Base (ord)
+import GHC.Char (chr)
 import GHC.Show (intToDigit)
 import GHC.Unicode
 import Prelude (Bool (..), Char, Int, Num (..), Ord (..), errorWithoutStackTrace, (&&))
@@ -49,3 +50,37 @@ digitValue codePoint =
     (_, True, _) -> codePoint - 87
     (_, _, True) -> codePoint - 55
     _ -> errorWithoutStackTrace "Char.digitToInt: not a digit"
+
+isLetter :: Char -> Bool
+isLetter value =
+  case generalCategory value of
+    UppercaseLetter -> True
+    LowercaseLetter -> True
+    TitlecaseLetter -> True
+    ModifierLetter -> True
+    OtherLetter -> True
+    _ -> False
+
+isMark :: Char -> Bool
+isMark value =
+  case generalCategory value of
+    NonSpacingMark -> True
+    SpacingCombiningMark -> True
+    EnclosingMark -> True
+    _ -> False
+
+isNumber :: Char -> Bool
+isNumber value =
+  case generalCategory value of
+    DecimalNumber -> True
+    LetterNumber -> True
+    OtherNumber -> True
+    _ -> False
+
+isSeparator :: Char -> Bool
+isSeparator value =
+  case generalCategory value of
+    Space -> True
+    LineSeparator -> True
+    ParagraphSeparator -> True
+    _ -> False
