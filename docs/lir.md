@@ -589,8 +589,13 @@ rather than as a change of some object bytes. Run the suite with
   block. A tail call restores the stack of the caller, copies the outgoing
   block below it, and branches. The stack does not grow. Results come back in
   `x0` to `x7`.
-- The `c` convention uses the platform convention for at most eight integer
-  or float arguments and one result.
+- The `c` convention is the procedure call standard with at most eight
+  integer and eight float arguments and one result. The two classes have
+  separate registers and separate counters, so a parameter takes the register
+  at its position within its own class rather than among all of them. A float
+  travels as its bit pattern in the frame and moves through a scratch
+  register at the boundary, which leaves the argument register of the same
+  number free for an integer of its own.
 - A narrow integer is canonical: an `iN` value is zero-extended to 64 bits.
   Signed operations sign-extend the operands first.
 - `clz` and `ctz` are `clz` and `rbit` followed by `clz`. AArch64 has no

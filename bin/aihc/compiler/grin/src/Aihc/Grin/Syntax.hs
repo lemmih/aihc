@@ -508,6 +508,8 @@ data GrinForeignType
   | GrinForeignWord16
   | GrinForeignWord32
   | GrinForeignWord64
+  | GrinForeignFloat
+  | GrinForeignDouble
   | GrinForeignAddr
   | -- | The result of a C procedure. It binds no GRIN value.
     GrinForeignVoid
@@ -534,5 +536,7 @@ foreignTypeRuntimeRep foreignType =
     GrinForeignWord16 -> Word16Rep
     GrinForeignWord32 -> Word32Rep
     GrinForeignWord64 -> Word64Rep
+    GrinForeignFloat -> FloatRep
+    GrinForeignDouble -> DoubleRep
     GrinForeignAddr -> AddrRep
     GrinForeignVoid -> TupleRep []

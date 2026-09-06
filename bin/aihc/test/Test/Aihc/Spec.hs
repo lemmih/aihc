@@ -3,7 +3,7 @@
 module Test.Aihc.Spec (tests) where
 
 import Aihc.Cli.BuildExe (LinkBundle (..), linkBundleManifestPath, runBuildExe, runLinkExe)
-import Aihc.Cli.Install (InstallResult (..), install, parsePackageTarget)
+import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcSemispace), InstallOptions (..), LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.Store (installedEntryArchivePath)
@@ -13,8 +13,8 @@ import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (tcInterfaceTerms, tcTermKeyIdentifier)
 import Control.Concurrent (getNumCapabilities, setNumCapabilities)
-import Control.Exception (IOException, bracket, finally, try)
-import Control.Monad (forM, forM_)
+import Control.Exception (IOException, bracket, try)
+import Control.Monad (forM, forM_, void)
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -23,7 +23,6 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import GHC.IO.Handle (hDuplicate, hDuplicateTo)
 import System.Directory
   ( createDirectory,
     createDirectoryIfMissing,
@@ -40,8 +39,7 @@ import System.Directory
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (takeDirectory, takeFileName, (</>))
-import System.IO (IOMode (WriteMode), hClose, hFlush, openTempFile, withFile)
-import System.IO qualified as IO
+import System.IO (IOMode (WriteMode), hClose, openTempFile, withFile)
 import System.IO.Error (ioeGetErrorString)
 import System.Process (readProcess, readProcessWithExitCode)
 import Test.Aihc.SeedStore
@@ -373,11 +371,9 @@ test_installTimingOutput getStore = do
     timingStore <- sandboxStore sandbox "timings"
     let baseOptions = InstallOptions fixtureRoot Nothing False False False False True False False AppleArm64
     verboseOutput <-
-      captureStdout
-        (install baseOptions {installStoreRoot = Just verboseStore, installVerbose = True})
+      captureInstallOutput baseOptions {installStoreRoot = Just verboseStore, installVerbose = True}
     timingOutput <-
-      captureStdout
-        (install baseOptions {installStoreRoot = Just timingStore, installPrintTimings = True})
+      captureInstallOutput baseOptions {installStoreRoot = Just timingStore, installPrintTimings = True}
     assertBool "verbose output contains an installation step" ("Read Cabal package:" `isInfixOf` verboseOutput)
     assertBool "verbose output does not contain timings" (not ("Compile time:" `isInfixOf` verboseOutput))
     assertBool
@@ -399,21 +395,19 @@ hasStageSpan :: String -> String -> Bool
 hasStageSpan label output =
   any (\line -> label `isInfixOf` line && ", spanning " `isInfixOf` line) (lines output)
 
-captureStdout :: IO value -> IO String
-captureStdout action =
-  withTempDir "aihc-capture-stdout" $ \root -> do
-    let outputPath = root </> "stdout"
-    bracket (hDuplicate IO.stdout) hClose $ \savedStdout -> do
-      withFile outputPath WriteMode $ \outputHandle -> do
-        hFlush IO.stdout
-        hDuplicateTo outputHandle IO.stdout
-        _ <-
-          action
-            `finally` do
-              hFlush IO.stdout
-              hDuplicateTo savedStdout IO.stdout
-        pure ()
-      T.unpack <$> TIO.readFile outputPath
+-- | Run @install@ with its messages written to a file and return them.
+--
+-- The messages go through 'installWith' and not through a redirect of the
+-- process stdout. The tests run in parallel, and the test runner writes its
+-- progress to stdout while this test runs. On a terminal that progress
+-- contains escape sequences, so a redirect would capture them at random.
+captureInstallOutput :: InstallOptions -> IO String
+captureInstallOutput options =
+  withTempDir "aihc-capture-install" $ \root -> do
+    let outputPath = root </> "output"
+    withFile outputPath WriteMode $ \outputHandle ->
+      void (installWith outputHandle options)
+    T.unpack <$> TIO.readFile outputPath
 
 test_installResolveError :: IO SeedStore -> Assertion
 test_installResolveError getStore = do

@@ -594,7 +594,10 @@ linkExecutable Wasm32Wasip3 output objects archives entry runtime =
     runTool "wasm-tools" ["validate", output]
 linkExecutable target output objects archives entry runtime = do
   (compiler, arguments) <- backendCompiler target
-  runTool compiler (arguments <> objects <> archives <> [entry, runtime, "-o", output])
+  -- The runtime takes the functions of the Floating class from libm. Recent
+  -- platforms carry it inside libc, and -lm is how the older ones that keep
+  -- it apart still resolve them.
+  runTool compiler (arguments <> objects <> archives <> [entry, runtime, "-lm", "-o", output])
 
 -- | Encode the linked core module as a component. The component model has no
 -- way to describe a WASI preview 1 import, so a runtime unit that reaches a

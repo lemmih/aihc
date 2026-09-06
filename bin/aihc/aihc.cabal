@@ -328,7 +328,6 @@ test-suite spec
     filepath,
     haskeline,
     hedgehog,
-    libffi >=0.2 && <0.3,
     prettyprinter,
     process,
     tasty,
@@ -337,7 +336,6 @@ test-suite spec
     temporary,
     text,
     time,
-    unix,
     yaml,
 
 test-suite dev-spec

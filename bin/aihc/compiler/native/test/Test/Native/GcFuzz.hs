@@ -1026,7 +1026,7 @@ compileDriver = do
                 extra
                   <> base
                   <> concatMap (\include -> ["-I", include]) (runtimeBuildIncludeDirectories build)
-                  <> [source, runtimeBuildArchive build, "-o", executable]
+                  <> [source, runtimeBuildArchive build, "-lm", "-o", executable]
           readProcessWithExitCode compiler arguments ""
         pure $ case attempt of
           Left err -> Left (show err)
