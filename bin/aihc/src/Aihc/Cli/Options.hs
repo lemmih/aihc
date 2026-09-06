@@ -8,7 +8,9 @@ module Aihc.Cli.Options
     PrepareRuntimeOptions (..),
     parseCommandIO,
     parseCommandPure,
+    parseGarbageCollector,
     parserInfo,
+    renderGarbageCollector,
   )
 where
 
@@ -43,6 +45,7 @@ data BuildExeOptions = BuildExeOptions
 -- | Link an executable from a bundle that @build-exe --no-link@ wrote.
 data LinkExeOptions = LinkExeOptions
   { linkExeBundle :: !FilePath,
+    linkExeStoreRoot :: !(Maybe FilePath),
     linkExeOutputFile :: !FilePath
   }
   deriving (Eq, Show)
@@ -151,7 +154,7 @@ buildExeOptionsParser =
     <*> lintOption
     <*> OA.switch
       ( OA.long "no-link"
-          <> OA.help "Compile only: write the objects, archives, and a link.json manifest to the output directory instead of linking"
+          <> OA.help "Compile only: write the objects, archives, and a link.json manifest to the output directory instead of linking. The entry and runtime archives are left to link-exe."
       )
     <*> OA.optional
       ( OA.strOption
@@ -169,6 +172,7 @@ linkExeOptionsParser =
       ( OA.metavar "BUNDLE"
           <> OA.help "Directory holding the link.json manifest written by build-exe --no-link"
       )
+    <*> storeRootOption "Take the entry and runtime archives from this store, preparing them when missing"
     <*> OA.strOption
       ( OA.long "output"
           <> OA.short 'o'
@@ -203,6 +207,11 @@ parseGarbageCollector value =
   case value of
     "semispace" -> Right GcSemispace
     _ -> Left "expected semispace"
+
+renderGarbageCollector :: GarbageCollector -> String
+renderGarbageCollector garbageCollector =
+  case garbageCollector of
+    GcSemispace -> "semispace"
 
 prepareRuntimeOptionsParser :: OA.Parser PrepareRuntimeOptions
 prepareRuntimeOptionsParser =

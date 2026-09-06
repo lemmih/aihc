@@ -11,8 +11,10 @@
 # example holding status, link.log, and the actual and diffed outputs. The
 # exit status is non-zero when any example fails.
 #
-# The link goes through the C driver of the target rather than `aihc
-# link-exe`, so the host needs clang and jq but no compiler build.
+# AIHC names the compiler executable (default: aihc). It prepares the entry
+# and runtime archives for the target in the store named by AIHC_STORE
+# (default: a directory under RESULTS), so the runtime is compiled on this
+# host against its own libc headers.
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
@@ -21,16 +23,10 @@ if [[ $# -ne 2 ]]; then
 fi
 bundles=$1
 results=$2
+aihc=${AIHC:-aihc}
+store=${AIHC_STORE:-$results/store}
 target=$(<"$bundles/target")
-
-case "$target" in
-apple-arm64) triple=arm64-apple-darwin ;;
-linux-amd64) triple=x86_64-unknown-linux-gnu ;;
-*)
-	echo "unsupported bundle target: $target" >&2
-	exit 2
-	;;
-esac
+echo "linking bundles for $target with $aihc"
 
 # Run PROGRAM with ARGV0 and ARGS under a wall-clock limit of SECONDS. The
 # alarm survives exec, so the program dies with SIGALRM (status 142) when the
@@ -62,11 +58,7 @@ for bundle in "$bundles"/*/; do
 	# The program is named after the example because system-environment
 	# checks getProgName.
 	executable="$result/$name"
-	inputs=()
-	while IFS= read -r input; do
-		inputs+=("$link/$input")
-	done < <(jq -r '.objects[], .archives[], .entry, .runtime' "$link/link.json")
-	if ! clang "--target=$triple" "${inputs[@]}" -o "$executable" >"$result/link.log" 2>&1; then
+	if ! "$aihc" link-exe "$link" --store "$store" --output "$executable" >"$result/link.log" 2>&1; then
 		echo link-failed >"$result/status"
 		echo "$name: link failed"
 		failed=1

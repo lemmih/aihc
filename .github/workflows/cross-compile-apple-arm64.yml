@@ -97,8 +97,38 @@ jobs:
           mkdir cross-examples
           tar -C cross-examples -xf cross-examples.tar
 
+      # link-exe prepares the runtime on this host, so the compiler is built
+      # here too. Cabal rather than Nix: the Haskell dependency set is not in
+      # any cache for macOS, and the Cabal store restores from the Actions
+      # cache in seconds.
+      - name: Setup Haskell
+        id: setup-haskell
+        uses: haskell-actions/setup@v2.12.0
+        with:
+          ghc-version: 9.12.4
+          cabal-version: 3.16.0.0
+
+      - name: Cache Cabal store
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ steps.setup-haskell.outputs.cabal-store }}
+            dist-newstyle
+          key: cross-compile-${{ env.TARGET }}-cabal-${{ runner.os }}-${{ hashFiles('cabal.project', '**/*.cabal') }}
+          restore-keys: |
+            cross-compile-${{ env.TARGET }}-cabal-${{ runner.os }}-
+
+      - name: Build the compiler
+        run: cabal build -v1 exe:aihc
+
       - name: Link and run the examples
-        run: scripts/link-and-run-example-bundles.sh cross-examples results
+        env:
+          # The runtime C sources come from the Cabal data directory.
+          aihc_datadir: ${{ github.workspace }}/bin/aihc
+        run: |
+          AIHC="$(cabal list-bin exe:aihc)"
+          export AIHC
+          scripts/link-and-run-example-bundles.sh cross-examples results
 
       - name: Upload the results
         if: always()

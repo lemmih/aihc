@@ -203,29 +203,35 @@ test_buildExeSourceDirectories getStore =
     assertEqual "invalid heap size stdout" "" invalidStdout
     assertEqual "invalid heap size diagnostic" "aihc runtime: invalid size for RTS option -M\n" invalidStderr
 
--- | @--no-link@ leaves no executable behind. The bundle it writes instead is
--- self-contained: linking it from another directory, with the store gone,
--- still produces the program.
+-- | @--no-link@ leaves no executable behind. The bundle it writes holds the
+-- compiled objects and package archives but no runtime: linking it against
+-- an empty store prepares the entry and runtime archives on the linking
+-- host, which is what a cross-compiled bundle needs.
 test_buildExeLinkBundle :: IO SeedStore -> Assertion
 test_buildExeLinkBundle getStore =
   withBuildExeSandbox getStore "aihc-link-bundle" $ \sandbox _fixtureRoot storeRoot options -> do
     let root = sandboxRoot sandbox
         bundle = root </> "bundle"
+        linkStore = root </> "link-store"
         output = root </> "linked" </> "program"
     withCurrentDirectory root (runBuildExe options {buildExeNoLink = True, buildExeOutputFile = Just bundle})
     assertFileDoesNotExist (root </> "program")
+    assertFileDoesNotExist (installedEntryArchivePath storeRoot (buildExeTarget options))
     assertFileExists (linkBundleManifestPath bundle)
     decoded <- Aeson.eitherDecode <$> BL.readFile (linkBundleManifestPath bundle)
     manifest <- either assertFailure pure decoded
     assertEqual "bundle target" (buildExeTarget options) (linkBundleTarget manifest)
+    assertEqual "bundle garbage collector" GcSemispace (linkBundleGarbageCollector manifest)
     assertBool "bundle lists the main object" (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest))
     assertBool "bundle lists the base archive" (any ("libaihc-base.a" `isSuffixOf`) (linkBundleArchives manifest))
-    forM_ (linkBundleObjects manifest <> linkBundleArchives manifest <> [linkBundleEntry manifest, linkBundleRuntime manifest]) $ \input -> do
+    assertBool "bundle holds no runtime archive" (not (any ("runtime.a" `isSuffixOf`) (linkBundleArchives manifest)))
+    forM_ (linkBundleObjects manifest <> linkBundleArchives manifest) $ \input -> do
       assertBool ("bundle input is relative: " <> input) ("inputs/" `isPrefixOf` input)
       assertFileExists (bundle </> input)
     removeDirectoryRecursive storeRoot
     withCurrentDirectory root $
-      runLinkExe LinkExeOptions {linkExeBundle = bundle, linkExeOutputFile = output}
+      runLinkExe LinkExeOptions {linkExeBundle = bundle, linkExeStoreRoot = Just linkStore, linkExeOutputFile = output}
+    assertFileExists (installedEntryArchivePath linkStore (buildExeTarget options))
     (status, stdout, stderr) <- readProcessWithExitCode output [] ""
     assertEqual "linked executable exit status" ExitSuccess status
     assertEqual "linked executable stdout" "build-exe works\n" stdout

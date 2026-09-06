@@ -55,11 +55,12 @@ source dependencies.
 ## Linking on another host
 
 `aihc build-exe --no-link` stops before the link and writes a bundle
-directory instead of an executable. The bundle holds a copy of every link
-input, so it is complete on its own: the module objects, the C objects and
-archives of the installed packages, and the entry and runtime archives. A
-`link.json` manifest lists them in link order with paths relative to the
-bundle.
+directory instead of an executable. The bundle holds a copy of the module
+objects and of the C objects and archives of the installed packages, and a
+`link.json` manifest that lists them in link order with paths relative to the
+bundle, together with the target and garbage collector. The entry and runtime
+archives are not part of it: the runtime is C compiled against the libc
+headers of the target, which a cross-compiling host does not have.
 
 ```console
 aihc build-exe Main.hs \
@@ -70,15 +71,15 @@ aihc build-exe Main.hs \
   --output program-bundle
 ```
 
-`aihc link-exe` finishes the bundle on a host that has the linker for the
-target, such as a Mac for `apple-arm64` objects compiled on Linux:
+`aihc link-exe` finishes the bundle on a host of the target, such as a Mac for
+`apple-arm64` objects compiled on Linux. It prepares the entry and runtime
+archives in its store when they are missing, then links:
 
 ```console
-aihc link-exe program-bundle --output program
+aihc link-exe program-bundle --store "$AIHC_STORE" --output program
 ```
 
-The manifest is plain JSON, so a host without the compiler can also run the
-link through the C driver of the target directly. The weekly cross-compilation
-workflow does this: `nix build .#cross-examples-apple-arm64` compiles every
-example to a bundle on Linux, and `scripts/link-and-run-example-bundles.sh`
-links and runs the bundles on macOS.
+The weekly cross-compilation workflow does this for the examples:
+`nix build .#cross-examples-apple-arm64` compiles every example to a bundle
+on Linux, and `scripts/link-and-run-example-bundles.sh` links and runs the
+bundles on macOS.

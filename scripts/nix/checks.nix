@@ -486,30 +486,17 @@
   # aihc-base takes minutes and runs single-threaded, so a combined derivation
   # serialised work that has no dependency between targets. Everything a target
   # writes is under a path named after it, so the outputs never overlap.
-  exampleToolchainFor = exampleToolchainWith [];
-
-  # The nixpkgs clang wrapper adds Linux-only arguments such as
-  # -fstack-clash-protection and --gcc-toolchain, and clang rejects unused
-  # arguments as errors under -Werror when the target is Darwin. This shim
-  # keeps the wrapper, and with it the libc headers, but drops that check.
-  # Only the cross-compilation derivations put it on PATH.
-  crossClang = pkgs.writeShellScriptBin "clang" ''
-    exec ${pkgs.llvmPackages.clang}/bin/clang -Wno-unused-command-line-argument "$@"
-  '';
-
-  exampleToolchainWith = extraInputs: target:
+  exampleToolchainFor = target:
     pkgs.runCommand "aihc-example-toolchain-${target}" {
       src = sources.coreLibrariesSrc pkgs;
-      nativeBuildInputs =
-        extraInputs
-        ++ [
-          pkgs.llvmPackages.bintools
-          pkgs.llvmPackages.clang
-          pkgs.llvmPackages.clang-unwrapped
-          pkgs.wasm-tools
-          pkgs.wit-bindgen
-          wasmLd
-        ];
+      nativeBuildInputs = [
+        pkgs.llvmPackages.bintools
+        pkgs.llvmPackages.clang
+        pkgs.llvmPackages.clang-unwrapped
+        pkgs.wasm-tools
+        pkgs.wit-bindgen
+        wasmLd
+      ];
     } ''
       cd "$src"
       export GHCRTS=-N1
@@ -867,14 +854,40 @@
   # intentionally recompiles the merged dependency bodies.
   wasip3ExampleTest = assert exampleNames != [];
     pkgs.linkFarm "aihc-wasip3-example-test" wasip3ExampleCases;
+  # The core libraries compiled for another target, without the runtime.
+  # The runtime is C compiled against the libc headers of the target, which
+  # this host does not have, so `link-exe` prepares it on the host that
+  # links. The Haskell objects only pass through the assembler.
+  crossToolchainFor = target:
+    pkgs.runCommand "aihc-cross-toolchain-${target}" {
+      src = sources.coreLibrariesSrc pkgs;
+      nativeBuildInputs = [
+        pkgs.llvmPackages.bintools
+        pkgs.llvmPackages.clang
+      ];
+    } ''
+      cd "$src"
+      export GHCRTS=-N1
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      mkdir -p "$out"
+      ${aihcExe} install core-libs/aihc-base --store "$out" --lint --target ${target}
+      test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
+    '';
+
+  # Examples whose dependencies carry C sources. Those compile against the
+  # libc headers of the target, which a cross-compiling host does not have.
+  crossDisabledExampleNames = ["bytestring"];
+  crossExampleNames = builtins.filter (name: !builtins.elem name crossDisabledExampleNames) exampleNames;
+
   # Compile every example for one target without linking. Each example gets a
-  # relocatable bundle that `aihc link-exe`, or the C driver for the target,
-  # turns into the executable on a host that has the linker but not the
-  # compiler. The weekly cross-compilation workflow builds this on Linux and
-  # links the bundles on macOS. A failing example records its status and log
-  # instead of failing the derivation, so the consumer reports every example.
+  # relocatable bundle that `aihc link-exe` turns into the executable on a
+  # host of the target. The weekly cross-compilation workflow builds this on
+  # Linux and links the bundles on macOS. A failing example records its status
+  # and log instead of failing the derivation, so the consumer reports every
+  # example.
   crossExampleBundlesFor = target: let
-    toolchain = exampleToolchainWith [crossClang] target;
+    toolchain = crossToolchainFor target;
     renderExample = exampleName: let
       extraNames = exampleExtraHackagePackages.${exampleName} or [];
       packageFlags =
@@ -910,7 +923,7 @@
   in
     pkgs.runCommand "aihc-cross-examples-${target}" {
       src = examplesSource;
-      nativeBuildInputs = [crossClang] ++ exampleTestInputs;
+      nativeBuildInputs = exampleTestInputs;
     } ''
       cd "$src"
       export GHCRTS=-N1
@@ -918,10 +931,10 @@
       export LC_ALL=C.UTF-8
       mkdir -p "$out"
       echo ${target} > "$out/target"
-      ${pkgs.lib.concatMapStrings renderExample exampleNames}
-      # Every bundle carries its own copy of the library, entry, and runtime
-      # archives. Hard-link identical inputs so an archive of the output
-      # stays close to the size of one bundle.
+      ${pkgs.lib.concatMapStrings renderExample crossExampleNames}
+      # Every bundle carries its own copy of the library archives. Hard-link
+      # identical inputs so an archive of the output stays close to the size
+      # of one bundle.
       declare -A seen=()
       while IFS= read -r -d "" input; do
         digest=$(sha256sum "$input" | cut -d ' ' -f 1)

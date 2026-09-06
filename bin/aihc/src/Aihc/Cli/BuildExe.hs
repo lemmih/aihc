@@ -14,7 +14,7 @@ import Aihc.Cli.Install
     ModuleCompileResult (..),
     compileModules,
   )
-import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector, LinkExeOptions (..))
+import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector, LinkExeOptions (..), parseGarbageCollector, renderGarbageCollector)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest)
 import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
@@ -117,8 +117,6 @@ runBuildExe options = do
   sources <- discoverSources sourceDirectories moduleIndex (buildExeSourceFile options)
   validateInstalledDependencies moduleIndex sources
   sourceFiles <- materializeSourceFiles buildRoot selected sources
-  runtime <- ensureRuntime storeRoot target (buildExeGarbageCollector options)
-  entry <- ensureEntry storeRoot target
   let compileConfig =
         ModuleCompileConfig
           { compileKeepGrin = False,
@@ -144,20 +142,24 @@ runBuildExe options = do
   cObjects <- fmap concat (mapM packageCObjects orderedPackages)
   let objects = compileObjectPaths compiled <> cObjects
       archives = map packageArchive orderedPackages
+      garbageCollector = buildExeGarbageCollector options
   if buildExeNoLink options
-    then writeLinkBundle target output objects archives entry runtime
-    else linkExecutable target output objects archives entry runtime
+    then writeLinkBundle target garbageCollector output objects archives
+    else do
+      runtime <- ensureRuntime storeRoot target garbageCollector
+      entry <- ensureEntry storeRoot target
+      linkExecutable target output objects archives entry runtime
 
--- | Everything the final link of an executable consumes, with paths relative
--- to the bundle directory. The bundle is self-contained, so a machine that
--- cannot run the compiler, or that lacks the linker for the target the
--- compiler ran on, can still produce the executable with @link-exe@.
+-- | The compiled part of an executable, with paths relative to the bundle
+-- directory: the module objects and the archives of the installed packages.
+-- The entry and runtime archives are not in it. The runtime is C compiled
+-- against the libc headers of the target, which a cross-compiling host does
+-- not have, so @link-exe@ prepares both on the host that links.
 data LinkBundle = LinkBundle
   { linkBundleTarget :: !NativeTarget,
+    linkBundleGarbageCollector :: !GarbageCollector,
     linkBundleObjects :: ![FilePath],
-    linkBundleArchives :: ![FilePath],
-    linkBundleEntry :: !FilePath,
-    linkBundleRuntime :: !FilePath
+    linkBundleArchives :: ![FilePath]
   }
   deriving (Eq, Show)
 
@@ -166,23 +168,21 @@ instance Aeson.ToJSON LinkBundle where
     Aeson.object
       [ "schemaVersion" .= (1 :: Int),
         "target" .= renderNativeTarget (linkBundleTarget bundle),
+        "gc" .= renderGarbageCollector (linkBundleGarbageCollector bundle),
         "objects" .= linkBundleObjects bundle,
-        "archives" .= linkBundleArchives bundle,
-        "entry" .= linkBundleEntry bundle,
-        "runtime" .= linkBundleRuntime bundle
+        "archives" .= linkBundleArchives bundle
       ]
 
 instance Aeson.FromJSON LinkBundle where
   parseJSON = Aeson.withObject "LinkBundle" $ \object -> do
     schemaVersion <- object .: "schemaVersion"
     case schemaVersion :: Int of
-      1 -> do
-        target <- object .: "target" >>= either fail pure . parseNativeTarget
-        LinkBundle target
-          <$> object .: "objects"
+      1 ->
+        LinkBundle
+          <$> (object .: "target" >>= either fail pure . parseNativeTarget)
+          <*> (object .: "gc" >>= either fail pure . parseGarbageCollector)
+          <*> object .: "objects"
           <*> object .: "archives"
-          <*> object .: "entry"
-          <*> object .: "runtime"
       _ -> fail "unsupported link bundle schema"
 
 linkBundleManifestPath :: FilePath -> FilePath
@@ -191,28 +191,23 @@ linkBundleManifestPath bundle = bundle </> "link.json"
 -- | Copy the link inputs into the bundle directory and describe them in the
 -- manifest. Each copy carries its position in the link order as a prefix, so
 -- inputs from different packages that share a file name never collide.
-writeLinkBundle :: NativeTarget -> FilePath -> [FilePath] -> [FilePath] -> FilePath -> FilePath -> IO ()
-writeLinkBundle target bundle objects archives entry runtime = do
+writeLinkBundle :: NativeTarget -> GarbageCollector -> FilePath -> [FilePath] -> [FilePath] -> IO ()
+writeLinkBundle target garbageCollector bundle objects archives = do
   let inputs = bundle </> "inputs"
   createDirectoryIfMissing True inputs
-  copied <- forM (zip [0 :: Int ..] (objects <> archives <> [entry, runtime])) $ \(index, source) -> do
+  copied <- forM (zip [0 :: Int ..] (objects <> archives)) $ \(index, source) -> do
     let name = padIndex index <> "-" <> takeFileName source
     copyFile source (inputs </> name)
     pure ("inputs" </> name)
-  let (copiedObjects, rest) = splitAt (length objects) copied
-      (copiedArchives, copiedEntry, copiedRuntime) =
-        case splitAt (length archives) rest of
-          (values, [entryCopy, runtimeCopy]) -> (values, entryCopy, runtimeCopy)
-          _ -> error "link bundle copy count mismatch"
+  let (copiedObjects, copiedArchives) = splitAt (length objects) copied
   BL.writeFile
     (linkBundleManifestPath bundle)
     ( Aeson.encode
         LinkBundle
           { linkBundleTarget = target,
+            linkBundleGarbageCollector = garbageCollector,
             linkBundleObjects = copiedObjects,
-            linkBundleArchives = copiedArchives,
-            linkBundleEntry = copiedEntry,
-            linkBundleRuntime = copiedRuntime
+            linkBundleArchives = copiedArchives
           }
     )
   where
@@ -220,22 +215,25 @@ writeLinkBundle target bundle objects archives entry runtime = do
 
 runLinkExe :: LinkExeOptions -> IO ()
 runLinkExe options = do
+  storeRoot <- maybe defaultStoreRoot pure (linkExeStoreRoot options)
   let bundle = linkExeBundle options
       manifest = linkBundleManifestPath bundle
       output = linkExeOutputFile options
   exists <- doesFileExist manifest
   unless exists (ioError (userError ("No link bundle manifest at " <> manifest)))
   decoded <- Aeson.eitherDecode <$> BL.readFile manifest
-  LinkBundle {linkBundleTarget, linkBundleObjects, linkBundleArchives, linkBundleEntry, linkBundleRuntime} <-
+  LinkBundle {linkBundleTarget, linkBundleGarbageCollector, linkBundleObjects, linkBundleArchives} <-
     either (ioError . userError . (("Invalid link bundle manifest " <> manifest <> ": ") <>)) pure decoded
+  runtime <- ensureRuntime storeRoot linkBundleTarget linkBundleGarbageCollector
+  entry <- ensureEntry storeRoot linkBundleTarget
   createDirectoryIfMissing True (takeDirectory output)
   linkExecutable
     linkBundleTarget
     output
     (map (bundle </>) linkBundleObjects)
     (map (bundle </>) linkBundleArchives)
-    (bundle </> linkBundleEntry)
-    (bundle </> linkBundleRuntime)
+    entry
+    runtime
 
 -- | Put a package before the packages it depends on.
 -- GNU ld searches each archive once, so a later archive cannot satisfy an
