@@ -35,13 +35,13 @@
       inherit (haskell) mkHsPkgs;
     };
   in {
-    packages = core.forAllSystems mkPackages;
+    packages = core.forAllSystems (pkgs: mkPackages pkgs // (mkChecks pkgs).packages);
 
     formatter = core.forAllSystems (pkgs: pkgs.alejandra);
 
     apps = core.forAllSystems mkApps;
 
-    checks = core.forAllSystems mkChecks;
+    checks = core.forAllSystems (pkgs: (mkChecks pkgs).checks);
 
     devShells = core.forAllSystems mkDevShells;
   };

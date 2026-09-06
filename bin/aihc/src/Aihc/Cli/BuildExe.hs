@@ -1,7 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Aihc.Cli.BuildExe
-  ( runBuildExe,
+  ( LinkBundle (..),
+    linkBundleManifestPath,
+    runBuildExe,
+    runLinkExe,
   )
 where
 
@@ -11,12 +14,12 @@ import Aihc.Cli.Install
     ModuleCompileResult (..),
     compileModules,
   )
-import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector)
+import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector, LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest)
 import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, wasmSysroot)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, renderNativeTarget, wasmSysroot)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -34,6 +37,9 @@ import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (Package (..), PackageId (..))
 import Control.Exception (bracket)
 import Control.Monad (filterM, foldM, forM, unless, when)
+import Data.Aeson ((.:), (.=))
+import Data.Aeson qualified as Aeson
+import Data.ByteString.Lazy qualified as BL
 import Data.List (find, isInfixOf, isPrefixOf, isSuffixOf, nub, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing, mapMaybe)
@@ -46,7 +52,8 @@ import Distribution.Parsec (simpleParsec)
 import Distribution.Types.Dependency (Dependency (..))
 import Distribution.Version (Version, VersionRange, withinRange)
 import System.Directory
-  ( createDirectory,
+  ( copyFile,
+    createDirectory,
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
@@ -57,7 +64,7 @@ import System.Directory
     removeFile,
   )
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, takeDirectory, (</>))
+import System.FilePath (dropExtension, takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openTempFile)
 import System.Process (readProcessWithExitCode)
 
@@ -136,13 +143,100 @@ runBuildExe options = do
   createDirectoryIfMissing True (takeDirectory output)
   let orderedPackages = linkOrderedPackages selected
   cObjects <- fmap concat (mapM packageCObjects orderedPackages)
+  let objects = compileObjectPaths compiled <> cObjects
+      archives = map packageArchive orderedPackages
+  if buildExeNoLink options
+    then writeLinkBundle target output objects archives entry runtime
+    else linkExecutable target output objects archives entry runtime
+
+-- | Everything the final link of an executable consumes, with paths relative
+-- to the bundle directory. The bundle is self-contained, so a machine that
+-- cannot run the compiler, or that lacks the linker for the target the
+-- compiler ran on, can still produce the executable with @link-exe@.
+data LinkBundle = LinkBundle
+  { linkBundleTarget :: !NativeTarget,
+    linkBundleObjects :: ![FilePath],
+    linkBundleArchives :: ![FilePath],
+    linkBundleEntry :: !FilePath,
+    linkBundleRuntime :: !FilePath
+  }
+  deriving (Eq, Show)
+
+instance Aeson.ToJSON LinkBundle where
+  toJSON bundle =
+    Aeson.object
+      [ "schemaVersion" .= (1 :: Int),
+        "target" .= renderNativeTarget (linkBundleTarget bundle),
+        "objects" .= linkBundleObjects bundle,
+        "archives" .= linkBundleArchives bundle,
+        "entry" .= linkBundleEntry bundle,
+        "runtime" .= linkBundleRuntime bundle
+      ]
+
+instance Aeson.FromJSON LinkBundle where
+  parseJSON = Aeson.withObject "LinkBundle" $ \object -> do
+    schemaVersion <- object .: "schemaVersion"
+    case schemaVersion :: Int of
+      1 -> do
+        target <- object .: "target" >>= either fail pure . parseNativeTarget
+        LinkBundle target
+          <$> object .: "objects"
+          <*> object .: "archives"
+          <*> object .: "entry"
+          <*> object .: "runtime"
+      _ -> fail "unsupported link bundle schema"
+
+linkBundleManifestPath :: FilePath -> FilePath
+linkBundleManifestPath bundle = bundle </> "link.json"
+
+-- | Copy the link inputs into the bundle directory and describe them in the
+-- manifest. Each copy carries its position in the link order as a prefix, so
+-- inputs from different packages that share a file name never collide.
+writeLinkBundle :: NativeTarget -> FilePath -> [FilePath] -> [FilePath] -> FilePath -> FilePath -> IO ()
+writeLinkBundle target bundle objects archives entry runtime = do
+  let inputs = bundle </> "inputs"
+  createDirectoryIfMissing True inputs
+  copied <- forM (zip [0 :: Int ..] (objects <> archives <> [entry, runtime])) $ \(index, source) -> do
+    let name = padIndex index <> "-" <> takeFileName source
+    copyFile source (inputs </> name)
+    pure ("inputs" </> name)
+  let (copiedObjects, rest) = splitAt (length objects) copied
+      (copiedArchives, copiedEntry, copiedRuntime) =
+        case splitAt (length archives) rest of
+          (values, [entryCopy, runtimeCopy]) -> (values, entryCopy, runtimeCopy)
+          _ -> error "link bundle copy count mismatch"
+  BL.writeFile
+    (linkBundleManifestPath bundle)
+    ( Aeson.encode
+        LinkBundle
+          { linkBundleTarget = target,
+            linkBundleObjects = copiedObjects,
+            linkBundleArchives = copiedArchives,
+            linkBundleEntry = copiedEntry,
+            linkBundleRuntime = copiedRuntime
+          }
+    )
+  where
+    padIndex index = replicate (4 - length (show index)) '0' <> show index
+
+runLinkExe :: LinkExeOptions -> IO ()
+runLinkExe options = do
+  let bundle = linkExeBundle options
+      manifest = linkBundleManifestPath bundle
+      output = linkExeOutputFile options
+  exists <- doesFileExist manifest
+  unless exists (ioError (userError ("No link bundle manifest at " <> manifest)))
+  decoded <- Aeson.eitherDecode <$> BL.readFile manifest
+  LinkBundle {linkBundleTarget, linkBundleObjects, linkBundleArchives, linkBundleEntry, linkBundleRuntime} <-
+    either (ioError . userError . (("Invalid link bundle manifest " <> manifest <> ": ") <>)) pure decoded
+  createDirectoryIfMissing True (takeDirectory output)
   linkExecutable
-    target
+    linkBundleTarget
     output
-    (compileObjectPaths compiled <> cObjects)
-    (map packageArchive orderedPackages)
-    entry
-    runtime
+    (map (bundle </>) linkBundleObjects)
+    (map (bundle </>) linkBundleArchives)
+    (bundle </> linkBundleEntry)
+    (bundle </> linkBundleRuntime)
 
 -- | Put a package before the packages it depends on.
 -- GNU ld searches each archive once, so a later archive cannot satisfy an

@@ -1,0 +1,158 @@
+name: Cross Compile apple-arm64
+
+# Compile the examples for apple-arm64 on an amd64 Linux host without linking,
+# then link and run them on an arm64 macOS host. A failure opens a pull request
+# holding the report.
+
+on:
+  schedule:
+    - cron: "43 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  TARGET: apple-arm64
+
+jobs:
+  compile:
+    name: Compile examples on linux-amd64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # The GitHub Actions cache holds the Nix store between weekly runs. The
+      # shared R2 cache is cleared weekly, so a run there would rebuild the
+      # compiler and the apple-arm64 toolchain every time.
+      - name: Install Nix
+        uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+        with:
+          nix_conf: |
+            keep-env-derivations = true
+            keep-outputs = true
+
+      - name: Restore and save the Nix store
+        uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7
+        with:
+          primary-key: cross-compile-${{ env.TARGET }}-${{ runner.os }}-${{ hashFiles('**/*.nix', '**/*.cabal', 'cabal.project') }}
+          restore-prefixes-first-match: cross-compile-${{ env.TARGET }}-${{ runner.os }}-
+          gc-max-store-size-linux: 6G
+
+      - name: Cross-compile the examples
+        run: |
+          set -o pipefail
+          nix build ".#cross-examples-$TARGET" --print-build-logs --out-link cross-examples 2>&1 | tee compile.log
+
+      - name: Summarize compilation
+        run: |
+          {
+            echo "### Compilation for $TARGET"
+            echo
+            for bundle in cross-examples/*/; do
+              echo "- $(basename "$bundle"): $(<"$bundle/status")"
+            done
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Pack the bundles
+        # tar keeps the hard links that make identical archives share one copy.
+        run: tar -C cross-examples -cf cross-examples.tar .
+
+      - name: Upload the bundles
+        uses: actions/upload-artifact@v7
+        with:
+          name: cross-examples-${{ env.TARGET }}
+          path: cross-examples.tar
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload the compile log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compile-log-${{ env.TARGET }}
+          path: compile.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  link-and-run:
+    name: Link and run on apple-arm64
+    needs: compile
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download the bundles
+        uses: actions/download-artifact@v8
+        with:
+          name: cross-examples-${{ env.TARGET }}
+
+      - name: Unpack the bundles
+        run: |
+          mkdir cross-examples
+          tar -C cross-examples -xf cross-examples.tar
+
+      - name: Link and run the examples
+        run: scripts/link-and-run-example-bundles.sh cross-examples results
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: results-${{ env.TARGET }}
+          path: results
+          retention-days: 7
+          if-no-files-found: ignore
+
+  report:
+    name: Open a failure report
+    needs:
+      - compile
+      - link-and-run
+    if: always() && (needs.compile.result != 'success' || needs.link-and-run.result != 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download the artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Write the report
+        run: |
+          if [[ -f "artifacts/cross-examples-$TARGET/cross-examples.tar" ]]; then
+            mkdir cross-examples
+            tar -C cross-examples -xf "artifacts/cross-examples-$TARGET/cross-examples.tar"
+          fi
+          mkdir -p docs/cross-compile-reports
+          scripts/cross-compile-report.sh \
+            "docs/cross-compile-reports/$TARGET.md" \
+            "$TARGET" \
+            cross-examples \
+            "artifacts/results-$TARGET" \
+            "artifacts/compile-log-$TARGET/compile.log"
+          cat "docs/cross-compile-reports/$TARGET.md" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Open pull request with the report
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.AUTOMATION_PR_TOKEN }}
+          branch-token: ${{ secrets.AUTOMATION_PR_TOKEN }}
+          commit-message: "ci: report ${{ env.TARGET }} cross-compilation failure"
+          add-paths: docs/cross-compile-reports/${{ env.TARGET }}.md
+          branch: "automation/cross-compile-${{ env.TARGET }}-failure"
+          title: "ci: report ${{ env.TARGET }} cross-compilation failure"
+          body: |
+            This PR was created automatically by the weekly cross-compilation workflow.
+
+            The examples were compiled for ${{ env.TARGET }} on linux-amd64 and linked and run on ${{ env.TARGET }}. At least one step failed; the report lists every example and the logs of the failures.
+
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
