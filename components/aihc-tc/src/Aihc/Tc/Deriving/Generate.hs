@@ -207,7 +207,7 @@ referencesAvailable gen = do
         (TcDerivingStock, "Eq") -> [derivingTrue references, derivingFalse references]
         (TcDerivingStock, "Ord") -> [derivingLT references, derivingEQ references, derivingGT references]
         (TcDerivingStock, "Show") ->
-          [derivingIntCon references, derivingGreaterOrEqual references, derivingShowParen references, derivingShowString references]
+          [derivingIntCon references, derivingGreaterOrEqual references, derivingCons references]
         _ -> []
     describe reference = T.unpack (referenceModule reference <> "." <> referenceName reference)
     listToMaybe candidates =
@@ -298,25 +298,31 @@ showItems gen constructors = do
   pure [methodBind gen "showsPrec" matches]
   where
     constructorMatch constructor
-      | null (dciFields constructor) =
-          pure
-            ( simpleMatch
-                gen
-                [atPattern gen PWildcard, constructorPattern gen constructor []]
-                (showStringExpr (prefixConstructorText constructor))
-            )
+      | null (dciFields constructor) = do
+          body <- showStringExpr (prefixConstructorText constructor)
+          pure (simpleMatch gen [atPattern gen PWildcard, constructorPattern gen constructor []] body)
       | otherwise = do
           precedence <- freshLocal gen "d"
           fields <- fieldLocals gen "a" constructor
           suffix <- freshLocal gen "s"
+          rendering <- freshLocal gen "k"
+          tail' <- freshLocal gen "t"
           let (parenPrecedence, pieces) = constructorPieces constructor fields
+              -- @showParen (d >= p) k s@, with the rendering @k@ bound once
+              -- so the pieces are not written out for both branches.
               body =
-                applyN
-                  gen
-                  (referenceExpr gen derivingShowParen)
-                  [ applyN gen (referenceExpr gen derivingGreaterOrEqual) [localExpr gen precedence, intLiteral gen parenPrecedence],
-                    lambda gen suffix (foldr ($) (localExpr gen suffix) pieces)
-                  ]
+                lambda gen suffix $
+                  applyN
+                    gen
+                    ( lambda gen rendering $
+                        caseOf
+                          gen
+                          (applyN gen (referenceExpr gen derivingGreaterOrEqual) [localExpr gen precedence, intLiteral gen parenPrecedence])
+                          [ (referencePattern gen derivingTrue, cons '(' (applyN gen (localExpr gen rendering) [cons ')' (localExpr gen suffix)])),
+                            (referencePattern gen derivingFalse, applyN gen (localExpr gen rendering) [localExpr gen suffix])
+                          ]
+                    )
+                    [lambda gen tail' (foldr ($) (localExpr gen tail') pieces)]
           pure (simpleMatch gen [atPattern gen (PVar precedence), constructorPattern gen constructor (map Just fields)] body)
     -- The pieces of the rendering, each applied to the rest of the output,
     -- with the precedence above which the whole needs parentheses.
@@ -344,9 +350,14 @@ showItems gen constructors = do
             showStringPiece (prefixConstructorText constructor <> " ")
               : intersperseWith (showStringPiece " ") (map (showsPrecPiece 11) fields)
           )
-    showStringPiece text rest = applyN gen (referenceExpr gen derivingShowString) [at gen (EString text (T.pack (show text))), rest]
+    -- @showString text@ as a chain of list constructors, so the rendering
+    -- needs nothing beyond the primitive package.
+    showStringPiece text rest = foldr cons rest (T.unpack text)
     showsPrecPiece precedence field rest = methodApp gen "showsPrec" [intLiteral gen precedence, localExpr gen field, rest]
-    showStringExpr text = applyN gen (referenceExpr gen derivingShowString) [at gen (EString text (T.pack (show text)))]
+    showStringExpr text = do
+      suffix <- freshLocal gen "s"
+      pure (lambda gen suffix (showStringPiece text (localExpr gen suffix)))
+    cons character rest = applyN gen (referenceExpr gen derivingCons) [at gen (EChar character (T.pack (show character))), rest]
     intersperseWith separator pieces =
       case pieces of
         [] -> []

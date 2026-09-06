@@ -1,13 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | The library names that generated deriving code refers to.
+-- | The library names that generated deriving code refers to, and the
+-- classes that stock deriving knows.
 --
 -- A derived instance is ordinary surface syntax, so its method bodies
--- mention library values and types such as @True@, @showParen@, or @Int#@.
--- The type checker does not know where those live: the compiler that
--- embeds it says so through a 'DerivingReferences' table in its
--- configuration. Class methods such as @(==)@ or @showsPrec@ need no entry,
--- because the class being derived says where they are.
+-- mention library values and types such as @True@, @(:)@, or @Int#@. The
+-- type checker does not know where those live: the compiler that embeds it
+-- says so through a 'DerivingReferences' table in its configuration. Every
+-- name comes from the primitive package; class methods such as @(==)@ or
+-- @showsPrec@ need no entry, because the class being derived says where
+-- they are.
 module Aihc.Tc.Deriving.References
   ( DerivingReference (..),
     DerivingReferences (..),
@@ -49,19 +51,19 @@ data DerivingReferences = DerivingReferences
     derivingIntPrimType :: !DerivingReference,
     -- | The @(>=)@ method of @Ord@, compared on @Int@ precedences.
     derivingGreaterOrEqual :: !DerivingReference,
-    -- | @showParen :: Bool -> ShowS -> ShowS@.
-    derivingShowParen :: !DerivingReference,
-    -- | @showString :: String -> ShowS@.
-    derivingShowString :: !DerivingReference,
-    -- | The packages whose classes count as standard for stock deriving.
-    derivingStockPackages :: ![PackageId]
+    -- | The list constructor @(:)@, which derived @Show@ renders through.
+    derivingCons :: !DerivingReference,
+    -- | The classes GHC's stock deriving mechanisms know about, as the
+    -- module that defines each and its name. A class elsewhere with the
+    -- same name is not stock.
+    derivingStockClasses :: ![(Text, Text)]
   }
   deriving (Eq, Show)
 
--- | The table for the aihc core libraries, given the identities of the
--- @aihc-prim@ and @aihc-base@ packages.
-defaultDerivingReferences :: PackageId -> PackageId -> DerivingReferences
-defaultDerivingReferences prim base =
+-- | The table for the aihc core libraries, given the identity of the
+-- @aihc-prim@ package.
+defaultDerivingReferences :: PackageId -> DerivingReferences
+defaultDerivingReferences prim =
   DerivingReferences
     { derivingTrue = term prim "GHC.Types" NameConId "True",
       derivingFalse = term prim "GHC.Types" NameConId "False",
@@ -71,13 +73,33 @@ defaultDerivingReferences prim base =
       derivingIntCon = term prim "GHC.Types" NameConId "I#",
       derivingIntPrimType = DerivingReference prim "GHC.Prim" "Int#" NameConId ResolutionNamespaceType,
       derivingGreaterOrEqual = term prim "GHC.Classes" NameVarSym ">=",
-      derivingShowParen = term base "GHC.Show" NameVarId "showParen",
-      derivingShowString = term base "GHC.Show" NameVarId "showString",
-      derivingStockPackages = [prim, base]
+      derivingCons = term prim "GHC.Types" NameConSym ":",
+      derivingStockClasses = coreStockClasses
     }
   where
     term package moduleName nameType name =
       DerivingReference package moduleName name nameType ResolutionNamespaceTerm
+
+-- | The stock classes of the aihc core libraries, where they are defined.
+-- GHC keeps the same list as known-key names.
+coreStockClasses :: [(Text, Text)]
+coreStockClasses =
+  [ ("GHC.Classes", "Eq"),
+    ("GHC.Classes", "Ord"),
+    ("GHC.Prim.Enum", "Enum"),
+    ("GHC.Enum", "Bounded"),
+    ("GHC.Show", "Show"),
+    ("Prelude", "Read"),
+    ("GHC.Ix", "Ix"),
+    ("GHC.Prim.Base", "Functor"),
+    ("GHC.Internal.Foldable", "Foldable"),
+    ("GHC.Internal.Traversable", "Traversable"),
+    ("Data.Data", "Data"),
+    ("Type.Reflection", "Typeable"),
+    ("GHC.Generics", "Generic"),
+    ("GHC.Generics", "Generic1"),
+    ("GHC.Internal.TH.Lift", "Lift")
+  ]
 
 -- | Every reference in the table, for callers that make the names visible
 -- to later compiler phases.
@@ -91,6 +113,5 @@ derivingReferenceList references =
     derivingIntCon references,
     derivingIntPrimType references,
     derivingGreaterOrEqual references,
-    derivingShowParen references,
-    derivingShowString references
+    derivingCons references
   ]

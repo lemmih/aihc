@@ -212,9 +212,9 @@ data TcConfig = TcConfig
   deriving (Show)
 
 -- | A configuration whose deriving references follow the aihc core-library
--- layout, with @aihc-base@ named by its bare package name.
+-- layout.
 tcConfig :: PackageId -> TcConfig
-tcConfig prim = tcConfigWithDeriving prim (defaultDerivingReferences prim (PackageId "aihc-base"))
+tcConfig prim = tcConfigWithDeriving prim (defaultDerivingReferences prim)
 
 tcConfigWithDeriving :: PackageId -> DerivingReferences -> TcConfig
 tcConfigWithDeriving = TcConfig

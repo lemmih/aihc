@@ -14,7 +14,6 @@ import Aihc.Parser.Syntax
     Extension (..),
     SourceSpan,
   )
-import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcDerivingStrategy (..))
 import Aihc.Tc.Deriving.References (DerivingReferences (..))
 import Aihc.Tc.Env (TyConFlavor (..))
@@ -28,8 +27,8 @@ import Data.Text qualified as T
 
 checkDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Maybe (Text, Text) -> TvKindEnv -> TcType -> SourceSpan -> Maybe DerivingStrategy -> TcM TcDerivingStrategy
 checkDerivingStrategy extensions targetFlavor className classOrigin tvEnv targetKind sourceSpan strategy = do
-  stockPackages <- derivingStockPackages <$> getDerivingReferences
-  let isStock = isStockClassOrigin stockPackages classOrigin
+  stockClasses <- derivingStockClasses <$> getDerivingReferences
+  let isStock = isStockClass stockClasses className classOrigin
   case strategy of
     Nothing -> selectDefaultDerivingStrategy extensions targetFlavor className isStock sourceSpan
     Just DerivingStock -> do
@@ -76,11 +75,11 @@ checkStockDeriving extensions className isStock sourceSpan
         Just (Just extension) ->
           requireDerivingExtension extensions extension ("stock deriving for " <> T.unpack className) sourceSpan
 
--- | Whether a class comes from a package whose classes GHC's stock
--- deriving mechanisms know about. The configuration names those packages.
-isStockClassOrigin :: [PackageId] -> Maybe (Text, Text) -> Bool
-isStockClassOrigin stockPackages (Just (packageId, _)) = PackageId packageId `elem` stockPackages
-isStockClassOrigin _ _ = False
+-- | Whether a class is one that GHC's stock deriving mechanisms know
+-- about: the configuration lists each by its defining module and name.
+isStockClass :: [(Text, Text)] -> Text -> Maybe (Text, Text) -> Bool
+isStockClass stockClasses className (Just (_, moduleName)) = (moduleName, className) `elem` stockClasses
+isStockClass _ _ Nothing = False
 
 -- | Extensions required by GHC's stock deriving mechanisms. A @Nothing@
 -- requirement denotes the six classes available for ordinary Haskell data
