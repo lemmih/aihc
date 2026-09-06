@@ -25,13 +25,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Setup Nix CI
-        uses: ./.github/actions/setup-nix-ci
+      # The GitHub Actions cache holds the Nix store between weekly runs. The
+      # shared R2 cache is cleared weekly, so a run there would rebuild the
+      # compiler and the apple-arm64 toolchain every time.
+      - name: Install Nix
+        uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
         with:
-          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
-          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+          nix_conf: |
+            keep-env-derivations = true
+            keep-outputs = true
+
+      - name: Restore and save the Nix store
+        uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7
+        with:
+          primary-key: cross-compile-${{ env.TARGET }}-${{ runner.os }}-${{ hashFiles('**/*.nix', '**/*.cabal', 'cabal.project') }}
+          restore-prefixes-first-match: cross-compile-${{ env.TARGET }}-${{ runner.os }}-
+          gc-max-store-size-linux: 6G
 
       - name: Cross-compile the examples
         run: |
