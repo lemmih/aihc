@@ -1,0 +1,85 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  class Parent a where
+    parent :: a -> Flag
+  class Parent a => Child a where
+    child :: a -> Flag
+  both :: Child a => a -> a -> Flag
+  both x y =
+    case parent x of
+      Off -> parent y
+      On -> child x
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tFlag :: 2.tType {
+      pub 1.vOff :: 1.tFlag;
+      pub 1.vOn :: 1.tFlag
+  }
+
+  pub type 1.t$Dict$Parent (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Parent :: ∀(a : 2.tType). (a 2.→ 1.tFlag) 2.→ 1.t$Dict$Parent a
+  }
+
+  pub type 1.t$Dict$Child (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Child :: ∀(a : 2.tType). 1.t$Dict$Parent a 2.→ (a 2.→ 1.tFlag) 2.→ 1.t$Dict$Child a
+  }
+
+  pub val 1.vparent :: ∀(a : 2.tType). 1.t$Dict$Parent a 2.→ a 2.→ 1.tFlag
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Parent a).
+      case $d0 as ($dict : 1.t$Dict$Parent a) return (a 2.→ 1.tFlag) of {
+          1.v$Dict$Parent ($method0 : a 2.→ 1.tFlag) →
+              $method0
+      }
+
+  pub val 1.vchild :: ∀(a : 2.tType). 1.t$Dict$Child a 2.→ a 2.→ 1.tFlag
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Child a).
+      case $d0 as ($dict : 1.t$Dict$Child a) return (a 2.→ 1.tFlag) of {
+          1.v$Dict$Child ($method0 : 1.t$Dict$Parent a) ($method1 : a 2.→ 1.tFlag) →
+              $method1
+      }
+
+  pub val 1.vboth :: ∀(a : 2.tType). 1.t$Dict$Child a 2.→ a 2.→ a 2.→ 1.tFlag
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Child a).
+      λ(x : a).
+        λ(y : a).
+          let {
+              $super : 1.t$Dict$Parent a =
+                  case $d0 as ($super_source : 1.t$Dict$Child a) return (1.t$Dict$Parent a) of {
+                      1.v$Dict$Child ($super_field0 : 1.t$Dict$Parent a) ($super_field1 : a 2.→ 1.tFlag) →
+                          $super_field0
+                  }
+          } in
+              let {
+                  _case : 1.tFlag =
+                      1.vparent @a $super x
+              } in
+                  case _case as (_scrut : 1.tFlag) return (1.tFlag) of {
+                      1.vOff →
+                          1.vparent @a $super y;
+                      1.vOn →
+                          1.vchild @a $d0 x
+                  }
+status: pass
+reason: One binding selects the parent dictionary once for both uses.

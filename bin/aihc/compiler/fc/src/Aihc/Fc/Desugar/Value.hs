@@ -118,6 +118,9 @@ data ValueState = ValueState
     vsBindingTypes :: !(Map TcTermKey TcType),
     vsLocals :: !(Map TcTermKey (Binder, TcType)),
     vsDictionaries :: !(Map Text Binder),
+    -- | The evidence that the current binding shares, when it has a place to
+    -- put the bindings. 'Nothing' turns sharing off.
+    vsEvidenceScope :: !(Maybe EvidenceScope),
     vsConstructors :: !(Map Text [Name]),
     vsConstructorInfos :: !(Map Text [DataConInfo]),
     vsNewtypeConstructors :: !(Map TcTermKey DataTypeInfo),
@@ -173,6 +176,18 @@ data TopValue = TopValue
 data Dictionary = Dictionary
   { dictionaryPredicate :: !Pred,
     dictionaryBinder :: !Binder
+  }
+
+-- | The superclass projections that one binding body shares. A projection is
+-- a chain of cases on a dictionary, so a body that selects the same
+-- superclass many times becomes much smaller when each chain has a name.
+--
+-- The scope holds only projections that the enclosing body can bind. A
+-- construct that brings a new dictionary or type variable into scope opens
+-- its own scope, so a projection never leaves the scope of its binder.
+data EvidenceScope = EvidenceScope
+  { evidenceCache :: !(Map Ev.EvTerm Binder),
+    evidenceBindsRev :: ![Bind]
   }
 
 emptyPreparedValueInterface :: PreparedValueInterface
@@ -288,6 +303,7 @@ desugarValues convertEnv bindings interface moduleOrigin checked = do
             vsBindingTypes = Map.union localTypes (preparedTypes interface),
             vsLocals = Map.empty,
             vsDictionaries = Map.empty,
+            vsEvidenceScope = Nothing,
             vsConstructors = preparedConstructors interface,
             vsConstructorInfos = preparedConstructorInfos interface,
             vsNewtypeConstructors = preparedNewtypeConstructors interface,
@@ -473,7 +489,7 @@ desugarPatSynCall info annotation resultType scrutinee pattern' failureExpressio
   dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] providedPredicates
   requiredArguments <- mapM desugarEvidence requiredTerms
   matcher <- patSynMatcherReference info annotation resultType
-  body' <- withDictionaries (zipWith Dictionary providedPredicates dictionaries) (body fields fieldTypes)
+  body' <- withAlternativeScope (not (null typeBinders)) (zipWith Dictionary providedPredicates dictionaries) (body fields fieldTypes)
   let continuation = foldr ExTyLam (foldr ExLam (foldr ExLam body' fields) dictionaries) typeBinders
   pure (ExApp (ExApp (ExApp (foldl ExApp matcher requiredArguments) (ExVar (binderName scrutinee))) continuation) failureExpression)
 
@@ -1268,7 +1284,7 @@ desugarMatches ty matches =
           dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
           arguments <- zipWithM freshArgument [0 :: Int ..] argumentTypes
           body <-
-            withDictionaries (zipWith Dictionary predicates dictionaries) (desugarMatchArguments resultType Nothing arguments argumentTypes (map emptyMatchWork matches))
+            withDictionaryScope (zipWith Dictionary predicates dictionaries) (desugarMatchArguments resultType Nothing arguments argumentTypes (map emptyMatchWork matches))
           pure (dictionaries, arguments, body)
       pure (foldr ExTyLam (foldr ExLam (foldr ExLam body arguments) dictionaries) typeBinders)
 
@@ -1356,10 +1372,64 @@ shareFailure :: TcType -> Maybe Expr -> (Maybe Expr -> ValueM Expr) -> ValueM Ex
 shareFailure resultType failure body =
   case failure of
     Nothing -> body Nothing
-    Just (ExVar _) -> body failure
-    Just expression -> do
+    Just expression -> shareExpr resultType expression (body . Just)
+
+-- | Bind an expression to a name so that the body can name it more than once.
+--
+-- The body gets a fresh variable. The binding stays only when the body names
+-- it more than once, so a single use keeps the expression where it is and an
+-- unused expression disappears. The binding is lazy, so the shared expression
+-- does no work until the body needs it.
+shareExpr :: TcType -> Expr -> (Expr -> ValueM Expr) -> ValueM Expr
+shareExpr resultType expression body =
+  case expression of
+    ExVar _ -> body expression
+    _ -> do
       binder <- freshBinder "_fail" resultType
-      ExLet (Bind binder expression) <$> body (Just (ExVar (binderName binder)))
+      let name = binderName binder
+      result <- body (ExVar name)
+      pure $ case countUses name result of
+        0 -> result
+        1 -> substituteVar name expression result
+        _ -> ExLet (Bind binder expression) result
+
+-- | The number of times an expression names a variable, counted up to two.
+countUses :: Name -> Expr -> Int
+countUses name = go 0
+  where
+    go total expression
+      | total >= 2 = total
+      | otherwise =
+          case expression of
+            ExVar other -> if other == name then total + 1 else total
+            ExLit _ -> total
+            ExApp function argument -> go (go total function) argument
+            ExTyApp function _ -> go total function
+            ExLam _ inner -> go total inner
+            ExTyLam _ inner -> go total inner
+            ExLet binding inner -> go (go total (bindRhs binding)) inner
+            ExRec bindings inner -> go (foldl' go total (map bindRhs bindings)) inner
+            ExCase scrutinee _ _ alternatives -> foldl' go (go total scrutinee) (map altRhs alternatives)
+            ExCast inner _ -> go total inner
+
+-- | Replace every use of a variable with an expression. The name is fresh, so
+-- no binder in the body shadows it.
+substituteVar :: Name -> Expr -> Expr -> Expr
+substituteVar name value = go
+  where
+    go expression =
+      case expression of
+        ExVar other -> if other == name then value else expression
+        ExLit _ -> expression
+        ExApp function argument -> ExApp (go function) (go argument)
+        ExTyApp function ty -> ExTyApp (go function) ty
+        ExLam binder inner -> ExLam binder (go inner)
+        ExTyLam binder inner -> ExTyLam binder (go inner)
+        ExLet binding inner -> ExLet binding {bindRhs = go (bindRhs binding)} (go inner)
+        ExRec bindings inner -> ExRec [binding {bindRhs = go (bindRhs binding)} | binding <- bindings] (go inner)
+        ExCase scrutinee binder ty alternatives ->
+          ExCase (go scrutinee) binder ty [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
+        ExCast inner coercion -> ExCast (go inner) coercion
 
 patternView :: Syn.Pattern -> Maybe (Syn.Expr, Syn.Pattern)
 patternView pattern' =
@@ -1390,7 +1460,11 @@ desugarOverloadedIntegerMatches resultType fallback arguments argumentTypes work
     [] -> maybe (overloadedPatternFailure resultType arguments) pure fallback
     work : rest -> do
       failure <- desugarOverloadedIntegerMatches resultType fallback arguments argumentTypes rest
-      desugarOverloadedIntegerMatch resultType arguments argumentTypes work failure
+      -- A row with several literal patterns tests each one in turn, and each
+      -- test names the failure. Bind the failure once so that the later rows
+      -- are not copied into every test.
+      shareExpr resultType failure $ \shared ->
+        desugarOverloadedIntegerMatch resultType arguments argumentTypes work shared
 
 desugarOverloadedIntegerMatch :: TcType -> [Binder] -> [TcType] -> MatchWork -> Expr -> ValueM Expr
 desugarOverloadedIntegerMatch resultType arguments argumentTypes (match, locals) failure =
@@ -1538,15 +1612,18 @@ desugarScrutineePatterns resultType fallback scrutinee caseBinder root arguments
   resultType' <- convertCheckedType resultType
   let keys = patternKeys (map fst works)
       defaultWorks = filter (firstPatternIsDefault . fst) works
-  constructorAlternatives <- mapM (desugarPatternGroup resultType fallback arguments restTypes scrutineeType root works) keys
-  defaultAlternatives <-
-    case defaultWorks of
-      [] -> pure [Alt AltDefault [] [] failure | Just failure <- [fallback]]
-      _ -> do
-        updated <- mapM (extendMatchWork root scrutineeType) defaultWorks
-        body <- desugarMatchArguments resultType fallback arguments restTypes (map dropMatchWorkPattern updated)
-        pure [Alt AltDefault [] [] body]
-  pure (ExCase scrutinee caseBinder resultType' (constructorAlternatives <> defaultAlternatives))
+  -- Every alternative can name the fallback, so bind it once outside the case
+  -- instead of copying the later equations into each alternative.
+  shareFailure resultType fallback $ \shared -> do
+    constructorAlternatives <- mapM (desugarPatternGroup resultType shared arguments restTypes scrutineeType root works) keys
+    defaultAlternatives <-
+      case defaultWorks of
+        [] -> pure [Alt AltDefault [] [] failure | Just failure <- [shared]]
+        _ -> do
+          updated <- mapM (extendMatchWork root scrutineeType) defaultWorks
+          body <- desugarMatchArguments resultType shared arguments restTypes (map dropMatchWorkPattern updated)
+          pure [Alt AltDefault [] [] body]
+    pure (ExCase scrutinee caseBinder resultType' (constructorAlternatives <> defaultAlternatives))
 
 firstFamilyPattern :: [Syn.Match] -> ValueM (Maybe (Syn.Pattern, DataFamilyInstanceInfo))
 firstFamilyPattern matches = do
@@ -1677,7 +1754,8 @@ desugarPatternGroup resultType fallback remaining restTypes scrutineeType caseBi
   rooted <- mapM (extendMatchWork caseBinder scrutineeType) works
   expanded <- mapMaybeM (specializeMatchWork key (length fields) fields fieldTypes) rooted
   body <-
-    withDictionaries
+    withAlternativeScope
+      (not (null typeBinders))
       (zipWith Dictionary predicates dictionaries)
       (desugarMatchArguments resultType fallback (fields <> remaining) (fieldTypes <> restTypes) expanded)
   pure (Alt constructor typeBinders (dictionaries <> fields) body)
@@ -1968,23 +2046,30 @@ matchFailure resultType fallback binders argumentTypes rhs rest
   | otherwise = pure Nothing
 
 -- | Desugar guarded alternatives in order. A later alternative is the
--- failure expression of the alternative before it. The failure expression is
--- copied into each guard of an alternative.
+-- failure expression of the alternative before it. Each guard of an
+-- alternative names that failure expression.
 desugarGuardedRhss :: TcType -> Maybe Expr -> [Syn.GuardedRhs Syn.Expr] -> ValueM Expr
 desugarGuardedRhss resultType failure alternatives = do
   resultType' <- convertCheckedType resultType
   result <- foldr (step resultType') (pure failure) alternatives
   maybe (failValue "guarded right-hand side has no alternative") pure result
   where
+    -- Each guard that can fail names the failure, so bind it once.
     step resultType' alternative rest = do
       next <- rest
+      let guards = Syn.guardedRhsGuards alternative
       Just
-        <$> desugarGuardQualifiers
+        <$> shareFailure
           resultType
-          resultType'
           next
-          (Syn.guardedRhsGuards alternative)
-          (desugarExpr (Syn.guardedRhsBody alternative))
+          ( \shared ->
+              desugarGuardQualifiers
+                resultType
+                resultType'
+                shared
+                guards
+                (desugarExpr (Syn.guardedRhsBody alternative))
+          )
 
 desugarGuardQualifiers :: TcType -> Type -> Maybe Expr -> [Syn.GuardQualifier] -> ValueM Expr -> ValueM Expr
 desugarGuardQualifiers resultType resultType' next qualifiers success =
@@ -2073,7 +2158,7 @@ desugarAnnotatedExpr annotation inner = do
   let evidencePredicates = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceBinders annotation]
   evidenceBinders <- zipWithM (freshDictionaryBinder "$higher_rank_d") [0 :: Int ..] evidencePredicates
   body <-
-    withDictionaries (zipWith Dictionary evidencePredicates evidenceBinders) $
+    withAlternativeScope (not (null (tcAnnTypeBinders annotation))) (zipWith Dictionary evidencePredicates evidenceBinders) $
       case inner of
         _
           | not (null (tcAnnTypeBinders annotation)) || not (null evidenceBinders) -> desugarExpr inner
@@ -2689,7 +2774,8 @@ desugarListCompConstructorPattern resultType binder pattern' success failure = d
       resultType' <- convertCheckedType resultType
       caseBinder <- freshBinderFromType "_list_comp_pattern" (binderType binder)
       body <-
-        withDictionaries
+        withAlternativeScope
+          (not (null typeBinders))
           (zipWith Dictionary predicates dictionaries)
           (desugarListCompChildPatterns resultType (zip3 fields fieldTypes children) success failure)
       pure
@@ -2998,7 +3084,8 @@ desugarDoConstructorPattern resultType binder pattern' success failure = do
       resultType' <- convertCheckedType resultType
       caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
       body <-
-        withDictionaries
+        withAlternativeScope
+          (not (null typeBinders))
           (zipWith Dictionary predicates dictionaries)
           (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success failure)
       let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
@@ -3262,7 +3349,7 @@ desugarImplicitParamDecls :: [LocalAllocation] -> ValueM Expr -> ValueM Expr
 desugarImplicitParamDecls allocated body = do
   binds <- mapM desugarBinding allocated
   let dictionaries = [Dictionary (IParamPred name ty) binder | LocalImplicitParamAllocation name _ binder ty <- allocated]
-  body' <- withDictionaries dictionaries body
+  body' <- withDictionaryScope dictionaries body
   pure (foldr ExLet body' binds)
   where
     desugarBinding allocation =
@@ -3289,6 +3376,31 @@ desugarEvidence evidence =
           name = Name dictionaryName SortValue (OriginTop package moduleName')
       pure (foldl ExApp (foldl ExTyApp (ExVar name) convertedTypes) evidenceArguments)
     Ev.EvCoercion coercion -> ExCast (ExVar (Name "coercion" SortValue (OriginLocal (Unique 0)))) <$> convertCoercion coercion
+    Ev.EvSuperClass _ _ _ fieldTypes fieldIndex -> do
+      resultPredicateType <-
+        case drop fieldIndex fieldTypes of
+          fieldType : _ -> pure fieldType
+          [] -> failValue "superclass field type index is outside the dictionary layout"
+      shareSuperClass evidence resultPredicateType (desugarSuperClass evidence)
+    Ev.EvCast inner coercion -> ExCast <$> desugarEvidence inner <*> convertCoercion coercion
+    Ev.EvTypeable origin ty arguments -> desugarTypeableEvidence origin ty arguments
+    Ev.EvTypeLam variable body ->
+      withoutEvidenceScope (ExTyLam <$> convertTypeBinder variable <*> desugarEvidence body)
+    Ev.EvDictLam predicate binderType body -> withoutEvidenceScope $ do
+      binder <- freshBinder "$quantified_d" binderType
+      body' <- withDictionaries [Dictionary predicate binder] (desugarEvidence body)
+      pure (ExLam binder body')
+    Ev.EvTypeApp function argument ->
+      ExTyApp <$> desugarEvidence function <*> convertCheckedType argument
+    Ev.EvDictApp function argument ->
+      ExApp <$> desugarEvidence function <*> desugarEvidence argument
+    Ev.EvCallStackPush (packageName, moduleName') function site parent -> desugarCallStackPush (packageName, moduleName') function site parent
+    Ev.EvCallStackEmpty origin -> desugarCallStackEmpty origin
+
+-- | Build the case chain that selects one superclass field.
+desugarSuperClass :: Ev.EvTerm -> ValueM Expr
+desugarSuperClass evidence =
+  case evidence of
     Ev.EvSuperClass source _ sourcePredicate fieldTypes fieldIndex -> do
       sourceExpression <- desugarEvidence source
       (classTyCon, sourceType) <-
@@ -3314,44 +3426,39 @@ desugarEvidence evidence =
             resultType
             [Alt (AltData (classDictConName classTyCon)) [] fieldBinders (ExVar (binderName selected))]
         )
-    Ev.EvCast inner coercion -> ExCast <$> desugarEvidence inner <*> convertCoercion coercion
-    Ev.EvTypeable origin ty arguments -> desugarTypeableEvidence origin ty arguments
-    Ev.EvTypeLam variable body ->
-      ExTyLam <$> convertTypeBinder variable <*> desugarEvidence body
-    Ev.EvDictLam predicate binderType body -> do
-      binder <- freshBinder "$quantified_d" binderType
-      body' <- withDictionaries [Dictionary predicate binder] (desugarEvidence body)
-      pure (ExLam binder body')
-    Ev.EvTypeApp function argument ->
-      ExTyApp <$> desugarEvidence function <*> convertCheckedType argument
-    Ev.EvDictApp function argument ->
-      ExApp <$> desugarEvidence function <*> desugarEvidence argument
-    Ev.EvCallStackPush (packageName, moduleName') function site parent -> do
-      parent' <- desugarEvidence parent
-      (currentPackage, currentModule) <- gets vsModuleOrigin
-      functionText <- desugarStringValue function
-      packageText <- desugarStringValue (packageIdText currentPackage)
-      moduleText <- desugarStringValue currentModule
-      fileText <- desugarStringValue (Ev.callSiteFile site)
-      intRepresentation <- convertRuntimeRep IntRep
-      intConstructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
-      let libraryName name sort = Name name sort (OriginTop (PackageId packageName) moduleName')
-          boxedInt value = ExApp (ExVar intConstructor) (ExLit (LitInt intRepresentation (toInteger value)))
-          location =
-            foldl
-              ExApp
-              (ExVar (libraryName "SrcLoc" SortDataConstructor))
-              [ packageText,
-                moduleText,
-                fileText,
-                boxedInt (Ev.callSiteStartLine site),
-                boxedInt (Ev.callSiteStartColumn site),
-                boxedInt (Ev.callSiteEndLine site),
-                boxedInt (Ev.callSiteEndColumn site)
-              ]
-      pure (foldl ExApp (ExVar (libraryName "pushCallSite" SortValue)) [functionText, location, parent'])
-    Ev.EvCallStackEmpty (packageName, moduleName') ->
-      pure (ExVar (Name "emptyCallStack" SortValue (OriginTop (PackageId packageName) moduleName')))
+    _ -> failValue "superclass projection expects superclass evidence"
+
+-- | One entry of the call stack of an occurrence with @HasCallStack@.
+desugarCallStackPush :: (Text, Text) -> Text -> Ev.CallSite -> Ev.EvTerm -> ValueM Expr
+desugarCallStackPush (packageName, moduleName') function site parent = do
+  parent' <- desugarEvidence parent
+  (currentPackage, currentModule) <- gets vsModuleOrigin
+  functionText <- desugarStringValue function
+  packageText <- desugarStringValue (packageIdText currentPackage)
+  moduleText <- desugarStringValue currentModule
+  fileText <- desugarStringValue (Ev.callSiteFile site)
+  intRepresentation <- convertRuntimeRep IntRep
+  intConstructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
+  let libraryName name sort = Name name sort (OriginTop (PackageId packageName) moduleName')
+      boxedInt value = ExApp (ExVar intConstructor) (ExLit (LitInt intRepresentation (toInteger value)))
+      location =
+        foldl
+          ExApp
+          (ExVar (libraryName "SrcLoc" SortDataConstructor))
+          [ packageText,
+            moduleText,
+            fileText,
+            boxedInt (Ev.callSiteStartLine site),
+            boxedInt (Ev.callSiteStartColumn site),
+            boxedInt (Ev.callSiteEndLine site),
+            boxedInt (Ev.callSiteEndColumn site)
+          ]
+  pure (foldl ExApp (ExVar (libraryName "pushCallSite" SortValue)) [functionText, location, parent'])
+
+-- | The call stack of an occurrence that starts a new stack.
+desugarCallStackEmpty :: (Text, Text) -> ValueM Expr
+desugarCallStackEmpty (packageName, moduleName') =
+  pure (ExVar (Name "emptyCallStack" SortValue (OriginTop (PackageId packageName) moduleName')))
 
 -- | A boxed string literal for compiler-generated code.
 desugarStringValue :: Text -> ValueM Expr
@@ -3777,6 +3884,99 @@ withLocals additions action = do
   result <- action
   modify' (\state -> state {vsLocals = previous})
   pure result
+
+-- | Run an action with more dictionaries in scope and bind the superclass
+-- projections that it shares inside its result.
+--
+-- The new dictionaries are in scope only inside the result, so the action
+-- gets a scope of its own. A projection that names one of them then stays
+-- inside the result.
+withDictionaryScope :: [Dictionary] -> ValueM Expr -> ValueM Expr
+withDictionaryScope additions action = withDictionaries additions (evidenceScope action)
+
+-- | Run the body of a case alternative, or of another construct that can
+-- bind evidence.
+--
+-- The body gets a scope of its own only when the construct binds something
+-- that an evidence term can name: a dictionary, or a type variable. Most
+-- alternatives bind neither, and then the body keeps the scope of the
+-- enclosing binding. A projection in an alternative can therefore share the
+-- binding that the body around the case already has.
+withAlternativeScope :: Bool -> [Dictionary] -> ValueM Expr -> ValueM Expr
+withAlternativeScope bindsTypeVariables additions action
+  | not bindsTypeVariables && null additions = action
+  | otherwise = withDictionaryScope additions action
+
+-- | Give an expression its own evidence scope. A superclass projection that
+-- the expression selects more than once becomes one @let@ around it.
+evidenceScope :: ValueM Expr -> ValueM Expr
+evidenceScope action = do
+  previous <- gets vsEvidenceScope
+  modify' (\state -> state {vsEvidenceScope = Just (EvidenceScope Map.empty [])})
+  result <- action
+  binds <- gets (maybe [] (reverse . evidenceBindsRev) . vsEvidenceScope)
+  modify' (\state -> state {vsEvidenceScope = previous})
+  pure (bindSharedEvidence binds result)
+
+-- | Bind the shared projections around a body.
+--
+-- A projection is a short case chain, and a binding for it costs a closure.
+-- A name therefore pays only from the second use, so put a projection back
+-- where it stands when the body names it once, and drop it when the body
+-- does not name it at all.
+--
+-- A later binding can name an earlier one. 'foldr' decides the innermost
+-- binding first, so each decision counts the uses in every binding that
+-- stays inside it.
+bindSharedEvidence :: [Bind] -> Expr -> Expr
+bindSharedEvidence binds result = foldr step result binds
+  where
+    step binding body =
+      let name = binderName (bindBinder binding)
+       in case countUses name body of
+            0 -> body
+            1 -> substituteVar name (bindRhs binding) body
+            _ -> ExLet binding body
+
+-- | Run an action with evidence sharing off. A binder inside an evidence
+-- term has no place outside that term, so a projection under it stays where
+-- the type checker put it.
+withoutEvidenceScope :: ValueM a -> ValueM a
+withoutEvidenceScope action = do
+  previous <- gets vsEvidenceScope
+  modify' (\state -> state {vsEvidenceScope = Nothing})
+  result <- action
+  modify' (\state -> state {vsEvidenceScope = previous})
+  pure result
+
+-- | Give a superclass projection a name, and reuse the name when the same
+-- projection appears again in the same scope.
+shareSuperClass :: Ev.EvTerm -> TcType -> ValueM Expr -> ValueM Expr
+shareSuperClass evidence resultType build = do
+  scope <- gets vsEvidenceScope
+  case scope of
+    Nothing -> build
+    Just current ->
+      case Map.lookup evidence (evidenceCache current) of
+        Just binder -> pure (ExVar (binderName binder))
+        Nothing -> do
+          expression <- build
+          binder <- freshBinder "$super" resultType
+          -- The build step can open and close scopes of its own, so read the
+          -- scope again rather than extending the one from before.
+          modify' $ \state ->
+            state
+              { vsEvidenceScope =
+                  fmap
+                    ( \latest ->
+                        latest
+                          { evidenceCache = Map.insert evidence binder (evidenceCache latest),
+                            evidenceBindsRev = Bind binder expression : evidenceBindsRev latest
+                          }
+                    )
+                    (vsEvidenceScope state)
+              }
+          pure (ExVar (binderName binder))
 
 withDictionaries :: [Dictionary] -> ValueM a -> ValueM a
 withDictionaries additions action = do
