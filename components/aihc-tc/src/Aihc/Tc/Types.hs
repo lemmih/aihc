@@ -112,6 +112,7 @@ import Control.Monad (zipWithM)
 import Data.List (partition)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isJust, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -711,8 +712,8 @@ applyVariableEqualities scheme@(ForAll tyVars predicates body)
         (map (substitutePredTyVarKinds substitution . applySubstPred substitution) others)
         (substituteTyVarKinds substitution (applySubst substitution body))
   where
-    (equalities, others) = partition (\predicate -> variableEquality predicate /= Nothing) predicates
-    substitution = Map.fromList [entry | Just entry <- map variableEquality equalities]
+    (equalities, others) = partition (isJust . variableEquality) predicates
+    substitution = Map.fromList (mapMaybe variableEquality equalities)
     variableEquality predicate =
       case predicate of
         EqPred (TcTyVar tyVar) other -> Just (tvUnique tyVar, other)

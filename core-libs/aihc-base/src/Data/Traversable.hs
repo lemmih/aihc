@@ -1,3 +1,6 @@
+{- HLINT ignore "Use tuple-section" -}
+{- HLINT ignore "Avoid lambda using `infix`" -}
+
 module Data.Traversable
   ( Traversable (..),
     for,

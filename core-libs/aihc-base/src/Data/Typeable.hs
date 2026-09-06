@@ -18,9 +18,9 @@ module Data.Typeable
   )
 where
 
+import Data.Kind (Type)
 import Data.Maybe (Maybe (..))
 import Data.Proxy (Proxy (..))
-import Data.Kind (Type)
 import GHC.Types (Bool (..))
 import Type.Reflection
   ( SomeTypeRep (..),

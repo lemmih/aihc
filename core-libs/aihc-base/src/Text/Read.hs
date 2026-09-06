@@ -26,8 +26,8 @@ import GHC.Read
     readListPrecDefault,
   )
 import GHC.Read.Lex (Lexeme (..))
-import Prelude (Either (..), Maybe (..), String, all, lex, read, readParen, reads)
 import Text.ParserCombinators.ReadPrec
+import Prelude (Either (..), Maybe (..), String, all, lex, read, readParen, reads)
 
 -- | Parse a whole string. Trailing white space is permitted.
 readEither :: (Read a) => String -> Either String a

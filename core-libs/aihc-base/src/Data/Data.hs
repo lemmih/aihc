@@ -127,9 +127,9 @@ listDataType :: DataType
 listDataType = mkDataType "Prelude.[]" [nilConstr, consConstr]
 
 instance (Data a, Data b) => Data (a, b) where
-  gfoldl f z (left, right) = z (\first second -> (first, second)) `f` left `f` right
+  gfoldl f z (left, right) = z (,) `f` left `f` right
   toConstr _ = tuple2Constr
-  gunfold k z _ = k (k (z (\first second -> (first, second))))
+  gunfold k z _ = k (k (z (,)))
   dataTypeOf _ = tuple2DataType
 
 tuple2Constr :: Constr

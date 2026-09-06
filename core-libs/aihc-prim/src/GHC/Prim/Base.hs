@@ -33,6 +33,7 @@ class Functor (f :: Type -> Type) where
 infixl 4 <$
 
 {- HLINT ignore "Use const" -}
+{- HLINT ignore "Use >>" -}
 class (Functor f) => Applicative (f :: Type -> Type) where
   pure :: a -> f a
   (<*>) :: f (a -> b) -> f a -> f b

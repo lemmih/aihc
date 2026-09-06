@@ -1,5 +1,6 @@
 -- SPDX-License-Identifier: BSD-3-Clause
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
@@ -50,7 +51,6 @@ import Data.Ratio
 import Data.Void
 import Data.Word
 import GHC.Exts
-import qualified GHC.Types
 import GHC.Internal.TH.Syntax
 import Numeric.Natural
 import Prelude
@@ -94,7 +94,7 @@ class Lift (t :: TYPE r) where
   liftTyped :: (Quote m) => t -> Code m t
 
   -- The default needs a lifted argument.
-  default lift :: (r ~ GHC.Types.LiftedRep, Quote m) => t -> m Exp
+  default lift :: (r ~ 'BoxedRep 'Lifted, Quote m) => t -> m Exp
   lift value = unTypeCode (liftTyped value)
 
 -----------------------------------------------------

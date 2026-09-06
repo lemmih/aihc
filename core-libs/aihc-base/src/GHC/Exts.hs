@@ -28,6 +28,7 @@ module GHC.Exts
     StablePtr#,
     Word#,
     RuntimeRep (..),
+    Levity (..),
     TYPE,
     Ptr (..),
     Int (..),
@@ -114,7 +115,7 @@ import GHC.Internal.Char (Char (..))
 import GHC.IsList (IsList (..))
 import GHC.Prim
 import GHC.Ptr (FunPtr (..), Ptr (..))
-import GHC.Types (Bool (..), Constraint, Double (..), Float (..), Int (..), RuntimeRep (..), TYPE, isTrue#)
+import GHC.Types (Bool (..), Constraint, Double (..), Float (..), Int (..), Levity (..), RuntimeRep (..), TYPE, isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 -- | The value is returned unchanged. Strictness analysis does not apply.

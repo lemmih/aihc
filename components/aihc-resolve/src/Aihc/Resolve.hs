@@ -37,7 +37,6 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
-    TupleFlavor (..),
     ArithSeq (..),
     ArrowKind (..),
     BangType (..),
@@ -89,6 +88,7 @@ import Aihc.Parser.Syntax
     RoleAnnotation (..),
     SourceSpan (..),
     StandaloneDerivingDecl (..),
+    TupleFlavor (..),
     TyVarBinder (..),
     Type (..),
     TypeFamilyDecl (..),

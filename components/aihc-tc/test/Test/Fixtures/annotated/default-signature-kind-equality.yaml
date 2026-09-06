@@ -13,7 +13,7 @@ annotated:
     describe value = plain value
     │        │       └─ type: t → GHC.Types.Bool; type-args: t
     │        └─ type: t
-    └─ describe ∷ ∀ t. (Describe t) ⇒ t → Bool
+    └─ describe ∷ ∀ r t. (Describe t) ⇒ t → Bool
   plain :: a -> Bool
   plain _ = True
   │     └─ type: a

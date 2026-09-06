@@ -3210,8 +3210,20 @@ registerInstanceDecl origin instanceDecl =
 applyInstanceEqualities :: TyCon -> [TyVarId] -> [Pred] -> [TcType] -> ([TyVarId], [Pred], [TcType])
 applyInstanceEqualities classTyCon tvIds context headTys =
   case applyVariableEqualities (ForAll tvIds context (TcTyCon classTyCon headTys)) of
-    ForAll tvIds' context' (TcTyCon _ headTys') -> (tvIds', context', headTys')
+    ForAll tvIds' context' (TcTyCon _ headTys') ->
+      -- The fixed variable is no parameter of the dictionary any more.
+      (filter (`elem` concatMap typeTyVarIds headTys') tvIds', context', headTys')
     _ -> (tvIds, context, headTys)
+  where
+    typeTyVarIds ty =
+      case ty of
+        TcTyVar tyVar -> [tyVar]
+        TcTyCon _ arguments -> concatMap typeTyVarIds arguments
+        TcFunTy argument result -> typeTyVarIds argument <> typeTyVarIds result
+        TcAppTy function argument -> typeTyVarIds function <> typeTyVarIds argument
+        TcForAllTy _ body -> typeTyVarIds body
+        TcQualTy _ body -> typeTyVarIds body
+        TcMetaTv {} -> []
 
 predType :: Pred -> TcM TcType
 predType (ClassPred classTyCon args) = pure (TcTyCon classTyCon args)

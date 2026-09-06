@@ -3,9 +3,9 @@
 
 -- | Convert checked kinds and types into System FC types.
 module Aihc.Fc.Convert
-  (
-    dictionaryPredicates,
-    isEqualityPred, ConvertEnv (..),
+  ( dictionaryPredicates,
+    isEqualityPred,
+    ConvertEnv (..),
     emptyConvertEnv,
     withTyVar,
     withTyVars,
