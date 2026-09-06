@@ -3,16 +3,23 @@ modules:
   - |
     module Test where
 
-    classify :: Double -> Bool
-    classify 1.5 = True
-    classify _ = False
+    classify :: Double -> Int
+    classify 1.5 = 1
+    classify (-2.5) = 2
+    classify _ = 0
 
-    values :: (Bool, Bool)
-    values = (classify 1.5, classify 2.5)
+    describe :: Float -> Bool
+    describe value =
+      case value of
+        0.25 -> True
+        _ -> False
+
+    values :: (Int, Int, Int, Bool, Bool)
+    values = (classify 1.5, classify (-2.5), classify 2.5, describe 0.25, describe 0.5)
 output: |
-  (True,False)
+  ((I# 1),(I# 2),(I# 0),True,False)
 expression: |
   values
-status: xfail
-reason: a fractional literal pattern has no fromRational and equality
-  annotation, so the desugarer rejects it
+status: pass
+reason: a fractional literal pattern converts with fromRational and compares
+  with the equality method of the scrutinee type
