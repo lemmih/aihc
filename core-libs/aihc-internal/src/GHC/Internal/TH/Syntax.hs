@@ -52,13 +52,10 @@ import Control.Monad.Fail (MonadFail (..))
 import Control.Monad.Fix (MonadFix (..))
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Char (isAlpha, isAlphaNum, isUpper)
-import Data.Data hiding (Fixity (..))
-import Data.Foldable (Foldable)
+import Data.Data hiding (Fixity (..), Typeable)
 import Data.IORef
 import Data.Kind qualified as Kind (Type)
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Monoid (Monoid (..))
-import Data.Semigroup (Semigroup (..))
 import Data.Traversable (Traversable)
 import Data.Typeable (Typeable)
 import Data.Word
@@ -70,7 +67,7 @@ import GHC.Internal.LanguageExtensions
 import GHC.Ptr (Ptr)
 import System.IO (hPutStrLn, stderr, writeFile)
 import System.IO.Unsafe (unsafePerformIO)
-import Prelude
+import Prelude hiding (MonadFail (..), Traversable, liftA2, writeFile)
 
 -----------------------------------------------------
 --

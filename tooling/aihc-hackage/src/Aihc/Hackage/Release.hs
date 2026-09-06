@@ -22,14 +22,17 @@ where
 
 import Data.List (intercalate)
 
--- | A boot library that ships with the emulated release.
+-- | A boot library of the emulated release that aihc provides through a
+-- standin under @core-libs@.
+--
+-- Only the libraries aihc actually ships belong here. A Hackage package that
+-- depends on anything else, @deepseq@ or @filepath@ say, gets it from
+-- Hackage like any other dependency.
 data BootLibrary = BootLibrary
   { -- | The package name as Hackage packages spell it in @build-depends@.
     bootLibraryName :: String,
-    -- | The aihc package under @core-libs@ that stands in for it, when one
-    -- exists. Libraries without a standin are still part of the release so
-    -- that snapshot constraints of the form @foo installed@ resolve.
-    bootLibraryStandin :: Maybe String,
+    -- | The aihc package under @core-libs@ that stands in for it.
+    bootLibraryStandin :: String,
     bootLibraryVersion :: [Int]
   }
   deriving (Eq, Show)
@@ -48,36 +51,11 @@ emulatedGhc =
   GhcRelease
     { releaseCompilerVersion = [9, 12, 4],
       releaseBootLibraries =
-        [ BootLibrary "array" Nothing [0, 5, 8, 0],
-          BootLibrary "base" (Just "aihc-base") [4, 21, 2, 0],
-          BootLibrary "binary" Nothing [0, 8, 9, 3],
-          BootLibrary "bytestring" Nothing [0, 12, 2, 0],
-          BootLibrary "Cabal-syntax" Nothing [3, 14, 2, 0],
-          BootLibrary "Cabal" Nothing [3, 14, 2, 0],
-          BootLibrary "containers" Nothing [0, 7],
-          BootLibrary "deepseq" Nothing [1, 5, 1, 0],
-          BootLibrary "directory" Nothing [1, 3, 10, 1],
-          BootLibrary "exceptions" Nothing [0, 10, 12],
-          BootLibrary "filepath" Nothing [1, 5, 5, 0],
-          BootLibrary "ghc" Nothing [9, 12, 4],
-          BootLibrary "ghc-internal" (Just "aihc-internal") [9, 1204, 0],
-          BootLibrary "ghc-prim" (Just "aihc-prim") [0, 13, 0],
-          BootLibrary "haskeline" Nothing [0, 8, 4, 1],
-          BootLibrary "mtl" Nothing [2, 3, 2],
-          BootLibrary "os-string" Nothing [2, 0, 10],
-          BootLibrary "parsec" Nothing [3, 1, 18, 0],
-          BootLibrary "pretty" Nothing [1, 1, 3, 6],
-          BootLibrary "process" Nothing [1, 6, 26, 1],
-          BootLibrary "semaphore-compat" Nothing [1, 0, 0],
-          BootLibrary "stm" Nothing [2, 5, 3, 1],
-          BootLibrary "system-cxx-std-lib" (Just "system-cxx-std-lib") [1, 0],
-          BootLibrary "template-haskell" (Just "aihc-template-haskell") [2, 23, 0, 0],
-          BootLibrary "terminfo" Nothing [0, 4, 1, 7],
-          BootLibrary "text" Nothing [2, 1, 4],
-          BootLibrary "time" Nothing [1, 14],
-          BootLibrary "transformers" Nothing [0, 6, 3, 0],
-          BootLibrary "unix" Nothing [2, 8, 8, 0],
-          BootLibrary "xhtml" Nothing [3000, 2, 2, 1]
+        [ BootLibrary "base" "aihc-base" [4, 21, 2, 0],
+          BootLibrary "ghc-internal" "aihc-internal" [9, 1204, 0],
+          BootLibrary "ghc-prim" "aihc-prim" [0, 13, 0],
+          BootLibrary "system-cxx-std-lib" "system-cxx-std-lib" [1, 0],
+          BootLibrary "template-haskell" "aihc-template-haskell" [2, 23, 0, 0]
         ]
     }
 
@@ -96,11 +74,11 @@ lookupBootLibrary name release =
 
 lookupBootLibraryByStandin :: String -> GhcRelease -> Maybe BootLibrary
 lookupBootLibraryByStandin standin release =
-  case [library | library <- releaseBootLibraries release, bootLibraryStandin library == Just standin] of
+  case [library | library <- releaseBootLibraries release, bootLibraryStandin library == standin] of
     library : _ -> Just library
     [] -> Nothing
 
--- | Every boot library with its version, keyed by Hackage name.
+-- | Every provided boot library with its version, keyed by Hackage name.
 bootLibraryVersions :: GhcRelease -> [(String, [Int])]
 bootLibraryVersions release =
   [(bootLibraryName library, bootLibraryVersion library) | library <- releaseBootLibraries release]

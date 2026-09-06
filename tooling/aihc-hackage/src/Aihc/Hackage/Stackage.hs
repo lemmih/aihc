@@ -105,7 +105,8 @@ parseConstraint entry
                    in Just (PackageSpec packageName version)
                 _ -> Nothing
 
--- | The versions of the packages the emulated GHC ships with.
+-- | The versions of the boot libraries aihc provides. Every other
+-- @installed@ constraint stays @installed@ and resolves through Hackage.
 installedPackageVersions :: Map.Map String String
 installedPackageVersions =
   Map.fromList

@@ -41,22 +41,18 @@ module GHC.Internal.TH.Lift
   )
 where
 
-import Data.Char (ord)
 import Data.Data hiding (Fixity, Infix)
 import Data.Either
 import Data.Foldable
 import Data.Int
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Ratio
-import Data.Typeable
 import Data.Void
 import Data.Word
-import Foreign.ForeignPtr
 import GHC.Exts
-import GHC.Internal.Lexeme (startsVarId, startsVarSym)
 import GHC.Internal.TH.Syntax
 import Numeric.Natural
-import Prelude hiding (Module, Type)
+import Prelude
 
 -- | A 'Lift' instance can have any of its values turned into a Template
 -- Haskell expression. This is needed when a value used within a Template
@@ -336,11 +332,6 @@ instance (Lift a, Lift b, Lift c, Lift d, Lift e, Lift f) => Lift (# a | b | c |
 instance (Lift a, Lift b, Lift c, Lift d, Lift e, Lift f, Lift g) => Lift (# a | b | c | d | e | f | g #) where
   lift _ = error "Template Haskell sum lifting is not available"
   liftTyped value = unsafeCodeCoerce (lift value)
-
-liftSum :: (Lift a, Quote m) => a -> SumAlt -> SumArity -> m Exp
-liftSum value alternative arity = do
-  expression <- lift value
-  return (UnboxedSumE expression alternative arity)
 
 trueName, falseName :: Name
 trueName = mkNameG_d "ghc-prim" "GHC.Types" "True"
@@ -669,20 +660,7 @@ instance Lift Extension where
   liftTyped = unsafeCodeCoerce . lift
 
 thSyntaxDataName :: String -> Name
-thSyntaxDataName = mkNameG_d "aihc-template-haskell" "GHC.Internal.TH.Syntax"
-
-thSyntaxValueName :: String -> Name
-thSyntaxValueName = mkNameG_v "aihc-template-haskell" "GHC.Internal.TH.Syntax"
-
-foreignPtrName :: Name
-foreignPtrName = mkNameG_d "ghc-internal" "GHC.Internal.ForeignPtr" "ForeignPtr"
-
-finalPtrName :: Name
-finalPtrName = mkNameG_d "ghc-internal" "GHC.Internal.ForeignPtr" "FinalPtr"
-
-liftEnumConstructor :: (Quote m, Show a) => String -> a -> m Exp
-liftEnumConstructor moduleName value =
-  return (ConE (mkNameG_d "aihc-template-haskell" moduleName (show value)))
+thSyntaxDataName = mkNameG_d "aihc-internal" "GHC.Internal.TH.Syntax"
 
 -----------------------------------------------------
 --

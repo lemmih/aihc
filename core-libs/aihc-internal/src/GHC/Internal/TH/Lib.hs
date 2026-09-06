@@ -27,7 +27,7 @@ import Data.Word (Word8)
 import GHC.Exts (TYPE)
 import GHC.Internal.TH.Syntax hiding (InjectivityAnn, Role)
 import GHC.Internal.TH.Syntax qualified as TH
-import Prelude hiding (Applicative (..))
+import Prelude hiding (Applicative (..), sequenceA, traverse)
 
 ----------------------------------------------------------
 

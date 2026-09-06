@@ -32,12 +32,11 @@ main :: IO ()
 main =
   defaultMain . testGroup "aihc-hackage" $
     [ testCase "maps selected installed packages to fixed versions" $ do
-        parseSnapshotConstraints "constraints: binary installed, bytestring installed, Cabal installed, unix installed"
+        parseSnapshotConstraints "constraints: base installed, ghc-prim installed, template-haskell installed"
           @?= Right
-            [ PackageSpec "binary" "0.8.9.3",
-              PackageSpec "bytestring" "0.12.2.0",
-              PackageSpec "Cabal" "3.14.2.0",
-              PackageSpec "unix" "2.8.8.0"
+            [ PackageSpec "base" "4.21.2.0",
+              PackageSpec "ghc-prim" "0.13.0",
+              PackageSpec "template-haskell" "2.23.0.0"
             ],
       testCase "keeps installed for packages without a fixed override" $ do
         parseSnapshotConstraints "constraints: not-a-boot-library installed, custom-package installed"

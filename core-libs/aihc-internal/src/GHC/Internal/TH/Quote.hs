@@ -1,8 +1,8 @@
 -- SPDX-License-Identifier: BSD-3-Clause
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE Safe #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE Trustworthy #-}
 
 -- |
 -- Module : GHC.Internal.TH.Quote
@@ -25,7 +25,7 @@ module GHC.Internal.TH.Quote
 where
 
 import GHC.Internal.TH.Syntax
-import Prelude hiding (Type)
+import Prelude
 
 -- | The 'QuasiQuoter' type, a value @q@ of this type can be used
 -- in the syntax @[q| ... string to parse ...|]@.  In fact, for
