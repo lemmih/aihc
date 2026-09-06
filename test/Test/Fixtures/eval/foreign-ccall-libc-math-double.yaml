@@ -1,0 +1,38 @@
+extensions:
+  - ExtendedLiterals
+  - ForeignFunctionInterface
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import Data.Int (Int32 (..))
+    import Foreign.C.Types (CDouble (..), CInt (..))
+    import GHC.Int (Int (..))
+    import GHC.Prim
+    import GHC.Types (Double (..))
+
+    foreign import ccall unsafe "sin" c_sin :: CDouble -> CDouble
+    foreign import ccall unsafe "pow" c_pow :: CDouble -> CDouble -> CDouble
+    foreign import ccall unsafe "ldexp" c_ldexp :: CDouble -> CInt -> CDouble
+
+    double :: Int# -> CDouble
+    double value = CDouble (D# (int2Double# value))
+
+    integer :: CDouble -> Int
+    integer (CDouble (D# value)) = I# (double2Int# value)
+
+    data Results = Results Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (integer (c_sin (double 0#)))
+        (integer (c_pow (double 2#) (double 10#)))
+        (integer (c_ldexp (double 3#) (CInt (I32# 4#Int32))))
+output: |
+  Results (I# 0) (I# 1024) (I# 48)
+expression: |
+  results
+status: pass
+reason: a ccall passes and returns doubles, and ldexp interleaves the integer and the float class

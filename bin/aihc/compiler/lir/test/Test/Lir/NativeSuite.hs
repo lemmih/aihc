@@ -207,7 +207,9 @@ runFixture backend output =
         executable = directory </> "fixture"
     writeFile driverPath driverSource
     (clangExit, _, clangErr) <-
-      readProcessWithExitCode "clang" (backendClangArguments backend <> ["-std=c11", driverPath, unit, "-o", executable]) ""
+      -- glibc keeps libm apart from libc, so a fixture that calls one of its
+      -- functions needs -lm. The other two links here already carry it.
+      readProcessWithExitCode "clang" (backendClangArguments backend <> ["-std=c11", driverPath, unit, "-lm", "-o", executable]) ""
     assertEqual ("clang failed to link the fixture:\n" <> clangErr) ExitSuccess clangExit
     readProcessWithExitCode executable [] ""
 
@@ -277,7 +279,7 @@ runObservedUnit backend output metadata =
         ( backendClangArguments backend
             <> ["-std=c11", "-Wall", "-Wextra", "-Werror", "-I", takeDirectory snapshotRuntime]
             <> runtimeIncludeArguments runtimeBuild
-            <> [snapshotRuntime, metadataPath, unit, runtimeBuildArchive runtimeBuild, "-o", executablePath]
+            <> [snapshotRuntime, metadataPath, unit, runtimeBuildArchive runtimeBuild, "-lm", "-o", executablePath]
         )
         ""
     assertEqual ("clang failed to link the observed program:\n" <> clangErr) ExitSuccess clangExit
@@ -355,7 +357,7 @@ withProgramExecutable backend collector units action =
       -- This step links the units against the runtime archive and compiles no
       -- C, so it carries no C compile flags: a toolchain that injects its own
       -- preprocessor flags would report every one of them as unused.
-      readProcessWithExitCode "clang" (backendClangArguments backend <> unitPaths <> [runtimeBuildArchive runtimeBuild, "-o", executablePath]) ""
+      readProcessWithExitCode "clang" (backendClangArguments backend <> unitPaths <> [runtimeBuildArchive runtimeBuild, "-lm", "-o", executablePath]) ""
     assertEqual ("clang failed to link the program:\n" <> clangErr) ExitSuccess clangExit
     action executablePath
 
