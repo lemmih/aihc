@@ -16,6 +16,7 @@ library
     Aihc.Hackage.Cpp
     Aihc.Hackage.Download
     Aihc.Hackage.Index
+    Aihc.Hackage.Release
     Aihc.Hackage.Stackage
     Aihc.Hackage.Types
     Aihc.Hackage.Util
@@ -49,6 +50,7 @@ test-suite spec
     aihc-hackage,
     base >=4.16 && <5,
     bytestring,
+    containers,
     directory,
     filepath,
     hedgehog,

@@ -2502,6 +2502,7 @@ matcherPattern match =
       case expr of
         EAnn _ inner -> go inner
         EParen inner -> go inner
+        EPragma _ inner -> go inner
         ECase _ (alt : _) -> Just (caseAltPattern alt)
         _ -> Nothing
 
@@ -3075,9 +3076,11 @@ typeArguments ty =
     TcAppTy function argument -> typeArguments function <> [argument]
     _ -> []
 
+-- | The @Lift@ class lives in aihc-internal, the standin for ghc-internal,
+-- as it does in GHC 9.12 and later.
 isTemplateHaskellLift :: (Text, Text) -> Text -> Bool
 isTemplateHaskellLift (packageId, moduleName') className =
-  "aihc-template-haskell-" `T.isPrefixOf` packageId
+  "aihc-internal-" `T.isPrefixOf` packageId
     && moduleName' == "GHC.Internal.TH.Lift"
     && className == "Lift"
 
@@ -4094,6 +4097,7 @@ exprSpan expr =
     EAnn ann inner ->
       fromMaybe (exprSpan inner) (fromAnnotation @SourceSpan ann)
     EParen inner -> exprSpan inner
+    EPragma _ inner -> exprSpan inner
     ETypeSig inner _ -> exprSpan inner
     _ -> NoSourceSpan
 

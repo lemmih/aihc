@@ -55,13 +55,15 @@ import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Kind (explicitForallNames, scopedSigTyVars, sigToScheme)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
+import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (foldM, forM_)
 import Data.Data (Data)
 import Data.Graph qualified as Graph
-import Data.List (mapAccumL)
+import Data.List (mapAccumL, partition)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe, maybeToList)
@@ -610,11 +612,45 @@ inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do
             mapM (tcMatchEquation inferExpr argTys resTy) matches
         let matches' = map fst results
             matchCts = concatMap snd results
-        pure (matches', sigTy, matchCts)
+        residualCts <- solveWithSigGivens scheme matchCts
+        pure (matches', sigTy, residualCts)
       Nothing ->
         tcMatches inferExpr matches
   cts' <- tiePlaceholder placeholders key ty cts
   pure (matches', ty, cts')
+
+-- | Solve the constraints of a local binding under the context of its
+-- signature. The desugarer turns the context into dictionary parameters of
+-- the binding, so a constraint that the context entails is evidence for a
+-- given. Equalities go first so that a dictionary constraint sees the
+-- solved meta variables. Whatever stays stuck goes to the enclosing scope,
+-- like the constraints of a binding without a signature.
+solveWithSigGivens :: TypeScheme -> [Ct] -> TcM [Ct]
+solveWithSigGivens (ForAll _ predicates _) cts
+  | null predicates = pure cts
+  | otherwise = do
+      let (equalityCts, dictionaryCts) = partition isEqualityCt cts
+      residualEqualities <- concat <$> mapM solveEqualityCt equalityCts
+      residualDictionaries <- concat <$> mapM solveDictionaryCt dictionaryCts
+      pure (residualEqualities <> residualDictionaries)
+  where
+    isEqualityCt ct =
+      case ctPred ct of
+        EqPred {} -> True
+        _ -> False
+
+    solveEqualityCt ct = do
+      result <- solveEquality ct
+      pure $ case result of
+        EqSolved -> []
+        EqStuck stuck -> [stuck]
+        EqError err -> [err]
+
+    solveDictionaryCt ct = do
+      result <- solveDictWithGivens predicates ct
+      pure $ case result of
+        DictSolved -> []
+        DictStuck stuck -> [stuck]
 
 inferLocalPatternBind :: InferExpr -> Map TcTermKey TypeScheme -> ScopedSigs -> Map TcTermKey TcType -> UnqualifiedName -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
 inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
@@ -622,16 +658,17 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
   (rhs', rhsTy, rhsCts) <-
     withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
       inferRhsWithLocals inferExpr rhs
-  (ty, sigCts) <-
+  (ty, bindCts) <-
     case Map.lookup key sigs of
       Just scheme -> do
         sigTy <- maybe (skolemize scheme) pure (Map.lookup key placeholders)
         -- The right-hand side must have the signature type.
         ev <- freshEvVar
         let sigCt = mkWantedCt (EqPred sigTy rhsTy) ev (LetOrigin NoSourceSpan) NoSourceSpan
-        pure (sigTy, [sigCt])
-      Nothing -> pure (rhsTy, [])
-  cts <- tiePlaceholder placeholders key ty (rhsCts <> sigCts)
+        residualCts <- solveWithSigGivens scheme (sigCt : rhsCts)
+        pure (sigTy, residualCts)
+      Nothing -> pure (rhsTy, rhsCts)
+  cts <- tiePlaceholder placeholders key ty bindCts
   pure (rhs', ty, cts)
 
 tiePlaceholder :: Map TcTermKey TcType -> TcTermKey -> TcType -> [Ct] -> TcM [Ct]
@@ -989,6 +1026,7 @@ freeVarsExpr expr =
       pure (scrutVars <> altVars)
     ETypeSig inner _ -> freeVarsExpr inner
     EParen inner -> freeVarsExpr inner
+    EPragma _ inner -> freeVarsExpr inner
     EList items -> Set.unions <$> mapM freeVarsExpr items
     EArithSeq arithSeq -> freeVarsArithSeq arithSeq
     ETuple _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items

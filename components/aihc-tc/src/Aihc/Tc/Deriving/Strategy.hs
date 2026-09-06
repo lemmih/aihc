@@ -74,7 +74,7 @@ checkStockDeriving extensions className classOrigin sourceSpan
 
 isStockClassOrigin :: Maybe (Text, Text) -> Bool
 isStockClassOrigin (Just (packageId, _)) =
-  isPackage "aihc-prim" packageId || isPackage "aihc-base" packageId || isPackage "aihc-template-haskell" packageId
+  isPackage "aihc-prim" packageId || isPackage "aihc-base" packageId || isPackage "aihc-internal" packageId || isPackage "aihc-template-haskell" packageId
 isStockClassOrigin _ = False
 
 isPackage :: Text -> Text -> Bool

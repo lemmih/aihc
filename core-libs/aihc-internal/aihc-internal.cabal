@@ -3,7 +3,14 @@ name: aihc-internal
 version: 9.1204.0
 build-type: Simple
 license: NONE
-synopsis: Empty API-compatible standin for a GHC boot library
+synopsis: API-compatible standin for ghc-internal
+description:
+  The Template Haskell modules under GHC.Internal.TH carry the real
+  implementation that aihc-template-haskell re-exports, as in GHC 9.12.
+  Every other module is an empty placeholder that only reserves the name.
+  Modules that aihc-prim or aihc-base define for real, GHC.Tuple and the
+  GHC.Num modules among them, are left out: an empty module of the same
+  name would shadow the real one.
 
 library
   exposed-modules:
@@ -12,7 +19,6 @@ library
     GHC.Internal.Base
     GHC.Internal.Bits
     GHC.Internal.ByteOrder
-    GHC.Internal.Char
     GHC.Internal.Clock
     GHC.Internal.ClosureTypes
     GHC.Internal.Conc.Bound
@@ -74,7 +80,6 @@ library
     GHC.Internal.Desugar
     GHC.Internal.Encoding.UTF8
     GHC.Internal.Enum
-    GHC.Internal.Environment
     GHC.Internal.Err
     GHC.Internal.Event
     GHC.Internal.Event.TimeOut
@@ -146,7 +151,6 @@ library
     GHC.Internal.InfoProv
     GHC.Internal.InfoProv.Types
     GHC.Internal.Int
-    GHC.Internal.Integer
     GHC.Internal.Integer.Logarithms
     GHC.Internal.IsList
     GHC.Internal.Ix
@@ -174,7 +178,6 @@ library
     GHC.Internal.Show
     GHC.Internal.Stable
     GHC.Internal.StableName
-    GHC.Internal.Stack
     GHC.Internal.Stack.CCS
     GHC.Internal.Stack.CloneStack
     GHC.Internal.Stack.Types
@@ -212,12 +215,12 @@ library
     GHC.Internal.Weak
     GHC.Internal.Weak.Finalize
     GHC.Internal.Word
-    GHC.Num.BigNat
-    GHC.Num.Integer
-    GHC.Num.Natural
-    GHC.Tuple
 
   hs-source-dirs: src
-  default-extensions: NoImplicitPrelude
+  build-depends: base >=4.21 && <4.22
+  default-extensions:
+    NoGeneralizedNewtypeDeriving
+    NoImplicitPrelude
+
   ghc-options: -Wall
   default-language: GHC2021

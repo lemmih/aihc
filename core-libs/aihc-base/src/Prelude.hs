@@ -73,6 +73,7 @@ module Prelude
     drop,
     takeWhile,
     maybe,
+    either,
     mapM_,
     flip,
     error,
@@ -143,7 +144,7 @@ module Prelude
 where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
-import Data.Either (Either (..))
+import Data.Either (Either (..), either)
 import Data.Maybe (maybe)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, const, flip, id, ($), (++), (.))
@@ -342,18 +343,6 @@ mapM_ function (value : values) = function value >> mapM_ function values
 
 sequence_ :: (Monad m) => [m a] -> m ()
 sequence_ = foldr (>>) (return ())
-
-instance Traversable List where
-  traverse _ [] = pure []
-  traverse f (value : values) = fmap (:) (f value) <*> traverse f values
-
-instance Traversable Maybe where
-  traverse _ Nothing = pure Nothing
-  traverse f (Just value) = fmap Just (f value)
-
-instance Traversable (Either e) where
-  traverse _ (Left value) = pure (Left value)
-  traverse f (Right value) = fmap Right (f value)
 
 class Read a where
   readsPrec :: Int -> ReadS a
@@ -738,6 +727,18 @@ instance Functor (Either e) where
 
 instance Functor ((,) a) where
   fmap f (first, second) = (first, f second)
+
+instance Traversable List where
+  traverse _ [] = pure []
+  traverse f (value : values) = fmap (:) (f value) <*> traverse f values
+
+instance Traversable Maybe where
+  traverse _ Nothing = pure Nothing
+  traverse f (Just value) = fmap Just (f value)
+
+instance Traversable (Either e) where
+  traverse _ (Left value) = pure (Left value)
+  traverse f (Right value) = fmap Right (f value)
 
 instance Functor ((->) r) where
   fmap f g x = f (g x)

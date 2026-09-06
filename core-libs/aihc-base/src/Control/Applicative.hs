@@ -7,6 +7,7 @@ module Control.Applicative
     ZipList (..),
     liftA,
     liftA2,
+    (<**>),
   )
 where
 
@@ -15,6 +16,11 @@ import Prelude (Applicative (..), Functor (..), Maybe (..), (++))
 
 liftA :: (Applicative f) => (a -> b) -> f a -> f b
 liftA = fmap
+
+(<**>) :: (Applicative f) => f a -> f (a -> b) -> f b
+(<**>) = liftA2 (\value function -> function value)
+
+infixl 4 <**>
 
 newtype Const a b = Const {getConst :: a}
 

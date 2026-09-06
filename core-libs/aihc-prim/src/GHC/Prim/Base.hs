@@ -27,6 +27,10 @@ data Maybe a = Nothing | Just a
 
 class Functor (f :: Type -> Type) where
   fmap :: (a -> b) -> f a -> f b
+  (<$) :: a -> f b -> f a
+  value <$ functor = fmap (\_ -> value) functor
+
+infixl 4 <$
 
 {- HLINT ignore "Use const" -}
 class (Functor f) => Applicative (f :: Type -> Type) where

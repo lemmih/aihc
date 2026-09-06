@@ -1,0 +1,92 @@
+annotated:
+- |-
+  module Main where
+  class Num a where
+  └─ class methods: + ∷ ∀ a. (Num a) ⇒ a → a → a
+    (+) :: a -> a -> a
+  data Pair a b = Pair a b
+       │          └─ type: ∀ a b. a → b → Pair a b
+       └─ type: Type → Type → Type
+  data List a = Nil | Cons a (List a)
+       │        │     └─ type: ∀ a. a → [a] → [a]
+       │        └─ type: ∀ a. [a]
+       └─ type: Type → Type
+  dup :: Num a => a -> Pair a a
+  dup x = Pair (x + x) x
+  │   │   │       └─ type: a → a → a; type-args: a; evidence: given Num a
+  │   │   └─ type: a → a → Pair a a; type-args: a, a
+  │   └─ type: a
+  └─ type: ∀ a. (Num a) ⇒ a → Pair a a
+  f :: Num b => b -> b
+  f y = g y
+  │ │   └─ type: b → b; type-args: b; evidence: given Num b
+  │ └─ type: b
+  └─ type: ∀ b. (Num b) ⇒ b → b
+    where
+      g :: Num i => i -> i
+      g z =
+      │ └─ type: i
+      └─ type: ∀ i. (Num i) ⇒ i → i
+        let Pair p q = dup z
+            ││    │ │   └─ type: i → Pair i i; type-args: i; evidence: given Num i
+            ││    │ └─ type: i
+            ││    └─ type: i
+            └─ type: i
+            └─ type: Pair i i
+         in p + q
+              └─ type: i → i → i; type-args: i; evidence: given Num i
+  total :: Num b => List b -> b -> b
+  total xs z = go xs z
+  │     │  │   └─ type: [b] → b → b; type-args: b; evidence: given Num b
+  │     │  └─ type: b
+  │     └─ type: [b]
+  └─ type: ∀ b. (Num b) ⇒ [b] → b → b
+    where
+      go :: Num i => List i -> i -> i
+      go Nil acc = addSelf acc
+      │  │   │     └─ type: i → i; type-args: i; evidence: given Num i
+      │  │   └─ type: i
+      │  └─ type: [i]
+      └─ type: ∀ i. (Num i) ⇒ [i] → i → i
+      go (Cons x rest) acc = go rest (x + acc)
+      │   │    │ │     │     ││          └─ type: i → i → i; type-args: i; evidence: given Num i
+      │   │    │ │     │     └─ type: [i] → i → i; type-args: i; evidence: given Num i
+      │   │    │ │     │     └─ type: [i] → i → i; type-args: i; evidence: given Num i
+      │   │    │ │     └─ type: i
+      │   │    │ └─ type: [i]
+      │   │    └─ type: i
+      │   └─ type: [i]
+      └─ type: ∀ i. (Num i) ⇒ [i] → i → i
+      addSelf :: Num i => i -> i
+      addSelf = \w -> w + w
+      │         ││      └─ type: i → i → i; type-args: i; evidence: given Num i
+      │         │└─ type: i
+      │         └─ type: i → i
+      └─ type: ∀ i. (Num i) ⇒ i → i
+extensions: []
+modules:
+- |
+  module Main where
+  class Num a where
+    (+) :: a -> a -> a
+  data Pair a b = Pair a b
+  data List a = Nil | Cons a (List a)
+  dup :: Num a => a -> Pair a a
+  dup x = Pair (x + x) x
+  f :: Num b => b -> b
+  f y = g y
+    where
+      g :: Num i => i -> i
+      g z =
+        let Pair p q = dup z
+         in p + q
+  total :: Num b => List b -> b -> b
+  total xs z = go xs z
+    where
+      go :: Num i => List i -> i -> i
+      go Nil acc = addSelf acc
+      go (Cons x rest) acc = go rest (x + acc)
+      addSelf :: Num i => i -> i
+      addSelf = \w -> w + w
+reason: a local binding with a constrained signature solves the constraints of its body from the signature context
+status: pass
