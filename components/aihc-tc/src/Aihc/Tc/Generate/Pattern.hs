@@ -445,6 +445,7 @@ literalPatternCheck sp pat scrutTy =
   case patternLiteral pat of
     Just (isNegative, lit)
       | isOverloadedIntegerLiteral lit -> Just (checkOverloadedIntegerPattern sp pat isNegative scrutTy)
+      | isOverloadedFractionalLiteral lit -> Just (checkOverloadedLiteralPattern sp pat "fromRational" Nothing isNegative scrutTy)
       | isPrimitiveLiteral lit -> Just (checkPrimitiveLiteralPattern sp pat scrutTy)
     _ -> Nothing
 
@@ -515,13 +516,27 @@ isOverloadedIntegerLiteral lit =
     LitInt _ TInteger _ -> True
     _ -> False
 
+isOverloadedFractionalLiteral :: Literal -> Bool
+isOverloadedFractionalLiteral lit =
+  case peelLiteralAnn lit of
+    LitFloat _ TFractional _ -> True
+    _ -> False
+
 checkOverloadedIntegerPattern :: SourceSpan -> Pattern -> Bool -> TcType -> TcM PatternCheck
 checkOverloadedIntegerPattern sp pat isNegative scrutTy = do
   integerTy <- resolvedIntegerPatternType pat
-  (fromIntegerPending, fromIntegerCts) <-
-    checkPatternMethodWithExpected sp pat "fromInteger" $ \case
-      TcFunTy argumentTy _ -> pure (scrutTy, TcFunTy (fromMaybe argumentTy integerTy) scrutTy)
-      _ -> abortTc "fromInteger does not have a function type"
+  checkOverloadedLiteralPattern sp pat "fromInteger" integerTy isNegative scrutTy
+
+-- | Check a literal pattern that a class method converts and equality tests.
+--
+-- @literalTy@ is the resolved type of the literal, when the resolver gives
+-- it. The argument type of the conversion method must then equal it.
+checkOverloadedLiteralPattern :: SourceSpan -> Pattern -> Text -> Maybe TcType -> Bool -> TcType -> TcM PatternCheck
+checkOverloadedLiteralPattern sp pat conversion literalTy isNegative scrutTy = do
+  (conversionPending, conversionCts) <-
+    checkPatternMethodWithExpected sp pat conversion $ \case
+      TcFunTy argumentTy _ -> pure (scrutTy, TcFunTy (fromMaybe argumentTy literalTy) scrutTy)
+      _ -> abortTc (T.unpack conversion <> " does not have a function type")
   negateCheck <-
     if isNegative
       then Just <$> checkPatternMethod sp pat "negate" scrutTy (TcFunTy scrutTy scrutTy)
@@ -533,7 +548,7 @@ checkOverloadedIntegerPattern sp pat isNegative scrutTy = do
          in pure (expectedTy, expectedTy)
       _ -> abortTc "== does not have a binary function type"
   let methodAnnotations =
-        [("fromInteger", fromIntegerPending)]
+        [(conversion, conversionPending)]
           <> maybe [] (\(pending, _) -> [("negate", pending)]) negateCheck
           <> [("==", eqPending)]
       pat' = foldr (uncurry attachPendingPatternAnnotation) pat methodAnnotations
@@ -541,7 +556,7 @@ checkOverloadedIntegerPattern sp pat isNegative scrutTy = do
   pure
     PatternCheck
       { pcBindings = [],
-        pcWantedCts = fromIntegerCts <> negateCts <> eqCts,
+        pcWantedCts = conversionCts <> negateCts <> eqCts,
         pcGivenCts = [],
         pcSkolems = [],
         pcPatterns = [pat']
