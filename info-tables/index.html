@@ -669,7 +669,7 @@ Exception code uses <code>frame_kind</code> to identify continuation frames.</p>
 For this reason, two adjacent tables can have field counts that differ by more than one.
 The <code>next</code> table gives the correct field layout for the next source argument.</p>
 <h2 id="application-stages">Application stages<a class="headerlink" href="#application-stages" title="Permanent link">&para;</a></h2>
-<p>A function or constructor has one info table for each required application stage.
+<p>A function has one info table for each required application stage.
 An underapplication copies the object and its fields into a new object.
 The new object header points to the <code>next</code> table.
 A saturated closure can enter its generated code without this copy.</p>
@@ -678,8 +678,18 @@ A saturated closure can enter its generated code without this copy.</p>
 stored fields:    0  -&gt;  1  -&gt;  2
 </code></pre>
 <p>The last table has no <code>next</code> value.
-A saturated function can enter its generated code.
-A saturated constructor is a data node and does not enter code.</p>
+A saturated function can enter its generated code.</p>
+<p>A constructor works differently.
+It has two tables however many arguments it takes: one for the saturated node,
+and one shared by every stage that still wants arguments.
+An unsaturated constructor object stores in its first field the count of the
+fields it holds, and its own fields follow from the second.
+The shared table gives the saturated table as its <code>next</code> value, which is where
+the run-time system reads the full width and the complete pointer map.
+The slots an unsaturated constructor has filled are a prefix of the slots the
+saturated one holds, so one pointer map serves both.
+A saturated constructor is a data node, does not enter code, and stores no
+count.</p>
 <h2 id="suspended-function-example">Suspended function example<a class="headerlink" href="#suspended-function-example" title="Permanent link">&para;</a></h2>
 <p>Consider a suspended call that captures <code>x</code> and <code>y</code>:</p>
 <pre><code class="language-haskell">makeTotal x y =
@@ -748,46 +758,66 @@ After evaluation, the run-time system changes the thunk into an indirection to t
 </code></pre>
 <p><code>Pair</code> has arity two.
 AIHC can represent <code>Pair</code>, <code>Pair first</code>, and <code>Pair first second</code> as managed objects.
-The backend supplies three linked info tables:</p>
+The backend supplies two info tables:</p>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Object kind</th>
+<th style="text-align: right;"><code>field_count</code></th>
+<th><code>next</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Pair</code> partial</td>
+<td>Partial constructor</td>
+<td style="text-align: right;">2</td>
+<td>The saturated table.</td>
+</tr>
+<tr>
+<td><code>Pair</code> saturated</td>
+<td>Node</td>
+<td style="text-align: right;">2</td>
+<td>Null.</td>
+</tr>
+</tbody>
+</table>
+<p><code>Pair</code> and <code>Pair first</code> both use the partial table and differ only in the count
+they store:</p>
 <table>
 <thead>
 <tr>
 <th>Object</th>
+<th style="text-align: right;">Stored count</th>
 <th style="text-align: right;">Stored fields</th>
-<th style="text-align: right;">Remaining arity</th>
-<th>Object kind</th>
-<th><code>next</code></th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Pair</code></td>
 <td style="text-align: right;">0</td>
-<td style="text-align: right;">2</td>
-<td>Partial constructor</td>
-<td>Table for <code>Pair first</code>.</td>
+<td style="text-align: right;">0</td>
 </tr>
 <tr>
 <td><code>Pair first</code></td>
 <td style="text-align: right;">1</td>
 <td style="text-align: right;">1</td>
-<td>Partial constructor</td>
-<td>Table for <code>Pair first second</code>.</td>
 </tr>
 <tr>
 <td><code>Pair first second</code></td>
+<td style="text-align: right;">None</td>
 <td style="text-align: right;">2</td>
-<td style="text-align: right;">0</td>
-<td>Node</td>
-<td>Null.</td>
 </tr>
 </tbody>
 </table>
-<p>All three tables use the saturated constructor table as their <code>identity</code> value.
+<p>Both tables use the saturated constructor table as their <code>identity</code> value.
 This stable identity lets case code compare a value with the <code>Pair</code> constructor.
-The final table also gives the complete pointer map for both constructor fields.</p>
+Both tables also give the complete pointer map for both constructor fields.</p>
 <p>Constructor application uses the common slow application path.
 This path allocates the object for the next stage and copies the stored fields.
+An application that fills the last field allocates a saturated node instead,
+which drops the stored count.
 The final object is a data node, so its entry addresses are null.</p>
 <p>Nullary constructors have only the saturated table.
 The backend also makes an implicit static object for each nullary constructor.</p>
@@ -805,7 +835,7 @@ It emits the tables and entry adapters with ARM64 sections, symbols, and calling
 <h3 id="llvm">LLVM<a class="headerlink" href="#llvm" title="Permanent link">&para;</a></h3>
 <p>The LLVM backend emits constant values of the <code>%AihcInfo</code> type.
 It puts a <code>tailcc</code> adapter in <code>backend_entry</code> for an enterable object.
-It emits only constructor stages that the current compilation unit requires.
+It emits only the constructor tables that the current compilation unit requires.
 Linked constructor table names keep constructor identities equal across compilation units.</p>
 <h3 id="webassembly">WebAssembly<a class="headerlink" href="#webassembly" title="Permanent link">&para;</a></h3>
 <p>The WebAssembly backend emits the same fields in WebAssembly assembly data.
