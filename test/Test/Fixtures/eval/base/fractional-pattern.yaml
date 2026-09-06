@@ -1,0 +1,18 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    classify :: Double -> Bool
+    classify 1.5 = True
+    classify _ = False
+
+    values :: (Bool, Bool)
+    values = (classify 1.5, classify 2.5)
+output: |
+  (True,False)
+expression: |
+  values
+status: xfail
+reason: a fractional literal pattern has no fromRational and equality
+  annotation, so the desugarer rejects it

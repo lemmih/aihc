@@ -106,6 +106,7 @@ import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
+import Data.Ratio (denominator, numerator)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -2172,6 +2173,11 @@ desugarAnnotatedExpr annotation inner = do
             resolutionNamespace resolution == ResolutionNamespaceTerm,
             resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
               desugarOverloadedInteger annotation resolution value
+        Syn.EAnn resolutionAnnotation (Syn.EFloat value Syn.TFractional _)
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            resolutionNamespace resolution == ResolutionNamespaceTerm,
+            resolutionIdentifier resolution == IdentifierNamed "fromRational" ->
+              desugarOverloadedRational annotation resolution value
         Syn.EAnn resolutionAnnotation (Syn.EIf condition thenExpression elseExpression)
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             isIfThenElseResolution resolution ->
@@ -3572,6 +3578,25 @@ desugarOverloadedInteger annotation resolution value = do
   fromIntegerExpression <- desugarResolvedOccurrence annotation resolution
   integer <- desugarIntegerLiteral value
   pure (ExApp fromIntegerExpression integer)
+
+-- | An overloaded fractional literal applies fromRational to a Rational.
+--
+-- The Rational is the ratio of the numerator and the denominator of the
+-- literal. Both are Integer literals.
+desugarOverloadedRational :: TcAnnotation -> ResolutionAnnotation -> Rational -> ValueM Expr
+desugarOverloadedRational annotation resolution value = do
+  fromRationalExpression <- desugarResolvedOccurrence annotation resolution
+  rational <- desugarRationalLiteral value
+  pure (ExApp fromRationalExpression rational)
+
+desugarRationalLiteral :: Rational -> ValueM Expr
+desugarRationalLiteral value = do
+  constructor <- primitiveName "GHC.Prim.Real" "Ratio" SortDataConstructor
+  package <- gets (cePrimPackage . vsConvertEnv)
+  integerType <- convertCheckedType (TcTyCon (mkTyConWithOrigin package "GHC.Prim.Integer" "Integer" 0) [])
+  numeratorExpression <- desugarIntegerLiteral (numerator value)
+  denominatorExpression <- desugarIntegerLiteral (denominator value)
+  pure (ExApp (ExApp (ExTyApp (ExVar constructor) integerType) numeratorExpression) denominatorExpression)
 
 desugarIntegerLiteral :: Integer -> ValueM Expr
 desugarIntegerLiteral value = do

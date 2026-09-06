@@ -15,5 +15,5 @@ output: |
   True
 expression: |
   half
-status: xfail
+status: pass
 reason: RebindableSyntax gives a fractional literal the in-scope fromRational

@@ -86,6 +86,11 @@ inferExprAt ambient expr = case expr of
         inferOverloadedIntegerLiteral ambient Nothing ann resolution inner
   EAnn ann inner
     | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      isSyntaxTermResolution "fromRational" resolution,
+      EFloat _ TFractional _ <- inner ->
+        inferOverloadedLiteral ambient "fromRational" [] ann resolution inner
+  EAnn ann inner
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
       resolutionNamespace resolution == ResolutionNamespaceType,
       isPrimitiveLiteral inner ->
         inferPrimitiveLiteral ann resolution inner
@@ -104,7 +109,7 @@ inferExprAt ambient expr = case expr of
   EInt {} ->
     abortTc "integer literal is missing its resolver type annotation"
   EFloat {} ->
-    literalResult expr doubleTyCon
+    abortTc "fractional literal is missing its resolver type annotation"
   EChar _ _ ->
     literalResult expr (resolvedType "Char")
   ECharHash {} ->
@@ -287,23 +292,32 @@ inferTypeSig sp inner tyAnn = do
 -- The resolver gives the Integer type when the built-in scope has it.
 -- The argument type of the method then equals Integer.
 inferOverloadedIntegerLiteral :: SourceSpan -> Maybe ResolutionAnnotation -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
-inferOverloadedIntegerLiteral ambient integerResolution resolutionAnn resolution literalExpr = do
+inferOverloadedIntegerLiteral ambient integerResolution =
+  inferOverloadedLiteral ambient "fromInteger" (maybe [] pure integerResolution)
+
+-- | Infer an overloaded literal that a class method converts.
+--
+-- @literalResolutions@ holds the resolution of the type of the argument of
+-- the method, when the resolver gives it. The argument type of the method
+-- must then equal that type.
+inferOverloadedLiteral :: SourceSpan -> Text -> [ResolutionAnnotation] -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferOverloadedLiteral ambient methodName literalResolutions resolutionAnn resolution literalExpr = do
   let sp = resolutionSpan resolution `orSourceSpan` ambient
-  (methodTy, typeArgs, methodCts) <- inferResolvedFromInteger sp resolution
+  (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp methodName resolution
   resultTy <- freshMetaTv
   ev <- freshEvVar
-  integerArgTy <-
+  literalArgTy <-
     case methodTy of
       TcFunTy argumentTy _ -> pure argumentTy
-      _ -> abortTc "fromInteger does not have a function type"
-  integerCts <- resolvedIntegerCts sp integerResolution integerArgTy
-  let expectedMethodTy = TcFunTy integerArgTy resultTy
+      _ -> abortTc (T.unpack methodName <> " does not have a function type")
+  literalCts <- concat <$> mapM (\literalResolution -> resolvedLiteralCts sp literalResolution literalArgTy) literalResolutions
+  let expectedMethodTy = TcFunTy literalArgTy resultTy
       methodEq =
         mkWantedEqCt
           TypeTrace
             { typeTraceType = methodTy,
               typeTraceRole = ActualType,
-              typeTraceOrigin = ConstraintTypeOrigin (OccurrenceOf "fromInteger")
+              typeTraceOrigin = ConstraintTypeOrigin (OccurrenceOf methodName)
             }
           TypeTrace
             { typeTraceType = expectedMethodTy,
@@ -319,20 +333,7 @@ inferOverloadedIntegerLiteral ambient integerResolution resolutionAnn resolution
           typeArgs
           (map ctEvVar methodCts)
           []
-  pure (annotatePendingExprAt sp pending (EAnn resolutionAnn literalExpr), resultTy, methodCts <> [methodEq] <> integerCts)
-
-inferResolvedFromInteger :: SourceSpan -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
-inferResolvedFromInteger sp resolution = do
-  mBinder <- lookupResolvedTerm "fromInteger" (resolutionTarget resolution)
-  case mBinder of
-    Just (TcIdBinder scheme _) -> do
-      inst <- instantiateWithArgs scheme
-      cts <- mapM (predToCt sp "fromInteger") (instPreds inst)
-      pure (instType inst, instTypeArgs inst, cts)
-    Just (TcMonoIdBinder ty) ->
-      pure (ty, [], [])
-    Nothing ->
-      abortTc ("resolved fromInteger missing from type environment: " <> show (resolutionTarget resolution))
+  pure (annotatePendingExprAt sp pending (EAnn resolutionAnn literalExpr), resultTy, methodCts <> [methodEq] <> literalCts)
 
 inferPrimitiveLiteral :: Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
 inferPrimitiveLiteral resolutionAnn resolution literalExpr = do
@@ -1252,12 +1253,13 @@ inferResolvedDoStmt ambient resolutionAnn resolution stmt rest =
       emitError ambient (OtherError "internal do-bind annotation on a non-action statement")
       inferDoStmt ambient stmt rest
 
--- | The constraint that equates the argument of fromInteger with the resolved Integer type.
+-- | The constraint that equates the argument of a literal method with the
+-- resolved type of the literal.
 --
--- The list is empty when the built-in scope does not give the Integer type.
-resolvedIntegerCts :: SourceSpan -> Maybe ResolutionAnnotation -> TcType -> TcM [Ct]
-resolvedIntegerCts sp integerResolution argumentTy = do
-  maybeInfo <- maybe (pure Nothing) lookupResolvedTypeSyntax integerResolution
+-- The list is empty when the built-in scope does not give that type.
+resolvedLiteralCts :: SourceSpan -> ResolutionAnnotation -> TcType -> TcM [Ct]
+resolvedLiteralCts sp literalResolution argumentTy = do
+  maybeInfo <- lookupResolvedTypeSyntax literalResolution
   case maybeInfo of
     Nothing -> pure []
     Just info -> do
@@ -1319,13 +1321,6 @@ nameToText :: Name -> Text
 nameToText n = case nameQualifier n of
   Nothing -> nameText n
   Just q -> q <> "." <> nameText n
-
-doubleTyCon :: TcM TcType
-doubleTyCon = do
-  maybeInfo <- lookupTyCon "Double"
-  case maybeInfo of
-    Just info -> pure (TcTyCon (tciTyCon info) [])
-    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Double" 0 typeKindType <*> pure []
 
 resolvedType :: Text -> TcM TcType
 resolvedType name = do

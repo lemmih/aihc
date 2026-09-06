@@ -22,6 +22,7 @@ library
     GHC.Prim.Num
     GHC.Prim.Panic
     GHC.Prim.PtrEq
+    GHC.Prim.Real
     GHC.Prim.Unicode
     GHC.PrimopWrappers
     GHC.Tuple

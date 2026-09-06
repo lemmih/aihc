@@ -48,11 +48,8 @@ import GHC.Prim
     wordToWord64#,
     wordToWord8#,
   )
+import GHC.Prim.Real (Fractional (..), Ratio (..), Rational)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
-
-data Ratio a = Ratio a a
-
-type Rational = Ratio Integer
 
 class (Num a, Ord a) => Real a where
   toRational :: a -> Rational
@@ -65,13 +62,6 @@ class (Real a, Enum a) => Integral a where
   quotRem :: a -> a -> (a, a)
   divMod :: a -> a -> (a, a)
   toInteger :: a -> Integer
-
-class (Num a) => Fractional a where
-  (/) :: a -> a -> a
-  recip :: a -> a
-  fromRational :: Rational -> a
-
-infixl 7 /
 
 class (Real a, Fractional a) => RealFrac a where
   properFraction :: (Integral b) => a -> (b, a)

@@ -220,7 +220,7 @@ evaluateResolverCase meta =
     showAnnotated = renderAnnotatedResolveResult (map snd (caseModules meta))
 
 builtinModuleNames :: [Text]
-builtinModuleNames = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim"]
+builtinModuleNames = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Real"]
 
 listSupportModule :: Text
 listSupportModule =
