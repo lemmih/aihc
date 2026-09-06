@@ -6,13 +6,15 @@
 -- flags (GHC version macros,
 -- @MIN_VERSION_*@ macros, and @-D@\/@-U@ options from @.cabal@ files).
 module Aihc.Hackage.Cpp
-  ( builtinCppMacros,
+  ( emulatedGhcVersion,
+    builtinCppMacros,
     cppMacrosFromOptions,
     minVersionMacroNamesFromDeps,
     injectSyntheticCppMacros,
   )
 where
 
+import Data.List (intercalate)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Data.Maybe (mapMaybe)
@@ -21,14 +23,22 @@ import Data.Set qualified as S
 import Data.Text (Text)
 import Data.Text qualified as T
 
+-- | The GHC version aihc presents to packages.
+--
+-- Both the CPP macros and the @impl(ghc ...)@ conditions in @.cabal@ files
+-- must agree on this, or a package can take one branch in its source and the
+-- other in its @build-depends@.
+emulatedGhcVersion :: [Int]
+emulatedGhcVersion = [9, 6, 7]
+
 -- | GHC version macros that every preprocessed file sees.
 -- Mirrors what GHC itself defines when invoking @cpp@.
 builtinCppMacros :: Map Text Text
 builtinCppMacros =
   M.fromList
-    [ ("__GLASGOW_HASKELL__", "906"),
-      ("__GLASGOW_HASKELL_FULL_VERSION__", "\"9.6.7\""),
-      ("__GLASGOW_HASKELL_PATCHLEVEL1__", "7"),
+    [ ("__GLASGOW_HASKELL__", T.pack (show (major * 100 + minor))),
+      ("__GLASGOW_HASKELL_FULL_VERSION__", T.pack (show (intercalate "." (map show emulatedGhcVersion)))),
+      ("__GLASGOW_HASKELL_PATCHLEVEL1__", T.pack (show patch)),
       ("__GLASGOW_HASKELL_PATCHLEVEL2__", "0"),
       ("WORD_SIZE_IN_BITS", "64"),
       ("WORD_SIZE_IN_BITS_FLOAT", "64.0"),
@@ -36,6 +46,10 @@ builtinCppMacros =
       ("SIZEOF_HSDOUBLE", "8"),
       ("SIZEOF_HSFLOAT", "4")
     ]
+  where
+    (major, minor, patch) = case emulatedGhcVersion of
+      [a, b, c] -> (a, b, c)
+      _ -> error "emulatedGhcVersion must have three components"
 
 -- | Build the macro map for the CPP config from a list of @cpp-options@ strings.
 --

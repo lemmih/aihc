@@ -89,6 +89,7 @@ tests =
             testCase "reports all frontend errors in stable dependency order" (test_installResolveError primStore),
             testCase "writes Core for a ccall import" (test_installFcCcall primStore),
             testCase "compiles Cabal c-sources into the library archive" (test_installCSources primStore),
+            testCase "writes an empty archive for a package with no code" (test_installEmptyArchive primStore),
             testCase "selects Cabal source dirs by target architecture" (test_installArchSourceDirs primStore),
             testCase "retains Core and GRIN only with keep-core and keep-grin" (test_installKeepGrin primStore),
             testCase "writes target-specific objects and library archives" (test_installTargetArchives primStore),
@@ -591,6 +592,35 @@ test_installCSources getStore = do
     assertEqual "archive members" ["Demo.o", "cbits_helper.o"] (sort members)
     symbols <- readProcess "nm" [archivePath] ""
     assertBool "archive defines the C symbol" ("aihc_c_add" `isInfixOf` symbols)
+
+-- An API standin such as aihc-internal has only empty modules, so nothing
+-- goes into its archive. BSD ar refuses to create an archive with no
+-- members, so the install writes the bare archive header instead.
+test_installEmptyArchive :: IO SeedStore -> Assertion
+test_installEmptyArchive getStore =
+  withSandbox getStore "aihc-install-empty-archive" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let sourceRoot = sandboxRoot sandbox </> "source"
+        sourceDir = sourceRoot </> "src"
+    createDirectoryIfMissing True sourceDir
+    writeFile
+      (sourceRoot </> "demo.cabal")
+      ( unlines
+          [ "cabal-version: 3.0",
+            "name: demo",
+            "version: 0.1.0.0",
+            "library",
+            "  exposed-modules: Demo",
+            "  hs-source-dirs: src",
+            "  default-language: Haskell2010"
+          ]
+      )
+    writeFile (sourceDir </> "Demo.hs") "module Demo () where\n"
+    result <- install (InstallOptions sourceRoot (Just storeRoot) False False False False False False False False AppleArm64)
+    let archivePath = installStorePath result </> "lib" </> "libdemo.a"
+    assertFileExists archivePath
+    members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
+    assertEqual "archive members" [] members
 
 test_installFcCcall :: IO SeedStore -> Assertion
 test_installFcCcall getStore =
