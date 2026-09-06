@@ -239,6 +239,8 @@ cAbiType =
       keyword "Word32" $> CAbiWord32,
       keyword "Word64" $> CAbiWord64,
       keyword "Word" $> CAbiWord,
+      keyword "Float" $> CAbiFloat,
+      keyword "Double" $> CAbiDouble,
       keyword "Addr" $> CAbiAddr,
       keyword "Void" $> CAbiVoid
     ]

@@ -219,6 +219,8 @@ data CAbiType
   | CAbiWord16
   | CAbiWord32
   | CAbiWord64
+  | CAbiFloat
+  | CAbiDouble
   | CAbiAddr
   | -- | The result of a C procedure, which has no value.
     CAbiVoid

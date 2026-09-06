@@ -222,6 +222,21 @@ data Ctx = Ctx
 argumentRegisters :: [Arm64Register]
 argumentRegisters = [X0, X1, X2, X3, X4, X5, X6, X7]
 
+-- | The procedure call standard passes the first eight floating point
+-- arguments in v0 to v7.
+floatArgumentCount :: Int
+floatArgumentCount = 8
+
+-- | Split the parameters of a C function into the integer class and the
+-- float class. Each list pairs the parameter index with its type. The two
+-- classes have separate registers and separate counters, so the position of
+-- a parameter in its own class, not among all of them, selects its register.
+classify :: [Type] -> ([(Int, Type)], [(Int, Type)])
+classify types =
+  ( [(index, ty) | (index, ty) <- zip [0 ..] types, not (isFloatType ty)],
+    [(index, ty) | (index, ty) <- zip [0 ..] types, isFloatType ty]
+  )
+
 -- | The registers that hold block arguments during a jump.
 moveRegisters :: [Arm64Register]
 moveRegisters = [X9, X10, X11, X12, X13, X14, X15]
@@ -256,8 +271,12 @@ compileFunction signatures index function = do
               AihcConvention -> overflowBytes (length (functionParameters function))
               CConvention -> 0
           }
-  when (functionConvention function == CConvention && length (functionParameters function) > length argumentRegisters) $
-    unsupported ("function " <> unSymbol (functionName function) <> " has more than eight C parameters")
+  when (functionConvention function == CConvention) $ do
+    let (integers, floats) = classify (map snd (functionParameters function))
+    when (length integers > length argumentRegisters) $
+      unsupported ("function " <> unSymbol (functionName function) <> " has more than eight integer C parameters")
+    when (length floats > floatArgumentCount) $
+      unsupported ("function " <> unSymbol (functionName function) <> " has more than eight float C parameters")
   prologue <- functionPrologue ctx
   body <- concat <$> mapM (compileBlock ctx) (zip blocks (map Just (drop 1 blocks) <> [Nothing]))
   pure
@@ -501,10 +520,26 @@ functionPrologue ctx = do
   where
     function = ctxFunction ctx
     layout = ctxLayout ctx
+    -- The C convention counts the integer and the float class separately, so
+    -- a parameter takes the register at its position within its own class.
+    -- The aihc convention numbers every parameter together and passes none
+    -- of them in a float register.
+    (integerParameters, floatParameters) =
+      case functionConvention function of
+        CConvention -> classify (map snd (functionParameters function))
+        AihcConvention -> (zip [0 ..] (map snd (functionParameters function)), [])
+    integerSlots = Map.fromList [(index, slot) | (slot, (index, _)) <- zip [0 :: Int ..] integerParameters]
+    floatSlots = Map.fromList [(index, slot) | (slot, (index, _)) <- zip [0 :: Int ..] floatParameters]
     storeParameter (index, (var, ty))
-      | index < length argumentRegisters =
-          let register = argumentRegisters !! index
-           in pure (floatParameter ty register <> canonicalize ty register <> [writeValue ctx 0 register var])
+      | Just slot <- Map.lookup index floatSlots =
+          -- The value arrives in a float register. It moves through a scratch
+          -- register rather than the argument register of the same number,
+          -- which may hold an integer parameter of its own.
+          pure ([arm64Instruction (ArmFmovFromFloat (ty == F64) X9 slot)] <> canonicalize ty X9 <> [writeValue ctx 0 X9 var])
+      | Just slot <- Map.lookup index integerSlots,
+        slot < length argumentRegisters =
+          let register = argumentRegisters !! slot
+           in pure (canonicalize ty register <> [writeValue ctx 0 register var])
       | otherwise =
           -- The overflow block sits above the saved frame pointer pair.
           pure
@@ -515,11 +550,6 @@ functionPrologue ctx = do
       case functionConvention function of
         CConvention -> canonicalizeRegister ty register
         AihcConvention -> []
-    -- C passes floats in the float registers of the same index.
-    floatParameter ty register =
-      case functionConvention function of
-        CConvention | isFloatType ty -> [arm64Instruction (ArmFmovFromFloat (ty == F64) register (registerIndex register))]
-        _ -> []
     zeroAllocation (offset, size) =
       [ arm64Instruction (ArmStr XZR (Arm64Offset SP (fromIntegral (offset + position))))
       | position <- [0, 8 .. size - 1]
@@ -1022,21 +1052,40 @@ compileInstruction ctx (Instruction results operation) =
 
     call callee arguments = do
       let (convention, resultTypes, parameterTypes) = calleeSignature callee
-      when (convention == CConvention && length arguments > length argumentRegisters) $ unsupported "C call with more than eight arguments"
       let outgoing = case convention of
             CConvention -> 0
             AihcConvention -> overflowBytes (length arguments)
-          overflowStores =
-            concat
-              [ loadTyped ctx outgoing ty X9 argument <> [arm64Instruction (ArmStr X9 (Arm64Offset SP (fromIntegral (8 * position))))]
-              | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length argumentRegisters) (zip parameterTypes arguments))
-              ]
-          registerLoads =
-            concat
-              [ loadTyped ctx outgoing ty register argument <> floatArgument convention ty register
-              | (register, (ty, argument)) <- zip argumentRegisters (zip parameterTypes arguments)
-              ]
-          branch = case callee of
+      argumentLoads <-
+        case convention of
+          AihcConvention ->
+            pure
+              ( concat
+                  [ loadTyped ctx outgoing ty X9 argument <> [arm64Instruction (ArmStr X9 (Arm64Offset SP (fromIntegral (8 * position))))]
+                  | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length argumentRegisters) (zip parameterTypes arguments))
+                  ]
+                  <> concat
+                    [ loadTyped ctx outgoing ty register argument
+                    | (register, (ty, argument)) <- zip argumentRegisters (zip parameterTypes arguments)
+                    ]
+              )
+          CConvention -> do
+            let (integers, floats) = classify parameterTypes
+            when (length integers > length argumentRegisters) $ unsupported "C call with more than eight integer arguments"
+            when (length floats > floatArgumentCount) $ unsupported "C call with more than eight float arguments"
+            -- The float arguments move through a scratch register first, so
+            -- loading them cannot disturb an argument register that already
+            -- holds one of the integers.
+            pure
+              ( concat
+                  [ loadTyped ctx 0 ty X9 (arguments !! index) <> [arm64Instruction (ArmFmovToFloat (ty == F64) slot X9)]
+                  | ((index, ty), slot) <- zip floats [0 ..]
+                  ]
+                  <> concat
+                    [ loadTyped ctx 0 ty register (arguments !! index)
+                    | ((index, ty), register) <- zip integers argumentRegisters
+                    ]
+              )
+      let branch = case callee of
             Left symbol -> [arm64Instruction (ArmBl (lirSymbol symbol))]
             Right _ -> [arm64Instruction (ArmBlr X8)]
           resultStores =
@@ -1044,7 +1093,7 @@ compileInstruction ctx (Instruction results operation) =
               [ floatResult convention ty register <> canonicalResult convention ty register <> [writeValue ctx 0 register var]
               | (var, ty, register) <- zip3 results resultTypes argumentRegisters
               ]
-      pure (adjustStack ArmSub outgoing <> overflowStores <> registerLoads <> branch <> resultStores)
+      pure (adjustStack ArmSub outgoing <> argumentLoads <> branch <> resultStores)
     callIndirect target arguments signature = do
       stub <- trapLabel "indirect call to a non-function"
       body <- call (Right signature) arguments
@@ -1056,10 +1105,6 @@ compileInstruction ctx (Instruction results operation) =
             Just signature -> (signatureConvention signature, signatureResults signature, signatureParameters signature)
             Nothing -> (AihcConvention, [], [])
         Right signature -> (signatureConvention signature, signatureResults signature, signatureParameters signature)
-    floatArgument convention ty register =
-      case convention of
-        CConvention | isFloatType ty -> [arm64Instruction (ArmFmovToFloat (ty == F64) (registerIndex register) register)]
-        _ -> []
     floatResult convention ty register =
       case convention of
         CConvention | isFloatType ty -> [arm64Instruction (ArmFmovFromFloat (ty == F64) register 0)]

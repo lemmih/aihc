@@ -1205,6 +1205,8 @@ lowerForeignType foreignType =
     Fc.CAbiWord16 -> GrinForeignWord16
     Fc.CAbiWord32 -> GrinForeignWord32
     Fc.CAbiWord64 -> GrinForeignWord64
+    Fc.CAbiFloat -> GrinForeignFloat
+    Fc.CAbiDouble -> GrinForeignDouble
     Fc.CAbiAddr -> GrinForeignAddr
     Fc.CAbiVoid -> GrinForeignVoid
 

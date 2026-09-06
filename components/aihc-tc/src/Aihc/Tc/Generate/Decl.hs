@@ -1248,6 +1248,8 @@ primitiveForeignTypes =
     (("Word16#", 0), ("Word16#", TcForeignWord16)),
     (("Word32#", 0), ("Word32#", TcForeignWord32)),
     (("Word64#", 0), ("Word64#", TcForeignWord64)),
+    (("Float#", 0), ("Float#", TcForeignFloat)),
+    (("Double#", 0), ("Double#", TcForeignDouble)),
     (("Addr#", 0), ("Addr#", TcForeignAddr))
   ]
 

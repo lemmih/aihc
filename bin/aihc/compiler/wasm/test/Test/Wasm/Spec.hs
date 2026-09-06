@@ -231,7 +231,10 @@ runFixture tools assembly =
     (_, backendArguments) <- backendCompiler Wasm32Wasip3
     runTool (toolsClang tools) (backendArguments <> ["-c", assemblyPath, "-o", fixtureObject])
     runTool (toolsClang tools) (toolsClangArguments tools <> ["-O1", "-std=c11", "-nostdlib", "-ffreestanding", "-Wall", "-Wextra", "-Werror", "-c", driverPath, "-o", driverObject])
-    runTool "wasm-ld" ["--no-entry", "--export=_start", driverObject, fixtureObject, "-o", moduleFile]
+    -- The libc archive follows the objects so a fixture that calls a C
+    -- function, such as one of libm, resolves it.
+    sysroot <- wasmSysroot
+    runTool "wasm-ld" ["--no-entry", "--export=_start", driverObject, fixtureObject, wasmSysrootLibc sysroot, "-o", moduleFile]
     readProcessWithExitCode "wasmtime" ["run", "-C", "cache=n", moduleFile] ""
 
 runTool :: FilePath -> [String] -> IO ()

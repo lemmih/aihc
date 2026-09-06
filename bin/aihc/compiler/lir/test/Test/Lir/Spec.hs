@@ -27,7 +27,7 @@ tests = do
     ( testGroup
         "aihc-lir"
         [ testProperty "generated Lir pretty-printer round-trip" prop_lirPrettyRoundTrip,
-          testGroup "evaluation fixtures" (map evalTest evalCases),
+          testGroup "evaluation fixtures" (map evalTest (filter (not . callsExternFunction) evalCases)),
           testGroup "lint error fixtures" (map lintTest lintCases),
           regAlloc
         ]
@@ -63,6 +63,13 @@ parseFixture fixture =
         Left err -> assertFailure ("pretty-printer output does not parse:\n" <> renderParseError err)
         Right reparsed -> assertEqual "pretty-printer round-trip" lirModule reparsed
       pure lirModule
+
+-- | A fixture that calls a C function runs on the backends, which link it,
+-- and not here: this interpreter has no foreign call of its own. The
+-- fixture still round-trips through the parser and the linter in the other
+-- groups.
+callsExternFunction :: Fixture -> Bool
+callsExternFunction fixture = "extern func" `T.isInfixOf` fixtureSource fixture
 
 evalTest :: Fixture -> TestTree
 evalTest fixture = testCase (fixtureName fixture) $ do
