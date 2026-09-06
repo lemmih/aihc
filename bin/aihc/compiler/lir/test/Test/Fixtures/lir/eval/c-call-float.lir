@@ -1,0 +1,19 @@
+; expect: 0.0, 1024.0, 48.0, 2.5
+
+; The C convention gives the integer and the float class separate registers
+; and separate counters, so ldexp, whose classes interleave, passes its
+; double in the first float register and its int in the first integer one.
+
+extern func @sin(f64) -> f64 cc c
+extern func @pow(f64, f64) -> f64 cc c
+extern func @ldexp(f64, i32) -> f64 cc c
+extern func @fdimf(f32, f32) -> f32 cc c
+
+func @main() -> (f64, f64, f64, f32) {
+entry:
+  %zero = call @sin(0.0)
+  %power = call @pow(2.0, 10.0)
+  %scaled = call @ldexp(3.0, 4)
+  %difference = call @fdimf(4.0, 1.5)
+  return %zero, %power, %scaled, %difference
+}

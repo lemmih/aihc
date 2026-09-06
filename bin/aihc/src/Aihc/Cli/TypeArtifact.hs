@@ -276,6 +276,8 @@ putForeignAbiType abiType =
       TcForeignWord64 -> 9
       TcForeignAddr -> 10
       TcForeignVoid -> 11
+      TcForeignFloat -> 12
+      TcForeignDouble -> 13
 
 getForeignAbiType :: Get.Get TcForeignAbiType
 getForeignAbiType = do
@@ -293,6 +295,8 @@ getForeignAbiType = do
     9 -> pure TcForeignWord64
     10 -> pure TcForeignAddr
     11 -> pure TcForeignVoid
+    12 -> pure TcForeignFloat
+    13 -> pure TcForeignDouble
     _ -> fail "unsupported foreign ABI type"
 
 putPatSynInfo :: Map TyCon Word64 -> PatSynInfo -> Builder.Builder

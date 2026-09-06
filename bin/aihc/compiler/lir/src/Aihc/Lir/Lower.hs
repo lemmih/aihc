@@ -614,6 +614,13 @@ coerce ty (Typed operand actual)
         (I32, Ptr) -> do
           word <- result (Convert SExt I32 operand I64)
           result (PtrFromInt word)
+        -- A Float# value travels as its bit pattern in the low 32 bits of an
+        -- integer slot, and a Double# value as its 64-bit pattern, so the C
+        -- ABI reads them as floats rather than converting the number.
+        (I64, F64) -> result (Convert Bitcast I64 operand F64)
+        (I64, F32) -> do
+          narrow <- typedOperand <$> emitValue "coerced" I32 (Convert Trunc I64 operand I32)
+          result (Convert Bitcast I32 narrow F32)
         _ -> failWith (LowerUnsupportedValue ("cannot convert " <> T.pack (show actual) <> " to " <> T.pack (show ty)))
   where
     result operation = typedOperand <$> emitValue "coerced" ty operation
@@ -1170,6 +1177,8 @@ foreignType ty =
     GrinForeignWord16 -> I32
     GrinForeignWord32 -> I32
     GrinForeignWord64 -> I64
+    GrinForeignFloat -> F32
+    GrinForeignDouble -> F64
     GrinForeignAddr -> Ptr
     GrinForeignVoid -> I32
 
@@ -1190,6 +1199,11 @@ extendForeignResult foreignTy (Typed operand actual) =
     (GrinForeignWord8, I32) -> extend ZExt I8
     (GrinForeignWord16, I32) -> extend ZExt I16
     (GrinForeignWord32, I32) -> emitValue "foreign_result" I64 (Convert ZExt I32 operand I64)
+    -- The float result returns to the integer slot it came from.
+    (GrinForeignDouble, F64) -> emitValue "foreign_result" I64 (Convert Bitcast F64 operand I64)
+    (GrinForeignFloat, F32) -> do
+      bits <- emitValue "foreign_bits" I32 (Convert Bitcast F32 operand I32)
+      emitValue "foreign_result" I64 (Convert ZExt I32 (typedOperand bits) I64)
     _ -> pure (Typed operand actual)
   where
     extend op narrowTy = do
