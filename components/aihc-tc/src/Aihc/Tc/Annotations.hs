@@ -10,6 +10,8 @@ module Aihc.Tc.Annotations
   ( -- * Annotation type
     TcAnnotation (..),
     TcForeignImportAnnotation (..),
+    TcForeignImportInfo (..),
+    TcForeignSafety (..),
     TcForeignEffect (..),
     TcForeignTarget (..),
     TcForeignMarshal (..),
@@ -95,20 +97,37 @@ data TcForeignImportAnnotation = TcForeignImportAnnotation
     tcForeignSymbol :: !Text,
     tcForeignTarget :: !TcForeignTarget
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
+
+-- | The checked calling convention of a foreign import. The interface keeps
+-- this fact for each foreign import, so a module that uses the import can
+-- desugar each use to a saturated foreign call.
+data TcForeignImportInfo
+  = -- | A @foreign import prim@. The name of the import selects the primitive.
+    TcForeignPrimImport
+  | -- | A @foreign import ccall@ with its safety mark and checked plan.
+    TcForeignCCallImport !TcForeignSafety !TcForeignImportAnnotation
+  deriving (Eq, Show, Read)
+
+-- | The safety mark of a @ccall@ foreign import. A missing mark is safe.
+data TcForeignSafety
+  = TcForeignSafe
+  | TcForeignUnsafe
+  | TcForeignInterruptible
+  deriving (Eq, Show, Read)
 
 -- | Whether a foreign import calls the C symbol or takes its address.
 data TcForeignTarget
   = TcForeignCall
   | TcForeignAddress
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | Whether a raw foreign call is pure or explicitly threads the real-world
 -- state token.
 data TcForeignEffect
   = TcForeignPure
   | TcForeignRealWorld
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | A source value's path to its primitive ABI representation.  Constructor
 -- names are ordered outermost to innermost; for example, a @CInt@ is lowered
@@ -119,7 +138,7 @@ data TcForeignMarshal = TcForeignMarshal
     tcForeignConstructors :: ![Text],
     tcForeignAbiType :: !TcForeignAbiType
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | Primitive values understood by the C ABI bridge.  This is deliberately
 -- independent from lifted Haskell wrapper types.
@@ -139,7 +158,7 @@ data TcForeignAbiType
   | TcForeignAddr
   | -- | The unit result of a C procedure.
     TcForeignVoid
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | Type-checker annotation payload before constraint solving has finished.
 --

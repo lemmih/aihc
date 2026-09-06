@@ -1,0 +1,109 @@
+annotated:
+- |-
+  module GHC.Num where
+  import GHC.Classes (Eq (..))
+  import GHC.Types (Bool (..))
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
+       │         └─ type: GHC.Prim.Int# → Integer
+       └─ type: Type
+  data Double = D# Int#
+       │        └─ type: GHC.Prim.Int# → Double
+       └─ type: Type
+  instance Eq Double where
+  └─ $fEqDouble ∷ () ⇒ Eq Double
+    D# _ == D# _ = True
+    ││  │    │  └─ type: GHC.Prim.Int#
+    ││  │    └─ type: Double
+    ││  └─ type: GHC.Prim.Int#
+    └─ type: Double
+    └─ == ∷ Double → Double → Bool
+  class Num a where
+  └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a, negate ∷ ∀ a. (Num a) ⇒ a → a
+    fromInteger :: Integer -> a
+    negate :: a -> a
+  instance Num Double where
+  └─ $fNumDouble ∷ () ⇒ Num Double
+    fromInteger (IS x) = D# x
+    │            │  └─ type: GHC.Prim.Int#
+    │            └─ type: Integer
+    └─ fromInteger ∷ Integer → Double
+    negate x = x
+    │      └─ type: Double
+    └─ negate ∷ Double → Double
+- |-
+  module GHC.Real where
+  import GHC.Num (Double, Integer, Num (..))
+  data Ratio a = Ratio a a
+       │         └─ type: ∀ a. a → a → Ratio a
+       └─ type: Type → Type
+  type Rational = Ratio Integer
+       └─ type: Type
+  class Num a => Fractional a where
+  └─ class methods: fromRational ∷ ∀ a. (Fractional a) ⇒ Ratio Integer → a
+    fromRational :: Rational -> a
+  instance Fractional Double where
+  └─ $fFractionalDouble ∷ () ⇒ Fractional Double [superclasses: $fNumDouble]
+    fromRational (Ratio x _) = fromInteger x
+    │             │     │ │    └─ type: GHC.Num.Integer → GHC.Num.Double; type-args: Double; evidence: $fNumDouble
+    │             │     │ └─ type: GHC.Num.Integer
+    │             │     └─ type: GHC.Num.Integer
+    │             └─ type: Ratio GHC.Num.Integer
+    └─ fromRational ∷ Ratio Integer → Double
+- |-
+  module Main where
+  import GHC.Real (Fractional)
+  import GHC.Num (Double)
+  import GHC.Types (Bool (..))
+  isHalf :: Double -> Bool
+  isHalf 0.5 = True
+  │      └─ type: GHC.Num.Double → GHC.Num.Double → GHC.Types.Bool; type-args: Double; evidence: $fEqDouble
+  │      └─ type: GHC.Num.Double; type-args: Double; evidence: $fFractionalDouble
+  └─ type: GHC.Num.Double → GHC.Types.Bool
+  isHalf (-0.5) = True
+  │       └─ type: GHC.Num.Double → GHC.Num.Double → GHC.Types.Bool; type-args: Double; evidence: $fEqDouble
+  │       └─ type: GHC.Num.Double; type-args: Double; evidence: $fNumDouble
+  │       └─ type: GHC.Num.Double; type-args: Double; evidence: $fFractionalDouble
+  └─ type: GHC.Num.Double → GHC.Types.Bool
+  isHalf _ = False
+  │      └─ type: GHC.Num.Double
+  └─ type: GHC.Num.Double → GHC.Types.Bool
+extensions:
+- MagicHash
+modules:
+- |
+  module GHC.Num where
+  import GHC.Classes (Eq (..))
+  import GHC.Types (Bool (..))
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
+  data Double = D# Int#
+  instance Eq Double where
+    D# _ == D# _ = True
+  class Num a where
+    fromInteger :: Integer -> a
+    negate :: a -> a
+  instance Num Double where
+    fromInteger (IS x) = D# x
+    negate x = x
+- |
+  module GHC.Real where
+  import GHC.Num (Double, Integer, Num (..))
+  data Ratio a = Ratio a a
+  type Rational = Ratio Integer
+  class Num a => Fractional a where
+    fromRational :: Rational -> a
+  instance Fractional Double where
+    fromRational (Ratio x _) = fromInteger x
+- |
+  module Main where
+  import GHC.Real (Fractional)
+  import GHC.Num (Double)
+  import GHC.Types (Bool (..))
+  isHalf :: Double -> Bool
+  isHalf 0.5 = True
+  isHalf (-0.5) = True
+  isHalf _ = False
+reason: a fractional pattern converts with fromRational, negates a negative
+  literal, and compares with the equality method of the scrutinee type
+status: pass

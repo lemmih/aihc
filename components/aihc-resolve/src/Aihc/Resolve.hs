@@ -771,7 +771,7 @@ resolveExpr expr =
     EInt _ TInteger _ -> resolveIntegerLiteral expr
     EInt _ numericType _ -> resolvePrimitiveLiteralType numericType expr
     EFloat _ floatType _ ->
-      maybe (pure expr) (`resolvePrimitiveLiteralTypeName` expr) (primitiveFloatTypeName floatType)
+      maybe (resolveFractionalLiteral expr) (`resolvePrimitiveLiteralTypeName` expr) (primitiveFloatTypeName floatType)
     EChar {} -> pure expr
     ECharHash {} -> resolvePrimitiveLiteralTypeName "Char#" expr
     EString {} -> pure expr
@@ -870,6 +870,13 @@ resolveIntegerLiteral expr = do
   maybeIntegerAnn <- integerTypeAnnotation sp
   annotated <- annotateSyntaxTerm "fromInteger" expr
   pure (maybe annotated (\integerAnn -> EAnn (mkAnnotation integerAnn) annotated) maybeIntegerAnn)
+
+-- | An overloaded fractional literal applies fromRational to a Rational.
+--
+-- The type of the Rational comes from the type of the method, so the
+-- literal gets only the fromRational term.
+resolveFractionalLiteral :: Expr -> ResolveM Expr
+resolveFractionalLiteral = annotateSyntaxTerm "fromRational"
 
 -- | The resolution of the Integer type in the built-in scope.
 --
@@ -972,14 +979,19 @@ annotatePatternLiteral pat lit = do
     Nothing ->
       case peelLiteralAnn lit of
         LitInt _ TInteger _ -> do
-          let methodNames =
-                case peelPatternAnn pat of
-                  PNegLit {} -> ["fromInteger", "negate", "=="]
-                  _ -> ["fromInteger", "=="]
           maybeIntegerAnn <- integerTypeAnnotation sp
-          methodAnns <- mapM (syntaxTermAnnotation sp) methodNames
+          methodAnns <- mapM (syntaxTermAnnotation sp) (overloadedPatternMethods "fromInteger")
           pure (foldr (PAnn . mkAnnotation) pat (maybe methodAnns (: methodAnns) maybeIntegerAnn))
+        LitFloat _ TFractional _ -> do
+          methodAnns <- mapM (syntaxTermAnnotation sp) (overloadedPatternMethods "fromRational")
+          pure (foldr (PAnn . mkAnnotation) pat methodAnns)
         _ -> pure pat
+  where
+    -- A negated literal pattern also negates the converted literal.
+    overloadedPatternMethods conversion =
+      case peelPatternAnn pat of
+        PNegLit {} -> [conversion, "negate", "=="]
+        _ -> [conversion, "=="]
 
 literalSpan :: SourceSpan -> Literal -> SourceSpan
 literalSpan ambient (LitAnn ann inner) = literalSpan (pushSpanFromAnn ambient ann) inner
@@ -1007,6 +1019,7 @@ builtinSyntaxTerm info name =
   where
     builtinSyntaxTermNames =
       [ "fromInteger",
+        "fromRational",
         "negate",
         "==",
         ">>=",

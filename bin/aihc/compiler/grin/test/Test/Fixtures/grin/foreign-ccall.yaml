@@ -3,10 +3,15 @@ expected: |-
 
   foreign labs = "labs" :: (int) -> int ! pure
 
-  global 1.labs = (P$labs_foreign/[[IntRep]])
+  global 1.run = (P$run/[[IntRep]])
 
-  $labs_foreign (foreign_argument_0 :: IntRep) -> IntRep =
-    foreign-call labs = "labs" :: (int) -> int ! pure with (foreign_argument_0 :: IntRep)
+  global 1.alias = (P$alias/[[IntRep]])
+
+  $run (x :: IntRep) -> IntRep =
+    foreign-call labs = "labs" :: (int) -> int ! pure with (x :: IntRep)
+
+  $alias (_foreign_argument :: IntRep) -> IntRep =
+    foreign-call labs = "labs" :: (int) -> int ! pure with (_foreign_argument :: IntRep)
 extensions:
 - ForeignFunctionInterface
 - MagicHash
@@ -14,5 +19,11 @@ source: |
   module Test where
   import GHC.Prim
   foreign import ccall unsafe "labs" labs :: Int# -> Int#
-reason: creates a local heap closure around a C foreign call
+
+  run :: Int# -> Int#
+  run x = labs x
+
+  alias :: Int# -> Int#
+  alias = labs
+reason: calls the C function in place and closes over the call for a partial use
 status: pass

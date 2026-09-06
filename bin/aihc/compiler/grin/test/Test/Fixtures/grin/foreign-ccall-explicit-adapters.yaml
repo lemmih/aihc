@@ -8,6 +8,9 @@ source: |
   data Int = I# Int#
   newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
   foreign import ccall unsafe "identity_int" identityInt :: Int -> IO Int
+
+  run :: Int -> IO Int
+  run x = identityInt x
 expected: |-
   scope 1 = "" Test
 
@@ -17,9 +20,9 @@ expected: |-
 
   global 1.I# = (C1.I#/1)
 
-  global 1.identityInt = (P$identityInt_foreign/[[BoxedRep Lifted], []])
+  global 1.run = (P$run/1)
 
-  $identityInt_foreign (foreign_argument_0 :: BoxedRep Lifted) -> TupleRep [TupleRep [],BoxedRep Lifted] =
+  $run_identityInt_foreign (foreign_argument_0 :: BoxedRep Lifted) -> TupleRep [TupleRep [],BoxedRep Lifted] =
     foreign_box :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (foreign_argument_0 :: BoxedRep Lifted)
     case (foreign_box :: BoxedRep Lifted) as foreign_box_case :: BoxedRep Lifted of
@@ -27,5 +30,8 @@ expected: |-
         foreign_result :: IntRep <-
           foreign-call identityInt = "identity_int" :: (int) -> int ! real-world with (foreign_field :: IntRep)
         store (C1.I# (foreign_result :: IntRep))
-reason: uses only the adapters named by the System FC foreign declaration
+
+  $run (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (P$run_identityInt_foreign/[[]] (x :: BoxedRep Lifted))
+reason: uses only the adapters named by the System FC foreign call
 status: pass

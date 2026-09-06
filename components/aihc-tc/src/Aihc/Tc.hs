@@ -36,6 +36,7 @@ module Aihc.Tc
     tcInterfaceDataFamilyInstances,
     tcInterfaceTypeFamilyInstances,
     tcInterfacePatSyns,
+    tcInterfaceForeignImports,
     tcInterfaceFromLists,
     emptyTcInterface,
     mergeTcInterfaces,
@@ -137,7 +138,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (PackageId (..))
 import Aihc.Resolve.Generic (everywhereM)
 import Aihc.Resolve.Traverse (annotationList)
-import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
+import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcForeignImportInfo (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
@@ -184,7 +185,9 @@ data TcInterface = TcInterface
     tcInterfaceInstanceMap :: !(Map.Map InstanceKey InstanceInfo),
     tcInterfaceDataFamilyInstanceMap :: !(Map.Map TcAxiomKey DataFamilyInstanceInfo),
     tcInterfaceTypeFamilyInstanceMap :: !(Map.Map TcAxiomKey TypeFamilyInstanceInfo),
-    tcInterfacePatSynMap :: !(Map.Map TcTermKey PatSynInfo)
+    tcInterfacePatSynMap :: !(Map.Map TcTermKey PatSynInfo),
+    -- | The checked calling convention of each foreign import.
+    tcInterfaceForeignImportMap :: !(Map.Map TcTermKey TcForeignImportInfo)
   }
   deriving (Eq, Show, Read)
 
@@ -215,10 +218,13 @@ tcInterfaceTypeFamilyInstances = Map.elems . tcInterfaceTypeFamilyInstanceMap
 tcInterfacePatSyns :: TcInterface -> [PatSynInfo]
 tcInterfacePatSyns = Map.elems . tcInterfacePatSynMap
 
+tcInterfaceForeignImports :: TcInterface -> [(TcTermKey, TcForeignImportInfo)]
+tcInterfaceForeignImports = Map.toList . tcInterfaceForeignImportMap
+
 -- | Build an interface from lists of facts. Two facts with one identity
 -- must be equal.
-tcInterfaceFromLists :: [(TcTermKey, TypeScheme)] -> [TyConInfo] -> [DataTypeInfo] -> [ClassInfo] -> [InstanceInfo] -> [DataFamilyInstanceInfo] -> [TypeFamilyInstanceInfo] -> [PatSynInfo] -> TcInterface
-tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstances typeFamilyInstances patSyns =
+tcInterfaceFromLists :: [(TcTermKey, TypeScheme)] -> [TyConInfo] -> [DataTypeInfo] -> [ClassInfo] -> [InstanceInfo] -> [DataFamilyInstanceInfo] -> [TypeFamilyInstanceInfo] -> [PatSynInfo] -> [(TcTermKey, TcForeignImportInfo)] -> TcInterface
+tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstances typeFamilyInstances patSyns foreignImports =
   TcInterface
     { tcInterfaceTermMap = fromListChecked "term interface" id terms,
       tcInterfaceTyConMap = fromListChecked "type constructor interface" (keyed (tyConKey . tciTyCon)) tyCons,
@@ -227,7 +233,8 @@ tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstance
       tcInterfaceInstanceMap = fromListChecked "instance interface" (keyed instanceInfoKey) instances,
       tcInterfaceDataFamilyInstanceMap = fromListChecked "data family instance interface" (keyed dataFamilyAxiomKey) dataFamilyInstances,
       tcInterfaceTypeFamilyInstanceMap = fromListChecked "type family instance interface" (keyed typeFamilyAxiomKey) typeFamilyInstances,
-      tcInterfacePatSynMap = fromListChecked "pattern synonym interface" (keyed patSynKey) patSyns
+      tcInterfacePatSynMap = fromListChecked "pattern synonym interface" (keyed patSynKey) patSyns,
+      tcInterfaceForeignImportMap = fromListChecked "foreign import interface" id foreignImports
     }
   where
     keyed key value = (key value, value)
@@ -243,7 +250,8 @@ emptyTcInterface =
       tcInterfaceInstanceMap = Map.empty,
       tcInterfaceDataFamilyInstanceMap = Map.empty,
       tcInterfaceTypeFamilyInstanceMap = Map.empty,
-      tcInterfacePatSynMap = Map.empty
+      tcInterfacePatSynMap = Map.empty,
+      tcInterfaceForeignImportMap = Map.empty
     }
 
 instance Semigroup TcInterface where
@@ -268,7 +276,8 @@ mergeTcInterface left right =
       tcInterfaceInstanceMap = merge "instance interface" tcInterfaceInstanceMap,
       tcInterfaceDataFamilyInstanceMap = merge "data family instance interface" tcInterfaceDataFamilyInstanceMap,
       tcInterfaceTypeFamilyInstanceMap = merge "type family instance interface" tcInterfaceTypeFamilyInstanceMap,
-      tcInterfacePatSynMap = merge "pattern synonym interface" tcInterfacePatSynMap
+      tcInterfacePatSynMap = merge "pattern synonym interface" tcInterfacePatSynMap,
+      tcInterfaceForeignImportMap = merge "foreign import interface" tcInterfaceForeignImportMap
     }
   where
     merge :: (Ord key, Show key, Eq value) => String -> (TcInterface -> Map.Map key value) -> Map.Map key value
@@ -294,7 +303,8 @@ unionTcInterfaces (first : rest) = List.foldl' union first rest
           tcInterfaceInstanceMap = Map.union (tcInterfaceInstanceMap left) (tcInterfaceInstanceMap right),
           tcInterfaceDataFamilyInstanceMap = Map.union (tcInterfaceDataFamilyInstanceMap left) (tcInterfaceDataFamilyInstanceMap right),
           tcInterfaceTypeFamilyInstanceMap = Map.union (tcInterfaceTypeFamilyInstanceMap left) (tcInterfaceTypeFamilyInstanceMap right),
-          tcInterfacePatSynMap = Map.union (tcInterfacePatSynMap left) (tcInterfacePatSynMap right)
+          tcInterfacePatSynMap = Map.union (tcInterfacePatSynMap left) (tcInterfacePatSynMap right),
+          tcInterfaceForeignImportMap = Map.union (tcInterfaceForeignImportMap left) (tcInterfaceForeignImportMap right)
         }
 
 -- | Keep only facts that the selected modules define.
@@ -308,7 +318,8 @@ restrictTcInterfaceToModules package names interface =
       tcInterfaceInstanceMap = Map.filter localInstance (tcInterfaceInstanceMap interface),
       tcInterfaceDataFamilyInstanceMap = Map.filter (localTyCon . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstanceMap interface),
       tcInterfaceTypeFamilyInstanceMap = Map.filter localTypeFamilyInstance (tcInterfaceTypeFamilyInstanceMap interface),
-      tcInterfacePatSynMap = Map.filterWithKey (\key _ -> localTerm key) (tcInterfacePatSynMap interface)
+      tcInterfacePatSynMap = Map.filterWithKey (\key _ -> localTerm key) (tcInterfacePatSynMap interface),
+      tcInterfaceForeignImportMap = Map.filterWithKey (\key _ -> localTerm key) (tcInterfaceForeignImportMap interface)
     }
   where
     selected = Map.fromList [(name, ()) | name <- names]
@@ -468,7 +479,8 @@ initialTcState imported =
       tcsInstances = instanceEnvFromList (tcInterfaceInstances imported),
       tcsDataFamilyInstances = tcInterfaceDataFamilyInstanceMap imported,
       tcsTypeFamilyInstances = tcInterfaceTypeFamilyInstanceMap imported,
-      tcsPatSyns = tcInterfacePatSynMap imported
+      tcsPatSyns = tcInterfacePatSynMap imported,
+      tcsForeignImports = tcInterfaceForeignImportMap imported
     }
 
 tcInterfaceDifference :: TcState -> TcState -> TcInterface
@@ -486,7 +498,8 @@ tcInterfaceDifference initial state =
           ],
       tcInterfaceDataFamilyInstanceMap = Map.difference (tcsDataFamilyInstances state) (tcsDataFamilyInstances initial),
       tcInterfaceTypeFamilyInstanceMap = Map.difference (tcsTypeFamilyInstances state) (tcsTypeFamilyInstances initial),
-      tcInterfacePatSynMap = Map.difference (tcsPatSyns state) (tcsPatSyns initial)
+      tcInterfacePatSynMap = Map.difference (tcsPatSyns state) (tcsPatSyns initial),
+      tcInterfaceForeignImportMap = Map.difference (tcsForeignImports state) (tcsForeignImports initial)
     }
   where
     initialInstanceKeys = Set.fromList (map instanceInfoKey (instanceEnvList (tcsInstances initial)))

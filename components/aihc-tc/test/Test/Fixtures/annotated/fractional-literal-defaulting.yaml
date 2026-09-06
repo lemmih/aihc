@@ -1,0 +1,122 @@
+annotated:
+- |-
+  module GHC.Num where
+  import GHC.Prim (Int#)
+  import GHC.Types (Int (..))
+  data Integer = IS Int#
+       │         └─ type: GHC.Prim.Int# → Integer
+       └─ type: Type
+  data Double = D# Int#
+       │        └─ type: GHC.Prim.Int# → Double
+       └─ type: Type
+  data Float = F# Int#
+       │       └─ type: GHC.Prim.Int# → Float
+       └─ type: Type
+  class Num a where
+  └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
+    fromInteger :: Integer -> a
+  instance Num Integer where
+  └─ $fNumInteger ∷ () ⇒ Num Integer
+    fromInteger x = x
+    │           └─ type: Integer
+    └─ fromInteger ∷ Integer → Integer
+  instance Num Double where
+  └─ $fNumDouble ∷ () ⇒ Num Double
+    fromInteger (IS x) = D# x
+    │            │  └─ type: GHC.Prim.Int#
+    │            └─ type: Integer
+    └─ fromInteger ∷ Integer → Double
+  instance Num Float where
+  └─ $fNumFloat ∷ () ⇒ Num Float
+    fromInteger (IS x) = F# x
+    │            │  └─ type: GHC.Prim.Int#
+    │            └─ type: Integer
+    └─ fromInteger ∷ Integer → Float
+- |-
+  module GHC.Real where
+  import GHC.Num (Double, Float, Integer, Num (..))
+  data Ratio a = Ratio a a
+       │         └─ type: ∀ a. a → a → Ratio a
+       └─ type: Type → Type
+  type Rational = Ratio Integer
+       └─ type: Type
+  class Num a => Fractional a where
+  └─ class methods: fromRational ∷ ∀ a. (Fractional a) ⇒ Ratio Integer → a
+    fromRational :: Rational -> a
+  instance Fractional Double where
+  └─ $fFractionalDouble ∷ () ⇒ Fractional Double [superclasses: $fNumDouble]
+    fromRational (Ratio x _) = fromInteger x
+    │             │     │ │    └─ type: GHC.Num.Integer → GHC.Num.Double; type-args: Double; evidence: $fNumDouble
+    │             │     │ └─ type: GHC.Num.Integer
+    │             │     └─ type: GHC.Num.Integer
+    │             └─ type: Ratio GHC.Num.Integer
+    └─ fromRational ∷ Ratio Integer → Double
+  instance Fractional Float where
+  └─ $fFractionalFloat ∷ () ⇒ Fractional Float [superclasses: $fNumFloat]
+    fromRational (Ratio x _) = fromInteger x
+    │             │     │ │    └─ type: GHC.Num.Integer → GHC.Num.Float; type-args: Float; evidence: $fNumFloat
+    │             │     │ └─ type: GHC.Num.Integer
+    │             │     └─ type: GHC.Num.Integer
+    │             └─ type: Ratio GHC.Num.Integer
+    └─ fromRational ∷ Ratio Integer → Float
+- |-
+  module Main where
+  import GHC.Num (Float)
+  import GHC.Real (Fractional)
+  import GHC.Types (Bool (..))
+  small :: Float
+  small = 2.5
+  │       └─ type: GHC.Num.Float; type-args: Float; evidence: $fFractionalFloat
+  └─ type: GHC.Num.Float
+  ignore :: Fractional a => a -> Bool
+  ignore _ = True
+  │      └─ type: a
+  └─ type: ∀ a. (GHC.Real.Fractional a) ⇒ a → GHC.Types.Bool
+  defaulted :: Bool
+  defaulted = ignore 1.5
+  │           │      └─ type: GHC.Num.Double; type-args: Double; evidence: $fFractionalDouble
+  │           └─ type: GHC.Num.Double → GHC.Types.Bool; type-args: Double; evidence: $fFractionalDouble
+  └─ type: GHC.Types.Bool
+extensions:
+- MagicHash
+modules:
+- |
+  module GHC.Num where
+  import GHC.Prim (Int#)
+  import GHC.Types (Int (..))
+  data Integer = IS Int#
+  data Double = D# Int#
+  data Float = F# Int#
+  class Num a where
+    fromInteger :: Integer -> a
+  instance Num Integer where
+    fromInteger x = x
+  instance Num Double where
+    fromInteger (IS x) = D# x
+  instance Num Float where
+    fromInteger (IS x) = F# x
+- |
+  module GHC.Real where
+  import GHC.Num (Double, Float, Integer, Num (..))
+  data Ratio a = Ratio a a
+  type Rational = Ratio Integer
+  class Num a => Fractional a where
+    fromRational :: Rational -> a
+  instance Fractional Double where
+    fromRational (Ratio x _) = fromInteger x
+  instance Fractional Float where
+    fromRational (Ratio x _) = fromInteger x
+- |
+  module Main where
+  import GHC.Num (Float)
+  import GHC.Real (Fractional)
+  import GHC.Types (Bool (..))
+  small :: Float
+  small = 2.5
+  ignore :: Fractional a => a -> Bool
+  ignore _ = True
+  defaulted :: Bool
+  defaulted = ignore 1.5
+reason: a fractional literal applies fromRational, so a signature can give it Float
+  and an ambiguous literal defaults to Double
+status: pass

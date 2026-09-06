@@ -17,6 +17,8 @@ modules:
   data MutVar# d a
 
   foreign import prim newMutVar# :: a -> State# d -> (# State# d, MutVar# d a #)
+
+  new x s = newMutVar# x s
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Prim
@@ -46,6 +48,11 @@ expected: |-
 
   pub type 1.tMutVar# (d : 3.tType) (a : 3.tType) :: 3.tTYPE 3.tUnliftedRep {}
 
-  pub foreign import prim 1.vnewMutVar# :: ∀(a : 3.tType) (d : 3.tType). a 3.→ FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tUnliftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# d) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tUnliftedRep (2.tState# d) (1.tMutVar# d a))
+  pub val 1.vnew :: ∀(a : 3.tType) (b : 3.tType). a 3.→ FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tUnliftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# b) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tUnliftedRep (2.tState# b) (1.tMutVar# b a))
+   = Λ(a : 3.tType).
+    Λ(b : 3.tType).
+      λ(x : a).
+        λ(y : 2.tState# b).
+          foreign {prim 1.vnewMutVar# :: ∀(a{1} : 3.tType) (d : 3.tType). a{1} 3.→ FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tUnliftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# d) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tUnliftedRep (2.tState# d) (1.tMutVar# d a{1}))} @a @b x y
 status: pass
 reason:

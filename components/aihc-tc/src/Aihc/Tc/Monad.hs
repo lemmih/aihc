@@ -122,6 +122,7 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
+import Aihc.Tc.Annotations (TcForeignImportInfo)
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
@@ -316,7 +317,9 @@ data TcState = TcState
     -- | Names of GADT constructors (have non-trivial result types).
     tcsGadtCons :: !(Set Text),
     -- | Pattern synonyms in scope, keyed like their builder term.
-    tcsPatSyns :: !(Map TcTermKey PatSynInfo)
+    tcsPatSyns :: !(Map TcTermKey PatSynInfo),
+    -- | The checked calling convention of each foreign import in scope.
+    tcsForeignImports :: !(Map TcTermKey TcForeignImportInfo)
   }
   deriving (Show)
 
@@ -338,7 +341,8 @@ initTcState =
       tcsInstances = emptyInstanceEnv,
       tcsDataFamilyInstances = Map.empty,
       tcsTypeFamilyInstances = Map.empty,
-      tcsGadtCons = Set.empty
+      tcsGadtCons = Set.empty,
+      tcsForeignImports = Map.empty
     }
 
 -- | Allocate a fresh 'Unique'.

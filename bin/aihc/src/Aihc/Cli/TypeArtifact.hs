@@ -32,6 +32,7 @@ import Aihc.Tc
     tcInterfaceClasses,
     tcInterfaceDataFamilyInstances,
     tcInterfaceDataTypes,
+    tcInterfaceForeignImports,
     tcInterfaceFromLists,
     tcInterfaceInstances,
     tcInterfacePatSyns,
@@ -42,6 +43,7 @@ import Aihc.Tc
     tyConArity,
     tyConName,
   )
+import Aihc.Tc.Annotations (TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignSafety (..), TcForeignTarget (..))
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Types (mkTyConWithNamespace, setTyVarKind, tyConModuleName, tyConNamespace, tyConPackageId)
 import Control.Monad (replicateM, unless, when)
@@ -117,7 +119,7 @@ getArtifact = do
 
 putInterface :: Map TyCon Word64 -> TcInterface -> Builder.Builder
 putInterface table interface =
-  cborArray 8
+  cborArray 9
     <> encodeList (putTerm table) (tcInterfaceTerms interface)
     <> encodeList (putTyConInfo table) (tcInterfaceTyCons interface)
     <> encodeList (putDataTypeInfo table) (tcInterfaceDataTypes interface)
@@ -126,6 +128,7 @@ putInterface table interface =
     <> encodeList (putDataFamilyInstanceInfo table) (tcInterfaceDataFamilyInstances interface)
     <> encodeList (putTypeFamilyInstanceInfo table) (tcInterfaceTypeFamilyInstances interface)
     <> encodeList (putPatSynInfo table) (tcInterfacePatSyns interface)
+    <> encodeList (putForeignImport table) (tcInterfaceForeignImports interface)
 
 getInterface :: TyConTable -> Get.Get TcInterface
 getInterface table = do
@@ -144,9 +147,153 @@ getInterface table = do
     if length' >= 8
       then getList (getPatSynInfo table)
       else pure []
-  when (length' < 6 || length' > 8) $
+  foreignImports <-
+    if length' >= 9
+      then getList (getForeignImport table)
+      else pure []
+  when (length' < 6 || length' > 9) $
     fail ("unsupported type interface array length: " <> show length')
-  pure (tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstances typeFamilyInstances patSyns)
+  pure (tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstances typeFamilyInstances patSyns foreignImports)
+
+putForeignImport :: Map TyCon Word64 -> (TcTermKey, TcForeignImportInfo) -> Builder.Builder
+putForeignImport table (key, info) = cborArray 2 <> putTermKey key <> putForeignImportInfo table info
+
+getForeignImport :: TyConTable -> Get.Get (TcTermKey, TcForeignImportInfo)
+getForeignImport table = expectArray 2 >> ((,) <$> getTermKey <*> getForeignImportInfo table)
+
+putForeignImportInfo :: Map TyCon Word64 -> TcForeignImportInfo -> Builder.Builder
+putForeignImportInfo table info =
+  case info of
+    TcForeignPrimImport -> cborArray 1 <> cborWord 0
+    TcForeignCCallImport safety plan ->
+      cborArray 3 <> cborWord 1 <> putForeignSafety safety <> putForeignPlan table plan
+
+getForeignImportInfo :: TyConTable -> Get.Get TcForeignImportInfo
+getForeignImportInfo table = do
+  length' <- getArrayLength
+  tag <- getWord
+  case (length', tag) of
+    (1, 0) -> pure TcForeignPrimImport
+    (3, 1) -> TcForeignCCallImport <$> getForeignSafety <*> getForeignPlan table
+    _ -> fail "unsupported foreign import info"
+
+putForeignSafety :: TcForeignSafety -> Builder.Builder
+putForeignSafety safety =
+  cborWord $
+    case safety of
+      TcForeignSafe -> 0
+      TcForeignUnsafe -> 1
+      TcForeignInterruptible -> 2
+
+getForeignSafety :: Get.Get TcForeignSafety
+getForeignSafety = do
+  tag <- getWord
+  case tag of
+    0 -> pure TcForeignSafe
+    1 -> pure TcForeignUnsafe
+    2 -> pure TcForeignInterruptible
+    _ -> fail "unsupported foreign safety"
+
+putForeignPlan :: Map TyCon Word64 -> TcForeignImportAnnotation -> Builder.Builder
+putForeignPlan table plan =
+  cborArray 5
+    <> encodeList (putForeignMarshal table) (tcForeignArguments plan)
+    <> putForeignMarshal table (tcForeignResult plan)
+    <> putForeignEffect (tcForeignEffect plan)
+    <> cborText (tcForeignSymbol plan)
+    <> putForeignTarget (tcForeignTarget plan)
+
+getForeignPlan :: TyConTable -> Get.Get TcForeignImportAnnotation
+getForeignPlan table = do
+  expectArray 5
+  tcForeignArguments <- getList (getForeignMarshal table)
+  tcForeignResult <- getForeignMarshal table
+  tcForeignEffect <- getForeignEffect
+  tcForeignSymbol <- getText
+  tcForeignTarget <- getForeignTarget
+  pure TcForeignImportAnnotation {tcForeignArguments, tcForeignResult, tcForeignEffect, tcForeignSymbol, tcForeignTarget}
+
+putForeignMarshal :: Map TyCon Word64 -> TcForeignMarshal -> Builder.Builder
+putForeignMarshal table marshal =
+  cborArray 4
+    <> putType table (tcForeignSourceType marshal)
+    <> putType table (tcForeignPrimitiveType marshal)
+    <> encodeList cborText (tcForeignConstructors marshal)
+    <> putForeignAbiType (tcForeignAbiType marshal)
+
+getForeignMarshal :: TyConTable -> Get.Get TcForeignMarshal
+getForeignMarshal table = do
+  expectArray 4
+  tcForeignSourceType <- getType table
+  tcForeignPrimitiveType <- getType table
+  tcForeignConstructors <- getList getText
+  tcForeignAbiType <- getForeignAbiType
+  pure TcForeignMarshal {tcForeignSourceType, tcForeignPrimitiveType, tcForeignConstructors, tcForeignAbiType}
+
+putForeignEffect :: TcForeignEffect -> Builder.Builder
+putForeignEffect effect =
+  cborWord $
+    case effect of
+      TcForeignPure -> 0
+      TcForeignRealWorld -> 1
+
+getForeignEffect :: Get.Get TcForeignEffect
+getForeignEffect = do
+  tag <- getWord
+  case tag of
+    0 -> pure TcForeignPure
+    1 -> pure TcForeignRealWorld
+    _ -> fail "unsupported foreign effect"
+
+putForeignTarget :: TcForeignTarget -> Builder.Builder
+putForeignTarget target =
+  cborWord $
+    case target of
+      TcForeignCall -> 0
+      TcForeignAddress -> 1
+
+getForeignTarget :: Get.Get TcForeignTarget
+getForeignTarget = do
+  tag <- getWord
+  case tag of
+    0 -> pure TcForeignCall
+    1 -> pure TcForeignAddress
+    _ -> fail "unsupported foreign target"
+
+putForeignAbiType :: TcForeignAbiType -> Builder.Builder
+putForeignAbiType abiType =
+  cborWord $
+    case abiType of
+      TcForeignInt -> 0
+      TcForeignInt8 -> 1
+      TcForeignInt16 -> 2
+      TcForeignInt32 -> 3
+      TcForeignInt64 -> 4
+      TcForeignWord -> 5
+      TcForeignWord8 -> 6
+      TcForeignWord16 -> 7
+      TcForeignWord32 -> 8
+      TcForeignWord64 -> 9
+      TcForeignAddr -> 10
+      TcForeignVoid -> 11
+
+getForeignAbiType :: Get.Get TcForeignAbiType
+getForeignAbiType = do
+  tag <- getWord
+  case tag of
+    0 -> pure TcForeignInt
+    1 -> pure TcForeignInt8
+    2 -> pure TcForeignInt16
+    3 -> pure TcForeignInt32
+    4 -> pure TcForeignInt64
+    5 -> pure TcForeignWord
+    6 -> pure TcForeignWord8
+    7 -> pure TcForeignWord16
+    8 -> pure TcForeignWord32
+    9 -> pure TcForeignWord64
+    10 -> pure TcForeignAddr
+    11 -> pure TcForeignVoid
+    _ -> fail "unsupported foreign ABI type"
 
 putPatSynInfo :: Map TyCon Word64 -> PatSynInfo -> Builder.Builder
 putPatSynInfo table info =

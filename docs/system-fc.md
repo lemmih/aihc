@@ -100,7 +100,15 @@ GRIN lowering is temporarily disabled.
 17. `a ~ b` is the one equality type.
     Axioms and type-constructor parameters carry roles.
 
-18. `foreign import prim` and `foreign import ccall` are the foreign forms.
+18. A foreign import declares no Fc value.
+    Each use of the import is a saturated foreign call expression:
+    `foreign {prim 1.vf :: type} @t x y`.
+    The call carries the calling convention, the marshalling dependencies,
+    and the declared type of the import.
+    The type checker interface records the convention of each foreign import.
+    This lets a module that imports the name build the call.
+    A use with too few arguments becomes a lambda around the call.
+    The declared type gives the arity of the call.
     A `ccall` keeps its safety mark.
     The runtime has one thread, thus safe and unsafe calls are equal.
     An omitted safety mark means `safe`.
@@ -143,6 +151,7 @@ Use `val` for top-level values.
 Use `type T { cons }` for data types.
 Use `axiom` for axioms.
 Use `e ▷ γ` for cast.
+Use `foreign {convention deps name :: type} @t... e...` for a foreign call.
 `[]` and `:` are ordinary names.
 
 ## Names
@@ -202,11 +211,11 @@ Do not rebuild Haskell types in Fc.
 | Type family | empty type plus named axioms |
 | Data family | empty family type plus instance type and axiom |
 | Value | `val` with no `rec` mark |
-| `foreign import prim` | `foreign import prim` |
-| `foreign import ccall` | `foreign import ccall` with its safety mark |
-| `foreign import ccall "&sym"` | `foreign import ccall address` with its safety mark |
+| Use of a `foreign import prim` | `foreign {prim ...}` call |
+| Use of a `foreign import ccall` | `foreign {ccall ...}` call with its safety mark |
+| Use of a `foreign import ccall "&sym"` | `foreign {ccall address ...}` call with its safety mark |
 
-`desugarModuleFc` already emits data types, synonyms, values, and `foreign import prim`.
+`desugarModuleFc` already emits data types, synonyms, values, and foreign calls.
 
 ## Tests
 

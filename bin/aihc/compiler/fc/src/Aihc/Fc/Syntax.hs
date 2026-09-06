@@ -17,7 +17,7 @@ module Aihc.Fc.Syntax
     SynonymDecl (..),
     AxiomDecl (..),
     ValDecl (..),
-    ForeignImportDecl (..),
+    ForeignCall (..),
     ForeignImportDependency (..),
     CallingConvention (..),
     CCallSpec (..),
@@ -61,6 +61,19 @@ data Expr
   | ExRec [Bind] Expr
   | ExCase Expr Binder Type [Alt]
   | ExCast Expr Coercion
+  | -- | A saturated call of a foreign import. The type arguments instantiate
+    -- the leading binders of the foreign type. The value arguments fill every
+    -- arrow of the foreign type.
+    ExForeignCall ForeignCall [Type] [Expr]
+  deriving (Eq, Ord, Show, Read)
+
+-- | The foreign import that a call names, with the facts that lower it.
+data ForeignCall = ForeignCall
+  { foreignCallName :: Name,
+    foreignCallConvention :: CallingConvention,
+    foreignCallDependencies :: [ForeignImportDependency],
+    foreignCallType :: Type
+  }
   deriving (Eq, Ord, Show, Read)
 
 data Bind = Bind
@@ -125,7 +138,6 @@ data Decl
   | DeclSynonym SynonymDecl
   | DeclAxiom AxiomDecl
   | DeclVal ValDecl
-  | DeclForeignImport ForeignImportDecl
   deriving (Eq, Ord, Show, Read)
 
 data TypeDecl = TypeDecl
@@ -169,15 +181,6 @@ data ValDecl = ValDecl
     valName :: Name,
     valType :: Type,
     valBody :: Expr
-  }
-  deriving (Eq, Ord, Show, Read)
-
-data ForeignImportDecl = ForeignImportDecl
-  { foreignImportVis :: Vis,
-    foreignImportName :: Name,
-    foreignImportCallingConvention :: CallingConvention,
-    foreignImportDependencies :: [ForeignImportDependency],
-    foreignImportType :: Type
   }
   deriving (Eq, Ord, Show, Read)
 

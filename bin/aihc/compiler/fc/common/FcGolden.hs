@@ -281,6 +281,7 @@ primitiveModulePaths =
     "GHC/Prim/IO.hs",
     "GHC/Prim/Integer.hs",
     "GHC/Prim/Num.hs",
+    "GHC/Prim/Real.hs",
     "GHC/Tuple.hs",
     "GHC/Types.hs"
   ]
@@ -293,7 +294,7 @@ fixtureBuiltinScope modules =
     packageModules = modulesInPackage fixturePackage modules
     allExports = collectModuleExportsWithDeps dependencyExports packageModules <> dependencyExports
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
-    builtinFunctionModules = ["GHC.Prim", "GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Num"]
+    builtinFunctionModules = ["GHC.Prim", "GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Num", "GHC.Prim.Real"]
 
 desugarConfig :: DesugarConfig
 desugarConfig = DesugarConfig {primPackageId = PackageId "aihc-prim"}

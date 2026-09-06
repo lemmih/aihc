@@ -6,6 +6,8 @@ modules:
   - |
     module Test where
     foreign import prim raise# :: a -> b
+    alias :: a -> b
+    alias = raise#
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Types
@@ -23,6 +25,10 @@ expected: |-
     2.tLiftedRep = 2.vBoxedRep 2.vLifted;
     2.tType = 2.tTYPE 2.tLiftedRep
 
-  pub foreign import prim 1.vraise# :: ∀(a : 2.tType) (b : 2.tType). a 2.→ b
+  pub val 1.valias :: ∀(a : 2.tType) (b : 2.tType). a 2.→ b
+   = Λ(a : 2.tType).
+    Λ(b : 2.tType).
+      λ(_foreign_argument : a).
+        foreign {prim 1.vraise# :: ∀(a{1} : 2.tType) (b{1} : 2.tType). a{1} 2.→ b{1}} @a @b _foreign_argument
 status: pass
-reason: A foreign import prim keeps its checked type.
+reason: A use of a foreign import prim without arguments is a lambda around a foreign call.

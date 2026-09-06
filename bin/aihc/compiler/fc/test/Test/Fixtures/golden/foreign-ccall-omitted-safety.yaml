@@ -12,6 +12,9 @@ modules:
   newtype CInt = CInt Int32
 
   foreign import ccall puts :: Addr# -> CInt
+
+  run :: Addr# -> CInt
+  run p = puts p
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Prim
@@ -42,6 +45,8 @@ expected: |-
 
   axiom 1.$ax$CInt : 1.tCInt ~R 1.tInt32
 
-  pub foreign import ccall safe "puts" [Addr → Int32; pure] using [axiom 1.$ax$CInt, constructor 1.vI32#] 1.vputs :: FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# 1.tCInt
+  pub val 1.vrun :: FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# 1.tCInt
+   = λ(x : 2.tAddr#).
+    foreign {ccall safe "puts" [Addr → Int32; pure] using [axiom 1.$ax$CInt, constructor 1.vI32#] 1.vputs :: FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# 1.tCInt} x
 status: pass
 reason: an omitted safety mark means safe

@@ -7,6 +7,12 @@ modules:
     import GHC.Prim (Int#)
     data Int = I# Int#
     foreign import ccall unsafe "identity" identityInt :: Int -> Int
+
+    run :: Int -> Int
+    run x = identityInt x
+
+    alias :: Int -> Int
+    alias = identityInt
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Prim
@@ -31,6 +37,12 @@ expected: |-
       pub 1.vI# :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 1.tInt
   }
 
-  pub foreign import ccall unsafe "identity" [Int → Int; pure] using [constructor 1.vI#] 1.videntityInt :: 1.tInt 3.→ 1.tInt
+  pub val 1.vrun :: 1.tInt 3.→ 1.tInt
+   = λ(x : 1.tInt).
+    foreign {ccall unsafe "identity" [Int → Int; pure] using [constructor 1.vI#] 1.videntityInt :: 1.tInt 3.→ 1.tInt} x
+
+  pub val 1.valias :: 1.tInt 3.→ 1.tInt
+   = λ(_foreign_argument : 1.tInt).
+    foreign {ccall unsafe "identity" [Int → Int; pure] using [constructor 1.vI#] 1.videntityInt :: 1.tInt 3.→ 1.tInt} _foreign_argument
 status: pass
-reason: ''
+reason: A full use is a foreign call. A partial use is a lambda around a foreign call.

@@ -192,8 +192,7 @@ genDecl =
     [ DeclType <$> genTypeDecl,
       DeclSynonym <$> genSynonymDecl,
       DeclAxiom <$> genAxiomDecl,
-      DeclVal <$> genValDecl,
-      DeclForeignImport <$> genForeignImportDecl
+      DeclVal <$> genValDecl
     ]
 
 genTypeDecl :: Gen TypeDecl
@@ -241,13 +240,18 @@ genValDecl =
     <$> genVis
     <*> (valueNameTop . ("f" <>) <$> genSuffix)
     <*> genType
-    <*> (ExVar <$> genLocalValueName)
+    <*> Gen.choice [ExVar <$> genLocalValueName, genForeignCallExpr]
 
-genForeignImportDecl :: Gen ForeignImportDecl
-genForeignImportDecl =
-  ForeignImportDecl
-    <$> genVis
-    <*> (valueNameTop . ("foreign" <>) <$> genSuffix)
+genForeignCallExpr :: Gen Expr
+genForeignCallExpr =
+  ExForeignCall
+    <$> genForeignCall
+    <*> Gen.list (Range.linear 0 2) genType
+    <*> Gen.list (Range.linear 0 3) (ExVar <$> genLocalValueName)
+
+genForeignCall :: Gen ForeignCall
+genForeignCall =
+  (ForeignCall . valueNameTop . ("foreign" <>) <$> genSuffix)
     <*> genCallingConvention
     <*> Gen.list (Range.linear 0 4) genForeignImportDependency
     <*> genType

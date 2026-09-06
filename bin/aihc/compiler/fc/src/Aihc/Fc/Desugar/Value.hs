@@ -14,6 +14,7 @@ where
 import Aihc.Fc.Convert
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
+import Aihc.Fc.TypeOf qualified as TypeOf
 import Aihc.Parser.Syntax qualified as Syn
 import Aihc.Resolve
   ( Identifier (..),
@@ -39,6 +40,7 @@ import Aihc.Tc
     patSynKey,
     tcInterfaceDataFamilyInstances,
     tcInterfaceDataTypes,
+    tcInterfaceForeignImports,
     tcInterfaceInstances,
     tcInterfacePatSyns,
     tcInterfaceTerms,
@@ -51,7 +53,9 @@ import Aihc.Tc.Annotations
     TcForeignAbiType (..),
     TcForeignEffect (..),
     TcForeignImportAnnotation (..),
+    TcForeignImportInfo (..),
     TcForeignMarshal (..),
+    TcForeignSafety (..),
     TcForeignTarget (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
@@ -102,6 +106,7 @@ import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
+import Data.Ratio (denominator, numerator)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -122,7 +127,9 @@ data ValueState = ValueState
     vsNewtypeConstructors :: !(Map TcTermKey DataTypeInfo),
     vsFamilyConstructors :: !(Map TcTermKey DataFamilyInstanceInfo),
     vsStrictConstructors :: !(Map TcTermKey [Bool]),
-    vsPatSyns :: !(Map TcTermKey PatSynInfo)
+    vsPatSyns :: !(Map TcTermKey PatSynInfo),
+    -- | The checked calling convention of each foreign import in scope.
+    vsForeignImports :: !(Map TcTermKey TcForeignImportInfo)
   }
 
 data PreparedValueInterface = PreparedValueInterface
@@ -134,7 +141,8 @@ data PreparedValueInterface = PreparedValueInterface
     -- | Strict field flags of each data constructor that has one strict
     -- field or more. The list gives one flag for each source field.
     preparedStrictConstructors :: !(Map TcTermKey [Bool]),
-    preparedPatSyns :: !(Map TcTermKey PatSynInfo)
+    preparedPatSyns :: !(Map TcTermKey PatSynInfo),
+    preparedForeignImports :: !(Map TcTermKey TcForeignImportInfo)
   }
 
 type ValueM = StateT ValueState (Either String)
@@ -192,7 +200,8 @@ emptyPreparedValueInterface =
       preparedNewtypeConstructors = Map.empty,
       preparedFamilyConstructors = Map.empty,
       preparedStrictConstructors = Map.empty,
-      preparedPatSyns = Map.empty
+      preparedPatSyns = Map.empty,
+      preparedForeignImports = Map.empty
     }
 
 prepareValueInterface :: TcInterface -> PreparedValueInterface
@@ -204,7 +213,8 @@ prepareValueInterface interface =
       preparedNewtypeConstructors = newtypes,
       preparedFamilyConstructors = familyConstructors,
       preparedStrictConstructors = strictConstructors,
-      preparedPatSyns = Map.fromList [(patSynKey info, info) | info <- tcInterfacePatSyns interface]
+      preparedPatSyns = Map.fromList [(patSynKey info, info) | info <- tcInterfacePatSyns interface],
+      preparedForeignImports = Map.fromList (tcInterfaceForeignImports interface)
     }
   where
     termTypes =
@@ -272,7 +282,8 @@ mergePreparedValueInterfaces interfaces =
       preparedNewtypeConstructors = Map.unions (map preparedNewtypeConstructors interfaces),
       preparedFamilyConstructors = Map.unions (map preparedFamilyConstructors interfaces),
       preparedStrictConstructors = Map.unions (map preparedStrictConstructors interfaces),
-      preparedPatSyns = Map.unions (map preparedPatSyns interfaces)
+      preparedPatSyns = Map.unions (map preparedPatSyns interfaces),
+      preparedForeignImports = Map.unions (map preparedForeignImports interfaces)
     }
   where
     mergeCandidates left right = List.nub (left <> right)
@@ -299,7 +310,8 @@ desugarValues convertEnv bindings interface moduleOrigin checked = do
             vsNewtypeConstructors = preparedNewtypeConstructors interface,
             vsFamilyConstructors = preparedFamilyConstructors interface,
             vsStrictConstructors = preparedStrictConstructors interface,
-            vsPatSyns = preparedPatSyns interface
+            vsPatSyns = preparedPatSyns interface,
+            vsForeignImports = preparedForeignImports interface
           }
   fst <$> runStateT (desugarModuleValues checked) initialState
 
@@ -485,7 +497,7 @@ desugarPatSynCall info annotation resultType scrutinee pattern' failureExpressio
 desugarEarlyDecl :: Syn.Decl -> ValueM [Decl]
 desugarEarlyDecl declaration =
   case annotatedForeignDecl declaration of
-    Just (annotation, foreignPlan, foreignDecl) -> desugarForeign annotation foreignPlan foreignDecl
+    Just (_, foreignPlan, foreignDecl) -> desugarForeign foreignPlan foreignDecl
     Nothing ->
       case declaration of
         Syn.DeclAnn annotation inner
@@ -622,45 +634,96 @@ annotatedForeignDecl = go Nothing Nothing
         Syn.DeclForeign foreignDecl -> (,,foreignDecl) <$> maybeType <*> pure maybePlan
         _ -> Nothing
 
-desugarForeign :: TcAnnotation -> Maybe TcForeignImportAnnotation -> Syn.ForeignDecl -> ValueM [Decl]
-desugarForeign annotation foreignPlan foreignDecl =
+-- | A foreign import declares no System FC value. Each use of the import
+-- desugars to a foreign call, so this only validates the declaration.
+desugarForeign :: Maybe TcForeignImportAnnotation -> Syn.ForeignDecl -> ValueM [Decl]
+desugarForeign foreignPlan foreignDecl =
   case Syn.foreignCallConv foreignDecl of
     Syn.CPrim -> do
-      primitiveSeq <- validatePrimitiveSeqOrigin foreignDecl
-      if primitiveSeq then pure [] else (: []) <$> makeForeignImport Prim []
+      _ <- validatePrimitiveSeqOrigin foreignDecl
+      pure []
     Syn.CCall -> do
       unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC does not accept foreign exports")
-      plan <- maybe (failValue "missing checked foreign import plan") pure foreignPlan
-      safety <- convertForeignSafety (Syn.foreignSafety foreignDecl)
-      dependencies <- foreignImportPlanDependencies annotation plan
+      unless (isJust foreignPlan) (failValue "missing checked foreign import plan")
+      _ <- convertForeignSafety (Syn.foreignSafety foreignDecl)
+      pure []
+    callConv -> failValue ("unsupported System FC foreign calling convention: " <> show callConv)
+
+-- | The System FC facts of a foreign import: its calling convention and the
+-- axioms and constructors that its marshalling needs.
+foreignCallFacts :: TcType -> TcForeignImportInfo -> ValueM (CallingConvention, [ForeignImportDependency])
+foreignCallFacts ty info =
+  case info of
+    TcForeignPrimImport -> pure (Prim, [])
+    TcForeignCCallImport safety plan -> do
+      convertedSafety <- convertForeignSafetyMark safety
+      dependencies <- foreignImportPlanDependencies ty plan
       let convention =
             CCall
               CCallSpec
                 { ccallSymbol = tcForeignSymbol plan,
                   ccallTarget = convertForeignTarget (tcForeignTarget plan),
-                  ccallSafety = safety,
+                  ccallSafety = convertedSafety,
                   ccallArgumentTypes = map (convertCAbiType . tcForeignAbiType) (tcForeignArguments plan),
                   ccallResultType = convertCAbiType (tcForeignAbiType (tcForeignResult plan)),
                   ccallEffect = convertForeignEffect (tcForeignEffect plan)
                 }
-      (: []) <$> makeForeignImport convention dependencies
-    callConv -> failValue ("unsupported System FC foreign calling convention: " <> show callConv)
+      pure (convention, dependencies)
+
+-- | Desugar a use of a foreign import. The use becomes a saturated foreign
+-- call under one lambda for each argument, so a partial use is a function
+-- and a full application reduces to the call.
+desugarForeignReference :: Name -> TcTermKey -> TcForeignImportInfo -> [Type] -> [Expr] -> ValueM Expr
+desugarForeignReference variable key info types evidence = do
+  unless (null evidence) (failValue ("foreign import " <> T.unpack (nameText variable) <> " has unexpected evidence arguments"))
+  ty <- lookupBindingType key
+  foreignType <- convertCheckedType ty
+  (convention, dependencies) <- foreignCallFacts ty info
+  let call =
+        ForeignCall
+          { foreignCallName = variable,
+            foreignCallConvention = convention,
+            foreignCallDependencies = dependencies,
+            foreignCallType = foreignType
+          }
+  instantiated <- instantiateForeignType variable foreignType types
+  -- The declared type gives the arity. A type argument can be a function
+  -- type, and the call must not take the arguments of that function.
+  let arity = length (foreignArgumentTypes (foreignTypeBody foreignType))
+  binders <- mapM (freshBinderFromType "_foreign_argument") (take arity (foreignArgumentTypes instantiated))
+  pure (foldr ExLam (ExForeignCall call types (map (ExVar . binderName) binders)) binders)
+
+-- | Substitute the type arguments of a use for the leading binders of the
+-- foreign type.
+instantiateForeignType :: Name -> Type -> [Type] -> ValueM Type
+instantiateForeignType variable = go
   where
-    makeForeignImport convention dependencies = do
-      _ <- freshUnique
-      moduleOrigin <- gets vsModuleOrigin
-      ty <- convertCheckedType (tcAnnType annotation)
-      let valueName = Syn.unqualifiedNameText (Syn.foreignName foreignDecl)
-      pure
-        ( DeclForeignImport
-            ForeignImportDecl
-              { foreignImportVis = Pub,
-                foreignImportName = topName moduleOrigin valueName,
-                foreignImportCallingConvention = convention,
-                foreignImportDependencies = dependencies,
-                foreignImportType = ty
-              }
-        )
+    go ty [] = pure ty
+    go ty (argument : rest) =
+      case ty of
+        TyForAll binder body -> go (TypeOf.substType (binderName binder) argument body) rest
+        _ -> failValue ("foreign import " <> T.unpack (nameText variable) <> " has too many type arguments")
+
+-- | The type after the leading binders of a foreign type.
+foreignTypeBody :: Type -> Type
+foreignTypeBody ty =
+  case ty of
+    TyForAll _ body -> foreignTypeBody body
+    _ -> ty
+
+-- | The argument types of an instantiated foreign type, one for each arrow.
+foreignArgumentTypes :: Type -> [Type]
+foreignArgumentTypes ty =
+  case ty of
+    TyFun _ _ argument result -> argument : foreignArgumentTypes result
+    _ -> []
+
+convertForeignSafetyMark :: TcForeignSafety -> ValueM ForeignSafety
+convertForeignSafetyMark safety =
+  case safety of
+    TcForeignUnsafe -> pure ForeignUnsafe
+    TcForeignSafe -> pure ForeignSafe
+    TcForeignInterruptible -> failValue "System FC does not accept interruptible foreign imports"
 
 validatePrimitiveSeqOrigin :: Syn.ForeignDecl -> ValueM Bool
 validatePrimitiveSeqOrigin foreignDecl =
@@ -673,9 +736,9 @@ validatePrimitiveSeqOrigin foreignDecl =
       pure True
     else pure False
 
-foreignImportPlanDependencies :: TcAnnotation -> TcForeignImportAnnotation -> ValueM [ForeignImportDependency]
-foreignImportPlanDependencies annotation plan = do
-  typeDependencies <- foreignTypeNewtypeDependencies (tcAnnType annotation)
+foreignImportPlanDependencies :: TcType -> TcForeignImportAnnotation -> ValueM [ForeignImportDependency]
+foreignImportPlanDependencies ty plan = do
+  typeDependencies <- foreignTypeNewtypeDependencies ty
   marshalDependencies <- concat <$> mapM foreignMarshalDependencies (tcForeignArguments plan <> [tcForeignResult plan])
   pure (List.nub (typeDependencies <> marshalDependencies))
 
@@ -1245,8 +1308,8 @@ desugarMatchArguments resultType fallback [] _ ((match, locals) : rest) = do
   withLocals locals (desugarRhsWithFailure resultType failure (Syn.matchRhs match))
 desugarMatchArguments _ fallback [] _ [] = maybe (failValue "pattern match has no result") pure fallback
 desugarMatchArguments resultType fallback binders@(argument : arguments) argumentTypes works
-  | any (firstPatternIsOverloadedInteger . fst) works =
-      desugarOverloadedIntegerMatches resultType fallback binders argumentTypes works
+  | any (firstPatternIsOverloadedLiteral . fst) works =
+      desugarOverloadedLiteralMatches resultType fallback binders argumentTypes works
   | (first, firstLocals) : rest <- works,
     let firstPatterns = Syn.matchPats first,
     length firstPatterns == length binders,
@@ -1351,6 +1414,7 @@ countUses name = go 0
             ExRec bindings inner -> go (foldl' go total (map bindRhs bindings)) inner
             ExCase scrutinee _ _ alternatives -> foldl' go (go total scrutinee) (map altRhs alternatives)
             ExCast inner _ -> go total inner
+            ExForeignCall _ _ arguments -> foldl' go total arguments
 
 -- | Replace every use of a variable with an expression. The name is fresh, so
 -- no binder in the body shadows it.
@@ -1370,6 +1434,7 @@ substituteVar name value = go
         ExCase scrutinee binder ty alternatives ->
           ExCase (go scrutinee) binder ty [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
         ExCast inner coercion -> ExCast (go inner) coercion
+        ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)
 
 patternView :: Syn.Pattern -> Maybe (Syn.Expr, Syn.Pattern)
 patternView pattern' =
@@ -1394,20 +1459,20 @@ extendMatchWork binder ty (match, locals) = do
 dropMatchWorkPattern :: MatchWork -> MatchWork
 dropMatchWorkPattern (match, locals) = (dropFirstPattern match, locals)
 
-desugarOverloadedIntegerMatches :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
-desugarOverloadedIntegerMatches resultType fallback arguments argumentTypes works =
+desugarOverloadedLiteralMatches :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
+desugarOverloadedLiteralMatches resultType fallback arguments argumentTypes works =
   case works of
     [] -> maybe (overloadedPatternFailure resultType arguments) pure fallback
     work : rest -> do
-      failure <- desugarOverloadedIntegerMatches resultType fallback arguments argumentTypes rest
+      failure <- desugarOverloadedLiteralMatches resultType fallback arguments argumentTypes rest
       -- A row with several literal patterns tests each one in turn, and each
       -- test names the failure. Bind the failure once so that the later rows
       -- are not copied into every test.
       shareExpr resultType failure $ \shared ->
-        desugarOverloadedIntegerMatch resultType arguments argumentTypes work shared
+        desugarOverloadedLiteralMatch resultType arguments argumentTypes work shared
 
-desugarOverloadedIntegerMatch :: TcType -> [Binder] -> [TcType] -> MatchWork -> Expr -> ValueM Expr
-desugarOverloadedIntegerMatch resultType arguments argumentTypes (match, locals) failure =
+desugarOverloadedLiteralMatch :: TcType -> [Binder] -> [TcType] -> MatchWork -> Expr -> ValueM Expr
+desugarOverloadedLiteralMatch resultType arguments argumentTypes (match, locals) failure =
   compile locals (zip3 arguments argumentTypes (Syn.matchPats match))
   where
     compile current [] = withLocals current (desugarRhsWithFailure resultType (Just failure) (Syn.matchRhs match))
@@ -1415,8 +1480,8 @@ desugarOverloadedIntegerMatch resultType arguments argumentTypes (match, locals)
       | patternIsIrrefutable pattern' = do
           extra <- patternMatchBindings pattern' argument ty
           compile (current <> extra) rest
-      | isOverloadedIntegerPattern pattern' = do
-          test <- desugarOverloadedIntegerPatternTest (ExVar (binderName argument)) pattern'
+      | isOverloadedLiteralPattern pattern' = do
+          test <- desugarOverloadedLiteralPatternTest (ExVar (binderName argument)) pattern'
           testType <- requiredPatternMethodResultType "==" pattern'
           testBinder <- freshBinder "_case_guard" testType
           resultType' <- convertCheckedType resultType
@@ -1445,10 +1510,10 @@ requiredArgumentTypes types =
     ty : rest -> pure (ty, rest)
     [] -> failValue "pattern match does not have a checked argument type"
 
-firstPatternIsOverloadedInteger :: Syn.Match -> Bool
-firstPatternIsOverloadedInteger match =
+firstPatternIsOverloadedLiteral :: Syn.Match -> Bool
+firstPatternIsOverloadedLiteral match =
   case Syn.matchPats match of
-    pattern' : _ -> isOverloadedIntegerPattern pattern'
+    pattern' : _ -> isOverloadedLiteralPattern pattern'
     [] -> False
 
 overloadedPatternFailure :: TcType -> [Binder] -> ValueM Expr
@@ -1458,18 +1523,24 @@ overloadedPatternFailure resultType arguments = do
     argument : _ -> do
       failureBinder <- freshBinderFromType "_case_nomatch" (binderType argument)
       pure (ExCase (ExVar (binderName argument)) failureBinder resultType' [])
-    [] -> failValue "overloaded integer match has no argument"
+    [] -> failValue "overloaded literal match has no argument"
 
-desugarOverloadedIntegerPatternTest :: Expr -> Syn.Pattern -> ValueM Expr
-desugarOverloadedIntegerPatternTest scrutinee pattern' = do
+-- | The test of an overloaded literal pattern. The literal converts with
+-- fromInteger or fromRational, and the equality method compares it with
+-- the scrutinee.
+desugarOverloadedLiteralPatternTest :: Expr -> Syn.Pattern -> ValueM Expr
+desugarOverloadedLiteralPatternTest scrutinee pattern' = do
   (value, negative) <-
     maybe
-      (failValue ("invalid overloaded integer pattern: " <> take 80 (show pattern')))
+      (failValue ("invalid overloaded literal pattern: " <> take 80 (show pattern')))
       pure
-      (integerPatternValue pattern')
-  fromIntegerMethod <- desugarPatternMethod "fromInteger" pattern'
-  integer <- desugarIntegerLiteral value
-  let positive = ExApp fromIntegerMethod integer
+      (overloadedPatternValue pattern')
+  positive <-
+    case value of
+      OverloadedInteger integer ->
+        ExApp <$> desugarPatternMethod "fromInteger" pattern' <*> desugarIntegerLiteral integer
+      OverloadedRational rational ->
+        ExApp <$> desugarPatternMethod "fromRational" pattern' <*> desugarRationalLiteral rational
   patternValue <-
     if negative
       then (`ExApp` positive) <$> desugarPatternMethod "negate" pattern'
@@ -1492,7 +1563,7 @@ requiredPatternMethodResultType name pattern' = do
 requiredPatternOccurrence :: Text -> Syn.Pattern -> ValueM (TcAnnotation, ResolutionAnnotation)
 requiredPatternOccurrence name pattern' =
   maybe
-    (failValue ("missing checked " <> T.unpack name <> " occurrence for overloaded integer pattern"))
+    (failValue ("missing checked " <> T.unpack name <> " occurrence for overloaded literal pattern"))
     pure
     (patternOccurrence name pattern')
 
@@ -1516,26 +1587,33 @@ patternOccurrence target = go Nothing
         Syn.PTypeSig inner _ -> go currentType inner
         _ -> Nothing
 
-isOverloadedIntegerPattern :: Syn.Pattern -> Bool
-isOverloadedIntegerPattern = isJust . integerPatternValue
+-- | The value of an overloaded literal pattern.
+data OverloadedLiteral
+  = OverloadedInteger Integer
+  | OverloadedRational Rational
 
-integerPatternValue :: Syn.Pattern -> Maybe (Integer, Bool)
-integerPatternValue pattern' =
+isOverloadedLiteralPattern :: Syn.Pattern -> Bool
+isOverloadedLiteralPattern = isJust . overloadedPatternValue
+
+-- | The literal of an overloaded literal pattern, with a flag for a negated literal.
+overloadedPatternValue :: Syn.Pattern -> Maybe (OverloadedLiteral, Bool)
+overloadedPatternValue pattern' =
   case pattern' of
-    Syn.PAnn _ inner -> integerPatternValue inner
-    Syn.PParen inner -> integerPatternValue inner
-    Syn.PStrict inner -> integerPatternValue inner
-    Syn.PIrrefutable inner -> integerPatternValue inner
-    Syn.PAs _ inner -> integerPatternValue inner
-    Syn.PTypeSig inner _ -> integerPatternValue inner
-    Syn.PLit literal -> (,False) <$> overloadedIntegerValue literal
-    Syn.PNegLit literal -> (,True) <$> overloadedIntegerValue literal
+    Syn.PAnn _ inner -> overloadedPatternValue inner
+    Syn.PParen inner -> overloadedPatternValue inner
+    Syn.PStrict inner -> overloadedPatternValue inner
+    Syn.PIrrefutable inner -> overloadedPatternValue inner
+    Syn.PAs _ inner -> overloadedPatternValue inner
+    Syn.PTypeSig inner _ -> overloadedPatternValue inner
+    Syn.PLit literal -> (,False) <$> overloadedLiteralValue literal
+    Syn.PNegLit literal -> (,True) <$> overloadedLiteralValue literal
     _ -> Nothing
 
-overloadedIntegerValue :: Syn.Literal -> Maybe Integer
-overloadedIntegerValue literal =
+overloadedLiteralValue :: Syn.Literal -> Maybe OverloadedLiteral
+overloadedLiteralValue literal =
   case Syn.peelLiteralAnn literal of
-    Syn.LitInt value Syn.TInteger _ -> Just value
+    Syn.LitInt value Syn.TInteger _ -> Just (OverloadedInteger value)
+    Syn.LitFloat value Syn.TFractional _ -> Just (OverloadedRational value)
     _ -> Nothing
 
 desugarDataPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
@@ -2110,6 +2188,11 @@ desugarAnnotatedExpr annotation inner = do
             resolutionNamespace resolution == ResolutionNamespaceTerm,
             resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
               desugarOverloadedInteger annotation resolution value
+        Syn.EAnn resolutionAnnotation (Syn.EFloat value Syn.TFractional _)
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            resolutionNamespace resolution == ResolutionNamespaceTerm,
+            resolutionIdentifier resolution == IdentifierNamed "fromRational" ->
+              desugarOverloadedRational annotation resolution value
         Syn.EAnn resolutionAnnotation (Syn.EIf condition thenExpression elseExpression)
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             isIfThenElseResolution resolution ->
@@ -2331,7 +2414,13 @@ patSynBuilderName variable =
 
 desugarTermReference :: Name -> [Type] -> [Expr] -> [TcType] -> ValueM Expr
 desugarTermReference variable types evidence termArgumentTypes
-  | nameText variable /= "seq" = pure ordinaryReference
+  | nameText variable /= "seq" = do
+      foreignImports <- gets vsForeignImports
+      case nameOrigin variable of
+        OriginTop package moduleName'
+          | Just info <- Map.lookup (TcTermGlobal package moduleName' (nameText variable)) foreignImports ->
+              desugarForeignReference variable (TcTermGlobal package moduleName' (nameText variable)) info types evidence
+        _ -> pure ordinaryReference
   | OriginLocal {} <- nameOrigin variable = pure ordinaryReference
   | OriginTop package moduleName' <- nameOrigin variable = do
       moduleOrigin <- gets vsModuleOrigin
@@ -2945,10 +3034,10 @@ desugarPatternWithFailure :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM
 desugarPatternWithFailure resultType binder ty pattern' success failure =
   case pattern' of
     _
-      | isOverloadedIntegerPattern pattern' -> do
-          -- An overloaded integer literal compares with the equality
+      | isOverloadedLiteralPattern pattern' -> do
+          -- An overloaded literal compares with the equality
           -- method of its type, as in a function equation.
-          test <- desugarOverloadedIntegerPatternTest (ExVar (binderName binder)) pattern'
+          test <- desugarOverloadedLiteralPatternTest (ExVar (binderName binder)) pattern'
           testType <- requiredPatternMethodResultType "==" pattern'
           testBinder <- freshBinder "_literal_guard" testType
           resultType' <- convertCheckedType resultType
@@ -3261,6 +3350,7 @@ expressionFreeNames expression =
       expressionFreeNames scrutinee
         <> Set.delete (binderName binder) (foldMap alternativeFreeNames alternatives)
     ExCast inner _ -> expressionFreeNames inner
+    ExForeignCall _ _ arguments -> foldMap expressionFreeNames arguments
   where
     alternativeFreeNames alternative =
       expressionFreeNames (altRhs alternative)
@@ -3503,6 +3593,25 @@ desugarOverloadedInteger annotation resolution value = do
   fromIntegerExpression <- desugarResolvedOccurrence annotation resolution
   integer <- desugarIntegerLiteral value
   pure (ExApp fromIntegerExpression integer)
+
+-- | An overloaded fractional literal applies fromRational to a Rational.
+--
+-- The Rational is the ratio of the numerator and the denominator of the
+-- literal. Both are Integer literals.
+desugarOverloadedRational :: TcAnnotation -> ResolutionAnnotation -> Rational -> ValueM Expr
+desugarOverloadedRational annotation resolution value = do
+  fromRationalExpression <- desugarResolvedOccurrence annotation resolution
+  rational <- desugarRationalLiteral value
+  pure (ExApp fromRationalExpression rational)
+
+desugarRationalLiteral :: Rational -> ValueM Expr
+desugarRationalLiteral value = do
+  constructor <- primitiveName "GHC.Prim.Real" "Ratio" SortDataConstructor
+  package <- gets (cePrimPackage . vsConvertEnv)
+  integerType <- convertCheckedType (TcTyCon (mkTyConWithOrigin package "GHC.Prim.Integer" "Integer" 0) [])
+  numeratorExpression <- desugarIntegerLiteral (numerator value)
+  denominatorExpression <- desugarIntegerLiteral (denominator value)
+  pure (ExApp (ExApp (ExTyApp (ExVar constructor) integerType) numeratorExpression) denominatorExpression)
 
 desugarIntegerLiteral :: Integer -> ValueM Expr
 desugarIntegerLiteral value = do
