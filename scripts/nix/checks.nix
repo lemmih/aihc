@@ -537,6 +537,7 @@
   hackageInstallTargets = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
   exampleExtraHackagePackages = {
     bytestring = ["deepseq" "bytestring"];
+    pretty = ["deepseq" "pretty"];
   };
   findHackagePackage = name:
     pkgs.lib.findFirst (package: package.name == name) (throw "missing Hackage package ${name}") hackage.packages;

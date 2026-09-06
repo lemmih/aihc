@@ -118,7 +118,7 @@ import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
 import Control.DeepSeq (rnf)
 import Control.Exception (IOException, bracket, evaluate, throwIO, try)
-import Control.Monad (filterM, forM, unless, when, zipWithM)
+import Control.Monad (filterM, forM, unless, void, when, zipWithM)
 import Data.Aeson (Value)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
@@ -1316,11 +1316,22 @@ compileCheckedModules config verbose primIdentity interface outputPaths checkedM
   (splitModules, desugarNs) <- measureTime $ do
     let bindings = concatMap tcModuleBindings checkedModules
         desugarResults = map (Fc.desugarModuleFc (DesugarConfig primIdentity) bindings interface) checkedModules
-    unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines (concatMap dsErrors desugarResults))))
-    let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
-        fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)
-        fcErrors = [(fcModuleName fcModule, err) | fcModule <- fcModules, err <- Fc.lintProgram (fcProgram fcModule)]
-        fcReport = ["    " <> T.unpack name <> ": " <> show err | (name, err) <- fcErrors]
+        moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
+        desugarErrors =
+          [ T.unpack name <> ": " <> err
+          | (name, result) <- zip moduleNames desugarResults,
+            err <- dsErrors result
+          ]
+    unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines desugarErrors)))
+    let fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)
+    fcErrors <-
+      fmap concat $
+        forM fcModules $ \fcModule -> do
+          when lint (verbose ("Lint FC: " <> T.unpack (fcModuleName fcModule)))
+          let errors = [(fcModuleName fcModule, err) | err <- Fc.lintProgram (fcProgram fcModule)]
+          when lint (void (evaluate (length errors)))
+          pure errors
+    let fcReport = ["    " <> T.unpack name <> ": " <> show err | (name, err) <- fcErrors]
     when lint $
       unless (null fcErrors) $
         ioError
@@ -1388,6 +1399,7 @@ compileCheckedModules config verbose primIdentity interface outputPaths checkedM
       TIO.writeFile path output
 
     lowerGrinModule fcModule = do
+      verbose ("Lower GRIN: " <> T.unpack (fcModuleName fcModule))
       plainProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fcProgram fcModule))
       when (compileLint config) $ do
         let plainErrors = Grin.lintProgram plainProgram

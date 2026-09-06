@@ -2778,7 +2778,14 @@ desugarListCompPattern resultType binder ty pattern' success failure =
     Syn.PAs name inner -> do
       locals <- binderEntry name binder ty
       withLocals locals (desugarListCompPattern resultType binder ty inner success failure)
-    _ -> desugarListCompConstructorPattern resultType binder pattern' success failure
+    _ -> do
+      -- A generator pattern carries no type annotation of its own. The
+      -- newtype unwrapping reads the type arguments from the pattern type.
+      let typed =
+            case patternType pattern' of
+              Just _ -> pattern'
+              Nothing -> Syn.PAnn (Syn.mkAnnotation (TcAnnotation ty [] [] [] [] [])) pattern'
+      desugarListCompConstructorPattern resultType binder typed success failure
 
 desugarListCompConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
 desugarListCompConstructorPattern resultType binder pattern' success failure = do
