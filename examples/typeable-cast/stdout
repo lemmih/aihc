@@ -1,1 +1,19 @@
-cast succeeded
+-- same type
+Int -> Int: cast succeeded
+Bool -> Bool: cast succeeded
+Box Bool -> Box Bool: unpacked True
+-- different types
+Int -> Bool: cast failed
+Box Bool -> Box Int: cast failed
+-- newtypes share a representation but not a type
+Meters -> Int: cast failed
+Int -> Meters: cast failed
+Meters -> Seconds: cast failed
+Meters -> Meters: cast succeeded
+-- type constructor names
+Meters
+Seconds
+Int
+Box
+-- picking the Ints out of a mixed bag
+sum of the Ints: 3
