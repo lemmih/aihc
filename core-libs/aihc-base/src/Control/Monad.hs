@@ -2,6 +2,7 @@ module Control.Monad
   ( Functor (..),
     Applicative (..),
     Monad (..),
+    MonadFail (..),
     MonadPlus (..),
     ap,
     liftM,
@@ -36,6 +37,7 @@ module Control.Monad
 where
 
 import Control.Applicative (Alternative (..))
+import Control.Monad.Fail (MonadFail (..))
 import Prelude
   ( Applicative (..),
     Bool (..),

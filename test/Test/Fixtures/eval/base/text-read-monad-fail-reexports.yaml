@@ -1,0 +1,62 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Monad (MonadFail (..))
+    import GHC.Read (expectP)
+    import Text.Read (Lexeme (..), ReadPrec, choice, parens, pfail, prec, readListPrecDefault, readPrec_to_S, step, (+++))
+
+    data Wrapped = Wrapped Bool
+
+    instance Eq Wrapped where
+      Wrapped left == Wrapped right = left == right
+      Wrapped left /= Wrapped right = left /= right
+
+    instance Read Wrapped where
+      readPrec =
+        parens
+          (prec 10
+            (do
+              expectP (Ident "Wrapped")
+              value <- step readPrec
+              return (Wrapped value)))
+      readListPrec = readListPrecDefault
+
+    readsWith :: ReadPrec a -> String -> [(a, String)]
+    readsWith parser = readPrec_to_S parser 0
+
+    oneResult :: (Eq a) => a -> [(a, String)] -> Bool
+    oneResult expected [(actual, [])] = actual == expected
+    oneResult _ _ = False
+
+    noResult :: [(a, String)] -> Bool
+    noResult [] = True
+    noResult (_ : _) = False
+
+    failed :: Maybe Bool
+    failed = fail "no value"
+
+    isNothing :: Maybe Bool -> Bool
+    isNothing Nothing = True
+    isNothing (Just _) = False
+
+    checks :: [Bool]
+    checks =
+      [ oneResult (Wrapped True) (readsWith readPrec "Wrapped True"),
+        noResult (readsWith (pfail :: ReadPrec Bool) "True"),
+        oneResult True (readsWith (pfail +++ readPrec) "True"),
+        oneResult False (readsWith (choice [pfail, readPrec]) "False"),
+        isNothing failed
+      ]
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : values) = allTrue values
+    allTrue (False : _) = False
+output: |
+  True
+expression: |
+  allTrue checks
+status: pass
+reason: Text.Read re-exports the ReadPrec combinators and Control.Monad re-exports MonadFail

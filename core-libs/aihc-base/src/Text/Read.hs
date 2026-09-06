@@ -7,12 +7,25 @@ module Text.Read
     lex,
     readMaybe,
     readEither,
-    module Text.ParserCombinators.ReadPrec,
     Lexeme (..),
     lexP,
     parens,
     readListDefault,
     readListPrecDefault,
+    ReadPrec,
+    Prec,
+    minPrec,
+    prec,
+    step,
+    reset,
+    get,
+    look,
+    (+++),
+    (<++),
+    pfail,
+    choice,
+    readPrec_to_S,
+    readS_to_Prec,
   )
 where
 
@@ -24,10 +37,26 @@ import GHC.Read
     parens,
     readListDefault,
     readListPrecDefault,
+    readParen,
   )
 import GHC.Read.Lex (Lexeme (..))
 import Text.ParserCombinators.ReadPrec
-import Prelude (Either (..), Maybe (..), String, all, lex, read, readParen, reads)
+  ( Prec,
+    ReadPrec,
+    choice,
+    get,
+    look,
+    minPrec,
+    pfail,
+    prec,
+    readPrec_to_S,
+    readS_to_Prec,
+    reset,
+    step,
+    (+++),
+    (<++),
+  )
+import Prelude (Either (..), Maybe (..), String, all, lex, read, reads)
 
 -- | Parse a whole string. Trailing white space is permitted.
 readEither :: (Read a) => String -> Either String a
