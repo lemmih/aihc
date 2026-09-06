@@ -134,6 +134,8 @@ data TcForeignAbiType
   | TcForeignWord16
   | TcForeignWord32
   | TcForeignWord64
+  | TcForeignFloat
+  | TcForeignDouble
   | TcForeignAddr
   | -- | The unit result of a C procedure.
     TcForeignVoid

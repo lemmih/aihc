@@ -207,7 +207,9 @@ runFixture backend output =
         executable = directory </> "fixture"
     writeFile driverPath driverSource
     (clangExit, _, clangErr) <-
-      readProcessWithExitCode "clang" (backendClangArguments backend <> ["-std=c11", driverPath, unit, "-o", executable]) ""
+      -- glibc keeps libm apart from libc, so a fixture that calls one of its
+      -- functions needs -lm. The other two links here already carry it.
+      readProcessWithExitCode "clang" (backendClangArguments backend <> ["-std=c11", driverPath, unit, "-lm", "-o", executable]) ""
     assertEqual ("clang failed to link the fixture:\n" <> clangErr) ExitSuccess clangExit
     readProcessWithExitCode executable [] ""
 

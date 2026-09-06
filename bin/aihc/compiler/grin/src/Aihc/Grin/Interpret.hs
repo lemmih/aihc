@@ -31,7 +31,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Word (Word16, Word32, Word64, Word8)
-import Foreign.LibFFI (Arg, RetType, argInt16, argInt32, argInt64, argInt8, argPtr, argWord16, argWord32, argWord64, argWord8, callFFI, retInt16, retInt32, retInt64, retInt8, retPtr, retVoid, retWord16, retWord32, retWord64, retWord8)
+import Foreign.LibFFI (Arg, RetType, argCDouble, argCFloat, argInt16, argInt32, argInt64, argInt8, argPtr, argWord16, argWord32, argWord64, argWord8, callFFI, retCDouble, retCFloat, retInt16, retInt32, retInt64, retInt8, retPtr, retVoid, retWord16, retWord32, retWord64, retWord8)
 import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
 import Foreign.Marshal.Utils (copyBytes, fillBytes)
@@ -1594,6 +1594,12 @@ callForeign foreignCall arguments
         GrinForeignWord16 -> integerResult retWord16
         GrinForeignWord32 -> integerResult retWord32
         GrinForeignWord64 -> integerResult retWord64
+        GrinForeignFloat ->
+          (: []) . RuntimeLit . GrinLitInt FloatRep . toInteger . castFloatToWord32 . realToFrac
+            <$> liftEvalIO (callFFI functionPointer retCFloat marshalledArguments)
+        GrinForeignDouble ->
+          (: []) . RuntimeLit . GrinLitInt DoubleRep . toInteger . castDoubleToWord64 . realToFrac
+            <$> liftEvalIO (callFFI functionPointer retCDouble marshalledArguments)
         GrinForeignAddr ->
           (: []) . RuntimeAddress <$> liftEvalIO (callFFI functionPointer (retPtr retVoid) marshalledArguments)
         GrinForeignVoid -> do
@@ -1812,6 +1818,8 @@ marshalForeignArgument symbol foreignType argument =
     GrinForeignWord16 -> integerArgument (argWord16 . fromInteger)
     GrinForeignWord32 -> integerArgument (argWord32 . fromInteger)
     GrinForeignWord64 -> integerArgument (argWord64 . fromInteger)
+    GrinForeignFloat -> integerArgument (argCFloat . realToFrac . castWord32ToFloat . fromInteger)
+    GrinForeignDouble -> integerArgument (argCDouble . realToFrac . castWord64ToDouble . fromInteger)
     GrinForeignAddr ->
       case argument of
         RuntimeLit (GrinLitAddr value) -> do

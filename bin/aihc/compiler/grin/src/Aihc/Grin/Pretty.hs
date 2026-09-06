@@ -322,6 +322,8 @@ prettyForeignType foreignType =
     GrinForeignWord16 -> "word16"
     GrinForeignWord32 -> "word32"
     GrinForeignWord64 -> "word64"
+    GrinForeignFloat -> "float"
+    GrinForeignDouble -> "double"
     GrinForeignAddr -> "addr"
     GrinForeignVoid -> "void"
 

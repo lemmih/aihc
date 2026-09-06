@@ -759,6 +759,8 @@ convertCAbiType abiType =
     TcForeignWord16 -> CAbiWord16
     TcForeignWord32 -> CAbiWord32
     TcForeignWord64 -> CAbiWord64
+    TcForeignFloat -> CAbiFloat
+    TcForeignDouble -> CAbiDouble
     TcForeignAddr -> CAbiAddr
     TcForeignVoid -> CAbiVoid
 
