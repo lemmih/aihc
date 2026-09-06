@@ -56,8 +56,7 @@ import Aihc.Resolve
     unnamedPackage,
   )
 import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), diagKind, emptyTcInterface, renderPred, renderTcType, tcConfig, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
-import Control.Concurrent.MVar (MVar, newMVar, withMVar)
-import Control.Exception (bracket, evaluate, mask, onException)
+import Control.Exception (evaluate)
 import Control.Monad (forM, unless)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
@@ -70,15 +69,11 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
-import Foreign.LibFFI (argPtr, callFFI, retCInt)
-import Foreign.Ptr (nullPtr)
-import System.Directory (doesDirectoryExist, getCurrentDirectory, getTemporaryDirectory, listDirectory, removeFile)
+import System.Directory (doesDirectoryExist, getCurrentDirectory, listDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath (makeRelative, takeDirectory, takeExtension, (</>))
-import System.IO (hClose, hFlush, openTempFile, stdout)
-import System.IO.Unsafe (unsafePerformIO)
-import System.Posix.DynamicLinker (DL (Default), dlsym)
-import System.Posix.IO (closeFd, dup, dupTo, handleToFd, stdOutput)
+import System.IO (Handle, hClose, stdout)
+import System.IO.Temp (withSystemTempFile)
 
 data ExpectedStatus
   = StatusPass
@@ -116,9 +111,10 @@ data EvaluationFailure
   | EvaluationRaised !Text
   deriving (Eq, Show)
 
--- | A phase evaluator receives the synthetic binding name and the fully
--- desugared FC program, then renders the resulting value.
-type ProgramEvaluator = Text -> Fc.Program -> IO (Either EvaluationFailure Text)
+-- | A phase evaluator receives the handle for the standard output of the
+-- program, the synthetic binding name and the fully desugared FC program, then
+-- renders the resulting value.
+type ProgramEvaluator = Handle -> Text -> Fc.Program -> IO (Either EvaluationFailure Text)
 
 evalFixtureRoot :: IO FilePath
 evalFixtureRoot = do
@@ -266,7 +262,7 @@ evaluateEvalCase env evaluator tc =
     Left errMsg -> pure (classifyCompileFailure tc errMsg)
     Right program -> do
       (actualStdout, renderResult) <-
-        evaluateWithExpectedStdout tc (evaluator evalBindingName program)
+        evaluateWithExpectedStdout tc (\output -> evaluator output evalBindingName program)
       pure $
         case renderResult of
           Right actual -> classifySuccess tc (T.unpack actual) actualStdout
@@ -306,7 +302,7 @@ primPackage = Package "aihc-prim" primPackageId
 
 evalBuiltinScope :: ModuleExports -> Scope
 evalBuiltinScope allExports =
-  foldr (unionScope . lookupBuiltin) emptyScope ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Real"]
+  foldr (unionScope . lookupBuiltin) emptyScope ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum", "GHC.Real"]
   where
     lookupBuiltin name = lookupImportedModule unnamedPackage Nothing name allExports
 
@@ -604,53 +600,25 @@ stdoutMismatch tc actual =
     (Just expected, Nothing) ->
       Just ("stdout was not captured\nexpected: " <> show expected)
 
-evaluateWithExpectedStdout :: EvalCase -> IO a -> IO (Maybe String, a)
+-- | Run the program with the handle it must use as its standard output.
+--
+-- A fixture with an expected @stdout@ gets a handle on a temporary file, and
+-- the file content is the captured output. Every other fixture gets the
+-- 'stdout' of the host. The capture never redirects file descriptor 1: the
+-- test runner writes its progress to 'stdout' from other threads, and a
+-- redirect would capture that progress.
+evaluateWithExpectedStdout :: EvalCase -> (Handle -> IO a) -> IO (Maybe String, a)
 evaluateWithExpectedStdout tc action =
   case evalCaseStdout tc of
     Nothing -> do
-      result <- action
+      result <- action stdout
       pure (Nothing, result)
-    Just _ -> do
-      (result, captured) <- captureStdout action
-      pure (Just (T.unpack captured), result)
-
-captureStdout :: IO a -> IO (a, Text)
-captureStdout action =
-  withMVar stdoutCaptureLock $ \() ->
-    bracket acquire release $ \(path, captureFd) ->
-      bracket (dup stdOutput) closeFd $ \originalStdout ->
-        mask $ \restore -> do
-          hFlush stdout
-          flushCStdout
-          _ <- dupTo captureFd stdOutput
-          result <- restore action `onException` restoreStdout originalStdout
-          restoreStdout originalStdout
-          captured <- TIO.readFile path
-          pure (result, captured)
-  where
-    acquire = do
-      tempDir <- getTemporaryDirectory
-      (path, handle) <- openTempFile tempDir "aihc-fc-stdout"
-      captureFd <- handleToFd handle `onException` (hClose handle >> removeFile path)
-      pure (path, captureFd)
-    release (path, captureFd) = do
-      closeFd captureFd
-      removeFile path
-    restoreStdout originalStdout = do
-      flushCStdout
-      hFlush stdout
-      _ <- dupTo originalStdout stdOutput
-      pure ()
-
-stdoutCaptureLock :: MVar ()
-stdoutCaptureLock = unsafePerformIO (newMVar ())
-{-# NOINLINE stdoutCaptureLock #-}
-
-flushCStdout :: IO ()
-flushCStdout = do
-  fflush <- dlsym Default "fflush"
-  _ <- callFFI fflush retCInt [argPtr nullPtr]
-  pure ()
+    Just _ ->
+      withSystemTempFile "aihc-eval-stdout" $ \path output -> do
+        result <- action output
+        hClose output
+        captured <- TIO.readFile path
+        pure (Just (T.unpack captured), result)
 
 classifyCompileFailure :: EvalCase -> String -> (Outcome, String)
 classifyCompileFailure tc errDetails =

@@ -639,6 +639,8 @@ foreignType =
       GrinForeignWord64 <$ keyword "word64",
       GrinForeignWord8 <$ keyword "word8",
       GrinForeignWord <$ keyword "word",
+      GrinForeignFloat <$ keyword "float",
+      GrinForeignDouble <$ keyword "double",
       GrinForeignAddr <$ keyword "addr",
       GrinForeignVoid <$ keyword "void"
     ]

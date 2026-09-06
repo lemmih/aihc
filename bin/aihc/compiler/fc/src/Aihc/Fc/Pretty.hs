@@ -234,6 +234,8 @@ prettyCAbiType abiType =
     CAbiWord16 -> "Word16"
     CAbiWord32 -> "Word32"
     CAbiWord64 -> "Word64"
+    CAbiFloat -> "Float"
+    CAbiDouble -> "Double"
     CAbiAddr -> "Addr"
     CAbiVoid -> "Void"
 

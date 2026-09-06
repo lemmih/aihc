@@ -1,10 +1,11 @@
 module Main (main) where
 
 import Aihc.Dev.ExtractHi (extractPackage)
-import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderCoreLibProgressReports, renderInterfaceMismatch, runCoreLibProgressReports)
+import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderCoreLibProgressReports, renderInterfaceMismatch, runCoreLibApiDivergences, runCoreLibProgressReports)
 import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
 import Aihc.Dev.Fuzz qualified as Fuzz
 import Aihc.Dev.Fuzz.CLI qualified as FuzzCLI
+import Control.Monad (unless, when)
 import Data.Aeson (encode)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy qualified as BL
@@ -30,7 +31,7 @@ main = do
 data Command
   = ExtractHi ExtractHiOpts
   | CompareHiSubset CompareHiSubsetOpts
-  | CoreLibsProgress
+  | CoreLibsProgress CoreLibsProgressOpts
   | ExtractResolveIface ExtractResolveIfaceOpts
   | Fuzz FuzzCLI.Command
 
@@ -47,6 +48,10 @@ data ExtractResolveIfaceOpts = ExtractResolveIfaceOpts
 data CompareHiSubsetOpts = CompareHiSubsetOpts
   { chsCandidate :: String,
     chsOracle :: String
+  }
+
+newtype CoreLibsProgressOpts = CoreLibsProgressOpts
+  { clpDivergences :: Bool
   }
 
 data OutputFormat = YAML | JSON
@@ -70,7 +75,7 @@ commandParser =
         <> command
           "core-libs-progress"
           ( info
-              (pure CoreLibsProgress <**> helper)
+              (CoreLibsProgress <$> coreLibsProgressParser <**> helper)
               (progDesc "Report ghc-prim/base API coverage for aihc-prim/aihc-base")
           )
         <> command
@@ -115,6 +120,14 @@ extractResolveIfaceParser =
           <> help "Output file path for the JSON interface"
       )
 
+coreLibsProgressParser :: Parser CoreLibsProgressOpts
+coreLibsProgressParser =
+  CoreLibsProgressOpts
+    <$> switch
+      ( long "divergences"
+          <> help "Also list every export of a module shared with ghc-prim or base that GHC does not provide, and fail if there are any"
+      )
+
 compareHiSubsetParser :: Parser CompareHiSubsetOpts
 compareHiSubsetParser =
   CompareHiSubsetOpts
@@ -144,8 +157,13 @@ runCommand (CompareHiSubset opts) = do
     else do
       mapM_ (putStrLn . renderInterfaceMismatch) mismatches
       exitFailure
-runCommand CoreLibsProgress =
+runCommand (CoreLibsProgress opts) = do
   putStr . renderCoreLibProgressReports =<< runCoreLibProgressReports
+  when (clpDivergences opts) $ do
+    divergences <- runCoreLibApiDivergences
+    unless (null divergences) $ do
+      mapM_ (putStrLn . renderInterfaceMismatch) divergences
+      exitFailure
 runCommand (ExtractResolveIface opts) = do
   pkg <- extractPackage (eriPackage opts)
   let resolveIface = toResolveIface pkg

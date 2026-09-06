@@ -4,7 +4,7 @@ module Test.Grin.Spec (tests) where
 
 import Aihc.Fc qualified as Fc
 import Aihc.Fc.TypeOf qualified as FcType
-import Aihc.Grin (GrinProgram (..), InterpretError (..), interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram)
+import Aihc.Grin (GrinProgram (..), InterpretError (..), ProgramStreams (..), interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Testing.EvalFixture qualified as EvalFixture
 import Control.Exception (evaluate)
@@ -12,6 +12,7 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GrinGolden qualified
+import System.IO (stderr, stdin)
 import Test.Grin.Anf qualified as Anf
 import Test.Grin.Arbitrary (prop_grinPrettyRoundTrip)
 import Test.Grin.Lint qualified as Lint
@@ -83,8 +84,9 @@ evalFixtureTest getEnvironment fixture = testCase (EvalFixture.evalCaseId fixtur
     EvalFixture.OutcomeXPass -> assertFailure ("unexpected pass: " <> details)
     EvalFixture.OutcomeFail -> assertFailure details
 
+-- | The program writes its standard output to the given handle.
 evaluateGrin :: GrinProgram -> EvalFixture.ProgramEvaluator
-evaluateGrin coreProgram name program =
+evaluateGrin coreProgram output name program =
   case prepareEvalProgram name program of
     Left problem -> pure (Left (EvalFixture.EvaluationError problem))
     Right (prepared, unwrapResult) -> evaluatePrepared prepared unwrapResult
@@ -96,8 +98,9 @@ evaluateGrin coreProgram name program =
           case lintProgram fixtureProgram of
             [] ->
               fmap unwrapResult . classifyResult
-                <$> interpreter (bindingName name fixtureProgram) (appendGrinProgram coreProgram fixtureProgram)
+                <$> interpreter streams (bindingName name fixtureProgram) (appendGrinProgram coreProgram fixtureProgram)
             problems -> pure (Left (EvalFixture.EvaluationError ("GRIN lint error: " <> show problems)))
+    streams = ProgramStreams {programStdin = stdin, programStdout = output, programStderr = stderr}
     interpreter
       | evalBindingIsIo name program = interpretProgramIoBinding
       | otherwise = interpretProgramBinding

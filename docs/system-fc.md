@@ -33,7 +33,7 @@ It has no ambiguity.
 source
   -> aihc-resolve
   -> aihc-tc
-  -> Aihc.Fc.Desugar    -> store .../core
+  -> Aihc.Fc.Desugar    -> store .../core (with --keep-core)
 ```
 
 GRIN lowering is temporarily disabled.
@@ -232,8 +232,8 @@ Hedgehog checks `parseProgram . renderProgram = id` on self-contained programs.
 
 ## install
 
-`install` still writes `core`.
-It must also write `core` next to it:
+`install` writes the Core program of each module when `--keep-core` is
+given. The file is a debugging aid; nothing reads it back:
 
 ```text
 {store}/{pkg}-{version}-{dephash}/{Module/Path}/core

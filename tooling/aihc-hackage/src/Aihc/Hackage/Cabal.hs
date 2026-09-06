@@ -4,14 +4,19 @@
 module Aihc.Hackage.Cabal
   ( -- * File info
     FileInfo (..),
+    CCompileInfo (..),
 
     -- * Component file discovery
     collectComponentFiles,
+    collectLibraryCCompileInfo,
+    collectLibraryCCompileInfoFor,
     collectLibraryExposedModules,
     collectLibraryFiles,
+    collectLibraryFilesFor,
 
     -- * Condition evaluation
     conditionEvaluator,
+    conditionEvaluatorFor,
     collectCondTreeData,
     collectMergedBuildInfo,
 
@@ -27,12 +32,12 @@ module Aihc.Hackage.Cabal
   )
 where
 
+import Aihc.Hackage.Cpp (emulatedGhcVersion)
 import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, sourceDirs)
 import Data.List (isPrefixOf, nub)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Version qualified as DV
 import Distribution.Compat.Graph qualified as Graph
 import Distribution.Compiler (CompilerFlavor (..), CompilerId (..))
 import Distribution.Compiler qualified as Compiler
@@ -50,6 +55,8 @@ import Distribution.PackageDescription
     buildToolDepends,
     buildTools,
     buildable,
+    cSources,
+    ccOptions,
     condBenchmarks,
     condExecutables,
     condForeignLibs,
@@ -87,7 +94,7 @@ import Distribution.Simple.Compiler
 import Distribution.Simple.InstallDirs (defaultInstallDirs)
 import Distribution.Simple.Program.Db (emptyProgramDb)
 import Distribution.Simple.Setup (defaultConfigFlags)
-import Distribution.System (buildArch, buildOS, buildPlatform)
+import Distribution.System (Arch, OS, buildArch, buildOS, buildPlatform)
 import Distribution.Types.BuildInfo (targetBuildDepends)
 import Distribution.Types.ComponentId (mkComponentId)
 import Distribution.Types.ComponentLocalBuildInfo (ComponentLocalBuildInfo (..))
@@ -113,7 +120,6 @@ import Distribution.Utils.Path (getSymbolicPath)
 import Distribution.Version (mkVersion, withinRange)
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath (takeDirectory, (<.>), (</>))
-import System.Info (compilerName, compilerVersion)
 
 -- | Information about a Haskell source file discovered via a @.cabal@ file.
 data FileInfo = FileInfo
@@ -131,6 +137,15 @@ data FileInfo = FileInfo
   }
   deriving (Show)
 
+-- | C compile inputs from the active library @c-sources@, @include-dirs@, and
+-- @cc-options@ fields.
+data CCompileInfo = CCompileInfo
+  { cCompileSources :: [FilePath],
+    cCompileIncludeDirs :: [FilePath],
+    cCompileCcOptions :: [String]
+  }
+  deriving (Eq, Show)
+
 -- | Collect all source files from a parsed @GenericPackageDescription@.
 --
 -- Returns deduplicated 'FileInfo' records for every library and executable
@@ -143,13 +158,50 @@ collectComponentFiles gpd packageRoot = do
 
 -- | Collect source files from buildable library components only.
 collectLibraryFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
-collectLibraryFiles gpd packageRoot = do
-  let evalCond = conditionEvaluator gpd
+collectLibraryFiles = collectLibraryFilesFor buildOS buildArch
+
+-- | Collect source files from buildable library components for one platform.
+collectLibraryFilesFor :: OS -> Arch -> GenericPackageDescription -> FilePath -> IO [FileInfo]
+collectLibraryFilesFor os arch gpd packageRoot = do
+  let evalCond = conditionEvaluatorFor gpd os arch
       pkgDescr = packageDescription gpd
       libraryTrees = maybe [] (pure . (LMainLibName,)) (condLibrary gpd) <> map (first LSubLibName) (condSubLibraries gpd)
 
   libraryFiles <- fmap concat (mapM (uncurry (libraryFilesFor pkgDescr evalCond packageRoot)) libraryTrees)
   pure (dedupeFiles libraryFiles)
+
+-- | Collect C compile inputs from buildable library components for the host.
+collectLibraryCCompileInfo :: GenericPackageDescription -> FilePath -> CCompileInfo
+collectLibraryCCompileInfo = collectLibraryCCompileInfoFor buildOS buildArch
+
+-- | Collect C compile inputs from buildable library components for one platform.
+collectLibraryCCompileInfoFor :: OS -> Arch -> GenericPackageDescription -> FilePath -> CCompileInfo
+collectLibraryCCompileInfoFor os arch gpd packageRoot =
+  mergeCCompileInfo
+    [ cCompileInfoFromBuild packageRoot build
+    | tree <- libraryTrees,
+      let build = collectMergedBuildInfo evalCond libBuildInfo tree,
+      buildable build
+    ]
+  where
+    evalCond = conditionEvaluatorFor gpd os arch
+    libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
+
+cCompileInfoFromBuild :: FilePath -> BuildInfo -> CCompileInfo
+cCompileInfoFromBuild packageRoot build =
+  CCompileInfo
+    { cCompileSources = extractCSources packageRoot build,
+      cCompileIncludeDirs = extractIncludeDirs packageRoot build,
+      cCompileCcOptions = ccOptions build
+    }
+
+mergeCCompileInfo :: [CCompileInfo] -> CCompileInfo
+mergeCCompileInfo items =
+  CCompileInfo
+    { cCompileSources = nub (concatMap cCompileSources items),
+      cCompileIncludeDirs = nub (concatMap cCompileIncludeDirs items),
+      cCompileCcOptions = concatMap cCompileCcOptions items
+    }
 
 -- | Collect the public module interface selected by active Cabal conditions.
 -- Private @other-modules@ are intentionally absent even though
@@ -333,9 +385,9 @@ syntheticLocalBuildInfo pkgDescr = do
   dirs <- defaultInstallDirs GHC False False
   let comp =
         Compiler
-          (CompilerId GHC (mkVersion (DV.versionBranch compilerVersion)))
+          (CompilerId GHC (mkVersion emulatedGhcVersion))
           NoAbiTag
-          [CompilerId GHC (mkVersion (DV.versionBranch compilerVersion))]
+          [CompilerId GHC (mkVersion emulatedGhcVersion)]
           []
           []
           Map.empty
@@ -450,29 +502,28 @@ componentSuffix componentName =
     CLibName (LSubLibName name) -> "-lib-" <> prettyShow name
     CNotLibName _ -> "-exe-" <> maybe "unnamed" prettyShow (componentNameString componentName)
 
--- | Evaluate cabal conditions using the host compiler and default flag values.
+-- | Evaluate cabal conditions using the emulated compiler and default flag values.
 conditionEvaluator :: GenericPackageDescription -> Condition ConfVar -> Bool
-conditionEvaluator gpd = eval
+conditionEvaluator gpd = conditionEvaluatorFor gpd buildOS buildArch
+
+-- | Evaluate cabal conditions for one OS and architecture.
+conditionEvaluatorFor :: GenericPackageDescription -> OS -> Arch -> Condition ConfVar -> Bool
+conditionEvaluatorFor gpd os arch = eval
   where
     defaultFlags :: Map.Map FlagName Bool
     defaultFlags =
       Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd]
 
-    compilerFlavor :: CompilerFlavor
-    compilerFlavor =
-      case compilerName of
-        "ghc" -> GHC
-        "ghcjs" -> GHCJS
-        other -> OtherCompiler other
-
-    compilerVer = mkVersion (DV.versionBranch compilerVersion)
+    -- aihc presents itself as GHC so that packages take the branch matching
+    -- the CPP macros in "Aihc.Hackage.Cpp"; the host compiler is irrelevant.
+    compilerVer = mkVersion emulatedGhcVersion
 
     eval (Var confVar) =
       case confVar of
-        OS os -> os == buildOS
-        Arch arch -> arch == buildArch
+        OS wanted -> wanted == os
+        Arch wanted -> wanted == arch
         PackageFlag flag -> Map.findWithDefault False flag defaultFlags
-        Impl flavor range -> flavor == compilerFlavor && withinRange compilerVer range
+        Impl flavor range -> flavor == GHC && withinRange compilerVer range
     eval (Lit b) = b
     eval (CNot c) = not (eval c)
     eval (COr a b) = eval a || eval b
@@ -508,6 +559,11 @@ extractLanguage bi =
 extractIncludeDirs :: FilePath -> BuildInfo -> [FilePath]
 extractIncludeDirs packageRoot bi =
   nub [packageRoot </> getSymbolicPath dir | dir <- includeDirs bi]
+
+-- | Extract C source paths from a 'BuildInfo'.
+extractCSources :: FilePath -> BuildInfo -> [FilePath]
+extractCSources packageRoot bi =
+  nub [packageRoot </> getSymbolicPath path | path <- cSources bi]
 
 -- | Extract build dependency package names from a 'BuildInfo'.
 extractDependencies :: BuildInfo -> [Text]

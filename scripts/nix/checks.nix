@@ -190,8 +190,9 @@
     if timeout --foreground --kill-after=5s 120s ${aihcExe} build-exe "$source" \
       --target ${backend} \
       --gc ${gc} \
-      --store ${exampleToolchain} \
+      --store "$store" \
       --build-root "$TMPDIR/.aihc-cache" \
+      "''${package_flags[@]}" \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
       :
@@ -268,8 +269,9 @@
     fi
     if timeout --foreground --kill-after=5s 120s ${aihcExe} build-exe "$source" \
       --target wasm32-wasip3 \
-      --store ${wasip3Toolchain} \
+      --store "$store" \
       --build-root "$TMPDIR/.aihc-cache" \
+      "''${package_flags[@]}" \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
       :
@@ -304,6 +306,10 @@
     elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
       if [[ "$actual_exit" -ne "$expected_exit" ]]; then
         echo "Expected $example_name/wasm32-wasip3-${compilation.name} to exit with $expected_exit, got $actual_exit" >&2
+        echo "stdout:" >&2
+        cat "$actual_stdout" >&2 || true
+        echo "stderr:" >&2
+        cat "$actual_stderr" >&2 || true
         exit 1
       fi
     else
@@ -412,7 +418,7 @@
       store="$TMPDIR/store"
       mkdir -p "$store"
 
-      ${aihcExe} install core-libs/aihc-prim --store "$store" --keep-grin --lint --target apple-arm64
+      ${aihcExe} install core-libs/aihc-prim --store "$store" --keep-core --keep-grin --lint --target apple-arm64
 
       test -n "$(find "$store" -path '*/GHC/Prim/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
@@ -420,7 +426,7 @@
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
 
-      ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --lint --target apple-arm64
+      ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --keep-core --lint --target apple-arm64
 
       test -n "$(find "$store" -path '*/Language/Haskell/TH/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Internal/TH/Syntax/GHC.Internal.TH.Syntax.o' -print -quit)"
@@ -529,6 +535,11 @@
 
   hackage = import ./hackage-packages.nix;
   hackageInstallTargets = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
+  exampleExtraHackagePackages = {
+    bytestring = ["deepseq" "bytestring"];
+  };
+  findHackagePackage = name:
+    pkgs.lib.findFirst (package: package.name == name) (throw "missing Hackage package ${name}") hackage.packages;
 
   # Install a Hackage package into a copy of the example toolchain store so
   # the core libraries are reused instead of installed again.
@@ -596,10 +607,47 @@
     pkgs.coreutils
     pkgs.diffutils
     pkgs.findutils
+    pkgs.llvmPackages.bintools
     pkgs.llvmPackages.clang
   ];
 
-  mkExampleTest = exampleName:
+  mkExampleExtraInstall = {
+    toolchain,
+    targets,
+  }: exampleName: let
+    extraNames = exampleExtraHackagePackages.${exampleName} or [];
+    extraPackages = map findHackagePackage extraNames;
+    linkWorkspaceEntry = package: ''
+      ln -sfn ${hackage.fetchPackage pkgs package} "$workspace/${package.name}"
+    '';
+    installExtraForTarget = target:
+      pkgs.lib.concatMapStringsSep "\n" (package: ''
+        ${aihcExe} install "$workspace/${package.name}" --store "$store" --target ${target}
+      '')
+      extraPackages;
+  in
+    if extraNames == []
+    then ''
+      store=${toolchain}
+    ''
+    else ''
+      store="$TMPDIR/example-store"
+      cp -R --no-preserve=mode ${toolchain} "$store"
+      coreLibsRoot="$TMPDIR/aihc-core-libs-root"
+      mkdir -p "$coreLibsRoot"
+      ln -sfn ${sources.coreLibrariesSrc pkgs}/core-libs "$coreLibsRoot/core-libs"
+      export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
+      workspace="$TMPDIR/workspace"
+      mkdir -p "$workspace"
+      ${pkgs.lib.concatMapStrings linkWorkspaceEntry extraPackages}
+      ${pkgs.lib.concatMapStringsSep "\n" installExtraForTarget targets}
+    '';
+
+  mkExampleTest = exampleName: let
+    extraNames = exampleExtraHackagePackages.${exampleName} or [];
+    packageFlags =
+      pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames;
+  in
     mkSourceCheck "aihc-example-${exampleName}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
       set -euo pipefail
       export GHCRTS=-N1
@@ -607,6 +655,7 @@
       export LC_ALL=C.UTF-8
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
+      package_flags=(${packageFlags})
 
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
@@ -617,6 +666,11 @@
         exit 1
       fi
 
+      ${mkExampleExtraInstall {
+          toolchain = exampleToolchain;
+          targets = backends;
+        }
+        exampleName}
       ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest (exampleCompilationMatrix exampleName)}
       touch "$out"
     '';
@@ -752,7 +806,11 @@
     wasmLd
   ];
 
-  mkWasip3ExampleTest = exampleName:
+  mkWasip3ExampleTest = exampleName: let
+    extraNames = exampleExtraHackagePackages.${exampleName} or [];
+    packageFlags =
+      pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames;
+  in
     mkSourceCheck "aihc-wasip3-example-${exampleName}" (sources.exampleSrc exampleName pkgs) wasip3ExampleInputs ''
       set -euo pipefail
       export GHCRTS=-N1
@@ -762,6 +820,7 @@
       export AIHC_WASM_SYSROOT=${wasmSysroot}
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
+      package_flags=(${packageFlags})
 
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
@@ -772,6 +831,11 @@
         exit 1
       fi
 
+      ${mkExampleExtraInstall {
+          toolchain = wasip3Toolchain;
+          targets = ["wasm32-wasip3"];
+        }
+        exampleName}
       ${pkgs.lib.concatMapStringsSep "\n" renderWasip3ExampleTest (wasip3CompilationModes exampleName)}
 
       touch "$out"
@@ -790,22 +854,92 @@
   # intentionally recompiles the merged dependency bodies.
   wasip3ExampleTest = assert exampleNames != [];
     pkgs.linkFarm "aihc-wasip3-example-test" wasip3ExampleCases;
+  # Compile every example for one target without linking. Each example gets a
+  # relocatable bundle that `aihc link-exe`, or the C driver for the target,
+  # turns into the executable on a host that has the linker but not the
+  # compiler. The weekly cross-compilation workflow builds this on Linux and
+  # links the bundles on macOS. A failing example records its status and log
+  # instead of failing the derivation, so the consumer reports every example.
+  crossExampleBundlesFor = target: let
+    toolchain = exampleToolchainFor target;
+    renderExample = exampleName: let
+      extraNames = exampleExtraHackagePackages.${exampleName} or [];
+      packageFlags =
+        pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames;
+    in ''
+      example_name=${pkgs.lib.escapeShellArg exampleName}
+      bundle="$out/$example_name"
+      mkdir -p "$bundle"
+      cp -R --no-preserve=mode "examples/$example_name" "$bundle/example"
+      if (
+        set -euo pipefail
+        package_flags=(${packageFlags})
+        ${mkExampleExtraInstall {
+          inherit toolchain;
+          targets = [target];
+        }
+        exampleName}
+        timeout --foreground --kill-after=5s 300s ${aihcExe} build-exe "examples/$example_name/Main.hs" \
+          --target ${target} \
+          --gc semispace \
+          --store "$store" \
+          --build-root "$TMPDIR/.aihc-cache-$example_name" \
+          "''${package_flags[@]}" \
+          --no-link \
+          --output "$bundle/link"
+      ) > "$bundle/compile.log" 2>&1; then
+        echo ok > "$bundle/status"
+      else
+        echo compile-failed > "$bundle/status"
+        echo "Compiler failed for $example_name/${target}" >&2
+      fi
+    '';
+  in
+    pkgs.runCommand "aihc-cross-examples-${target}" {
+      src = examplesSource;
+      nativeBuildInputs = exampleTestInputs;
+    } ''
+      cd "$src"
+      export GHCRTS=-N1
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      mkdir -p "$out"
+      echo ${target} > "$out/target"
+      ${pkgs.lib.concatMapStrings renderExample exampleNames}
+      # Every bundle carries its own copy of the library, entry, and runtime
+      # archives. Hard-link identical inputs so an archive of the output
+      # stays close to the size of one bundle.
+      declare -A seen=()
+      while IFS= read -r -d "" input; do
+        digest=$(sha256sum "$input" | cut -d ' ' -f 1)
+        if [[ -n "''${seen[$digest]:-}" ]]; then
+          ln -f "''${seen[$digest]}" "$input"
+        else
+          seen[$digest]="$input"
+        fi
+      done < <(find "$out" -path '*/link/inputs/*' -type f -print0 | sort -z)
+    '';
 in {
-  resolve-tests = resolveTests;
-  tc-tests = tcTests;
-  testing-tests = testingTests;
-  aihc-tests = aihcTests;
-  fmt-tests = fmtTests;
-  unicode-generated = unicodeGenerated;
-  nix-lint = nixLint;
-  nix-format = nixFormat;
-  haskell-lint = haskellLint;
-  haskell-format = haskellFormat;
-  c-lint = cLint;
-  c-format = cFormat;
-  cabal-format = cabalFormat;
-  core-libraries-install = coreLibrariesInstall;
-  hackage-install-tests = hackageInstallTests;
-  examples-tests = examplesTests;
-  wasip3-example-test = wasip3ExampleTest;
+  checks = {
+    resolve-tests = resolveTests;
+    tc-tests = tcTests;
+    testing-tests = testingTests;
+    aihc-tests = aihcTests;
+    fmt-tests = fmtTests;
+    unicode-generated = unicodeGenerated;
+    nix-lint = nixLint;
+    nix-format = nixFormat;
+    haskell-lint = haskellLint;
+    haskell-format = haskellFormat;
+    c-lint = cLint;
+    c-format = cFormat;
+    cabal-format = cabalFormat;
+    core-libraries-install = coreLibrariesInstall;
+    hackage-install-tests = hackageInstallTests;
+    examples-tests = examplesTests;
+    wasip3-example-test = wasip3ExampleTest;
+  };
+  packages = {
+    cross-examples-apple-arm64 = crossExampleBundlesFor "apple-arm64";
+  };
 }

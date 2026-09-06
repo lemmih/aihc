@@ -16,15 +16,14 @@ module GHC.IO.Handle.Text
     hGetContents,
     hGetContents',
     hWaitForInput,
-    hLookAhead,
   )
 where
 
 import Data.Bool (Bool (..), not, (&&), (||))
 import Data.Maybe (Maybe (..), maybe)
 import Foreign.Storable (Storable (..))
-import GHC.Base (Monad (..), String, ($), (++), (.))
-import GHC.Char (chr, ord)
+import GHC.Base (Monad (..), String, ord, ($), (++), (.))
+import GHC.Char (chr)
 import GHC.IO (IO)
 import GHC.IO.Buffer
   ( Buffer (..),
@@ -48,6 +47,7 @@ import GHC.IO.Unsafe (unsafeInterleaveIO)
 import GHC.IORef (readIORef, writeIORef)
 import GHC.Int (Int)
 import GHC.Internal.Classes (Eq (..), Ord (..))
+import GHC.Internal.IO.Handle.Read (fillIfEmpty, readByte, readUtf8Char)
 import GHC.Internal.IO.Types
   ( BufferMode (..),
     Handle (..),
@@ -209,80 +209,12 @@ strictRead handle_ = do
       rest <- strictRead handle_
       return (character : rest)
 
-hLookAhead :: Handle -> IO Char
-hLookAhead handle =
-  wantReadableHandle_ "hLookAhead" handle $ \handle_@Handle__ {haByteBuffer} -> do
-    flushCharReadBuffer handle_
-    filled <- fillIfEmpty handle_
-    case filled of
-      False -> ioe_EOF
-      True -> do
-        buffer <- readIORef haByteBuffer
-        result <- readUtf8Char handle_
-        case result of
-          Nothing -> ioe_EOF
-          Just character -> do
-            writeIORef haByteBuffer buffer
-            return character
-
 -- | Input is always ready or at the end.
 hWaitForInput :: Handle -> Int -> IO Bool
 hWaitForInput handle _ =
   wantReadableHandle_ "hWaitForInput" handle $ \handle_ -> do
     flushCharReadBuffer handle_
     fillIfEmpty handle_
-
--- | Fill the byte buffer when it is empty. The result is 'False' at the
--- end of the input.
-fillIfEmpty :: Handle__ -> IO Bool
-fillIfEmpty Handle__ {haByteBuffer, haDevice} = do
-  buffer <- readIORef haByteBuffer
-  case isEmptyBuffer buffer of
-    False -> return True
-    True -> do
-      (count, buffer') <- Buffered.fillReadBuffer haDevice buffer
-      writeIORef haByteBuffer buffer'
-      return (count > 0)
-
--- | Take one byte from the byte buffer.
-readByte :: Handle__ -> IO (Maybe Int)
-readByte handle_@Handle__ {haByteBuffer} = do
-  filled <- fillIfEmpty handle_
-  case filled of
-    False -> return Nothing
-    True -> do
-      buffer <- readIORef haByteBuffer
-      value <- readWord8Buf (bufRaw buffer) (bufL buffer)
-      writeIORef haByteBuffer buffer {bufL = bufL buffer + 1}
-      return (Just (fromIntegral value))
-
--- | Decode one UTF-8 character. A bad sequence gives the replacement
--- character.
-readUtf8Char :: Handle__ -> IO (Maybe Char)
-readUtf8Char handle_ = do
-  first <- readByte handle_
-  case first of
-    Nothing -> return Nothing
-    Just leading
-      | leading < 0x80 -> return (Just (chr leading))
-      | leading < 0xC0 -> return (Just replacement)
-      | leading < 0xE0 -> continuation (leading - 0xC0) 1
-      | leading < 0xF0 -> continuation (leading - 0xE0) 2
-      | otherwise -> continuation (leading - 0xF0) 3
-  where
-    otherwise = True
-    continuation code count =
-      case count == 0 of
-        True -> return (Just (chr code))
-        False -> do
-          next <- readByte handle_
-          case next of
-            Nothing -> return (Just replacement)
-            Just byte ->
-              case byte >= 0x80 && byte < 0xC0 of
-                True -> continuation (code * 64 + (byte - 0x80)) (count - 1)
-                False -> return (Just replacement)
-    replacement = chr 0xFFFD
 
 -- ---------------------------------------------------------------------
 -- Block input

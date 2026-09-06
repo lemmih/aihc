@@ -2,6 +2,7 @@
 
 module Test.ExtractHiCompare
   ( extractHiCompareTests,
+    localPackageSubsetTests,
   )
 where
 
@@ -9,9 +10,12 @@ import Aihc.Dev.ExtractHi (extractPackage, extractSourcePackage)
 import Aihc.Dev.ExtractHi.Compare
   ( CompatibilityReport (..),
     CoreLibProgressReport (..),
+    InterfaceMismatch (..),
     comparePackageCompatibility,
     comparePackageSubset,
+    coreLibApiDivergences,
     renderCoreLibProgressReports,
+    runCoreLibApiDivergences,
   )
 import Aihc.Dev.ExtractHi.Types
 import Control.Exception (IOException, bracket, try)
@@ -42,7 +46,23 @@ extractHiCompareTests =
           testCase "counts candidate-only exports separately" test_coreLibProgressCountsExtrasSeparately,
           testCase "renders stable command output" test_coreLibProgressRendersStableOutput
         ],
-      testCase "aihc-internal is a subset of ghc-internal" test_aihcInternalSubset,
+      testGroup
+        "core-libs-api"
+        [ testCase "allows candidate-only modules to export anything" test_apiDivergenceAllowsNewModules,
+          testCase "rejects names that the oracle module does not export" test_apiDivergenceRejectsExtraNames,
+          testCase "compares names across namespaces and signatures" test_apiDivergenceIgnoresNamespaces,
+          testCase "rejects fixities the oracle does not declare identically" test_apiDivergenceRejectsFixities,
+          testCase "skips oracle modules without extracted exports" test_apiDivergenceSkipsEmptyOracleModules,
+          testCase "aihc-prim and aihc-base only have the known divergences" test_coreLibsHaveOnlyKnownDivergences
+        ]
+    ]
+
+-- | Subset checks against packages that must be registered with @ghc-pkg@.
+localPackageSubsetTests :: TestTree
+localPackageSubsetTests =
+  testGroup
+    "extract-hi local package subsets"
+    [ testCase "aihc-internal is a subset of ghc-internal" test_aihcInternalSubset,
       testCase "aihc-template-haskell is a subset of template-haskell" test_aihcTemplateHaskellSubset
     ]
 
@@ -177,6 +197,94 @@ test_coreLibProgressRendersStableOutput =
           CoreLibProgressReport "BASE" "base" (CompatibilityReport 2 5 3 [])
         ]
     )
+
+test_apiDivergenceAllowsNewModules :: Assertion
+test_apiDivergenceAllowsNewModules =
+  assertEqual
+    "divergences"
+    []
+    (coreLibApiDivergences [pkg [fullModule "A"]] (pkg [fullModule "Aihc.Only", moduleWithValue "Aihc.Extra" "g" "Int"]))
+
+test_apiDivergenceRejectsExtraNames :: Assertion
+test_apiDivergenceRejectsExtraNames =
+  assertEqual
+    "divergences"
+    [ InterfaceMismatch "A.MkU" "not exported by pkg",
+      InterfaceMismatch "A.U" "not exported by pkg",
+      InterfaceMismatch "A.extra" "not exported by pkg"
+    ]
+    (coreLibApiDivergences [pkg [fullModule "A"]] (pkg [candidate]))
+  where
+    candidate =
+      (fullModule "A")
+        { miValues = [ExportedValue "f" "Int", ExportedValue "extra" "Int"],
+          miTypes = [ExportedType "T" "Type" ["MkT"], ExportedType "U" "Type" ["MkU"]]
+        }
+
+test_apiDivergenceIgnoresNamespaces :: Assertion
+test_apiDivergenceIgnoresNamespaces =
+  assertEqual
+    "divergences"
+    []
+    (coreLibApiDivergences [pkg [oracle]] (pkg [candidate]))
+  where
+    -- A method exported as a plain function, a type without its kind, and a
+    -- value with a differently rendered type are all still the same names.
+    oracle =
+      (emptyModule "A")
+        { miValues = [ExportedValue "f" "Applicative f => f a"],
+          miTypes = [ExportedType "T" "Type -> Type" ["MkT"]],
+          miClasses = [ExportedClass "C" [ClassMethod "method" "Int"]]
+        }
+    candidate =
+      (emptyModule "A")
+        { miValues = [ExportedValue "f" "(Applicative f) => f a", ExportedValue "method" "Int"],
+          miTypes = [ExportedType "T" "<unspecified-source-kind>" ["MkT"]],
+          miClasses = [ExportedClass "C" []]
+        }
+
+test_apiDivergenceRejectsFixities :: Assertion
+test_apiDivergenceRejectsFixities =
+  assertEqual
+    "divergences"
+    [ InterfaceMismatch "A.fixity:+" ("fixity differs from pkg: " <> T.pack (show oracleFixity)),
+      InterfaceMismatch "A.fixity:*" "fixity is not declared by pkg"
+    ]
+    (coreLibApiDivergences [pkg [oracle]] (pkg [candidate]))
+  where
+    oracleFixity = FixityInfo "+" InfixL 6
+    operators = [ExportedValue "+" "Int", ExportedValue "*" "Int"]
+    oracle = (emptyModule "A") {miValues = operators, miFixities = [oracleFixity]}
+    candidate = (emptyModule "A") {miValues = operators, miFixities = [FixityInfo "+" InfixR 6, FixityInfo "*" InfixL 7]}
+
+test_apiDivergenceSkipsEmptyOracleModules :: Assertion
+test_apiDivergenceSkipsEmptyOracleModules =
+  assertEqual
+    "divergences"
+    []
+    (coreLibApiDivergences [pkg [emptyModule "GHC.Prim"]] (pkg [moduleWithValue "GHC.Prim" "+#" "Int# -> Int# -> Int#"]))
+
+-- | Exports of modules shared with @ghc-prim@ or @base@ that GHC does not
+-- provide. Every entry is an incompatibility that should be fixed; remove it
+-- from this list once the export is gone. New entries must not be added.
+knownCoreLibApiDivergences :: [T.Text]
+knownCoreLibApiDivergences = []
+
+test_coreLibsHaveOnlyKnownDivergences :: Assertion
+test_coreLibsHaveOnlyKnownDivergences = do
+  divergences <- runCoreLibApiDivergences
+  let unexpected = filter ((`notElem` knownCoreLibApiDivergences) . mismatchPath) divergences
+      fixed = filter (`notElem` map mismatchPath divergences) knownCoreLibApiDivergences
+  assertEqual
+    "exports that GHC's ghc-prim or base do not provide"
+    []
+    (map renderMismatch unexpected)
+  assertEqual
+    "known divergences that no longer occur; remove them from knownCoreLibApiDivergences"
+    []
+    fixed
+  where
+    renderMismatch item = mismatchPath item <> ": " <> mismatchMessage item
 
 test_aihcInternalSubset :: Assertion
 test_aihcInternalSubset = do

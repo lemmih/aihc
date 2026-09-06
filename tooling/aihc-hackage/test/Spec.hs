@@ -67,10 +67,12 @@ main =
         assertEqual "preferred versions" [] (map prettyShow (parsePreferredVersions (BSC.pack "not json"))),
       testCase "generates Cabal Paths module as a normal source file" test_generatesPathsModule,
       testCase "collects exposed modules from active conditional library branches" test_collectsConditionalExposedModules,
+      testCase "evaluates impl(ghc) conditions against the emulated compiler" test_evaluatesImplConditions,
       testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
       testCase "detects packages that default to Haskell98" test_detectsHaskell98DefaultLanguage,
       testCase "ignores inactive Haskell98 default-language branches" test_ignoresInactiveHaskell98DefaultLanguage,
       testCase "detects active custom preprocessor options" test_detectsCustomPreprocessorOptions,
+      testCase "collects C sources and compile options from library cabal files" test_collectsCSources,
       testProperty "Hedgehog options" prop_dummy
     ]
 
@@ -158,6 +160,14 @@ test_collectsConditionalExposedModules =
     let paths = map HC.fileInfoPath files
     assertBool "expected conditionally exposed module to be selected" (any ("src/Control/Category/Unicode.hs" `isSuffixOf`) paths)
 
+-- The CPP macros claim GHC 9.6, so a package that guards a @build-depends@
+-- on @impl(ghc >= 9.12)@ must take the same branch as its @#if@ does,
+-- whatever compiler built aihc itself.
+test_evaluatesImplConditions :: Assertion
+test_evaluatesImplConditions = do
+  gpd <- parseTestCabal implConditionalCabal
+  assertEqual "exposed modules" ["Old.Branch"] (map T.unpack (HC.collectLibraryExposedModules gpd))
+
 test_extractsBuildToolDependencyNames :: Assertion
 test_extractsBuildToolDependencyNames = do
   gpd <- parseTestCabal buildToolDependsCabal
@@ -179,6 +189,26 @@ test_ignoresInactiveHaskell98DefaultLanguage :: Assertion
 test_ignoresInactiveHaskell98DefaultLanguage = do
   gpd <- parseTestCabal inactiveHaskell98DefaultLanguageCabal
   assertBool "inactive Haskell98 branch should not filter the package" (not (HC.packageDefaultsToHaskell98 gpd))
+
+test_collectsCSources :: Assertion
+test_collectsCSources = do
+  gpd <- parseTestCabal cSourcesCabal
+  let info = HC.collectLibraryCCompileInfo gpd "/pkg"
+  assertEqual
+    "expected C sources from the cabal file"
+    ["/pkg/cbits/helper.c"]
+    (HC.cCompileSources info)
+  assertEqual
+    "expected include directories from the cabal file"
+    ["/pkg/cbits"]
+    (HC.cCompileIncludeDirs info)
+  assertEqual
+    "expected cc-options from the cabal file"
+    ["-std=c11"]
+    (HC.cCompileCcOptions info)
+  assertBool
+    "inactive javascript C source is not selected"
+    (not (any ("js.c" `isSuffixOf`) (HC.cCompileSources info)))
 
 test_detectsCustomPreprocessorOptions :: Assertion
 test_detectsCustomPreprocessorOptions = do
@@ -217,6 +247,22 @@ pathsUserSource =
       "pathsVersion = version",
       "pathsDataDir = getDataDir",
       "pathsDataFileName = getDataFileName"
+    ]
+
+implConditionalCabal :: String
+implConditionalCabal =
+  unlines
+    [ "cabal-version: 3.0",
+      "name: impl-conditional",
+      "version: 0.1.0.0",
+      "",
+      "library",
+      "  hs-source-dirs: src",
+      "  default-language: Haskell2010",
+      "  if impl(ghc >= 9.12)",
+      "    exposed-modules: New.Branch",
+      "  else",
+      "    exposed-modules: Old.Branch"
     ]
 
 conditionalExposedCabal :: String
@@ -316,6 +362,24 @@ inactiveHaskell98DefaultLanguageCabal =
       "  default-language: Haskell2010",
       "  if flag(legacy)",
       "    default-language: Haskell98"
+    ]
+
+cSourcesCabal :: String
+cSourcesCabal =
+  unlines
+    [ "cabal-version: 3.0",
+      "name: c-sources-demo",
+      "version: 0.1.0.0",
+      "",
+      "library",
+      "  exposed-modules: CSourcesDemo",
+      "  hs-source-dirs: src",
+      "  c-sources: cbits/helper.c",
+      "  include-dirs: cbits",
+      "  cc-options: -std=c11",
+      "  default-language: Haskell2010",
+      "  if arch(javascript)",
+      "    c-sources: cbits/js.c"
     ]
 
 customPreprocessorCabal :: String

@@ -202,7 +202,8 @@ A non-negative request result is the number of transferred bytes. A non-empty
 read returns zero at end-of-file. Either operation can return fewer bytes than
 requested, so the future `Handle` layer must resubmit the remaining slice when
 it requires a complete transfer. Errors use `-(errno + 1)` in the POSIX proof
-of concept. `GHC.Event` owns only generic suspension. `GHC.IO.StdHandles`
+of concept. `GHC.IO.Runtime` owns the runtime bindings and generic
+suspension (`awaitIO`). `GHC.IO.StdHandles`
 exposes buffer allocation, address and indexed byte access, handle operations,
 and the standard handles. Text encoding, locking, transfer loops, and full
 `Handle` semantics remain above this boundary.

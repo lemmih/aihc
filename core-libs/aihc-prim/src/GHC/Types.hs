@@ -18,7 +18,6 @@ module GHC.Types
     Constraint,
     TYPE,
     Type,
-    LiftedType,
     UnliftedType,
     LiftedRep,
     UnliftedRep,
@@ -118,8 +117,6 @@ data TYPE (rep :: RuntimeRep)
 
 type Type :: Type
 type Type = TYPE LiftedRep
-
-type LiftedType = TYPE LiftedRep
 
 type UnliftedType = TYPE UnliftedRep
 

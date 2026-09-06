@@ -28,6 +28,9 @@ extra-source-files:
   test/Test/Fixtures/build-exe/source-directories/Cycle.hs
   test/Test/Fixtures/build-exe/source-directories/Main.hs
   test/Test/Fixtures/build-exe/source-directories/Message.hs
+  test/Test/Fixtures/install/c-sources/cbits/helper.c
+  test/Test/Fixtures/install/c-sources/demo.cabal
+  test/Test/Fixtures/install/c-sources/src/Demo.hs
   test/Test/Fixtures/install/keep-grin/demo.cabal
   test/Test/Fixtures/install/keep-grin/src/Demo.hs
   test/Test/Fixtures/install/local-dependencies/demo/demo.cabal
@@ -55,6 +58,9 @@ data-files:
   compiler/native/runtime/aihc_runtime_internal.h
   compiler/native/runtime/aihc_runtime_options.c
   compiler/native/runtime/aihc_stable_name.lir
+  compiler/native/runtime/include/HsFFI.h
+  compiler/native/runtime/include/MachDeps.h
+  compiler/native/runtime/include/ghcplatform.h
   compiler/wasm/runtime/aihc_wasip3.c
   compiler/wasm/runtime/aihc_wasm_internal.h
   compiler/wasm/runtime/wit/command.wit
@@ -322,7 +328,6 @@ test-suite spec
     filepath,
     haskeline,
     hedgehog,
-    libffi >=0.2 && <0.3,
     prettyprinter,
     process,
     tasty,
@@ -331,7 +336,6 @@ test-suite spec
     temporary,
     text,
     time,
-    unix,
     yaml,
 
 test-suite dev-spec

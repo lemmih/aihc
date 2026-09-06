@@ -5,6 +5,7 @@ module Aihc.Cli.Install
     ModuleCompileResult (..),
     compileModules,
     install,
+    installWith,
     parsePackageTarget,
     runInstall,
   )
@@ -45,7 +46,7 @@ import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower qualified as Lir
-import Aihc.Native (NativeTarget (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory, wasmSysroot)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
     ImportDecl (..),
@@ -121,6 +122,7 @@ import Control.Monad (filterM, forM, unless, when, zipWithM)
 import Data.Aeson (Value)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
@@ -139,16 +141,18 @@ import Distribution.PackageDescription (package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
+import Distribution.System (Arch (..), OS (..), buildArch, buildOS)
 import Distribution.Version (nullVersion)
 import GHC.Clock (getMonotonicTimeNSec)
 import Numeric (showHex)
+import Paths_aihc (getDataFileName)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
 import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
-import System.IO (hClose, hIsTerminalDevice, openBinaryTempFile, stdout)
+import System.FilePath (dropExtension, makeRelative, takeDirectory, takeFileName, (<.>), (</>))
+import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stdout)
 import System.Process (readProcessWithExitCode)
 
 data InstallResult = InstallResult
@@ -207,9 +211,8 @@ data NativeModule = NativeModule
     nativeObject :: !(Maybe BL.ByteString)
   }
 
-data PendingCompile = PendingCompile
-  { pendingWriteFc :: !Bool,
-    pendingModules :: ![Module]
+newtype PendingCompile = PendingCompile
+  { pendingModules :: [Module]
   }
 
 newtype UnitId = UnitId Int
@@ -250,7 +253,8 @@ data UnitRuntime = UnitRuntime
   }
 
 data ModuleCompileConfig = ModuleCompileConfig
-  { compileKeepGrin :: !Bool,
+  { compileKeepCore :: !Bool,
+    compileKeepGrin :: !Bool,
     compileKeepNative :: !Bool,
     compileLint :: !Bool,
     compileNoCode :: !Bool,
@@ -324,20 +328,29 @@ runInstall options = do
   result <- install options
   putStrLn ("store: " <> installStorePath result)
 
+-- | Install a package and write the verbose and timing messages to stdout.
 install :: InstallOptions -> IO InstallResult
-install options = do
+install = installWith stdout
+
+-- | Install a package and write the verbose and timing messages to the given
+-- handle. A test gives a file handle here and reads the file. The test must
+-- not redirect the process stdout instead: the test runner writes its progress
+-- to stdout from other threads, and a redirect would capture that progress.
+installWith :: Handle -> InstallOptions -> IO InstallResult
+installWith output options = do
   storeRoot <- maybe defaultStoreRoot pure (installStoreRoot options)
-  useColor <- hIsTerminalDevice stdout
+  useColor <- hIsTerminalDevice output
   let target = installTarget options
       targetStoreRoot = storeRoot </> nativeTargetStoreDirectory target
-  let verbose message = when (installVerbose options) (putStrLn message)
-      printTimings message = when (installPrintTimings options) (putStrLn message)
+  let verbose message = when (installVerbose options) (hPutStrLn output message)
+      printTimings message = when (installPrintTimings options) (hPutStrLn output message)
   root <- resolveInstallTarget (installPackageTarget options)
   let fallbackResolver = networkDependencyResolver
       resolver = localDependencyResolverWithFallback fallbackResolver root
       config =
         ModuleCompileConfig
-          { compileKeepGrin = installKeepGrin options,
+          { compileKeepCore = installKeepCore options,
+            compileKeepGrin = installKeepGrin options,
             compileKeepNative = installKeepNative options,
             compileLint = installLint options,
             compileNoCode = installNoCode options,
@@ -439,7 +452,9 @@ installPackageDirect config storeRoot dependencies root = do
   gpd <- case runParseResult (parseGenericPackageDescription cabalBytes) of
     (_, Right value) -> pure value
     (_, Left (_, errors)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errors))
-  files <- HackageCabal.collectLibraryFiles gpd root
+  let (targetOs, targetArch) = cabalPlatformForTarget target
+  files <- HackageCabal.collectLibraryFilesFor targetOs targetArch gpd root
+  let cCompileInfo = HackageCabal.collectLibraryCCompileInfoFor targetOs targetArch gpd root
   let packageId = package (packageDescription gpd)
       packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
@@ -464,7 +479,8 @@ installPackageDirect config storeRoot dependencies root = do
             [ outputObjectPath (moduleOutputPaths storePath target (sourceName source))
             | source <- parsed
             ]
-    buildLibraryArchive target verbose archive moduleObjects
+    cObjects <- compilePackageCFiles target verbose root storePath cCompileInfo
+    buildLibraryArchive target verbose archive (moduleObjects <> cObjects)
   writePackageManifest
     (packageManifestPath storePath)
     PackageManifest
@@ -1170,7 +1186,7 @@ runTypeUnit context runtimes runtime = do
       then pure Nothing
       else do
         let (checkedModules, _) = initialChecked
-        pure (Just (PendingCompile True checkedModules))
+        pure (Just (PendingCompile checkedModules))
   let unitSet = Set.fromList unitNames
   -- Force the type result before this type-check task ends.
   typeResult <-
@@ -1203,7 +1219,6 @@ runBackendUnit context runtime = do
       phaseTimings <-
         compileCheckedModules
           config
-          (pendingWriteFc pending)
           (compileVerbose config)
           (taskPrimIdentity context)
           (typeUnitDesugarInterface result)
@@ -1258,7 +1273,7 @@ writePackageInstanceArtifact verbose storePath typeHashes providers interface = 
   verbose ("Write package instances: " <> path)
 
 wiredTypeModules :: [Text]
-wiredTypeModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Tuple", "GHC.Types"]
+wiredTypeModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Tuple", "GHC.Types"]
 
 builtinFunctionScope :: Package -> ModuleExports -> [(Package, Module)] -> Scope
 builtinFunctionScope currentPackage dependencyExports packageModules =
@@ -1266,7 +1281,7 @@ builtinFunctionScope currentPackage dependencyExports packageModules =
   where
     allExports = collectModuleExportsWithDeps dependencyExports packageModules `Map.union` dependencyExports
     lookupBuiltin name = lookupImportedModule currentPackage Nothing name allExports
-    builtinFunctionModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Num", "GHC.Prim.Real"]
+    builtinFunctionModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real"]
 
 measureTime :: IO a -> IO (a, Word64)
 measureTime action = do
@@ -1296,8 +1311,8 @@ renderBackendPhaseTotals timings =
       "other total: " <> renderDuration (backendOtherNs timings)
     ]
 
-compileCheckedModules :: ModuleCompileConfig -> Bool -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [Module] -> IO BackendPhaseTimings
-compileCheckedModules config writeFc verbose primIdentity interface outputPaths checkedModules = do
+compileCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [Module] -> IO BackendPhaseTimings
+compileCheckedModules config verbose primIdentity interface outputPaths checkedModules = do
   (splitModules, desugarNs) <- measureTime $ do
     let bindings = concatMap tcModuleBindings checkedModules
         desugarResults = map (Fc.desugarModuleFc (DesugarConfig primIdentity) bindings interface) checkedModules
@@ -1316,7 +1331,7 @@ compileCheckedModules config writeFc verbose primIdentity interface outputPaths 
                   )
               )
           )
-    when writeFc (mapM_ writeFcModule fcModules)
+    when keepCore (mapM_ writeFcModule fcModules)
     pure (spanEmptyModules fcModules)
   let (emptyFcModules, nonemptyFcModules) = splitModules
   (grinModules, grinNs) <- measureTime $ do
@@ -1337,6 +1352,7 @@ compileCheckedModules config writeFc verbose primIdentity interface outputPaths 
         backendOtherNs = 0
       }
   where
+    keepCore = compileKeepCore config
     keepGrin = compileKeepGrin config
     keepNative = compileKeepNative config
     lint = compileLint config
@@ -1459,6 +1475,59 @@ withFinalNewline rendered
   | "\n" `isSuffixOf` rendered = rendered
   | otherwise = rendered <> "\n"
 
+cabalPlatformForTarget :: NativeTarget -> (OS, Arch)
+cabalPlatformForTarget target =
+  case target of
+    AppleArm64 -> (OSX, AArch64)
+    LinuxAmd64 -> (Linux, X86_64)
+    Llvm -> (buildOS, buildArch)
+    Wasm32Wasip3 -> (Wasi, Wasm32)
+
+compilePackageCFiles :: NativeTarget -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
+compilePackageCFiles target verbose packageRoot storePath info
+  | null (HackageCabal.cCompileSources info) = pure []
+  | otherwise = do
+      (compiler, targetArguments) <- backendCompiler target
+      ffiHeader <- getDataFileName "compiler/native/runtime/include/HsFFI.h"
+      sysrootIncludes <- wasmSysrootIncludeArguments target
+      let ffiIncludeDir = takeDirectory ffiHeader
+          includeArguments =
+            sysrootIncludes
+              <> ["-I" <> directory | directory <- HackageCabal.cCompileIncludeDirs info]
+              <> ["-I" <> ffiIncludeDir]
+          objectRoot = storePath </> "cbits"
+      createDirectoryIfMissing True objectRoot
+      forM (HackageCabal.cCompileSources info) $ \source -> do
+        exists <- doesFileExist source
+        unless exists (ioError (userError ("C source is absent: " <> source)))
+        let object = objectRoot </> cObjectFileName (makeRelative packageRoot source)
+        verbose ("Compile C source: " <> source)
+        runTool
+          compiler
+          ( targetArguments
+              <> HackageCabal.cCompileCcOptions info
+              <> includeArguments
+              <> ["-c", source, "-o", object]
+          )
+        pure object
+
+wasmSysrootIncludeArguments :: NativeTarget -> IO [String]
+wasmSysrootIncludeArguments target =
+  case target of
+    Wasm32Wasip3 -> do
+      sysroot <- wasmSysroot
+      pure ["-isystem" <> wasmSysrootInclude sysroot]
+    _ -> pure []
+
+cObjectFileName :: FilePath -> FilePath
+cObjectFileName source =
+  map replaceSeparator (dropExtension source) <.> "o"
+  where
+    replaceSeparator character =
+      if character == '/' || character == '\\'
+        then '_'
+        else character
+
 buildLibraryArchive :: NativeTarget -> (String -> IO ()) -> FilePath -> [FilePath] -> IO ()
 buildLibraryArchive target verbose archive moduleObjects = do
   createDirectoryIfMissing True (takeDirectory archive)
@@ -1466,9 +1535,18 @@ buildLibraryArchive target verbose archive moduleObjects = do
   when archiveExists (removeFile archive)
   archiver <- backendArchiver target
   nonemptyObjects <- filterM (fmap (> 0) . getFileSize) moduleObjects
-  withDeterministicArchiveEnvironment $
-    runTool archiver (["rcs", archive] <> nonemptyObjects)
+  -- BSD ar refuses to create an archive with no members, and a package whose
+  -- modules are all empty standins (aihc-internal) has none. Every archive
+  -- format begins with the same global header, and an archive that stops
+  -- there is a valid empty archive for ld64, GNU ld, lld and wasm-ld alike.
+  if null nonemptyObjects
+    then BS.writeFile archive emptyArchive
+    else
+      withDeterministicArchiveEnvironment $
+        runTool archiver (["rcs", archive] <> nonemptyObjects)
   verbose ("Write archive: " <> archive)
+  where
+    emptyArchive = BS8.pack "!<arch>\n"
 
 withDeterministicArchiveEnvironment :: IO value -> IO value
 withDeterministicArchiveEnvironment action =
@@ -1578,7 +1656,7 @@ addReferencedFacts complete interface =
     callStackSupportTerms =
       [ (key, scheme)
       | (package', moduleName') <- Set.toList callStackModules,
-        identifier <- ["pushCallSite", "emptyCallStack"],
+        identifier <- ["pushCallStack", "emptyCallStack"],
         let key = TcTermGlobal package' moduleName' identifier,
         key `Map.notMember` tcInterfaceTermMap interface,
         Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]

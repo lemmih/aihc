@@ -12,15 +12,11 @@ module GHC.Unicode
     isDigit,
     isHexDigit,
     isLatin1,
-    isLetter,
     isLower,
     isLowerCase,
-    isMark,
-    isNumber,
     isOctDigit,
     isPrint,
     isPunctuation,
-    isSeparator,
     isSpace,
     isSymbol,
     isUpper,
@@ -31,7 +27,7 @@ module GHC.Unicode
   )
 where
 
-import GHC.Char (ord)
+import GHC.Base (ord)
 import GHC.Prim (Int#)
 import GHC.Prim.Unicode
   ( generalCategory#,
@@ -173,16 +169,6 @@ isLowerCase (C# value) = intHashToBool (isLowercase# value)
 isAlpha :: Char -> Bool
 isAlpha = isLetter
 
-isLetter :: Char -> Bool
-isLetter value =
-  case generalCategory value of
-    UppercaseLetter -> True
-    LowercaseLetter -> True
-    TitlecaseLetter -> True
-    ModifierLetter -> True
-    OtherLetter -> True
-    _ -> False
-
 isDigit :: Char -> Bool
 isDigit value =
   let codePoint = ord value
@@ -202,22 +188,6 @@ isHexDigit value =
 
 isAlphaNum :: Char -> Bool
 isAlphaNum value = isAlpha value || isNumber value
-
-isMark :: Char -> Bool
-isMark value =
-  case generalCategory value of
-    NonSpacingMark -> True
-    SpacingCombiningMark -> True
-    EnclosingMark -> True
-    _ -> False
-
-isNumber :: Char -> Bool
-isNumber value =
-  case generalCategory value of
-    DecimalNumber -> True
-    LetterNumber -> True
-    OtherNumber -> True
-    _ -> False
 
 isPunctuation :: Char -> Bool
 isPunctuation value =
@@ -240,14 +210,6 @@ isSymbol value =
     OtherSymbol -> True
     _ -> False
 
-isSeparator :: Char -> Bool
-isSeparator value =
-  case generalCategory value of
-    Space -> True
-    LineSeparator -> True
-    ParagraphSeparator -> True
-    _ -> False
-
 toUpper :: Char -> Char
 toUpper (C# value) = C# (unicodeToUpper value)
 
@@ -262,3 +224,38 @@ intHashToBool value =
   case value of
     0# -> False
     _ -> True
+
+-- Data.Char exports these predicates; GHC.Unicode only uses them.
+isLetter :: Char -> Bool
+isLetter value =
+  case generalCategory value of
+    UppercaseLetter -> True
+    LowercaseLetter -> True
+    TitlecaseLetter -> True
+    ModifierLetter -> True
+    OtherLetter -> True
+    _ -> False
+
+isMark :: Char -> Bool
+isMark value =
+  case generalCategory value of
+    NonSpacingMark -> True
+    SpacingCombiningMark -> True
+    EnclosingMark -> True
+    _ -> False
+
+isNumber :: Char -> Bool
+isNumber value =
+  case generalCategory value of
+    DecimalNumber -> True
+    LetterNumber -> True
+    OtherNumber -> True
+    _ -> False
+
+isSeparator :: Char -> Bool
+isSeparator value =
+  case generalCategory value of
+    Space -> True
+    LineSeparator -> True
+    ParagraphSeparator -> True
+    _ -> False

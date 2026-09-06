@@ -1,0 +1,11 @@
+cabal-version: 3.0
+name: demo
+version: 0.1.0.0
+
+library
+  exposed-modules: Demo
+  hs-source-dirs: src
+  c-sources: cbits/helper.c
+  include-dirs: cbits
+  cc-options: -std=c11
+  default-language: Haskell2010

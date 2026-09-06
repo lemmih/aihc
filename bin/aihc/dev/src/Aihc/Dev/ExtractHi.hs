@@ -69,7 +69,8 @@ import GHC.Core.PatSyn (patSynName, pprPatSynType)
 import GHC.Core.TyCo.Ppr (pprSigmaType, pprType)
 import GHC.Core.TyCon (isAlgTyCon, tyConDataCons, tyConName, tyConResKind)
 import GHC.Iface.Syntax
-  ( IfaceClassBody (..),
+  ( IfaceAT (..),
+    IfaceClassBody (..),
     IfaceClassOp (..),
     IfaceConDecl (..),
     IfaceConDecls (..),
@@ -336,7 +337,7 @@ classifySingle modName localDeclMap cachedLookup avail = case avail of
     mDecl <- liftIO $ resolveDecl localDeclMap cachedLookup nameStr name
     case mDecl of
       Just decl@IfaceClass {} ->
-        pure ([], [], [extractClass decl subNames])
+        pure (associatedTypes decl, [], [extractClass decl subNames])
       Just decl@IfaceData {} ->
         pure ([extractDataType decl subNames], [], [])
       Just decl@IfaceSynonym {} ->
@@ -504,6 +505,13 @@ extractClass decl _subNames = case decl of
       { ecName = T.pack (getOccString (ifName other)),
         ecMethods = []
       }
+
+-- | The associated type families of a class, exported with the class.
+associatedTypes :: IfaceDecl -> [ExportedType]
+associatedTypes decl = case decl of
+  IfaceClass {ifBody = IfConcreteClass {ifATs}} ->
+    [extractFamily familyDecl | IfaceAT familyDecl _ <- ifATs]
+  _ -> []
 
 -- | Extract a class method from its IfaceClassOp.
 extractClassOp :: IfaceClassOp -> ClassMethod

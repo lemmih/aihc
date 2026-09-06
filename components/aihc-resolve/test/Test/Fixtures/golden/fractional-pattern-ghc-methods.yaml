@@ -1,0 +1,90 @@
+annotated:
+- |-
+  module GHC.Classes where
+  data Bool = False | True
+       │      │       └─ v GHC.Classes
+       │      └─ v GHC.Classes
+       └─ t GHC.Classes
+  (==) x y = True
+   │   │ │   └─ v GHC.Classes
+   │   │ └─ v 1
+   │   └─ v 0
+   └─ v GHC.Classes
+- |-
+  module GHC.Num where
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
+       │         │  └─ t GHC.Prim
+       │         └─ v GHC.Num
+       └─ t GHC.Num
+  class Num a where
+        └─ t GHC.Num
+    fromInteger :: Integer -> a
+    └─ v GHC.Num   └─ t GHC.Num
+    negate :: a -> a
+    └─ v GHC.Num
+- |-
+  module GHC.Prim where
+  data Int#
+       └─ t GHC.Prim
+- |-
+  module GHC.Real where
+  import GHC.Num (Integer, Num)
+  data Ratio a = Ratio a a
+       │         └─ v GHC.Real
+       └─ t GHC.Real
+  type Rational = Ratio Integer
+       │          │     └─ t GHC.Num
+       │          └─ t GHC.Real
+       └─ t GHC.Real
+  class Num a => Fractional a where
+        │        └─ t GHC.Real
+        └─ t GHC.Num
+    fromRational :: Rational -> a
+    └─ v GHC.Real   └─ t GHC.Real
+- |-
+  module Main where
+  match = \case
+  └─ v Main
+    1.5 -> ()
+    ││      └─ v Builtin ()
+    └─ v GHC.Real
+    └─ v GHC.Classes
+    (-2.5) -> ()
+     │││        └─ v Builtin ()
+     └─ v GHC.Real
+     └─ v GHC.Classes
+     └─ v GHC.Num
+extensions:
+- LambdaCase
+- MagicHash
+modules:
+- |
+  module GHC.Prim where
+  data Int#
+- |
+  module GHC.Classes where
+  data Bool = False | True
+  (==) x y = True
+- |
+  module GHC.Num where
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
+  class Num a where
+    fromInteger :: Integer -> a
+    negate :: a -> a
+- |
+  module GHC.Real where
+  import GHC.Num (Integer, Num)
+  data Ratio a = Ratio a a
+  type Rational = Ratio Integer
+  class Num a => Fractional a where
+    fromRational :: Rational -> a
+- |
+  module Main where
+  match = \case
+    1.5 -> ()
+    (-2.5) -> ()
+reason: fractional patterns resolve GHC.Real.fromRational, GHC.Num.negate, and
+  GHC.Classes.== by default
+status: pass

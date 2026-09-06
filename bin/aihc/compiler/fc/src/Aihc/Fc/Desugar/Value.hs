@@ -822,6 +822,8 @@ convertCAbiType abiType =
     TcForeignWord16 -> CAbiWord16
     TcForeignWord32 -> CAbiWord32
     TcForeignWord64 -> CAbiWord64
+    TcForeignFloat -> CAbiFloat
+    TcForeignDouble -> CAbiDouble
     TcForeignAddr -> CAbiAddr
     TcForeignVoid -> CAbiVoid
 
@@ -1306,8 +1308,8 @@ desugarMatchArguments resultType fallback [] _ ((match, locals) : rest) = do
   withLocals locals (desugarRhsWithFailure resultType failure (Syn.matchRhs match))
 desugarMatchArguments _ fallback [] _ [] = maybe (failValue "pattern match has no result") pure fallback
 desugarMatchArguments resultType fallback binders@(argument : arguments) argumentTypes works
-  | any (firstPatternIsOverloadedInteger . fst) works =
-      desugarOverloadedIntegerMatches resultType fallback binders argumentTypes works
+  | any (firstPatternIsOverloadedLiteral . fst) works =
+      desugarOverloadedLiteralMatches resultType fallback binders argumentTypes works
   | (first, firstLocals) : rest <- works,
     let firstPatterns = Syn.matchPats first,
     length firstPatterns == length binders,
@@ -1457,20 +1459,20 @@ extendMatchWork binder ty (match, locals) = do
 dropMatchWorkPattern :: MatchWork -> MatchWork
 dropMatchWorkPattern (match, locals) = (dropFirstPattern match, locals)
 
-desugarOverloadedIntegerMatches :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
-desugarOverloadedIntegerMatches resultType fallback arguments argumentTypes works =
+desugarOverloadedLiteralMatches :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
+desugarOverloadedLiteralMatches resultType fallback arguments argumentTypes works =
   case works of
     [] -> maybe (overloadedPatternFailure resultType arguments) pure fallback
     work : rest -> do
-      failure <- desugarOverloadedIntegerMatches resultType fallback arguments argumentTypes rest
+      failure <- desugarOverloadedLiteralMatches resultType fallback arguments argumentTypes rest
       -- A row with several literal patterns tests each one in turn, and each
       -- test names the failure. Bind the failure once so that the later rows
       -- are not copied into every test.
       shareExpr resultType failure $ \shared ->
-        desugarOverloadedIntegerMatch resultType arguments argumentTypes work shared
+        desugarOverloadedLiteralMatch resultType arguments argumentTypes work shared
 
-desugarOverloadedIntegerMatch :: TcType -> [Binder] -> [TcType] -> MatchWork -> Expr -> ValueM Expr
-desugarOverloadedIntegerMatch resultType arguments argumentTypes (match, locals) failure =
+desugarOverloadedLiteralMatch :: TcType -> [Binder] -> [TcType] -> MatchWork -> Expr -> ValueM Expr
+desugarOverloadedLiteralMatch resultType arguments argumentTypes (match, locals) failure =
   compile locals (zip3 arguments argumentTypes (Syn.matchPats match))
   where
     compile current [] = withLocals current (desugarRhsWithFailure resultType (Just failure) (Syn.matchRhs match))
@@ -1478,8 +1480,8 @@ desugarOverloadedIntegerMatch resultType arguments argumentTypes (match, locals)
       | patternIsIrrefutable pattern' = do
           extra <- patternMatchBindings pattern' argument ty
           compile (current <> extra) rest
-      | isOverloadedIntegerPattern pattern' = do
-          test <- desugarOverloadedIntegerPatternTest (ExVar (binderName argument)) pattern'
+      | isOverloadedLiteralPattern pattern' = do
+          test <- desugarOverloadedLiteralPatternTest (ExVar (binderName argument)) pattern'
           testType <- requiredPatternMethodResultType "==" pattern'
           testBinder <- freshBinder "_case_guard" testType
           resultType' <- convertCheckedType resultType
@@ -1508,10 +1510,10 @@ requiredArgumentTypes types =
     ty : rest -> pure (ty, rest)
     [] -> failValue "pattern match does not have a checked argument type"
 
-firstPatternIsOverloadedInteger :: Syn.Match -> Bool
-firstPatternIsOverloadedInteger match =
+firstPatternIsOverloadedLiteral :: Syn.Match -> Bool
+firstPatternIsOverloadedLiteral match =
   case Syn.matchPats match of
-    pattern' : _ -> isOverloadedIntegerPattern pattern'
+    pattern' : _ -> isOverloadedLiteralPattern pattern'
     [] -> False
 
 overloadedPatternFailure :: TcType -> [Binder] -> ValueM Expr
@@ -1521,18 +1523,24 @@ overloadedPatternFailure resultType arguments = do
     argument : _ -> do
       failureBinder <- freshBinderFromType "_case_nomatch" (binderType argument)
       pure (ExCase (ExVar (binderName argument)) failureBinder resultType' [])
-    [] -> failValue "overloaded integer match has no argument"
+    [] -> failValue "overloaded literal match has no argument"
 
-desugarOverloadedIntegerPatternTest :: Expr -> Syn.Pattern -> ValueM Expr
-desugarOverloadedIntegerPatternTest scrutinee pattern' = do
+-- | The test of an overloaded literal pattern. The literal converts with
+-- fromInteger or fromRational, and the equality method compares it with
+-- the scrutinee.
+desugarOverloadedLiteralPatternTest :: Expr -> Syn.Pattern -> ValueM Expr
+desugarOverloadedLiteralPatternTest scrutinee pattern' = do
   (value, negative) <-
     maybe
-      (failValue ("invalid overloaded integer pattern: " <> take 80 (show pattern')))
+      (failValue ("invalid overloaded literal pattern: " <> take 80 (show pattern')))
       pure
-      (integerPatternValue pattern')
-  fromIntegerMethod <- desugarPatternMethod "fromInteger" pattern'
-  integer <- desugarIntegerLiteral value
-  let positive = ExApp fromIntegerMethod integer
+      (overloadedPatternValue pattern')
+  positive <-
+    case value of
+      OverloadedInteger integer ->
+        ExApp <$> desugarPatternMethod "fromInteger" pattern' <*> desugarIntegerLiteral integer
+      OverloadedRational rational ->
+        ExApp <$> desugarPatternMethod "fromRational" pattern' <*> desugarRationalLiteral rational
   patternValue <-
     if negative
       then (`ExApp` positive) <$> desugarPatternMethod "negate" pattern'
@@ -1555,7 +1563,7 @@ requiredPatternMethodResultType name pattern' = do
 requiredPatternOccurrence :: Text -> Syn.Pattern -> ValueM (TcAnnotation, ResolutionAnnotation)
 requiredPatternOccurrence name pattern' =
   maybe
-    (failValue ("missing checked " <> T.unpack name <> " occurrence for overloaded integer pattern"))
+    (failValue ("missing checked " <> T.unpack name <> " occurrence for overloaded literal pattern"))
     pure
     (patternOccurrence name pattern')
 
@@ -1579,26 +1587,33 @@ patternOccurrence target = go Nothing
         Syn.PTypeSig inner _ -> go currentType inner
         _ -> Nothing
 
-isOverloadedIntegerPattern :: Syn.Pattern -> Bool
-isOverloadedIntegerPattern = isJust . integerPatternValue
+-- | The value of an overloaded literal pattern.
+data OverloadedLiteral
+  = OverloadedInteger Integer
+  | OverloadedRational Rational
 
-integerPatternValue :: Syn.Pattern -> Maybe (Integer, Bool)
-integerPatternValue pattern' =
+isOverloadedLiteralPattern :: Syn.Pattern -> Bool
+isOverloadedLiteralPattern = isJust . overloadedPatternValue
+
+-- | The literal of an overloaded literal pattern, with a flag for a negated literal.
+overloadedPatternValue :: Syn.Pattern -> Maybe (OverloadedLiteral, Bool)
+overloadedPatternValue pattern' =
   case pattern' of
-    Syn.PAnn _ inner -> integerPatternValue inner
-    Syn.PParen inner -> integerPatternValue inner
-    Syn.PStrict inner -> integerPatternValue inner
-    Syn.PIrrefutable inner -> integerPatternValue inner
-    Syn.PAs _ inner -> integerPatternValue inner
-    Syn.PTypeSig inner _ -> integerPatternValue inner
-    Syn.PLit literal -> (,False) <$> overloadedIntegerValue literal
-    Syn.PNegLit literal -> (,True) <$> overloadedIntegerValue literal
+    Syn.PAnn _ inner -> overloadedPatternValue inner
+    Syn.PParen inner -> overloadedPatternValue inner
+    Syn.PStrict inner -> overloadedPatternValue inner
+    Syn.PIrrefutable inner -> overloadedPatternValue inner
+    Syn.PAs _ inner -> overloadedPatternValue inner
+    Syn.PTypeSig inner _ -> overloadedPatternValue inner
+    Syn.PLit literal -> (,False) <$> overloadedLiteralValue literal
+    Syn.PNegLit literal -> (,True) <$> overloadedLiteralValue literal
     _ -> Nothing
 
-overloadedIntegerValue :: Syn.Literal -> Maybe Integer
-overloadedIntegerValue literal =
+overloadedLiteralValue :: Syn.Literal -> Maybe OverloadedLiteral
+overloadedLiteralValue literal =
   case Syn.peelLiteralAnn literal of
-    Syn.LitInt value Syn.TInteger _ -> Just value
+    Syn.LitInt value Syn.TInteger _ -> Just (OverloadedInteger value)
+    Syn.LitFloat value Syn.TFractional _ -> Just (OverloadedRational value)
     _ -> Nothing
 
 desugarDataPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
@@ -3019,10 +3034,10 @@ desugarPatternWithFailure :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM
 desugarPatternWithFailure resultType binder ty pattern' success failure =
   case pattern' of
     _
-      | isOverloadedIntegerPattern pattern' -> do
-          -- An overloaded integer literal compares with the equality
+      | isOverloadedLiteralPattern pattern' -> do
+          -- An overloaded literal compares with the equality
           -- method of its type, as in a function equation.
-          test <- desugarOverloadedIntegerPatternTest (ExVar (binderName binder)) pattern'
+          test <- desugarOverloadedLiteralPatternTest (ExVar (binderName binder)) pattern'
           testType <- requiredPatternMethodResultType "==" pattern'
           testBinder <- freshBinder "_literal_guard" testType
           resultType' <- convertCheckedType resultType
@@ -3447,8 +3462,16 @@ desugarCallStackPush (packageName, moduleName') function site parent = do
   fileText <- desugarStringValue (Ev.callSiteFile site)
   intRepresentation <- convertRuntimeRep IntRep
   intConstructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
+  charName <- primitiveName "GHC.Types" "Char" SortTypeConstructor
+  listName <- primitiveName "GHC.Types" "[]" SortTypeConstructor
+  pairConstructor <- primitiveName "GHC.Tuple" "(,)" SortDataConstructor
   let libraryName name sort = Name name sort (OriginTop (PackageId packageName) moduleName')
       boxedInt value = ExApp (ExVar intConstructor) (ExLit (LitInt intRepresentation (toInteger value)))
+      stringType = TyApp (TyCon listName) (TyCon charName)
+      locationType = TyCon (libraryName "SrcLoc" SortTypeConstructor)
+      -- GHC's pushCallStack takes the call site as a pair.
+      callSite srcLoc =
+        foldl ExApp (ExTyApp (ExTyApp (ExVar pairConstructor) stringType) locationType) [functionText, srcLoc]
       location =
         foldl
           ExApp
@@ -3461,7 +3484,7 @@ desugarCallStackPush (packageName, moduleName') function site parent = do
             boxedInt (Ev.callSiteEndLine site),
             boxedInt (Ev.callSiteEndColumn site)
           ]
-  pure (foldl ExApp (ExVar (libraryName "pushCallSite" SortValue)) [functionText, location, parent'])
+  pure (foldl ExApp (ExVar (libraryName "pushCallStack" SortValue)) [callSite location, parent'])
 
 -- | The call stack of an occurrence that starts a new stack.
 desugarCallStackEmpty :: (Text, Text) -> ValueM Expr

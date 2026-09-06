@@ -979,14 +979,19 @@ annotatePatternLiteral pat lit = do
     Nothing ->
       case peelLiteralAnn lit of
         LitInt _ TInteger _ -> do
-          let methodNames =
-                case peelPatternAnn pat of
-                  PNegLit {} -> ["fromInteger", "negate", "=="]
-                  _ -> ["fromInteger", "=="]
           maybeIntegerAnn <- integerTypeAnnotation sp
-          methodAnns <- mapM (syntaxTermAnnotation sp) methodNames
+          methodAnns <- mapM (syntaxTermAnnotation sp) (overloadedPatternMethods "fromInteger")
           pure (foldr (PAnn . mkAnnotation) pat (maybe methodAnns (: methodAnns) maybeIntegerAnn))
+        LitFloat _ TFractional _ -> do
+          methodAnns <- mapM (syntaxTermAnnotation sp) (overloadedPatternMethods "fromRational")
+          pure (foldr (PAnn . mkAnnotation) pat methodAnns)
         _ -> pure pat
+  where
+    -- A negated literal pattern also negates the converted literal.
+    overloadedPatternMethods conversion =
+      case peelPatternAnn pat of
+        PNegLit {} -> [conversion, "negate", "=="]
+        _ -> [conversion, "=="]
 
 literalSpan :: SourceSpan -> Literal -> SourceSpan
 literalSpan ambient (LitAnn ann inner) = literalSpan (pushSpanFromAnn ambient ann) inner
