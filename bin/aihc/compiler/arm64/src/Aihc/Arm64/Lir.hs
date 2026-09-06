@@ -23,6 +23,7 @@ where
 
 import Aihc.Arm64.Assemble
 import Aihc.Lir.Lint (LintError, lintModule)
+import Aihc.Lir.RegAlloc (Allocation (..), allocateRegisters)
 import Aihc.Lir.Syntax
 import Aihc.Native.Object (SectionRole (..))
 import Control.Monad (forM, when, zipWithM)
@@ -195,7 +196,13 @@ typeBytes ty = max 1 (typeBits ty `div` 8)
 -- | The frame of one function. Offsets are bytes above the stack pointer
 -- after the prologue.
 data Layout = Layout
-  { layoutSlots :: !(Map Var Int),
+  { -- | The values the allocator gave a register.
+    layoutRegisters :: !(Map Var Arm64Register),
+    -- | The frame slot of every value the allocator spilled.
+    layoutSlots :: !(Map Var Int),
+    -- | The callee-saved registers the allocator handed out, with the frame
+    -- slot the prologue saves each one in.
+    layoutSaved :: ![(Arm64Register, Int)],
     layoutTemps :: ![Int],
     layoutAllocs :: !(Map Var (Int, Int)),
     layoutSize :: !Int
@@ -218,6 +225,17 @@ argumentRegisters = [X0, X1, X2, X3, X4, X5, X6, X7]
 -- | The registers that hold block arguments during a jump.
 moveRegisters :: [Arm64Register]
 moveRegisters = [X9, X10, X11, X12, X13, X14, X15]
+
+-- | The registers the allocator hands out.
+--
+-- They are the callee-saved general registers, and nothing else. The callee
+-- owns them across a call, so a value that lives in one survives every call
+-- of the function and the allocator never has to split an interval. They are
+-- also disjoint from the argument registers, from 'moveRegisters', and from
+-- the scratch registers of instruction selection, so an allocated value is
+-- never in the way of a convention.
+allocatableRegisters :: [Arm64Register]
+allocatableRegisters = [X19, X20, X21, X22, X23, X24, X25, X26, X27, X28]
 
 overflowBytes :: Int -> Int
 overflowBytes count = ((max 0 (count - length argumentRegisters) * 8 + 15) `div` 16) * 16
@@ -251,22 +269,24 @@ compileFunction signatures index function = do
   where
     symbol = lirSymbol (functionName function)
 
--- | Drop the load of a frame slot that the destination register already
--- holds. Every value lives in a frame slot, so a slot is normally read back
--- several times in a row while the register that read it first is still
--- untouched.
+-- | Drop a read that the destination register already holds. Instruction
+-- selection loads its operands into scratch registers, so the same value
+-- reaches the same scratch register several times in a row while nothing has
+-- touched it in between.
 --
--- The pass tracks, for each general register, the stack pointer offset it was
--- last known to hold. A load whose register already holds its offset is
--- dropped. Anything that moves the stack pointer, calls, or reaches a label
--- forgets every register. This is sound because the only frame addresses that
+-- The pass tracks, for each general register, where its contents last came
+-- from: a stack pointer offset, or another register. A read whose destination
+-- already holds that source is dropped. A write to a register invalidates
+-- both what that register held and every register that copied it. Anything
+-- that moves the stack pointer, calls, or reaches a label forgets
+-- everything. Tracking a slot is sound because the only frame addresses that
 -- escape into a register come from @stack.alloc@, which 'functionLayout'
 -- places above every value slot, so a store through a register base never
 -- writes a tracked slot.
 elideSlotReloads :: [Arm64Statement] -> [Arm64Statement]
 elideSlotReloads = go IntMap.empty
   where
-    go :: IntMap Int64 -> [Arm64Statement] -> [Arm64Statement]
+    go :: IntMap Source -> [Arm64Statement] -> [Arm64Statement]
     go held statements =
       case statements of
         [] -> []
@@ -274,16 +294,30 @@ elideSlotReloads = go IntMap.empty
           case statement of
             Arm64Code instruction ->
               case instructionEffect instruction of
-                LoadsSlot register offset
-                  | IntMap.lookup register held == Just offset -> go held rest
-                  | otherwise -> statement : go (IntMap.insert register offset held) rest
+                LoadsSlot register offset -> reads' statement rest held register (FromSlot offset)
+                -- A copy back the way one already went is redundant: the two
+                -- registers still hold the same value.
+                MovesRegister destination source
+                  | IntMap.lookup source held == Just (FromRegister destination) -> go held rest
+                  | otherwise -> reads' statement rest held destination (FromRegister source)
                 -- The stored register holds the slot, and any register that
                 -- held the previous contents of the slot is stale.
                 StoresSlot register offset ->
-                  statement : go (IntMap.insert register offset (IntMap.filter (/= offset) held)) rest
-                Writes registers -> statement : go (foldr IntMap.delete held registers) rest
+                  statement : go (IntMap.insert register (FromSlot offset) (IntMap.filter (/= FromSlot offset) held)) rest
+                Writes registers -> statement : go (foldr invalidate held registers) rest
                 Forgets -> statement : go IntMap.empty rest
             _ -> statement : go IntMap.empty rest
+    reads' statement rest held register source
+      | IntMap.lookup register held == Just source = go held rest
+      | otherwise = statement : go (IntMap.insert register source (invalidate register held)) rest
+    -- A write to a register ends both what it held and every copy of it.
+    invalidate register held = IntMap.filter (/= FromRegister register) (IntMap.delete register held)
+
+-- | Where the contents of a register last came from.
+data Source
+  = FromSlot !Int64
+  | FromRegister !Int
+  deriving (Eq)
 
 -- | What one instruction does to the registers and frame slots the reload
 -- pass tracks.
@@ -294,6 +328,8 @@ data SlotEffect
     LoadsSlot !Int !Int64
   | -- | Writes a general register to a literal stack pointer offset.
     StoresSlot !Int !Int64
+  | -- | Copies one general register into another.
+    MovesRegister !Int !Int
   | -- | Everything the pass knows becomes stale.
     Forgets
 
@@ -315,7 +351,13 @@ instructionEffect instruction =
     ArmFcmp {} -> Writes []
     ArmAdr destination _ -> writes [destination]
     ArmAdrp destination _ -> writes [destination]
-    ArmMov destination _ -> writes [destination]
+    -- A copy between 64-bit names is a move the pass can follow. A narrow
+    -- name clears the top half of its register, so it is only a write.
+    ArmMov destination value ->
+      case value of
+        Arm64RegisterValue source
+          | doubleWord destination && doubleWord source -> MovesRegister (generalRegister destination) (generalRegister source)
+        _ -> writes [destination]
     ArmLdrImmediate destination _ -> writes [destination]
     ArmAddPageOffset destination _ _ -> writes [destination]
     ArmAdd destination _ _ -> writes [destination]
@@ -384,6 +426,11 @@ instructionEffect instruction =
       | base == SP = Forgets
       | otherwise = effect
 
+-- | Whether a register name reads and writes all 64 bits. The stack pointer
+-- is excluded: moving it is not a copy the pass may follow.
+doubleWord :: Arm64Register -> Bool
+doubleWord register = (register >= X0 && register <= X30) || register == XZR
+
 -- | The key of the 64-bit register a name refers to. Writing @wN@ clears the
 -- top half of @xN@, so both names have to invalidate the same entry.
 generalRegister :: Arm64Register -> Int
@@ -392,18 +439,24 @@ generalRegister register
   | register == WZR = fromEnum XZR
   | otherwise = fromEnum register
 
+-- | Place the frame of one function. The allocator decides which values need
+-- a slot at all; the rest of the frame holds the saved callee-saved
+-- registers, the block-argument temporaries, and the stack allocations, in
+-- that order. The stack allocations stay last so that no address that escapes
+-- into a register can reach a slot, which is what 'elideSlotReloads' relies
+-- on.
 functionLayout :: Function -> M Layout
 functionLayout function = do
   let blocks = functionBlocks function
-      definitions =
-        map fst (functionParameters function)
-          <> concat [map fst (blockParameters block) <> concatMap instructionResults (blockInstructions block) | block <- blocks]
-      slots = Map.fromList (zip definitions [0, 8 ..])
+      allocation = allocateRegisters allocatableRegisters function
+      slots = Map.fromList (zip (allocationSpills allocation) [0, 8 ..])
       slotsEnd = 8 * Map.size slots
+      saved = zip (allocationUsed allocation) [slotsEnd, slotsEnd + 8 ..]
+      savedEnd = slotsEnd + 8 * length saved
       maxJumpArguments = maximum (0 : [length (targetArguments target) | block <- blocks, target <- terminatorTargets (blockTerminator block)])
       tempCount = if maxJumpArguments > length moveRegisters then maxJumpArguments else 0
-      temps = take tempCount [slotsEnd, slotsEnd + 8 ..]
-      allocsStart = slotsEnd + 8 * tempCount
+      temps = take tempCount [savedEnd, savedEnd + 8 ..]
+      allocsStart = savedEnd + 8 * tempCount
       allocations = [(var, size, alignment) | block <- take 1 blocks, Instruction [var] (StackAlloc size alignment) <- blockInstructions block]
   allocs <- placeAllocations allocsStart allocations
   let end = case Map.elems allocs of
@@ -411,7 +464,15 @@ functionLayout function = do
         placed -> maximum [offset + allocated | (offset, allocated) <- placed]
       size = ((end + 15) `div` 16) * 16
   when (size > 32000) $ unsupported ("function " <> unSymbol (functionName function) <> " needs a frame larger than 32000 bytes")
-  pure Layout {layoutSlots = slots, layoutTemps = temps, layoutAllocs = allocs, layoutSize = size}
+  pure
+    Layout
+      { layoutRegisters = allocationRegisters allocation,
+        layoutSlots = slots,
+        layoutSaved = saved,
+        layoutTemps = temps,
+        layoutAllocs = allocs,
+        layoutSize = size
+      }
 
 placeAllocations :: Int -> [(Var, Integer, Integer)] -> M (Map Var (Int, Int))
 placeAllocations = go Map.empty
@@ -423,14 +484,6 @@ placeAllocations = go Map.empty
       go (Map.insert var (start, fromInteger size) placed) (start + fromInteger size) rest
     roundUp alignment value = ((value + alignment - 1) `div` alignment) * alignment
 
-terminatorTargets :: Terminator -> [Target]
-terminatorTargets terminator =
-  case terminator of
-    Jump target -> [target]
-    Branch _ whenTrue whenFalse -> [whenTrue, whenFalse]
-    Switch _ _ cases fallback -> map switchCaseTarget cases <> maybe [] pure fallback
-    _ -> []
-
 -- | Save the frame pointer and the link register, reserve the frame, zero
 -- the stack allocations, and copy the parameters into their slots.
 functionPrologue :: Ctx -> M [Arm64Statement]
@@ -441,6 +494,7 @@ functionPrologue ctx = do
         arm64Instruction (ArmMov X29 (Arm64RegisterValue SP))
       ]
         <> adjustStack ArmSub (layoutSize layout)
+        <> saveRegisters ctx
         <> concatMap zeroAllocation (Map.elems (layoutAllocs layout))
         <> parameterStores
     )
@@ -450,12 +504,12 @@ functionPrologue ctx = do
     storeParameter (index, (var, ty))
       | index < length argumentRegisters =
           let register = argumentRegisters !! index
-           in pure (floatParameter ty register <> canonicalize ty register <> [storeSlot ctx 0 register var])
+           in pure (floatParameter ty register <> canonicalize ty register <> [writeValue ctx 0 register var])
       | otherwise =
           -- The overflow block sits above the saved frame pointer pair.
           pure
             [ arm64Instruction (ArmLdr X9 (Arm64Offset X29 (fromIntegral (16 + 8 * (index - length argumentRegisters))))),
-              storeSlot ctx 0 X9 var
+              writeValue ctx 0 X9 var
             ]
     canonicalize ty register =
       case functionConvention function of
@@ -503,18 +557,49 @@ slotOffset ctx displacement var =
     Just offset -> fromIntegral (offset + displacement)
     Nothing -> error ("Aihc.Arm64.Lir: unknown value " <> T.unpack (unVar var))
 
-loadSlot :: Ctx -> Int -> Arm64Register -> Var -> Arm64Statement
-loadSlot ctx displacement register var = arm64Instruction (ArmLdr register (Arm64Offset SP (slotOffset ctx displacement var)))
+-- | The register the allocator gave a value, if it gave it one.
+valueRegister :: Ctx -> Var -> Maybe Arm64Register
+valueRegister ctx var = Map.lookup var (layoutRegisters (ctxLayout ctx))
 
-storeSlot :: Ctx -> Int -> Arm64Register -> Var -> Arm64Statement
-storeSlot ctx displacement register var = arm64Instruction (ArmStr register (Arm64Offset SP (slotOffset ctx displacement var)))
+-- | Read a value into a register. A value the allocator placed is already in
+-- a register, so the read is a move; a spilled value comes from its frame
+-- slot. The displacement is the number of bytes the stack pointer currently
+-- sits below the frame base, and it reaches only the slot form.
+readValue :: Ctx -> Int -> Arm64Register -> Var -> Arm64Statement
+readValue ctx displacement register var =
+  case valueRegister ctx var of
+    Just held -> arm64Instruction (ArmMov register (Arm64RegisterValue held))
+    Nothing -> arm64Instruction (ArmLdr register (Arm64Offset SP (slotOffset ctx displacement var)))
+
+-- | Write a register into a value: the mirror of 'readValue'.
+writeValue :: Ctx -> Int -> Arm64Register -> Var -> Arm64Statement
+writeValue ctx displacement register var =
+  case valueRegister ctx var of
+    Just held -> arm64Instruction (ArmMov held (Arm64RegisterValue register))
+    Nothing -> arm64Instruction (ArmStr register (Arm64Offset SP (slotOffset ctx displacement var)))
+
+-- | Save the allocated callee-saved registers into the frame. The prologue
+-- runs this before it moves any parameter into a register.
+saveRegisters :: Ctx -> [Arm64Statement]
+saveRegisters ctx =
+  [ arm64Instruction (ArmStr register (Arm64Offset SP (fromIntegral offset)))
+  | (register, offset) <- layoutSaved (ctxLayout ctx)
+  ]
+
+-- | Restore what 'saveRegisters' saved. Every exit runs this after it has
+-- read the last allocated value and before it moves the stack pointer.
+restoreRegisters :: Ctx -> Int -> [Arm64Statement]
+restoreRegisters ctx displacement =
+  [ arm64Instruction (ArmLdr register (Arm64Offset SP (fromIntegral (offset + displacement))))
+  | (register, offset) <- layoutSaved (ctxLayout ctx)
+  ]
 
 -- | Load an operand into a register. The displacement is the number of bytes
 -- the stack pointer currently sits below the frame base.
 loadOperand :: Ctx -> Int -> Arm64Register -> Operand -> [Arm64Statement]
 loadOperand ctx displacement register operand =
   case operand of
-    OperandVar var -> [loadSlot ctx displacement register var]
+    OperandVar var -> [readValue ctx displacement register var]
     OperandLiteral literal ->
       case literal of
         LitInt value -> [immediate register value]
@@ -602,7 +687,7 @@ compileTerminator ctx next terminator =
             case (functionConvention function, functionResults function) of
               (CConvention, [ty]) | isFloatType ty -> [arm64Instruction (ArmFmovToFloat (ty == F64) 0 X0)]
               _ -> []
-      pure (loads <> floatMoves <> functionEpilogue ctx <> [arm64Instruction ArmRet])
+      pure (loads <> floatMoves <> restoreRegisters ctx 0 <> functionEpilogue ctx <> [arm64Instruction ArmRet])
     TailCall symbol arguments -> tailCall (Left (lirSymbol symbol)) arguments
     TailCallIndirect target arguments _ -> tailCall (Right target) arguments
     Trap message -> do
@@ -666,6 +751,9 @@ compileTerminator ctx next terminator =
             <> nullCheck
             <> overflowStores
             <> registerLoads
+            -- Every allocated value has been read by now, so the saved
+            -- registers go back before the frame does.
+            <> restoreRegisters ctx outgoing
             <> relocation
             <> [branch]
         )
@@ -679,7 +767,7 @@ blockArgumentMoves ctx (Target label arguments) = do
     then
       pure
         ( concat [loadTyped ctx 0 ty register argument | ((_, ty), register, argument) <- zip3 parameters moveRegisters arguments]
-            <> [storeSlot ctx 0 register var | ((var, _), register) <- zip parameters moveRegisters]
+            <> [writeValue ctx 0 register var | ((var, _), register) <- zip parameters moveRegisters]
         )
     else do
       let temps = layoutTemps (ctxLayout ctx)
@@ -689,7 +777,7 @@ blockArgumentMoves ctx (Target label arguments) = do
             | ((_, ty), temp, argument) <- zip3 parameters temps arguments
             ]
             <> concat
-              [ [arm64Instruction (ArmLdr X9 (Arm64Offset SP (fromIntegral temp))), storeSlot ctx 0 X9 var]
+              [ [arm64Instruction (ArmLdr X9 (Arm64Offset SP (fromIntegral temp))), writeValue ctx 0 X9 var]
               | ((var, _), temp) <- zip parameters temps
               ]
         )
@@ -754,11 +842,11 @@ compileInstruction ctx (Instruction results operation) =
   where
     single body =
       case results of
-        [var] -> pure (body <> [storeSlot ctx 0 X9 var])
+        [var] -> pure (body <> [writeValue ctx 0 X9 var])
         _ -> unsupported "instruction result count"
     pair body =
       case results of
-        [first, second] -> pure (body <> [storeSlot ctx 0 X9 first, storeSlot ctx 0 X10 second])
+        [first, second] -> pure (body <> [writeValue ctx 0 X9 first, writeValue ctx 0 X10 second])
         _ -> unsupported "instruction result count"
 
     -- The offset of a load or a store: folded into the instruction when the
@@ -953,7 +1041,7 @@ compileInstruction ctx (Instruction results operation) =
             Right _ -> [arm64Instruction (ArmBlr X8)]
           resultStores =
             concat
-              [ floatResult convention ty register <> canonicalResult convention ty register <> [storeSlot ctx 0 register var]
+              [ floatResult convention ty register <> canonicalResult convention ty register <> [writeValue ctx 0 register var]
               | (var, ty, register) <- zip3 results resultTypes argumentRegisters
               ]
       pure (adjustStack ArmSub outgoing <> overflowStores <> registerLoads <> branch <> resultStores)

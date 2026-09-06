@@ -525,6 +525,43 @@ heap slot is eight bytes everywhere, so a header pointer travels through
 `ptr.to_int` and `ptr.from_int` and a payload offset is a constant. A
 word-shaped record uses `word` fields, which follow the target word size.
 
+## Register allocation
+
+`Aihc.Lir.RegAlloc` assigns registers to the values of one function. It is
+target-independent: a backend passes the registers it is willing to give away
+and receives, for each value, either one of them or the verdict that the value
+stays in a frame slot. The AArch64 and the AMD64 backends share it.
+
+The pool is the callee-saved registers of the target and nothing else. A
+register the callee owns survives a call, so no interval has to be split
+around one, and instruction selection keeps loading its operands into scratch
+registers that are never in the pool. An allocated value therefore has no
+fixed-register constraint anywhere in the function, and the allocator needs
+neither pre-colored intervals nor clobber ranges. The prologue saves the
+registers the allocator handed out and every exit restores them: a `return`
+after it has loaded the results, and a `tailcall` after it has loaded the
+arguments and before it takes the frame down.
+
+Not every value earns a register. A value in a frame slot costs one memory
+access per definition and per use; a value in a register costs none of those,
+and instead the prologue saves the register once and every exit restores it.
+The allocator offers a value a register only once the function touches it more
+often than it has exits plus the one save. A touch inside a loop counts for a
+power of ten per enclosing loop, because it happens once for every turn, so a
+loop keeps its values in registers while a short straight-line function keeps
+the frame it had.
+
+The allocator numbers the blocks in the order the function states them,
+computes live-in and live-out sets, and gives each value one interval from the
+lowest to the highest position at which it is live. The interval has no holes
+and the allocator never splits one, so a value that dies and revives inside
+its span keeps its register throughout. That costs registers on a wide
+function and buys independence from the block order: the result is correct
+whatever order the blocks arrive in and whatever the loops look like. The scan
+walks the intervals in order of their start, hands out the first free register
+of the pool, and when nothing is free sends the interval that reaches furthest
+to a frame slot.
+
 ## Backends
 
 Every backend lints the module first. No backend checks the alignment of a memory access, a store to read-only
@@ -532,12 +569,21 @@ data, or the signature of an indirect call. A misaligned access gives the result
 read-only data is a memory fault. Every backend checks an indirect call of
 `null`.
 
+The fixtures in `bin/aihc/compiler/lir/test/Test/Fixtures/lir/asm` are Lir
+modules with one companion file per native backend holding the assembly that
+backend produces. They are small and aimed at the register allocator, so a
+change of allocation or of instruction selection reads as a diff of real code
+rather than as a change of some object bytes. Run the suite with
+`AIHC_ACCEPT_ASM=1` to rewrite the companion files.
+
 ### AArch64
 
 `Aihc.Arm64.Lir` assembles the module with the direct Mach-O writer:
 
-- Every value lives in one 8-byte frame slot. Instruction selection loads the
-  operands into scratch registers and stores the result.
+- Instruction selection loads the operands into scratch registers and writes
+  the result back. The allocator gives a value one of `x19` to `x28`, and a
+  value it spills lives in an 8-byte frame slot instead. Reading a value is a
+  register move or a load, and writing one is a register move or a store.
 - The `aihc` convention passes the first eight arguments in `x0` to `x7` and
   the rest in a 16-byte aligned block on the stack. The callee pops that
   block. A tail call restores the stack of the caller, copies the outgoing
@@ -556,7 +602,8 @@ read-only data is a memory fault. Every backend checks an indirect call of
 ### AMD64
 
 `Aihc.Amd64.Lir` assembles the module with the direct ELF writer. It has the
-frame-slot design of the AArch64 backend:
+design of the AArch64 backend, with `rbx` and `r12` to `r15` as the pool of
+the allocator:
 
 - The `aihc` convention passes the first six arguments in `rdi`, `rsi`,
   `rdx`, `rcx`, `r8`, and `r9` and the rest in a 16-byte aligned block above

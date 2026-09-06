@@ -1,0 +1,13 @@
+; A value live across a call. The pool holds only callee-saved registers, so
+; %x survives both calls where it is without a reload and without the
+; allocator splitting its interval.
+extern func @helper(i64) -> i64 cc c
+
+func @twice(%x: i64) -> i64 cc c {
+entry:
+  %a = call @helper(%x)
+  %b = call @helper(%a)
+  %c = add i64 %a, %b
+  %d = add i64 %c, %x
+  return %d
+}

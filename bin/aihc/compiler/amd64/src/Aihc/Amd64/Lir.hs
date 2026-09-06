@@ -25,6 +25,7 @@ where
 
 import Aihc.Amd64.Assemble
 import Aihc.Lir.Lint (LintError, lintModule)
+import Aihc.Lir.RegAlloc (Allocation (..), allocateRegisters)
 import Aihc.Lir.Syntax
 import Aihc.Native.Object (SectionRole (..))
 import Control.Monad (forM, when, zipWithM)
@@ -201,7 +202,13 @@ littleEndian count value = BS.pack [fromIntegral (value `shiftR` (8 * index)) | 
 -- | The frame of one function. Offsets are bytes above the stack pointer
 -- after the prologue.
 data Layout = Layout
-  { layoutSlots :: !(Map Var Int),
+  { -- | The values the allocator gave a register.
+    layoutRegisters :: !(Map Var Amd64Register),
+    -- | The frame slot of every value the allocator spilled.
+    layoutSlots :: !(Map Var Int),
+    -- | The callee-saved registers the allocator handed out, with the frame
+    -- slot the prologue saves each one in.
+    layoutSaved :: ![(Amd64Register, Int)],
     layoutTemps :: ![Int],
     layoutAllocs :: !(Map Var (Int, Int)),
     layoutSize :: !Int
@@ -229,6 +236,18 @@ resultRegisters = [RAX, RDX, RCX, RSI, RDI, R8, R9, R10]
 -- | The registers that hold block arguments during a jump.
 moveRegisters :: [Amd64Register]
 moveRegisters = [RAX, R10, R11, RCX, RDX, RSI, RDI, R8, R9]
+
+-- | The registers the allocator hands out.
+--
+-- They are the callee-saved general registers other than @rbp@, which is the
+-- frame pointer. The callee owns them across a call, so a value that lives in
+-- one survives every call of the function and the allocator never has to
+-- split an interval. They are also disjoint from the argument registers, from
+-- the result registers, from 'moveRegisters', and from the @rax@, @r10@, and
+-- @r11@ scratch registers of instruction selection, so an allocated value is
+-- never in the way of a convention.
+allocatableRegisters :: [Amd64Register]
+allocatableRegisters = [RBX, R12, R13, R14, R15]
 
 floatArgumentCount :: Int
 floatArgumentCount = 8
@@ -278,25 +297,37 @@ classify types =
     [(index, ty) | (index, ty) <- zip [0 ..] types, isFloatType ty]
   )
 
+-- | Place the frame of one function. The allocator decides which values need
+-- a slot at all; the rest of the frame holds the saved callee-saved
+-- registers, the block-argument temporaries, and the stack allocations, in
+-- that order.
 functionLayout :: Function -> M Layout
 functionLayout function = do
   let blocks = functionBlocks function
-      definitions =
-        map fst (functionParameters function)
-          <> concat [map fst (blockParameters block) <> concatMap instructionResults (blockInstructions block) | block <- blocks]
-      slots = Map.fromList (zip definitions [0, 8 ..])
+      allocation = allocateRegisters allocatableRegisters function
+      slots = Map.fromList (zip (allocationSpills allocation) [0, 8 ..])
       slotsEnd = 8 * Map.size slots
+      saved = zip (allocationUsed allocation) [slotsEnd, slotsEnd + 8 ..]
+      savedEnd = slotsEnd + 8 * length saved
       maxJumpArguments = maximum (0 : [length (targetArguments target) | block <- blocks, target <- terminatorTargets (blockTerminator block)])
       tempCount = if maxJumpArguments > length moveRegisters then maxJumpArguments else 0
-      temps = take tempCount [slotsEnd, slotsEnd + 8 ..]
-      allocsStart = slotsEnd + 8 * tempCount
+      temps = take tempCount [savedEnd, savedEnd + 8 ..]
+      allocsStart = savedEnd + 8 * tempCount
       allocations = [(var, size, alignment) | block <- take 1 blocks, Instruction [var] (StackAlloc size alignment) <- blockInstructions block]
   allocs <- placeAllocations allocsStart allocations
   let end = case Map.elems allocs of
         [] -> allocsStart
         placed -> maximum [offset + allocated | (offset, allocated) <- placed]
       size = ((end + 15) `div` 16) * 16
-  pure Layout {layoutSlots = slots, layoutTemps = temps, layoutAllocs = allocs, layoutSize = size}
+  pure
+    Layout
+      { layoutRegisters = allocationRegisters allocation,
+        layoutSlots = slots,
+        layoutSaved = saved,
+        layoutTemps = temps,
+        layoutAllocs = allocs,
+        layoutSize = size
+      }
 
 placeAllocations :: Int -> [(Var, Integer, Integer)] -> M (Map Var (Int, Int))
 placeAllocations = go Map.empty
@@ -307,14 +338,6 @@ placeAllocations = go Map.empty
       let start = roundUp (fromInteger alignment) next
       go (Map.insert var (start, fromInteger size) placed) (start + fromInteger size) rest
     roundUp alignment value = ((value + alignment - 1) `div` alignment) * alignment
-
-terminatorTargets :: Terminator -> [Target]
-terminatorTargets terminator =
-  case terminator of
-    Jump target -> [target]
-    Branch _ whenTrue whenFalse -> [whenTrue, whenFalse]
-    Switch _ _ cases fallback -> map switchCaseTarget cases <> maybe [] pure fallback
-    _ -> []
 
 -- | Save the frame pointer, reserve the frame, zero the stack allocations,
 -- and copy the parameters into their slots.
@@ -327,14 +350,15 @@ functionPrologue ctx = do
         let (integers, floats) = classify (map snd (functionParameters function))
             names = map fst (functionParameters function)
         pure
-          ( concat [canonicalizeRegister ty register <> [storeSlot ctx 0 register (names !! index)] | ((index, ty), register) <- zip integers argumentRegisters]
-              <> concat [[amd64Instruction (AmdMovqFromXmm RAX xmm)] <> canonicalizeRegister ty RAX <> [storeSlot ctx 0 RAX (names !! index)] | ((index, ty), xmm) <- zip floats [0 ..]]
+          ( concat [canonicalizeRegister ty register <> [writeValue ctx 0 register (names !! index)] | ((index, ty), register) <- zip integers argumentRegisters]
+              <> concat [[amd64Instruction (AmdMovqFromXmm RAX xmm)] <> canonicalizeRegister ty RAX <> [writeValue ctx 0 RAX (names !! index)] | ((index, ty), xmm) <- zip floats [0 ..]]
           )
   pure
     ( [ amd64Instruction (AmdPush RBP),
         amd64Instruction (AmdMov RBP (Amd64MoveRegister RSP))
       ]
         <> adjustStack AmdSub (layoutSize layout)
+        <> saveRegisters ctx
         <> concatMap zeroAllocation (Map.elems (layoutAllocs layout))
         <> parameterStores
     )
@@ -342,12 +366,12 @@ functionPrologue ctx = do
     function = ctxFunction ctx
     layout = ctxLayout ctx
     aihcParameter index (var, _)
-      | index < length argumentRegisters = [storeSlot ctx 0 (argumentRegisters !! index) var]
+      | index < length argumentRegisters = [writeValue ctx 0 (argumentRegisters !! index) var]
       | otherwise =
           -- The overflow block sits above the saved frame pointer and the
           -- return address.
           [ amd64Instruction (AmdMov RAX (Amd64MoveMemory (Amd64Memory RBP (fromIntegral (16 + 8 * (index - length argumentRegisters)))))),
-            storeSlot ctx 0 RAX var
+            writeValue ctx 0 RAX var
           ]
     zeroAllocation (offset, size) =
       [ amd64Instruction (AmdStore (Amd64Memory RSP (fromIntegral (offset + position))) (Amd64StoreImmediate 0))
@@ -385,18 +409,49 @@ slotOffset ctx displacement var =
     Just offset -> fromIntegral (offset + displacement)
     Nothing -> error ("Aihc.Amd64.Lir: unknown value " <> T.unpack (unVar var))
 
-loadSlot :: Ctx -> Int -> Amd64Register -> Var -> Amd64Statement
-loadSlot ctx displacement register var = amd64Instruction (AmdMov register (Amd64MoveMemory (Amd64Memory RSP (slotOffset ctx displacement var))))
+-- | The register the allocator gave a value, if it gave it one.
+valueRegister :: Ctx -> Var -> Maybe Amd64Register
+valueRegister ctx var = Map.lookup var (layoutRegisters (ctxLayout ctx))
 
-storeSlot :: Ctx -> Int -> Amd64Register -> Var -> Amd64Statement
-storeSlot ctx displacement register var = amd64Instruction (AmdStore (Amd64Memory RSP (slotOffset ctx displacement var)) (Amd64StoreRegister register))
+-- | Read a value into a register. A value the allocator placed is already in
+-- a register, so the read is a move; a spilled value comes from its frame
+-- slot. The displacement is the number of bytes the stack pointer currently
+-- sits below the frame base, and it reaches only the slot form.
+readValue :: Ctx -> Int -> Amd64Register -> Var -> Amd64Statement
+readValue ctx displacement register var =
+  case valueRegister ctx var of
+    Just held -> amd64Instruction (AmdMov register (Amd64MoveRegister held))
+    Nothing -> amd64Instruction (AmdMov register (Amd64MoveMemory (Amd64Memory RSP (slotOffset ctx displacement var))))
+
+-- | Write a register into a value: the mirror of 'readValue'.
+writeValue :: Ctx -> Int -> Amd64Register -> Var -> Amd64Statement
+writeValue ctx displacement register var =
+  case valueRegister ctx var of
+    Just held -> amd64Instruction (AmdMov held (Amd64MoveRegister register))
+    Nothing -> amd64Instruction (AmdStore (Amd64Memory RSP (slotOffset ctx displacement var)) (Amd64StoreRegister register))
+
+-- | Save the allocated callee-saved registers into the frame. The prologue
+-- runs this before it moves any parameter into a register.
+saveRegisters :: Ctx -> [Amd64Statement]
+saveRegisters ctx =
+  [ amd64Instruction (AmdStore (Amd64Memory RSP (fromIntegral offset)) (Amd64StoreRegister register))
+  | (register, offset) <- layoutSaved (ctxLayout ctx)
+  ]
+
+-- | Restore what 'saveRegisters' saved. Every exit runs this after it has
+-- read the last allocated value and before it moves the stack pointer.
+restoreRegisters :: Ctx -> Int -> [Amd64Statement]
+restoreRegisters ctx displacement =
+  [ amd64Instruction (AmdMov register (Amd64MoveMemory (Amd64Memory RSP (fromIntegral (offset + displacement)))))
+  | (register, offset) <- layoutSaved (ctxLayout ctx)
+  ]
 
 -- | Load an operand into a register. The displacement is the number of bytes
 -- the stack pointer currently sits below the frame base.
 loadOperand :: Ctx -> Int -> Amd64Register -> Operand -> [Amd64Statement]
 loadOperand ctx displacement register operand =
   case operand of
-    OperandVar var -> [loadSlot ctx displacement register var]
+    OperandVar var -> [readValue ctx displacement register var]
     OperandLiteral literal ->
       case literal of
         LitInt value -> [immediate register value]
@@ -484,7 +539,7 @@ compileTerminator ctx next terminator =
               (CConvention, [F64]) -> [amd64Instruction (AmdMovqToXmm 0 RAX)]
               (CConvention, [F32]) -> [amd64Instruction (AmdMovdToXmm 0 EAX)]
               _ -> []
-      pure (loads <> floatMoves <> functionEpilogue ctx)
+      pure (loads <> floatMoves <> restoreRegisters ctx 0 <> functionEpilogue ctx)
     TailCall symbol arguments -> tailCall (Left (lirSymbol symbol)) arguments
     TailCallIndirect target arguments _ -> tailCall (Right target) arguments
     Trap message -> do
@@ -551,6 +606,9 @@ compileTerminator ctx next terminator =
             <> nullCheck
             <> overflowStores
             <> registerLoads
+            -- Every allocated value has been read by now, so the saved
+            -- registers go back before the frame does.
+            <> restoreRegisters ctx temporary
             <> relocation
             <> [branch]
         )
@@ -564,7 +622,7 @@ blockArgumentMoves ctx (Target label arguments) = do
     then
       pure
         ( concat [loadTyped ctx 0 ty register argument | ((_, ty), register, argument) <- zip3 parameters moveRegisters arguments]
-            <> [storeSlot ctx 0 register var | ((var, _), register) <- zip parameters moveRegisters]
+            <> [writeValue ctx 0 register var | ((var, _), register) <- zip parameters moveRegisters]
         )
     else do
       let temps = layoutTemps (ctxLayout ctx)
@@ -574,7 +632,7 @@ blockArgumentMoves ctx (Target label arguments) = do
             | ((_, ty), temp, argument) <- zip3 parameters temps arguments
             ]
             <> concat
-              [ [amd64Instruction (AmdMov RAX (Amd64MoveMemory (Amd64Memory RSP (fromIntegral temp)))), storeSlot ctx 0 RAX var]
+              [ [amd64Instruction (AmdMov RAX (Amd64MoveMemory (Amd64Memory RSP (fromIntegral temp)))), writeValue ctx 0 RAX var]
               | ((var, _), temp) <- zip parameters temps
               ]
         )
@@ -636,11 +694,11 @@ compileInstruction ctx (Instruction results operation) =
   where
     single body =
       case results of
-        [var] -> pure (body <> [storeSlot ctx 0 RAX var])
+        [var] -> pure (body <> [writeValue ctx 0 RAX var])
         _ -> unsupported "instruction result count"
     pair body =
       case results of
-        [first, second] -> pure (body <> [storeSlot ctx 0 RAX first, storeSlot ctx 0 R10 second])
+        [first, second] -> pure (body <> [writeValue ctx 0 RAX first, writeValue ctx 0 R10 second])
         _ -> unsupported "instruction result count"
 
     -- A narrow value is zero-extended in its slot, so a leading-zero count
@@ -890,10 +948,10 @@ compileInstruction ctx (Instruction results operation) =
             Right _ -> [amd64Instruction (AmdCallRegister R11)]
           resultStores =
             case convention of
-              AihcConvention -> [storeSlot ctx 0 register var | (var, _, register) <- zip3 results resultTypes resultRegisters]
+              AihcConvention -> [writeValue ctx 0 register var | (var, _, register) <- zip3 results resultTypes resultRegisters]
               CConvention ->
                 concat
-                  [ floatResult ty <> canonicalizeRegister ty RAX <> [storeSlot ctx 0 RAX var]
+                  [ floatResult ty <> canonicalizeRegister ty RAX <> [writeValue ctx 0 RAX var]
                   | (var, ty) <- zip results resultTypes
                   ]
       pure (adjustStack AmdSub outgoing <> argumentLoads <> branch <> resultStores)

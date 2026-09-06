@@ -1,0 +1,18 @@
+; A tail call. Every allocated value is read into an argument register before
+; the saved registers go back and the frame comes down, so the restore sits
+; between the argument loads and the branch.
+extern func @done(i64)
+
+func @count(%n: i64, %acc: i64) {
+entry:
+  %stop = eq i64 %n, 0
+  br %stop, finish(%acc), again(%n, %acc)
+
+again(%i: i64, %total: i64):
+  %next = sub i64 %i, 1
+  %sum = add i64 %total, %i
+  tailcall @count(%next, %sum)
+
+finish(%result: i64):
+  tailcall @done(%result)
+}

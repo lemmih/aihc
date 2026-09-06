@@ -1,6 +1,6 @@
 -- | Assemble the compiler AMD64 vocabulary without an external assembler.
 module Aihc.Amd64.Assemble
-  ( Amd64Statement,
+  ( Amd64Statement (..),
     Amd64Instruction (..),
     Amd64BitCountOp (..),
     Amd64Register (..),
@@ -45,7 +45,7 @@ data Amd64Statement
   | Amd64QuadSymbol !Text
   | Amd64QuadSymbolAddend !Text !Int64
   | Amd64Bytes !ByteString
-  | Amd64Instruction ![Item]
+  | Amd64Code !Amd64Instruction
 
 data Amd64Register
   = RAX
@@ -268,7 +268,7 @@ amd64Bytes :: ByteString -> Amd64Statement
 amd64Bytes = Amd64Bytes
 
 amd64Instruction :: Amd64Instruction -> Amd64Statement
-amd64Instruction = Amd64Instruction . encodeInstruction
+amd64Instruction = Amd64Code
 
 applyStatement :: Either ObjectError Draft -> Amd64Statement -> Either ObjectError Draft
 applyStatement result statement = do
@@ -284,7 +284,7 @@ applyStatement result statement = do
     Amd64Bytes value
       | BS.null value -> pure draft
       | otherwise -> addItem (Bytes value) draft
-    Amd64Instruction items -> foldl' (>>=) (pure draft) [addItem item | item <- items]
+    Amd64Code instruction -> foldl' (>>=) (pure draft) [addItem item | item <- encodeInstruction instruction]
 
 alignmentFill :: Draft -> ByteString
 alignmentFill draft

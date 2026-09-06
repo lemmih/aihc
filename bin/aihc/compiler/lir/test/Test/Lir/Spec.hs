@@ -12,6 +12,7 @@ import System.Directory (listDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath (takeExtension, (</>))
 import Test.Lir.Arbitrary (prop_lirPrettyRoundTrip)
+import Test.Lir.RegAllocSpec qualified as RegAllocSpec
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
 import Test.Tasty.Hedgehog (testProperty)
@@ -21,12 +22,14 @@ tests = do
   root <- fixtureRoot
   evalCases <- loadFixtures (root </> "eval")
   lintCases <- loadFixtures (root </> "lint")
+  regAlloc <- RegAllocSpec.tests (root </> "eval")
   pure
     ( testGroup
         "aihc-lir"
         [ testProperty "generated Lir pretty-printer round-trip" prop_lirPrettyRoundTrip,
           testGroup "evaluation fixtures" (map evalTest evalCases),
-          testGroup "lint error fixtures" (map lintTest lintCases)
+          testGroup "lint error fixtures" (map lintTest lintCases),
+          regAlloc
         ]
     )
 

@@ -1,0 +1,15 @@
+; More values live at once than the AMD64 pool holds. The allocator gives
+; registers to the intervals that end first and sends the rest to frame
+; slots, so this fixture shows both halves of the result.
+func @wide(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64) -> i64 cc c {
+entry:
+  %g = add i64 %a, %b
+  %h = add i64 %c, %d
+  %i = add i64 %e, %f
+  %j = mul i64 %g, %h
+  %k = mul i64 %i, %a
+  %l = add i64 %j, %k
+  %m = add i64 %l, %b
+  %n = add i64 %m, %c
+  return %n
+}
