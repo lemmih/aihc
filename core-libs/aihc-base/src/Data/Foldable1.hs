@@ -3,9 +3,7 @@
 module Data.Foldable1
   ( Foldable1 (..),
     foldr1,
-    foldr1',
     foldl1,
-    foldl1',
     intercalate1,
     foldrM1,
     foldlM1,
@@ -16,149 +14,170 @@ module Data.Foldable1
   )
 where
 
-import Data.Foldable (Foldable)
+import Data.Foldable (Foldable, foldlM)
 import Data.Functor.Identity (Identity (..))
 import Data.Kind (Type)
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Semigroup (Max (..), Min (..), Semigroup (..))
+import Data.Semigroup (Semigroup (..))
 import Prelude hiding (foldl1, foldr1, head, last, maximum, minimum)
 
+-- | Non-empty data structures that can be folded.
+--
+-- Instances define at least one of 'foldMap1' or 'foldrMap1'.
 class (Foldable t) => Foldable1 (t :: Type -> Type) where
+  -- | Given a structure with elements whose type is a 'Semigroup', combine
+  -- them via the semigroup's @('<>')@ operator.
   fold1 :: (Semigroup m) => t m -> m
-  foldMap1 :: (Semigroup m) => (a -> m) -> t a -> m
-  foldMap1' :: (Semigroup m) => (a -> m) -> t a -> m
-  toNonEmpty :: t a -> NonEmpty a
-  maximum :: (Ord a) => t a -> a
-  minimum :: (Ord a) => t a -> a
-  head :: t a -> a
-  last :: t a -> a
-  foldrMap1 :: (a -> b) -> (a -> b -> b) -> t a -> b
-  foldlMap1' :: (a -> b) -> (b -> a -> b) -> t a -> b
-  foldlMap1 :: (a -> b) -> (b -> a -> b) -> t a -> b
-  foldrMap1' :: (a -> b) -> (a -> b -> b) -> t a -> b
-
   fold1 = foldMap1 id
-  foldMap1 f = foldrMap1 f (\value rest -> f value <> rest)
-  foldMap1' f = foldlMap1' f (\rest value -> rest <> f value)
-  toNonEmpty = foldMap1 singleton
-  maximum = getMax . foldMap1' Max
-  minimum = getMin . foldMap1' Min
+
+  -- | Map each element of the structure to a semigroup, and combine the results.
+  foldMap1 :: (Semigroup m) => (a -> m) -> t a -> m
+  foldMap1 f = foldrMap1 f (\a m -> f a <> m)
+
+  -- | A left-associative variant of 'foldMap1' that is strict in the accumulator.
+  foldMap1' :: (Semigroup m) => (a -> m) -> t a -> m
+  foldMap1' f = foldlMap1' f (\m a -> m <> f a)
+
+  -- | List of elements of a structure, from left to right.
+  toNonEmpty :: t a -> NonEmpty a
+  toNonEmpty = foldrMap1 singleton consNonEmpty
+
+  -- | The largest element of a non-empty structure.
+  maximum :: (Ord a) => t a -> a
+  maximum = foldlMap1' id max
+
+  -- | The least element of a non-empty structure.
+  minimum :: (Ord a) => t a -> a
+  minimum = foldlMap1' id min
+
+  -- | The first element of the structure.
+  head :: t a -> a
   head = foldrMap1 id const
-  last = foldlMap1 id (\_ value -> value)
-  foldrMap1 f g structure = runFromMaybe (foldMap1 (FromMaybe . step) structure) Nothing
+
+  -- | The last element of the structure.
+  last :: t a -> a
+  last = foldlMap1 id (\_ a -> a)
+
+  -- | Generalized 'foldr1'.
+  foldrMap1 :: (a -> b) -> (a -> b -> b) -> t a -> b
+  foldrMap1 f g structure = applyFromMaybe (foldMap1 (FromMaybe . step) structure) Nothing
     where
-      step value Nothing = f value
-      step value (Just rest) = g value rest
-  foldlMap1' f g structure =
-    case toNonEmpty structure of
-      value :| values -> go (f value) values
-    where
-      go accumulator [] = accumulator
-      go accumulator (value : values) = (go $! g accumulator value) values
-  foldlMap1 f g structure = runFromMaybe (getFlipped (foldMap1 (Flipped . FromMaybe . step) structure)) Nothing
-    where
-      step value Nothing = f value
-      step value (Just rest) = g rest value
-  foldrMap1' f g structure =
-    case reverseNonEmpty (toNonEmpty structure) of
-      value :| values -> go (f value) values
-    where
-      go accumulator [] = accumulator
-      go accumulator (value : values) = (go $! g value accumulator) values
+      step a Nothing = f a
+      step a (Just b) = g a b
+
+  -- | Generalized 'foldl1'', strict in the accumulator.
+  foldlMap1' :: (a -> b) -> (b -> a -> b) -> t a -> b
+  foldlMap1' f g structure = foldlNonEmpty' f g (toNonEmpty structure)
+
+  -- | Generalized 'foldl1'.
+  foldlMap1 :: (a -> b) -> (b -> a -> b) -> t a -> b
+  foldlMap1 f g structure = foldlNonEmpty f g (toNonEmpty structure)
+
+  -- | Generalized 'foldr1'', strict in the accumulator.
+  foldrMap1' :: (a -> b) -> (a -> b -> b) -> t a -> b
+  foldrMap1' f g structure = foldrNonEmpty' f g (toNonEmpty structure)
+
+-- | Right-associative fold of a structure.
+foldr1 :: (Foldable1 t) => (a -> a -> a) -> t a -> a
+foldr1 = foldrMap1 id
+
+-- | Left-associative fold of a structure.
+foldl1 :: (Foldable1 t) => (a -> a -> a) -> t a -> a
+foldl1 = foldlMap1 id
+
+-- | Insert an @m@ between each pair of @t m@.
+intercalate1 :: (Foldable1 t, Semigroup m) => m -> t m -> m
+intercalate1 separator = foldrMap1 id (\a b -> a <> separator <> b)
+
+-- | Monadic fold over the elements of a non-empty structure,
+-- associating to the right.
+foldrM1 :: (Foldable1 t, Monad m) => (a -> a -> m a) -> t a -> m a
+foldrM1 = foldrMapM1 return
+
+-- | Map variant of 'foldrM1'.
+foldrMapM1 :: (Foldable1 t, Monad m) => (a -> m b) -> (a -> b -> m b) -> t a -> m b
+foldrMapM1 g f structure = go (toNonEmpty structure)
+  where
+    go (e :| es) =
+      case es of
+        [] -> g e
+        x : xs -> go (x :| xs) >>= f e
+
+-- | Monadic fold over the elements of a non-empty structure,
+-- associating to the left.
+foldlM1 :: (Foldable1 t, Monad m) => (a -> a -> m a) -> t a -> m a
+foldlM1 = foldlMapM1 return
+
+-- | Map variant of 'foldlM1'.
+foldlMapM1 :: (Foldable1 t, Monad m) => (a -> m b) -> (b -> a -> m b) -> t a -> m b
+foldlMapM1 g f structure =
+  case toNonEmpty structure of
+    x :| xs -> g x >>= \y -> foldlM f y xs
+
+-- | The largest element of a non-empty structure with respect to the
+-- given comparison function.
+maximumBy :: (Foldable1 t) => (a -> a -> Ordering) -> t a -> a
+maximumBy cmp = foldl1 (\x y -> case cmp x y of GT -> x; _ -> y)
+
+-- | The least element of a non-empty structure with respect to the
+-- given comparison function.
+minimumBy :: (Foldable1 t) => (a -> a -> Ordering) -> t a -> a
+minimumBy cmp = foldl1 (\x y -> case cmp x y of GT -> y; _ -> x)
+
+instance Foldable1 NonEmpty where
+  toNonEmpty = id
+  foldMap1 f (x :| xs) = foldrList f (\a m -> f a <> m) x xs
+  head (x :| _) = x
+
+instance Foldable1 Identity where
+  toNonEmpty (Identity x) = x :| []
+  foldMap1 f (Identity x) = f x
+
+instance Foldable1 ((,) a) where
+  toNonEmpty (_, x) = x :| []
+  foldMap1 f (_, x) = f x
 
 singleton :: a -> NonEmpty a
-singleton value = value :| []
+singleton x = x :| []
 
-reverseNonEmpty :: NonEmpty a -> NonEmpty a
-reverseNonEmpty (value :| values) = go value [] values
-  where
-    go current accumulator [] = current :| accumulator
-    go current accumulator (next : rest) = go next (current : accumulator) rest
+consNonEmpty :: a -> NonEmpty a -> NonEmpty a
+consNonEmpty x (y :| ys) = x :| (y : ys)
 
--- | A semigroup on functions from an optional accumulator, used to derive
--- the right folds from 'foldMap1'.
+-- | A right fold whose semigroup operation threads the fold continuation.
 newtype FromMaybe b = FromMaybe (Maybe b -> b)
 
-runFromMaybe :: FromMaybe b -> Maybe b -> b
-runFromMaybe (FromMaybe f) = f
+applyFromMaybe :: FromMaybe b -> Maybe b -> b
+applyFromMaybe (FromMaybe f) = f
 
 instance Semigroup (FromMaybe b) where
   FromMaybe f <> FromMaybe g = FromMaybe (f . Just . g)
 
--- | Reverses the order of a semigroup.
-newtype Flipped a = Flipped a
+foldrList :: (a -> b) -> (a -> b -> b) -> a -> [a] -> b
+foldrList f _ x [] = f x
+foldrList f g x (y : ys) = g x (foldrList f g y ys)
 
-getFlipped :: Flipped a -> a
-getFlipped (Flipped value) = value
+foldrNonEmpty' :: (a -> b) -> (a -> b -> b) -> NonEmpty a -> b
+foldrNonEmpty' f g (x :| xs) =
+  case reverse (x : xs) of
+    [] -> f x
+    y : ys -> foldlList' f (flip g) y ys
 
-instance (Semigroup a) => Semigroup (Flipped a) where
-  Flipped left <> Flipped right = Flipped (right <> left)
+foldlNonEmpty :: (a -> b) -> (b -> a -> b) -> NonEmpty a -> b
+foldlNonEmpty f g (x :| xs) = foldlList f g x xs
 
-instance Foldable1 NonEmpty where
-  foldMap1 f (value :| values) = go (f value) values
-    where
-      go accumulator [] = accumulator
-      go accumulator (next : rest) = accumulator <> go (f next) rest
-  toNonEmpty = id
-  head (value :| _) = value
-
-instance Foldable1 Identity where
-  foldMap1 f (Identity value) = f value
-  toNonEmpty (Identity value) = value :| []
-
-instance Foldable1 ((,) a) where
-  foldMap1 f (_, value) = f value
-  toNonEmpty (_, value) = value :| []
-
-foldr1 :: (Foldable1 t) => (a -> a -> a) -> t a -> a
-foldr1 = foldrMap1 id
-
-foldr1' :: (Foldable1 t) => (a -> a -> a) -> t a -> a
-foldr1' = foldrMap1' id
-
-foldl1 :: (Foldable1 t) => (a -> a -> a) -> t a -> a
-foldl1 = foldlMap1 id
-
-foldl1' :: (Foldable1 t) => (a -> a -> a) -> t a -> a
-foldl1' = foldlMap1' id
-
-intercalate1 :: (Foldable1 t, Semigroup m) => m -> t m -> m
-intercalate1 separator = foldrMap1 id (\value rest -> value <> separator <> rest)
-
-foldrM1 :: (Foldable1 t, Monad m) => (a -> a -> m a) -> t a -> m a
-foldrM1 = foldrMapM1 return
-
-foldrMapM1 :: (Foldable1 t, Monad m) => (a -> m b) -> (a -> b -> m b) -> t a -> m b
-foldrMapM1 f g structure =
-  case reverseNonEmpty (toNonEmpty structure) of
-    value :| values -> f value >>= \result -> go result values
+foldlList :: (a -> b) -> (b -> a -> b) -> a -> [a] -> b
+foldlList f g x = go (f x)
   where
-    go accumulator [] = return accumulator
-    go accumulator (value : values) = g value accumulator >>= \result -> go result values
+    go acc [] = acc
+    go acc (y : ys) = go (g acc y) ys
 
-foldlM1 :: (Foldable1 t, Monad m) => (a -> a -> m a) -> t a -> m a
-foldlM1 = foldlMapM1 return
+foldlNonEmpty' :: (a -> b) -> (b -> a -> b) -> NonEmpty a -> b
+foldlNonEmpty' f g (x :| xs) = foldlList' f g x xs
 
-foldlMapM1 :: (Foldable1 t, Monad m) => (a -> m b) -> (b -> a -> m b) -> t a -> m b
-foldlMapM1 f g structure =
-  case toNonEmpty structure of
-    value :| values -> f value >>= \result -> go result values
+foldlList' :: (a -> b) -> (b -> a -> b) -> a -> [a] -> b
+foldlList' f g x = go (f x)
   where
-    go accumulator [] = return accumulator
-    go accumulator (value : values) = g accumulator value >>= \result -> go result values
-
-maximumBy :: (Foldable1 t) => (a -> a -> Ordering) -> t a -> a
-maximumBy cmp = foldl1 pick
-  where
-    pick left right =
-      case cmp left right of
-        GT -> left
-        _ -> right
-
-minimumBy :: (Foldable1 t) => (a -> a -> Ordering) -> t a -> a
-minimumBy cmp = foldl1 pick
-  where
-    pick left right =
-      case cmp left right of
-        GT -> right
-        _ -> left
+    go acc [] = acc
+    go acc (y : ys) =
+      case g acc y of
+        acc' -> go acc' ys

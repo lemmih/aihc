@@ -1,0 +1,90 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Applicative (Const (..))
+    import Data.Bifoldable
+    import Data.Bifunctor (Bifunctor (..))
+    import Data.Bitraversable
+    import Prelude
+
+    data Two a b = Two a b
+
+    instance Bifunctor Two where
+      bimap f g (Two a b) = Two (f a) (g b)
+
+    instance Bifoldable Two where
+      bifoldr f g z (Two a b) = f a (g b z)
+
+    instance Bitraversable Two where
+      bitraverse f g (Two a b) = Two <$> f a <*> g b
+
+    unTwo :: Two a b -> (a, b)
+    unTwo (Two a b) = (a, b)
+
+    checks :: [Bool]
+    checks =
+      [ bifold ("ab", "cd") == "abcd",
+        bifoldMap show (: []) (1 :: Int, 'x') == "1x",
+        bifoldr (:) (:) [] ('a', 'b') == "ab",
+        bifoldl (flip (:)) (flip (:)) [] ('a', 'b') == "ba",
+        bifoldr' (+) (+) 0 (1 :: Int, 2) == 3,
+        bifoldl' (+) (+) 0 (1 :: Int, 2) == 3,
+        bifoldrM (\a acc -> Just (a + acc)) (\b acc -> Just (b * acc)) 1 (2 :: Int, 3) == Just 5,
+        bifoldlM (\acc a -> Just (acc + a)) (\acc b -> Just (acc * b)) 1 (2 :: Int, 3) == Just 9,
+        biList (1 :: Int, 2) == [1, 2],
+        biList (Left 'q') == "q",
+        biList (Right 'r' :: Either Char Char) == "r",
+        not (binull (1 :: Int, 2)),
+        binull (Const 'c' :: Const Char Char) == False,
+        bilength ('a', 'b') == 2,
+        bilength (Left 'a' :: Either Char Char) == 1,
+        bielem 'b' ('a', 'b'),
+        binotElem 'c' ('a', 'b'),
+        bimaximum (3 :: Int, 5) == 5,
+        biminimum (3 :: Int, 5) == 3,
+        bisum (3 :: Int, 5) == 8,
+        biproduct (3 :: Int, 5) == 15,
+        biconcat ("ab", "c") == "abc",
+        biconcatMap show show (1 :: Int, 2 :: Int) == "12",
+        biand (True, True),
+        not (biand (True, False)),
+        bior (False, True),
+        biany even odd (2 :: Int, 2 :: Int),
+        not (biall even odd (2 :: Int, 2 :: Int)),
+        bimaximumBy compare (1 :: Int, 9) == 9,
+        biminimumBy compare (1 :: Int, 9) == 1,
+        bifind even (1 :: Int, 4) == Just 4,
+        bifind (> 10) (1 :: Int, 4) == Nothing,
+        biasum (Nothing, Just 'z') == Just 'z',
+        bitraverse_ (\a -> Just a) (\b -> Just b) (1 :: Int, 'c') == Just (),
+        bisequenceA_ (Just 'a', Nothing :: Maybe Int) == Nothing,
+        bimapM_ (const Nothing) Just ('a', 'b') == (Nothing :: Maybe ()),
+        bifoldMap (: []) (: []) ('q', 'r', 's') == "rs",
+        bifoldMap (: []) (: []) ('p', 'q', 'r', 's') == "rs",
+        bifoldMap (: []) (: []) (Const 'k' :: Const Char Char) == "k",
+        bitraverse (\a -> Just (a + 1)) (\b -> Just (not b)) (1 :: Int, True) == Just (2, False),
+        bitraverse (\a -> [a, a]) (\b -> [b]) (Left 'l' :: Either Char Int) == [Left 'l', Left 'l'],
+        bitraverse Just (const Nothing) (Right 'r' :: Either Char Char) == (Nothing :: Maybe (Either Char Char)),
+        bisequenceA (Just 'a', Just True) == Just ('a', True),
+        bisequence (Just 'a', Nothing :: Maybe Bool) == Nothing,
+        bifor (1 :: Int, 2 :: Int) (\a -> [a]) (\b -> [b, b]) == [(1, 2), (1, 2)],
+        bimapDefault (+ 1) not (1 :: Int, True) == (2, False),
+        bifoldMapDefault show show (1 :: Int, True) == "1True",
+        fmap (bifoldMap (: []) (: [])) (bitraverse Just Just ('x', 'y', 'z')) == Just "yz",
+        fmap (bifoldMap (: []) (: [])) (bitraverse Just Just ('w', 'x', 'y', 'z')) == Just "yz",
+        getConst (bimap (+ 1) not (Const (1 :: Int) :: Const Int Bool)) == 2,
+        fmap getConst (bitraverse (\a -> Just [a]) Just (Const 'c' :: Const Char Char)) == Just "c",
+        unTwo (bimapDefault (+ 1) not (Two (1 :: Int) True)) == (2, False),
+        bifoldMapDefault show show (Two (1 :: Int) 'c') == "1'c'",
+        biList (Two 'a' 'b') == "ab"
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: pass
+reason: Data.Bifoldable and Data.Bitraversable fold and traverse pairs, sums, Const, and a user bifunctor

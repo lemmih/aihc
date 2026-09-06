@@ -1,0 +1,61 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Foldable1
+    import Data.Functor.Identity (Identity (..))
+    import Data.List.NonEmpty (NonEmpty (..))
+    import Data.Semigroup (Max (..), Min (..))
+    import Prelude hiding (foldl1, foldr1, head, last, maximum, minimum)
+
+    data Pair a = Pair a a
+
+    instance Foldable Pair where
+      foldr f initial (Pair x y) = f x (f y initial)
+
+    instance Foldable1 Pair where
+      foldMap1 f (Pair x y) = f x <> f y
+
+    three :: NonEmpty Int
+    three = 3 :| [1, 2]
+
+    checks :: [Bool]
+    checks =
+      [ getMax (foldMap1 Max three) == 3,
+        getMin (foldMap1' Min three) == 1,
+        fold1 ("a" :| ["b", "c"]) == "abc",
+        toNonEmpty three == three,
+        maximum three == 3,
+        minimum three == 1,
+        head three == 3,
+        last three == 2,
+        foldr1 (-) three == 4,
+        foldl1 (-) three == 0,
+        foldrMap1 show (\x acc -> show x ++ acc) three == "312",
+        foldlMap1 show (\acc x -> acc ++ show x) three == "312",
+        foldlMap1' show (\acc x -> acc ++ show x) three == "312",
+        foldrMap1' show (\x acc -> show x ++ acc) three == "312",
+        intercalate1 ", " ("x" :| ["y", "z"]) == "x, y, z",
+        maximumBy (\a b -> compare (negate a) (negate b)) three == 1,
+        minimumBy (\a b -> compare (negate a) (negate b)) three == 3,
+        foldrM1 (\a b -> Just (a + b)) three == Just 6,
+        foldlM1 (\a b -> if b > 0 then Just (a * b) else Nothing) three == Just 6,
+        foldrMapM1 (\a -> [a]) (\a b -> [a + b]) three == [6],
+        foldlMapM1 (\a -> Just a) (\b a -> Just (b - a)) three == Just 0,
+        toNonEmpty (Identity 'i') == 'i' :| [],
+        fold1 ("skip", "kept") == "kept",
+        toNonEmpty (Pair 'a' 'b') == 'a' :| "b",
+        head (Pair 'a' 'b') == 'a',
+        last (Pair 'a' 'b') == 'b',
+        maximum (Pair 4 (7 :: Int)) == 7,
+        foldr1 (-) (Pair 10 (3 :: Int)) == 7
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: pass
+reason: Data.Foldable1 folds non-empty structures through foldMap1, toNonEmpty, and the derived functions

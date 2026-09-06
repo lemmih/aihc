@@ -14,6 +14,7 @@ import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Base (Maybe (..), id, (++), (.))
 import GHC.Int (Int)
 import GHC.Internal.Classes (Eq (..), Ord (..))
+import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Num (Num (..))
 
 class Foldable (t :: Type -> Type) where
@@ -136,4 +137,10 @@ instance Foldable (Either e) where
 instance Foldable ((,) e) where
   foldr f initial (_, value) = f value initial
   foldl f initial (_, value) = f initial value
+  null _ = False
+
+instance Foldable NonEmpty where
+  foldr f initial (value :| values) = f value (foldr f initial values)
+  foldl f initial (value :| values) = foldl f (f initial value) values
+  toList (value :| values) = value : values
   null _ = False
