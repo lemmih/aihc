@@ -1,0 +1,13 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  cast :: (a ~ [a]) => a -> [a]
+  cast x = x
+  result = cast []
+typecheck: false
+status: xfail
+reason: A finite type cannot equal a list of itself. AIHC cannot resolve the equality class.

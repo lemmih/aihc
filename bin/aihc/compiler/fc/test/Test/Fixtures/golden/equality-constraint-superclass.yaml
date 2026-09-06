@@ -1,0 +1,17 @@
+extensions:
+- GADTs
+- TypeOperators
+- MultiParamTypeClasses
+- FlexibleInstances
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  class (a ~ b) => Same a b
+  instance Same a a
+  cast :: Same a b => a -> b
+  cast x = x
+  result = cast On :: Flag
+check-only: true
+status: xfail
+reason: An equality superclass permits a cast. AIHC cannot resolve the equality class.

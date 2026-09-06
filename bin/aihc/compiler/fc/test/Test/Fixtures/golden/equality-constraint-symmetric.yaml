@@ -1,0 +1,13 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  cast :: (b ~ a) => a -> b
+  cast x = x
+  result = cast On :: Flag
+check-only: true
+status: xfail
+reason: A given equality works in the reverse direction. AIHC cannot resolve the equality class.

@@ -1,0 +1,15 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  import qualified GHC.Types as T
+  data Flag = Off | On
+  cast :: (a T.~ b) => a -> b
+  cast x = x
+  result = cast On :: Flag
+typecheck: true
+status: xfail
+reason: A qualified equality class has the same meaning as equality syntax. AIHC cannot resolve the
+  equality class.

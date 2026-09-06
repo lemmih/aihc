@@ -1,0 +1,30 @@
+extensions:
+- GADTs
+- TypeOperators
+- MultiParamTypeClasses
+- ExplicitNamespaces
+modules:
+- |
+  module GHC.Types where
+  class a ~ b
+  infix 4 ~
+- |
+  module Main where
+  cast :: (a ~ b) => a -> b
+  cast x = x
+annotated:
+- |
+  module GHC.Types where
+  class a ~ b
+          └─ t GHC.Types
+  infix 4 ~
+- |
+  module Main where
+  cast :: (a ~ b) => a -> b
+  └─ v Main  └─ t GHC.Types
+  cast x = x
+  │    │   └─ v 0
+  │    └─ v 0
+  └─ v Main
+status: xfail
+reason: The equality constraint resolves to the class in GHC.Types. AIHC requires an explicit import.

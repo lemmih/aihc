@@ -1,0 +1,17 @@
+extensions:
+- GADTs
+- TypeOperators
+- DataKinds
+- KindSignatures
+- PolyKinds
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Proxy a = Proxy
+  cast :: (a ~ 'On) => Proxy a -> Flag
+  cast _ = On
+  result = cast (Proxy :: Proxy 'On)
+typecheck: true
+status: xfail
+reason: Equality can relate promoted data constructors. AIHC cannot resolve the equality class.

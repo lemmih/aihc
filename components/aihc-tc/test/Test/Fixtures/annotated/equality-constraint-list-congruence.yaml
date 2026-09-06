@@ -1,0 +1,15 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  cast :: (a ~ b) => [a] -> [b]
+  cast xs = xs
+  result = case cast [On] :: [Flag] of
+    [x] -> x
+    _ -> Off
+typecheck: true
+status: xfail
+reason: Equality lifts through a list type constructor. AIHC cannot resolve the equality class.

@@ -1,0 +1,16 @@
+extensions:
+- GADTs
+- TypeOperators
+- RankNTypes
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  use :: (forall a b. (a ~ b) => a -> b) -> Flag
+  use f = f On
+  cast :: (a ~ b) => a -> b
+  cast x = x
+  result = use cast
+typecheck: true
+status: xfail
+reason: A higher-rank argument can require equality evidence. AIHC cannot resolve the equality class.

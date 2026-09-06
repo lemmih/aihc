@@ -1,0 +1,15 @@
+extensions:
+- GADTs
+- TypeOperators
+- TypeFamilies
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  type family F a
+  cast :: (F a ~ F b) => a -> b
+  cast x = x
+typecheck: false
+status: xfail
+reason: A non-injective type family does not permit argument decomposition. AIHC cannot resolve the
+  equality class.

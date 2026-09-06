@@ -1,0 +1,23 @@
+extensions:
+- GADTs
+- TypeOperators
+- MultiParamTypeClasses
+- FlexibleInstances
+- UndecidableInstances
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  class Convert a b where
+    convert :: a -> b
+  instance (a ~ b) => Convert a b where
+    convert x = x
+  result = convert On :: Flag
+expression: result
+output: |
+  On
+status: xfail
+reason: An instance context supplies equality evidence to its method. AIHC cannot resolve the equality
+  class.
+evaluators:
+- grin

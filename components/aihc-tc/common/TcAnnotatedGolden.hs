@@ -86,6 +86,7 @@ data TcAnnotatedCase = TcAnnotatedCase
     caseExtensions :: ![Extension],
     caseModules :: ![Text],
     caseAnnotated :: ![String],
+    caseTypecheck :: !(Maybe Bool),
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
   }
@@ -169,15 +170,18 @@ loadTcAnnotatedCase path = do
 
 parseTcAnnotatedFixture :: FilePath -> Y.Value -> Either String TcAnnotatedCase
 parseTcAnnotatedFixture path value = do
-  (extNames, modules, annotatedTexts, statusText, reasonText) <-
+  (extNames, modules, annotatedTexts, typecheck, statusText, reasonText) <-
     parseEither
       ( withObject "tc annotated fixture" $ \obj -> do
           exts <- obj .: "extensions"
           mods <- obj .: "modules" >>= parseModules
-          annotated <- obj .: "annotated" >>= parseAnnotatedList
+          typecheck <- obj .:? "typecheck"
+          annotated <- case typecheck of
+            Nothing -> obj .: "annotated" >>= parseAnnotatedList
+            Just _ -> pure []
           status <- obj .: "status"
           reason <- obj .:? "reason" .!= ""
-          pure (exts, mods, annotated, status, reason)
+          pure (exts, mods, annotated, typecheck, status, reason)
       )
       value
   exts <- validateExtensions path extNames
@@ -194,6 +198,7 @@ parseTcAnnotatedFixture path value = do
         caseExtensions = exts,
         caseModules = modules,
         caseAnnotated = annotated,
+        caseTypecheck = typecheck,
         caseStatus = status,
         caseReason = reason
       }
@@ -230,8 +235,19 @@ evaluateTcAnnotatedCasePure tc =
     Right actual -> classifySuccess tc actual
 
 renderTcAnnotatedCase :: TcAnnotatedCase -> Either String [String]
-renderTcAnnotatedCase tc =
-  renderAnnotatedTcResults (caseModules tc) <$> checkTcAnnotatedCase tc
+renderTcAnnotatedCase tc = do
+  checked <- checkTcAnnotatedCase tc
+  case caseTypecheck tc of
+    Nothing -> pure (renderAnnotatedTcResults (caseModules tc) checked)
+    Just expected
+      | all tcModuleSuccess checked == expected -> pure []
+      | otherwise ->
+          Left
+            ( "Expected typecheck: "
+                <> show expected
+                <> "\n"
+                <> unlines [show diagnostic | modu <- checked, diagnostic <- tcModuleDiagnostics modu]
+            )
 
 -- | Parse, resolve, and type-check the modules of one case.
 checkTcAnnotatedCase :: TcAnnotatedCase -> Either String [Module]

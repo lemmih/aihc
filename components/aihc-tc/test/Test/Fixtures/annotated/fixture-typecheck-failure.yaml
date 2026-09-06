@@ -1,0 +1,10 @@
+extensions: []
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  value :: Flag
+  value = ()
+typecheck: false
+status: pass
+reason: The typecheck assertion requires a type error after successful name resolution.

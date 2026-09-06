@@ -1,0 +1,17 @@
+extensions:
+- GADTs
+- TypeOperators
+- TypeFamilies
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  type family F a where
+    F Flag = Flag
+  cast :: (F a ~ b) => a -> b -> F a
+  cast _ x = x
+  result = cast On On
+typecheck: true
+status: xfail
+reason: A closed type family equation solves an equality constraint. AIHC cannot resolve the equality
+  class.

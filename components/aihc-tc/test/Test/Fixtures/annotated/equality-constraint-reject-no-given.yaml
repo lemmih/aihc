@@ -1,0 +1,15 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  cast :: a -> b
+  cast x = x
+  reflexive :: (a ~ a) => a -> a
+  reflexive x = x
+typecheck: false
+status: xfail
+reason: An unrelated reflexive equality cannot justify a polymorphic cast. AIHC cannot resolve the
+  equality class.

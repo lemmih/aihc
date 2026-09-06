@@ -1,0 +1,14 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  newtype Wrap = Wrap Flag
+  cast :: (a ~ b) => a -> b
+  cast x = x
+  result = cast On :: Wrap
+typecheck: false
+status: xfail
+reason: Nominal equality does not unwrap a newtype. AIHC cannot resolve the equality class.

@@ -1,0 +1,13 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  cast :: (a ~ b) => a -> b
+  cast x = x
+  result = cast On :: Flag
+typecheck: true
+status: xfail
+reason: A given equality permits a nominal cast. AIHC cannot resolve the equality class.

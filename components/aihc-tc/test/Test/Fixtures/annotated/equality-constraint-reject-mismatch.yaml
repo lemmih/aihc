@@ -1,0 +1,13 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  cast :: (a ~ b) => a -> b
+  cast x = x
+  result = cast On :: ()
+typecheck: false
+status: xfail
+reason: Equality cannot equate distinct data types. AIHC cannot resolve the equality class.

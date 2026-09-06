@@ -1,0 +1,16 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Equal a b where
+    Equal :: (a ~ b) => Equal a b
+  cast :: Equal a b -> a -> b
+  cast Equal x = x
+  result = cast Equal On :: Flag
+typecheck: true
+status: xfail
+reason: A GADT pattern introduces an explicit equality constraint. AIHC cannot resolve the equality
+  class.

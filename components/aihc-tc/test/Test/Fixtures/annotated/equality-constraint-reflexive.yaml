@@ -1,0 +1,13 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  keep :: (a ~ a) => a -> a
+  keep x = x
+  result = keep On
+typecheck: true
+status: xfail
+reason: Reflexive equality needs no external evidence. AIHC cannot resolve the equality class.
