@@ -27,7 +27,7 @@ where
 
 import Control.Applicative (Alternative (..))
 import Control.Monad (MonadPlus (..))
-import GHC.Internal.Foldable (Foldable (..))
+import GHC.Internal.Foldable (Foldable (..), all, and, any, concat, concatMap, mapM_, notElem, or, sequence_)
 import Prelude
   ( Applicative (..),
     Bool (..),
@@ -70,35 +70,11 @@ sequenceA_ = foldr thenApplicative (pure ())
 asum :: (Foldable t, Alternative f) => t (f a) -> f a
 asum = foldr (<|>) empty
 
-mapM_ :: (Foldable t, Monad m) => (a -> m b) -> t a -> m ()
-mapM_ = traverse_
-
 forM_ :: (Foldable t, Monad m) => t a -> (a -> m b) -> m ()
 forM_ = for_
 
-sequence_ :: (Foldable t, Monad m) => t (m a) -> m ()
-sequence_ = sequenceA_
-
 msum :: (Foldable t, MonadPlus m) => t (m a) -> m a
 msum = foldr mplus mzero
-
-concat :: (Foldable t) => t [a] -> [a]
-concat = foldr (++) []
-
-concatMap :: (Foldable t) => (a -> [b]) -> t a -> [b]
-concatMap f = foldr (\value rest -> f value ++ rest) []
-
-and :: (Foldable t) => t Bool -> Bool
-and = foldr (&&) True
-
-or :: (Foldable t) => t Bool -> Bool
-or = foldr (||) False
-
-any :: (Foldable t) => (a -> Bool) -> t a -> Bool
-any predicate = foldr (\value rest -> predicate value || rest) False
-
-all :: (Foldable t) => (a -> Bool) -> t a -> Bool
-all predicate = foldr (\value rest -> predicate value && rest) True
 
 maximumBy :: (Foldable t) => (a -> a -> Ordering) -> t a -> a
 maximumBy compareValues = foldr1 choose
@@ -115,11 +91,6 @@ minimumBy compareValues = foldr1 choose
       case compareValues left right of
         GT -> right
         _ -> left
-
-notElem :: (Foldable t, Eq a) => a -> t a -> Bool
-notElem target structure = not (target `elem` structure)
-
-infix 4 `notElem`
 
 find :: (Foldable t) => (a -> Bool) -> t a -> Maybe a
 find predicate = foldr choose Nothing

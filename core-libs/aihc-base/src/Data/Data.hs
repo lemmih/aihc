@@ -14,10 +14,14 @@ module Data.Data
     mkDataType,
     mkNoRepType,
     showConstr,
+    Typeable,
+    gcast1,
+    gcast2,
   )
 where
 
-import Data.Typeable (Typeable)
+import Data.Maybe (Maybe (..))
+import Data.Typeable (Typeable, gcast1, gcast2)
 import GHC.Base (String)
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int)
@@ -41,6 +45,13 @@ class (Typeable a) => Data a where
     c a
   toConstr :: a -> Constr
   dataTypeOf :: a -> DataType
+
+  -- The type checker has no kind polymorphism, so these methods have no
+  -- Typeable constraint on the type constructor.
+  dataCast1 :: (forall d. (Data d) => c (t d)) -> Maybe (c a)
+  dataCast1 _ = Nothing
+  dataCast2 :: (forall d e. (Data d, Data e) => c (t d e)) -> Maybe (c a)
+  dataCast2 _ = Nothing
 
 -- | The fixity of a data constructor.
 data Fixity = Prefix | Infix
@@ -114,6 +125,18 @@ consConstr = mkConstr (DataType "Prelude.[]" [nilConstr]) "(:)" [] Infix
 
 listDataType :: DataType
 listDataType = mkDataType "Prelude.[]" [nilConstr, consConstr]
+
+instance (Data a, Data b) => Data (a, b) where
+  gfoldl f z (left, right) = z (\first second -> (first, second)) `f` left `f` right
+  toConstr _ = tuple2Constr
+  gunfold k z _ = k (k (z (\first second -> (first, second))))
+  dataTypeOf _ = tuple2DataType
+
+tuple2Constr :: Constr
+tuple2Constr = mkConstr tuple2DataType "(,)" [] Prefix
+
+tuple2DataType :: DataType
+tuple2DataType = mkDataType "Prelude.(,)" [tuple2Constr]
 
 instance Data Bool where
   toConstr False = falseConstr

@@ -1,0 +1,42 @@
+annotated:
+- |-
+  module Main where
+  import GHC.Classes (Eq (..))
+  import GHC.Types (Bool (..), Char)
+  instance Eq Char where
+  └─ $fEqChar ∷ () ⇒ Eq Char
+    _ == _ = True
+    ││    └─ type: GHC.Types.Char
+    └─ type: GHC.Types.Char
+    └─ == ∷ Char → Char → Bool
+  instance Eq a => Eq [a] where
+  └─ $fEqList ∷ ∀ a. (Eq a) ⇒ Eq [a]
+    _ == _ = True
+    ││    └─ type: [a]
+    └─ type: [a]
+    └─ == ∷ [a] → [a] → Bool
+  isName :: [Char] -> Bool
+  isName "fromList" = True
+  │      └─ type: [GHC.Types.Char]
+  │      └─ type: [GHC.Types.Char] → [GHC.Types.Char] → GHC.Types.Bool; type-args: [Char]; evidence: $fEqList @Char ($fEqChar)
+  │      └─ type: [GHC.Types.Char]
+  └─ type: [GHC.Types.Char] → GHC.Types.Bool
+  isName _ = False
+  │      └─ type: [GHC.Types.Char]
+  └─ type: [GHC.Types.Char] → GHC.Types.Bool
+extensions: []
+modules:
+- |
+  module Main where
+  import GHC.Classes (Eq (..))
+  import GHC.Types (Bool (..), Char)
+  instance Eq Char where
+    _ == _ = True
+  instance Eq a => Eq [a] where
+    _ == _ = True
+  isName :: [Char] -> Bool
+  isName "fromList" = True
+  isName _ = False
+reason: a string literal pattern has the String type and compares with the
+  equality method of the scrutinee type
+status: pass

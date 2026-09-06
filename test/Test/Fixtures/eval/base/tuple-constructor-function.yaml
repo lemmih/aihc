@@ -1,0 +1,20 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    pairs :: [(Int, Bool)]
+    pairs = zipWith (,) [1, 2] [True, False]
+
+    firsts :: [Int]
+    firsts = [n | (,) n _ <- pairs]
+
+    values :: ([(Int, Bool)], [Int])
+    values = (pairs, firsts)
+output: |
+  ((: ((I# 1),True) (: ((I# 2),False) [])),(: (I# 1) (: (I# 2) [])))
+expression: |
+  values
+status: pass
+reason: the tuple constructor written as commas is a function in an expression
+  and a constructor in a pattern

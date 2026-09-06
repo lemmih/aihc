@@ -1233,6 +1233,12 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           flag <- emitValue "flag" I1 (Compare op Ptr leftOperand rightOperand)
           result <- widen flag
           bind [result]
+      | name == "reallyUnsafePtrEquality#" -> do
+          leftOperand <- pointerValue ctx env left
+          rightOperand <- pointerValue ctx env right
+          flag <- emitValue "flag" I1 (Compare Eq Ptr leftOperand rightOperand)
+          result <- widen flag
+          bind [result]
       | Just (op, ty) <- lookup name floatBinaryPrimitives -> do
           leftOperand <- floatOperand ty left
           rightOperand <- floatOperand ty right

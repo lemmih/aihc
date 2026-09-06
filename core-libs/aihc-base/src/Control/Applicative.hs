@@ -5,19 +5,35 @@ module Control.Applicative
     Alternative (..),
     Const (..),
     ZipList (..),
+    (<$>),
+    (<$),
+    (<**>),
     liftA,
-    liftA2,
+    liftA3,
+    optional,
+    asum,
   )
 where
 
 import Data.Monoid (Monoid (..))
-import Prelude (Applicative (..), Functor (..), Maybe (..), (++), (<$>))
+import Prelude (Applicative (..), Functor (..), Maybe (..), foldr, (++), (<$>))
 
 liftA :: (Applicative f) => (a -> b) -> f a -> f b
 liftA = fmap
 
-liftA2 :: (Applicative f) => (a -> b -> c) -> f a -> f b -> f c
-liftA2 function left right = function <$> left <*> right
+liftA3 :: (Applicative f) => (a -> b -> c -> d) -> f a -> f b -> f c -> f d
+liftA3 function first second third = liftA2 function first second <*> third
+
+(<**>) :: (Applicative f) => f a -> f (a -> b) -> f b
+(<**>) = liftA2 (\value function -> function value)
+
+infixl 4 <**>
+
+optional :: (Alternative f) => f a -> f (Maybe a)
+optional value = fmap Just value <|> pure Nothing
+
+asum :: (Alternative f) => [f a] -> f a
+asum = foldr (<|>) empty
 
 newtype Const a b = Const {getConst :: a}
 

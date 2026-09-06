@@ -53,6 +53,7 @@ import Data.Void
 import Data.Word
 import Foreign.ForeignPtr
 import GHC.Exts
+import qualified GHC.Types
 import GHC.Internal.Lexeme (startsVarId, startsVarSym)
 import GHC.Internal.TH.Syntax
 import Numeric.Natural
@@ -95,6 +96,10 @@ class Lift (t :: TYPE r) where
   --
   -- @since template-haskell-2.16.0.0
   liftTyped :: (Quote m) => t -> Code m t
+
+  -- The default needs a lifted argument.
+  default lift :: (r ~ GHC.Types.LiftedRep, Quote m) => t -> m Exp
+  lift value = unTypeCode (liftTyped value)
 
 -----------------------------------------------------
 --

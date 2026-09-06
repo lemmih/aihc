@@ -97,6 +97,9 @@ module GHC.Prim
     uncheckedShiftL#,
     uncheckedShiftRL#,
     unsafeCoerce#,
+    reallyUnsafePtrEquality#,
+    Proxy#,
+    proxy#,
     word2Int#,
     word8ToWord#,
     word32ToWord#,
@@ -388,6 +391,17 @@ foreign import prim raise# :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b
 foreign import prim unsafeCoerce# :: forall (q :: RuntimeRep) (r :: RuntimeRep) (a :: TYPE q) (b :: TYPE r). a -> b
 
 foreign import prim seq :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b
+
+-- | Compare the heap objects of two values. The result is 1# when both
+-- arguments are the same object. A 0# result gives no information.
+foreign import prim reallyUnsafePtrEquality# :: forall a. a -> a -> Int#
+
+-- | A value with no runtime content. GHC gives it a zero-width unboxed
+-- representation. Here it is a boxed type with one hidden constructor.
+data Proxy# a = MkProxy#
+
+proxy# :: forall a. Proxy# a
+proxy# = MkProxy#
 
 infixr 0 `seq`
 

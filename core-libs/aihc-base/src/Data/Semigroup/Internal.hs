@@ -98,6 +98,12 @@ instance (Semigroup a) => Semigroup (Maybe a) where
 instance (Semigroup a) => Monoid (Maybe a) where
   mempty = Nothing
 
+instance (Semigroup b) => Semigroup (a -> b) where
+  (left <> right) value = left value <> right value
+
+instance (Monoid b) => Monoid (a -> b) where
+  mempty _ = mempty
+
 instance Semigroup () where
   _ <> _ = ()
 

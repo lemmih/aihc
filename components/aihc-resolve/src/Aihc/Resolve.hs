@@ -37,6 +37,7 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
+    TupleFlavor (..),
     ArithSeq (..),
     ArrowKind (..),
     BangType (..),
@@ -586,13 +587,14 @@ instanceHeadClass ty =
 -- | A method binding in an instance names a method of the class. The
 -- class may be in scope only under a qualifier, so the lookup goes
 -- through the scopes that export the class rather than the plain term
--- scope.
+-- scope. The method of the class wins over a term of the same name that
+-- another module exports.
 instanceMethodDefinition :: Maybe (Text, ResolvedName) -> Scope -> TermDefinition
 instanceMethodDefinition headClass scope name =
-  case (headClass, lookupTerm rendered scope) of
-    (Just (className, resolvedClass), ResolvedError _)
+  case headClass of
+    Just (className, resolvedClass)
       | found : _ <- classMethods className resolvedClass -> Just found
-    (_, resolved) -> Just resolved
+    _ -> Just (lookupTerm rendered scope)
   where
     rendered = renderUnqualifiedName name
     classMethods className resolvedClass =
@@ -762,6 +764,11 @@ resolveExpr expr =
   case expr of
     EAnn ann inner ->
       EAnn ann <$> withPushedSpan ann (resolveExpr inner)
+    -- The parser gives the tuple constructor @(,)@ as a name of commas. It
+    -- is the tuple section with no fields.
+    EVar name
+      | Just arity <- tupleConstructorArity name ->
+          resolveExpr (ETuple Boxed (replicate arity Nothing))
     EVar name ->
       EVar <$> resolveTermUse name
     -- An implicit parameter has no lexical binder. The type checker
@@ -968,6 +975,7 @@ annotateRebindableIf expr = do
 -- | Annotate a literal pattern with the names that the type checker needs.
 --
 -- An overloaded integer pattern gets the syntax terms that compare it.
+-- A string pattern gets the equality syntax term.
 -- A primitive literal pattern gets the resolution of its primitive type.
 annotatePatternLiteral :: Pattern -> Literal -> ResolveM Pattern
 annotatePatternLiteral pat lit = do
@@ -985,6 +993,10 @@ annotatePatternLiteral pat lit = do
         LitFloat _ TFractional _ -> do
           methodAnns <- mapM (syntaxTermAnnotation sp) (overloadedPatternMethods "fromRational")
           pure (foldr (PAnn . mkAnnotation) pat methodAnns)
+        -- A string pattern compares the scrutinee with the literal.
+        LitString {} -> do
+          equalityAnn <- syntaxTermAnnotation sp "=="
+          pure (PAnn (mkAnnotation equalityAnn) pat)
         _ -> pure pat
   where
     -- A negated literal pattern also negates the converted literal.
@@ -992,6 +1004,18 @@ annotatePatternLiteral pat lit = do
       case peelPatternAnn pat of
         PNegLit {} -> [conversion, "negate", "=="]
         _ -> [conversion, "=="]
+
+-- | The arity of a boxed tuple constructor that the parser gives as a name
+-- of commas, like @(,)@ or @(,,)@.
+tupleConstructorArity :: Name -> Maybe Int
+tupleConstructorArity name
+  | Nothing <- nameQualifier name,
+    not (T.null text),
+    T.all (== ',') text =
+      Just (T.length text + 1)
+  | otherwise = Nothing
+  where
+    text = nameText name
 
 literalSpan :: SourceSpan -> Literal -> SourceSpan
 literalSpan ambient (LitAnn ann inner) = literalSpan (pushSpanFromAnn ambient ann) inner
@@ -1266,6 +1290,10 @@ bindPattern pat =
     PList pats -> do
       (scope, pats') <- bindPatterns pats
       pure (scope, PList pats')
+    PCon name _ pats
+      | Just arity <- tupleConstructorArity name,
+        length pats == arity ->
+          bindPattern (PTuple Boxed pats)
     PCon name typeArgs pats -> do
       name' <- resolveTermUseAtName name
       typeArgs' <- mapM resolveType typeArgs
@@ -1368,6 +1396,10 @@ resolvePatternDefinition termDefinition pat =
       PUnboxedSum alt arity <$> resolvePatternDefinition termDefinition inner
     PList pats ->
       PList <$> mapM (resolvePatternDefinition termDefinition) pats
+    PCon name _ pats
+      | Just arity <- tupleConstructorArity name,
+        length pats == arity ->
+          resolvePatternDefinition termDefinition (PTuple Boxed pats)
     PCon name typeArgs pats ->
       PCon <$> resolveTermUseAtName name <*> mapM resolveType typeArgs <*> mapM (resolvePatternDefinition termDefinition) pats
     PInfix {} -> do

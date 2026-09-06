@@ -45,10 +45,9 @@ module Prelude
     (*>),
     (.),
     (++),
-    Foldable (elem, foldl, foldl1, foldr, foldr1, length, maximum, minimum, null, product, sum),
+    Foldable (elem, foldMap, foldl, foldl1, foldr, foldr1, length, maximum, minimum, null, product, sum),
+    Traversable (mapM, sequence, sequenceA, traverse),
     map,
-    mapM,
-    sequence,
     sequence_,
     zip,
     and,
@@ -173,7 +172,8 @@ import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
-import GHC.Internal.Foldable (Foldable (..))
+import GHC.Internal.Foldable (Foldable (..), all, and, any, concat, concatMap, mapM_, notElem, or, sequence_)
+import GHC.Internal.Traversable (Traversable (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
 import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#))
@@ -224,12 +224,6 @@ infixl 4 <$>
 map :: (a -> b) -> [a] -> [b]
 map _ [] = []
 map function (value : values) = function value : map function values
-
-concat :: [[a]] -> [a]
-concat = foldr (++) []
-
-concatMap :: (a -> [b]) -> [a] -> [b]
-concatMap function = concat . map function
 
 filter :: (a -> Bool) -> [a] -> [a]
 filter _ [] = []
@@ -286,15 +280,6 @@ unzip ((left, right) : values) =
 zip :: [a] -> [b] -> [(a, b)]
 zip (left : lefts) (right : rights) = (left, right) : zip lefts rights
 zip _ _ = []
-
-and :: [Bool] -> Bool
-and = foldr (&&) True
-
-all :: (a -> Bool) -> [a] -> Bool
-all predicate = foldr (\value result -> predicate value && result) True
-
-any :: (a -> Bool) -> [a] -> Bool
-any predicate = foldr (\value result -> predicate value || result) False
 
 break :: (a -> Bool) -> [a] -> ([a], [a])
 break _ [] = ([], [])
@@ -353,23 +338,6 @@ takeWhile predicate (value : values) =
   if predicate value
     then value : takeWhile predicate values
     else []
-
-mapM_ :: (Monad m) => (a -> m b) -> [a] -> m ()
-mapM_ _ [] = return ()
-mapM_ function (value : values) = function value >> mapM_ function values
-
-sequence :: (Monad m) => [m a] -> m [a]
-sequence [] = return []
-sequence (action : actions) = do
-  value <- action
-  values <- sequence actions
-  return (value : values)
-
-sequence_ :: (Monad m) => [m a] -> m ()
-sequence_ = foldr (>>) (return ())
-
-mapM :: (Monad m) => (a -> m b) -> [a] -> m [b]
-mapM function = sequence . map function
 
 newtype ReadPrec a = ReadPrec (Prec -> ReadS a)
 
@@ -848,6 +816,21 @@ print value = putStrLn (show value)
 instance Functor List where
   fmap = fmapList
 
+instance Traversable Maybe where
+  traverse _ Nothing = pure Nothing
+  traverse f (Just value) = fmap Just (f value)
+
+instance Traversable [] where
+  traverse _ [] = pure []
+  traverse f (value : values) = liftA2 (:) (f value) (traverse f values)
+
+instance Traversable (Either e) where
+  traverse _ (Left value) = pure (Left value)
+  traverse f (Right value) = fmap Right (f value)
+
+instance Traversable ((,) e) where
+  traverse f (label, value) = fmap (\result -> (label, result)) (f value)
+
 instance Functor Maybe where
   fmap f mx =
     case mx of
@@ -1055,12 +1038,6 @@ scanr1 combine (value : values) =
   case scanr1 combine values of
     results@(result : _) -> combine value result : results
     [] -> [value]
-
-notElem :: (Eq a) => a -> [a] -> Bool
-notElem value values = not (value `elem` values)
-
-or :: [Bool] -> Bool
-or = any id
 
 (!!) :: [a] -> Int -> a
 (!!) values index =

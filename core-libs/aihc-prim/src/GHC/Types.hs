@@ -16,6 +16,7 @@ module GHC.Types
     isTrue#,
     Ordering (..),
     Constraint,
+    Coercible,
     TYPE,
     Type,
     UnliftedType,
@@ -112,6 +113,13 @@ data Ordering = LT | EQ | GT
 
 type Constraint :: Type
 data Constraint
+
+-- | The types that share one runtime representation. The type checker
+-- unifies the two types through newtypes, then this instance solves the
+-- constraint.
+class Coercible a b
+
+instance Coercible a b
 
 data TYPE (rep :: RuntimeRep)
 

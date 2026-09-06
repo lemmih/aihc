@@ -674,10 +674,10 @@ builtinScope =
 --
 -- Note: names here must match exactly what the parser emits as the 'Name'
 -- text inside 'TCon'.  For example, the function arrow appears as @"->"@
--- (not @"(->)"@).
+-- (not @"(->)"@). The equality constraint @~@ is also built in.
 builtinTypeNames :: [T.Text]
 builtinTypeNames =
-  ["->"]
+  ["->", "~"]
 
 unionScope :: Scope -> Scope -> Scope
 unionScope left right =

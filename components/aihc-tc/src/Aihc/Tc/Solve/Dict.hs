@@ -19,16 +19,16 @@ where
 import Aihc.Parser.Syntax (SourceSpan (..))
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), instanceIsForClass)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..))
-import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, mkKnownTyCon)
+import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, implicitParamType, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, mkKnownTyCon)
 import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
-import Aihc.Tc.Unify (unify)
+import Aihc.Tc.Unify (unify, unifyTypes)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, (<=<))
+import Control.Monad (foldM, void, zipWithM_, (<=<))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
@@ -72,6 +72,13 @@ solveDictWithGivensVisited visited givens ct
             Nothing ->
               case (tyConName className, args') of
                 ("Typeable", [ty]) -> tryTypeable className ty
+                ("Coercible", [left, right]) -> do
+                  -- The representations must agree. The unification binds
+                  -- the meta variables that the coercion leaves open, then
+                  -- the catch-all instance solves the constraint.
+                  unifyRepresentations left right
+                  instances <- getClassInstances (tyConName className)
+                  tryInstances (ctPred ct : visited) className args' instances
                 _ -> do
                   instances <- getClassInstances (tyConName className)
                   tryInstances (ctPred ct : visited) className args' instances
@@ -303,6 +310,49 @@ solveDictWithGivensVisited visited givens ct
           consequentType <- predicateType consequent
           let qualified = if null antecedents then consequentType else TcQualTy antecedents consequentType
           pure (foldr TcForAllTy qualified variables)
+
+-- | Unify two types up to newtype unwrapping. A mismatch of rigid types is
+-- not an error here, because the caller of coerce keeps the property that
+-- the representations agree.
+unifyRepresentations :: TcType -> TcType -> TcM ()
+unifyRepresentations left right = do
+  left' <- zonkType left
+  right' <- zonkType right
+  case (left', right') of
+    _
+      | left' == right' -> pure ()
+    (TcMetaTv {}, _) -> void (unifyTypes left' right')
+    (_, TcMetaTv {}) -> void (unifyTypes left' right')
+    (TcTyCon leftTyCon leftArgs, TcTyCon rightTyCon rightArgs)
+      | leftTyCon == rightTyCon,
+        length leftArgs == length rightArgs ->
+          zipWithM_ unifyRepresentations leftArgs rightArgs
+    (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) -> do
+      unifyRepresentations leftArgument rightArgument
+      unifyRepresentations leftResult rightResult
+    _ -> do
+      leftUnwrapped <- unwrapNewtype left'
+      rightUnwrapped <- unwrapNewtype right'
+      case (leftUnwrapped, rightUnwrapped) of
+        (Just inner, _) -> unifyRepresentations inner right'
+        (_, Just inner) -> unifyRepresentations left' inner
+        _ -> pure ()
+
+-- | The field type of a saturated newtype application.
+unwrapNewtype :: TcType -> TcM (Maybe TcType)
+unwrapNewtype ty =
+  case ty of
+    TcTyCon tyCon arguments -> do
+      maybeInfo <- lookupDataType tyCon
+      pure $ case maybeInfo of
+        Just info
+          | dtiFlavor info == NewtypeTyCon,
+            [constructor] <- dtiConstructors info,
+            [field] <- dciFields constructor,
+            length (dciUnivTyVars constructor) == length arguments ->
+              Just (applySubst (Map.fromList (zip (map tvUnique (dciUnivTyVars constructor)) arguments)) (dcfiType field))
+        _ -> Nothing
+    _ -> pure Nothing
 
 typeableArguments :: TcType -> Maybe [TcType]
 typeableArguments ty =

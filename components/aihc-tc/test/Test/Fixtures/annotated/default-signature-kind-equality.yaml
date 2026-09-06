@@ -1,0 +1,38 @@
+annotated:
+- |-
+  {-# LANGUAGE DefaultSignatures #-}
+  {-# LANGUAGE KindSignatures #-}
+  {-# LANGUAGE PolyKinds #-}
+  {-# LANGUAGE DataKinds #-}
+  module Main where
+  import GHC.Types (Bool (..), Type, TYPE, RuntimeRep, LiftedRep)
+  class Describe (t :: TYPE r) where
+  └─ class methods: describe ∷ ∀ r t. (Describe t) ⇒ t → Bool
+    describe :: t -> Bool
+    default describe :: (r ~ LiftedRep) => t -> Bool
+    describe value = plain value
+    │        │       └─ type: t → GHC.Types.Bool; type-args: t
+    │        └─ type: t
+    └─ describe ∷ ∀ t. (Describe t) ⇒ t → Bool
+  plain :: a -> Bool
+  plain _ = True
+  │     └─ type: a
+  └─ type: ∀ a. a → GHC.Types.Bool
+extensions: []
+modules:
+- |
+  {-# LANGUAGE DefaultSignatures #-}
+  {-# LANGUAGE KindSignatures #-}
+  {-# LANGUAGE PolyKinds #-}
+  {-# LANGUAGE DataKinds #-}
+  module Main where
+  import GHC.Types (Bool (..), Type, TYPE, RuntimeRep, LiftedRep)
+  class Describe (t :: TYPE r) where
+    describe :: t -> Bool
+    default describe :: (r ~ LiftedRep) => t -> Bool
+    describe value = plain value
+  plain :: a -> Bool
+  plain _ = True
+reason: the equality of a default signature fixes the kind variable of a
+  levity-polymorphic class, so the default body binds the argument
+status: pass

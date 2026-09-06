@@ -1,0 +1,41 @@
+annotated:
+- |-
+  module Main where
+  import GHC.Classes (Eq (..))
+  import GHC.Types (Bool (..))
+  member :: Eq a => a -> [a] -> Bool
+  member x0 = go x0
+  │      │    └─ type: a → [a] → GHC.Types.Bool; type-args: a; evidence: given Eq a
+  │      └─ type: a
+  └─ type: ∀ a. (GHC.Classes.Eq a) ⇒ a → [a] → GHC.Types.Bool
+    where
+      go :: Eq a => a -> [a] -> Bool
+      go _ [] = False
+      │  │ └─ type: [a]
+      │  └─ type: a
+      └─ type: ∀ a. (GHC.Classes.Eq a) ⇒ a → [a] → GHC.Types.Bool
+      go x (y : ys) = if x == y then True else go x ys
+      │  │  │ │ │        │ │                   └─ type: a → [a] → GHC.Types.Bool; type-args: a; evidence: given Eq a
+      │  │  │ │ │        │ │                   └─ type: a → [a] → GHC.Types.Bool; type-args: a; evidence: given Eq a
+      │  │  │ │ │        │ └─ type: a → a → GHC.Types.Bool; type-args: a; evidence: given Eq a
+      │  │  │ │ │        └─ type: GHC.Types.Bool
+      │  │  │ │ └─ type: [a]
+      │  │  │ └─ type: [a]
+      │  │  └─ type: a
+      │  └─ type: a
+      └─ type: ∀ a. (GHC.Classes.Eq a) ⇒ a → [a] → GHC.Types.Bool
+extensions: []
+modules:
+- |
+  module Main where
+  import GHC.Classes (Eq (..))
+  import GHC.Types (Bool (..))
+  member :: Eq a => a -> [a] -> Bool
+  member x0 = go x0
+    where
+      go :: Eq a => a -> [a] -> Bool
+      go _ [] = False
+      go x (y : ys) = if x == y then True else go x ys
+reason: the context of a local signature gives the body its dictionaries, and
+  the recursive call uses them
+status: pass

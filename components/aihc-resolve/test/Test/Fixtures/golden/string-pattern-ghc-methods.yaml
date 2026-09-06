@@ -1,0 +1,35 @@
+annotated:
+- |-
+  module GHC.Classes where
+  data Bool = False | True
+       │      │       └─ v GHC.Classes
+       │      └─ v GHC.Classes
+       └─ t GHC.Classes
+  (==) x y = True
+   │   │ │   └─ v GHC.Classes
+   │   │ └─ v 1
+   │   └─ v 0
+   └─ v GHC.Classes
+- |-
+  module Main where
+  match = \case
+  └─ v Main
+    "abc" -> ()
+    │        └─ v Builtin ()
+    └─ v GHC.Classes
+    _ -> ()
+         └─ v Builtin ()
+extensions:
+- LambdaCase
+modules:
+- |
+  module GHC.Classes where
+  data Bool = False | True
+  (==) x y = True
+- |
+  module Main where
+  match = \case
+    "abc" -> ()
+    _ -> ()
+reason: a string literal pattern resolves GHC.Classes.== by default
+status: pass

@@ -1099,6 +1099,10 @@ evalPrimitive "minusAddr#" [left, right] = do
   rightPointer <- expectAddress "minusAddr#" right
   pure [intRuntimeValue (toInteger (leftPointer `minusPtr` rightPointer))]
 evalPrimitive "eqAddr#" [left, right] = evalAddressComparison "eqAddr#" (==) left right
+-- Structural equality is stronger than object identity. Two equal values
+-- give 1#, which is a safe answer for the callers that use the result
+-- only to skip work.
+evalPrimitive "reallyUnsafePtrEquality#" [left, right] = pure [intRuntimeValue (if left == right then 1 else 0)]
 evalPrimitive "neAddr#" [left, right] = evalAddressComparison "neAddr#" (/=) left right
 evalPrimitive "ltAddr#" [left, right] = evalAddressComparison "ltAddr#" (<) left right
 evalPrimitive "leAddr#" [left, right] = evalAddressComparison "leAddr#" (<=) left right

@@ -1,0 +1,26 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    firstOfPair :: Maybe ((Int, Int), Int) -> Int
+    firstOfPair value =
+      case value of
+        Nothing -> 0
+        Just ~((x, _), rest) -> x + rest
+
+    lazyPair :: (Int, Int) -> Int
+    lazyPair ~(left, right) = left + right
+
+    unforced :: (Int, Int) -> Int
+    unforced ~(_, _) = 7
+
+    values :: (Int, Int, Int, Int)
+    values = (firstOfPair (Just ((1, 2), 3)), firstOfPair Nothing, lazyPair (4, 5), unforced undefined)
+output: |
+  ((I# 4),(I# 0),(I# 9),(I# 7))
+expression: |
+  values
+status: pass
+reason: a lazy pattern binds its variables through thunks, so the match
+  does not force the scrutinee

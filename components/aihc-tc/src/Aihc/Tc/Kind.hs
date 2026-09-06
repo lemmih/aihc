@@ -872,6 +872,14 @@ surfaceAtomicPredToPred tvEnv ty =
 surfaceClassPredToPred :: TvKindEnv -> Type -> TcM Pred
 surfaceClassPredToPred tvEnv ty =
   case instanceHeadName (peelTypeHead ty) of
+    -- The built-in equality constraint has no class declaration.
+    Just className
+      | nameText className == "~",
+        [leftType, rightType] <- instanceHeadTypes (peelTypeHead ty) -> do
+          (left, leftKind) <- convertSurfaceTypeWithKinds tvEnv leftType
+          (right, rightKind) <- convertSurfaceTypeWithKinds tvEnv rightType
+          unifyKinds leftKind rightKind
+          pure (EqPred left right)
     Just className -> do
       let classNameText = nameText className
           headArgs = instanceHeadTypes (peelTypeHead ty)

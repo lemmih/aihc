@@ -1,0 +1,28 @@
+annotated:
+- |-
+  module Main where
+  import GHC.Types (Char)
+  class IsString a where
+  └─ class methods: fromString ∷ ∀ a. (IsString a) ⇒ [Char] → a
+    fromString :: [Char] -> a
+  newtype Seq a = Seq [a]
+          │       └─ type: ∀ a. [a] → Seq a
+          └─ type: Type → Type
+  instance a ~ Char => IsString (Seq a) where
+  └─ $fIsStringSeqChar ∷ () ⇒ IsString (Seq Char)
+    fromString = Seq
+    │            └─ type: [GHC.Types.Char] → Seq GHC.Types.Char; type-args: Char
+    └─ fromString ∷ [Char] → Seq Char
+extensions: []
+modules:
+- |
+  module Main where
+  import GHC.Types (Char)
+  class IsString a where
+    fromString :: [Char] -> a
+  newtype Seq a = Seq [a]
+  instance a ~ Char => IsString (Seq a) where
+    fromString = Seq
+reason: an equality in an instance context fixes the instance type variable,
+  so the instance head and the method bodies use the fixed type
+status: pass

@@ -54,7 +54,7 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Kind (explicitForallNames, scopedSigTyVars, sigToScheme)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
+import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
@@ -609,12 +609,39 @@ inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do
           withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
             mapM (tcMatchEquation inferExpr argTys resTy) matches
         let matches' = map fst results
-            matchCts = concatMap snd results
+        matchCts <- solveLocalSignatureBody scheme (concatMap snd results)
         pure (matches', sigTy, matchCts)
       Nothing ->
         tcMatches inferExpr matches
   cts' <- tiePlaceholder placeholders key ty cts
   pure (matches', ty, cts')
+
+-- | Solve the constraints of a local binding body under the context of its
+-- signature. The context predicates are givens, and the signature type
+-- variables are skolems. The wanteds that the givens do not solve continue
+-- to the enclosing scope.
+solveLocalSignatureBody :: TypeScheme -> [Ct] -> TcM [Ct]
+solveLocalSignatureBody (ForAll tyVars predicates _) bodyCts
+  | null predicates = pure bodyCts
+  | otherwise = do
+      givens <- mapM givenConstraint predicates
+      level <- getTcLevel
+      let implication =
+            Implication
+              { implSkols = tyVars,
+                implGivenEvs = map ctEvVar givens,
+                implGivenCts = givens,
+                implWantedCts = bodyCts,
+                implTcLevel = level,
+                implInfo = LetOrigin NoSourceSpan
+              }
+      result <- solveWithImpls [] [implication]
+      pure (inertDicts (srInerts result))
+  where
+    givenConstraint predicate = do
+      evidence <- freshEvVar
+      bindEvidence evidence (EvGiven predicate)
+      pure ((mkWantedCt predicate evidence (LetOrigin NoSourceSpan) NoSourceSpan) {ctFlavor = Given})
 
 inferLocalPatternBind :: InferExpr -> Map TcTermKey TypeScheme -> ScopedSigs -> Map TcTermKey TcType -> UnqualifiedName -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
 inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
@@ -622,16 +649,17 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
   (rhs', rhsTy, rhsCts) <-
     withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
       inferRhsWithLocals inferExpr rhs
-  (ty, sigCts) <-
+  (ty, bodyCts) <-
     case Map.lookup key sigs of
       Just scheme -> do
         sigTy <- maybe (skolemize scheme) pure (Map.lookup key placeholders)
         -- The right-hand side must have the signature type.
         ev <- freshEvVar
         let sigCt = mkWantedCt (EqPred sigTy rhsTy) ev (LetOrigin NoSourceSpan) NoSourceSpan
-        pure (sigTy, [sigCt])
-      Nothing -> pure (rhsTy, [])
-  cts <- tiePlaceholder placeholders key ty (rhsCts <> sigCts)
+        solved <- solveLocalSignatureBody scheme (rhsCts <> [sigCt])
+        pure (sigTy, solved)
+      Nothing -> pure (rhsTy, rhsCts)
+  cts <- tiePlaceholder placeholders key ty bodyCts
   pure (rhs', ty, cts)
 
 tiePlaceholder :: Map TcTermKey TcType -> TcTermKey -> TcType -> [Ct] -> TcM [Ct]

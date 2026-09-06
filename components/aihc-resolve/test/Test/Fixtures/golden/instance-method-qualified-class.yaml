@@ -1,0 +1,49 @@
+annotated:
+- |-
+  module Main where
+  import qualified Sized
+  import Other
+  data Box a = Box a
+       │       └─ v Main
+       └─ t Main
+  instance Sized.Sized Box where
+           └─ t Sized  └─ t Main
+    size (Box x) = x
+    │     │   │    └─ v 0
+    │     │   └─ v 0
+    │     └─ v Main
+    └─ v Sized
+- |-
+  module Other where
+  size :: a -> a
+  └─ v Other
+  size x = x
+  │    │   └─ v 0
+  │    └─ v 0
+  └─ v Other
+- |-
+  module Sized where
+  class Sized f where
+        └─ t Sized
+    size :: f a -> a
+    └─ v Sized
+extensions: []
+modules:
+- |
+  module Sized where
+  class Sized f where
+    size :: f a -> a
+- |
+  module Other where
+  size :: a -> a
+  size x = x
+- |
+  module Main where
+  import qualified Sized
+  import Other
+  data Box a = Box a
+  instance Sized.Sized Box where
+    size (Box x) = x
+reason: an instance method binding names the class method even when another
+  module exports a term with the same name and the class is imported qualified
+status: pass

@@ -1,0 +1,27 @@
+annotated:
+- |-
+  module Main where
+  first ((,) a _) = a
+  └─ v Main  └─ v 0 └─ v 0
+  pair x y = (,) x y
+  │    │ │   │   │ └─ v 2
+  │    │ │   │   └─ v 1
+  │    │ │   └─ v Builtin (,)
+  │    │ └─ v 2
+  │    └─ v 1
+  └─ v Main
+  apply f = f (,)
+  │     │   │ └─ v Builtin (,)
+  │     │   └─ v 3
+  │     └─ v 3
+  └─ v Main
+extensions: []
+modules:
+- |
+  module Main where
+  first ((,) a _) = a
+  pair x y = (,) x y
+  apply f = f (,)
+reason: the tuple constructor written as commas resolves to the boxed tuple
+  constructor in expressions and patterns
+status: pass

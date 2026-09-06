@@ -1,0 +1,22 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    class Describe a where
+      describe :: a -> String
+
+    newtype Box a = Box a
+
+    instance a ~ Char => Describe (Box a) where
+      describe (Box value) = [value, value]
+
+    values :: String
+    values = describe (Box 'x')
+output: |
+  : 'x' (: 'x' [])
+expression: |
+  values
+status: pass
+reason: an equality in an instance context has no runtime evidence, so the
+  dictionary takes no argument for it

@@ -88,6 +88,7 @@ import Prelude
     Ord (..),
     Ordering (..),
     Show (..),
+    Traversable (..),
     showParen,
     showString,
     (++),
@@ -117,6 +118,9 @@ instance (Show a) => Show (NonEmpty a) where
 
 instance Functor NonEmpty where
   fmap f ((:|) value values) = f value :| mapList f values
+
+instance Traversable NonEmpty where
+  traverse f (value :| values) = liftA2 (:|) (f value) (traverse f values)
 
 instance Applicative NonEmpty where
   pure = singleton

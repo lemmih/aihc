@@ -4,14 +4,24 @@
 -- does not import Prelude, so Prelude can export the class methods.
 module GHC.Internal.Foldable
   ( Foldable (..),
+    and,
+    or,
+    any,
+    all,
+    concat,
+    concatMap,
+    notElem,
+    mapM_,
+    sequence_,
   )
 where
 
-import Data.Bool (Bool (..), (&&), (||))
+import Data.Bool (Bool (..), not, (&&), (||))
 import Data.Either (Either (..))
 import Data.Kind (Type)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
-import GHC.Base (Maybe (..), id, (++), (.))
+import GHC.Base (Maybe (..), Monad (..), id, (++), (.))
+import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Int (Int)
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Num (Num (..))
@@ -137,3 +147,39 @@ instance Foldable ((,) e) where
   foldr f initial (_, value) = f value initial
   foldl f initial (_, value) = f initial value
   null _ = False
+
+instance Foldable NonEmpty where
+  foldMap f (value :| values) = f value <> foldMap f values
+  foldr f initial (value :| values) = f value (foldr f initial values)
+  toList (value :| values) = value : values
+  null _ = False
+  length (_ :| values) = 1 + length values
+
+and :: (Foldable t) => t Bool -> Bool
+and = foldr (&&) True
+
+or :: (Foldable t) => t Bool -> Bool
+or = foldr (||) False
+
+any :: (Foldable t) => (a -> Bool) -> t a -> Bool
+any predicate = foldr (\value rest -> predicate value || rest) False
+
+all :: (Foldable t) => (a -> Bool) -> t a -> Bool
+all predicate = foldr (\value rest -> predicate value && rest) True
+
+concat :: (Foldable t) => t [a] -> [a]
+concat = foldr (++) []
+
+concatMap :: (Foldable t) => (a -> [b]) -> t a -> [b]
+concatMap f = foldr (\value rest -> f value ++ rest) []
+
+notElem :: (Foldable t, Eq a) => a -> t a -> Bool
+notElem target structure = not (target `elem` structure)
+
+infix 4 `notElem`
+
+mapM_ :: (Foldable t, Monad m) => (a -> m b) -> t a -> m ()
+mapM_ f = foldr (\value rest -> f value >> rest) (return ())
+
+sequence_ :: (Foldable t, Monad m) => t (m a) -> m ()
+sequence_ = foldr (>>) (return ())

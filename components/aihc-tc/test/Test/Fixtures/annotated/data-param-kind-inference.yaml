@@ -1,0 +1,31 @@
+annotated:
+- |-
+  module Main where
+  import GHC.Types (Int, Bool)
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  newtype Wrap f a = Wrap (f a)
+          │          └─ type: ∀ f a. f a → Wrap f a
+          └─ type: (Type → Type) → Type → Type
+  type Simple = Wrap Maybe
+       └─ type: Type → Type
+  value :: Simple Bool
+  value = Wrap Nothing
+  │       │    └─ type: Maybe GHC.Types.Bool; type-args: Bool
+  │       └─ type: Maybe GHC.Types.Bool → Wrap Maybe GHC.Types.Bool; type-args: Maybe, Bool
+  └─ type: Wrap Maybe GHC.Types.Bool
+extensions: []
+modules:
+- |
+  module Main where
+  import GHC.Types (Int, Bool)
+  data Maybe a = Nothing | Just a
+  newtype Wrap f a = Wrap (f a)
+  type Simple = Wrap Maybe
+  value :: Simple Bool
+  value = Wrap Nothing
+reason: a data type parameter that a constructor field applies to an argument
+  gets a function kind, and a synonym without parameters keeps that kind
+status: pass

@@ -257,6 +257,7 @@ library
     GHC.Internal.Classes
     GHC.Internal.Data.NonEmpty
     GHC.Internal.Foldable
+    GHC.Internal.Traversable
     GHC.Internal.IO.Types
     GHC.Internal.Integer
     GHC.Read.Lex

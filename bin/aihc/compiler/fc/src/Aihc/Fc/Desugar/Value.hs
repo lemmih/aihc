@@ -94,9 +94,9 @@ import Aihc.Tc.Types
     pattern WordRep,
   )
 import Control.Applicative ((<|>))
-import Control.Monad (unless, zipWithM)
+import Control.Monad (forM, unless, zipWithM)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
+import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
 import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified as BS
 import Data.Char (isAsciiUpper)
@@ -118,6 +118,9 @@ data ValueState = ValueState
     vsConvertEnv :: !ConvertEnv,
     vsBindingTypes :: !(Map TcTermKey TcType),
     vsLocals :: !(Map TcTermKey (Binder, TcType)),
+    -- | The selector bodies of the binders that a lazy pattern binds. The
+    -- row that brings such a binder into scope binds it with a let.
+    vsLazyDefinitions :: !(Map Name Expr),
     vsDictionaries :: !(Map Text Binder),
     -- | The evidence that the current binding shares, when it has a place to
     -- put the bindings. 'Nothing' turns sharing off.
@@ -303,6 +306,7 @@ desugarValues convertEnv bindings interface moduleOrigin checked = do
             vsConvertEnv = convertEnv,
             vsBindingTypes = Map.union localTypes (preparedTypes interface),
             vsLocals = Map.empty,
+            vsLazyDefinitions = Map.empty,
             vsDictionaries = Map.empty,
             vsEvidenceScope = Nothing,
             vsConstructors = preparedConstructors interface,
@@ -322,9 +326,19 @@ desugarModuleValues checked = do
   patSyns <- concat <$> mapM desugarPatSynDecl (Syn.moduleDecls checked)
   (groups, patternGroups) <- groupValues (Syn.moduleDecls checked)
   tops <- mapM allocateTopValue groups
-  values <- mapM desugarTopValue tops
+  values <- mapM (\top -> withTopContext (nameText (topCoreName top)) (desugarTopValue top)) tops
   patternValues <- concat <$> mapM desugarTopPatternGroup patternGroups
   pure (phaseOne <> instances <> patSyns <> map DeclVal (values <> patternValues))
+
+-- | Run an action and name the top-level binding in its error.
+withTopContext :: Text -> ValueM a -> ValueM a
+withTopContext name action = do
+  state <- get
+  case runStateT action state of
+    Left message -> lift (Left ("in " <> T.unpack name <> ": " <> message))
+    Right (result, state') -> do
+      put state'
+      pure result
 
 -- | Make the matcher and the builder of a pattern synonym. The matcher
 -- @$mP@ takes the scrutinee, a success continuation with the argument
@@ -482,7 +496,7 @@ desugarPatSynCall :: PatSynInfo -> TcAnnotation -> TcType -> Binder -> Syn.Patte
 desugarPatSynCall info annotation resultType scrutinee pattern' failureExpression body = do
   let children = patternChildren pattern'
       (requiredTerms, providedTerms) = splitAt (length (psiReqTheta info)) (tcAnnEvidenceTerms annotation)
-      providedPredicates = [predicate | Ev.EvGiven predicate <- providedTerms]
+      providedPredicates = dictionaryPredicates [predicate | Ev.EvGiven predicate <- providedTerms]
       typeVariables = tcAnnTypeBinders annotation
   typeBinders <- convertTypeBinders typeVariables
   fieldTypes <- mapM requiredPatternType children
@@ -967,7 +981,9 @@ desugarInstanceDecl declaration =
 desugarInstance :: TcInstanceAnnotation -> Syn.InstanceDecl -> ValueM Decl
 desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars annotation) $ do
   let methods = Map.fromListWith appendMatches (instanceMethods instanceDecl)
-  contextDictionaries <- zipWithM makeContextDictionary [0 :: Int ..] (tcInstanceContextDicts annotation)
+  -- An equality in the context has no runtime evidence.
+  let contextDicts = filter (not . isEqualityDictionary) (tcInstanceContextDicts annotation)
+  contextDictionaries <- zipWithM makeContextDictionary [0 :: Int ..] contextDicts
   fields <- withDictionaries contextDictionaries $ do
     superClasses <- mapM (desugarEvidence . snd) (tcInstanceSuperClasses annotation)
     methodFields <- mapM (desugarInstanceMethod annotation contextDictionaries methods) (tcInstanceMethodOrder annotation)
@@ -1010,11 +1026,14 @@ desugarDefaultMethod annotation dictionaries methodName = do
   convertedHeadTypes <- convertTyConApplicationArguments (tcInstanceClassTyCon annotation) (tcInstanceHeadTypes annotation)
   convertedInstanceTypes <- mapM (convertCheckedType . TcTyVar) (tcInstanceTyVars annotation)
   let classTyVars = tcInstanceClassTyVars annotation
-      extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars method)
+      -- The method type variables start with the class kind variables and
+      -- the class type variables, one for each type argument of the class,
+      -- also the invisible kind arguments. The rest are the method's own.
+      extraTyVars = drop (length convertedHeadTypes) (tcClassMethodTyVars method)
       substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, _) = peelConstraints methodAfterForAlls
-      extraPredicates = map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates)
+      extraPredicates = dictionaryPredicates (map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates))
   extraTypeBinders <- convertTypeBinders extraTyVars
   convertedExtraTypes <- mapM (convertCheckedType . TcTyVar) extraTyVars
   extraDictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] extraPredicates
@@ -1037,6 +1056,19 @@ dropClassPredicate classTyCon predicates =
     ClassPred predicateClass _ : rest
       | predicateClass == classTyCon -> rest
     predicate : rest -> predicate : dropClassPredicate classTyCon rest
+
+isEqualityDictionary :: TcDictBinderAnnotation -> Bool
+isEqualityDictionary annotation =
+  maybe False isEqualityPred (constraintTypeToPred (tcDictBinderType annotation))
+
+-- | Whether an evidence term is a coercion, which has no runtime value.
+isCoercionEvidence :: Ev.EvTerm -> Bool
+isCoercionEvidence evidence =
+  case evidence of
+    Ev.EvCoercion {} -> True
+    Ev.EvGiven predicate -> isEqualityPred predicate
+    Ev.EvCast inner _ -> isCoercionEvidence inner
+    _ -> False
 
 makeContextDictionary :: Int -> TcDictBinderAnnotation -> ValueM Dictionary
 makeContextDictionary index annotation = do
@@ -1527,7 +1559,8 @@ overloadedPatternFailure resultType arguments = do
 
 -- | The test of an overloaded literal pattern. The literal converts with
 -- fromInteger or fromRational, and the equality method compares it with
--- the scrutinee.
+-- the scrutinee. A string literal is a list of characters, so it needs no
+-- conversion.
 desugarOverloadedLiteralPatternTest :: Expr -> Syn.Pattern -> ValueM Expr
 desugarOverloadedLiteralPatternTest scrutinee pattern' = do
   (value, negative) <-
@@ -1541,6 +1574,13 @@ desugarOverloadedLiteralPatternTest scrutinee pattern' = do
         ExApp <$> desugarPatternMethod "fromInteger" pattern' <*> desugarIntegerLiteral integer
       OverloadedRational rational ->
         ExApp <$> desugarPatternMethod "fromRational" pattern' <*> desugarRationalLiteral rational
+      OverloadedString text stringType -> do
+        checkedType <-
+          maybe
+            (failValue "string literal pattern is missing its checked type")
+            pure
+            stringType
+        desugarString (TcAnnotation checkedType [] [] [] [] []) text
   patternValue <-
     if negative
       then (`ExApp` positive) <$> desugarPatternMethod "negate" pattern'
@@ -1591,6 +1631,8 @@ patternOccurrence target = go Nothing
 data OverloadedLiteral
   = OverloadedInteger Integer
   | OverloadedRational Rational
+  | -- | A string literal with its checked type.
+    OverloadedString Text (Maybe TcType)
 
 isOverloadedLiteralPattern :: Syn.Pattern -> Bool
 isOverloadedLiteralPattern = isJust . overloadedPatternValue
@@ -1614,6 +1656,7 @@ overloadedLiteralValue literal =
   case Syn.peelLiteralAnn literal of
     Syn.LitInt value Syn.TInteger _ -> Just (OverloadedInteger value)
     Syn.LitFloat value Syn.TFractional _ -> Just (OverloadedRational value)
+    Syn.LitString value _ -> Just (OverloadedString value (literalType literal))
     _ -> Nothing
 
 desugarDataPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
@@ -1813,7 +1856,7 @@ patternGivenPredicates = go
         | annotation <- annotations,
           Just checked <- [Syn.fromAnnotation annotation :: Maybe TcAnnotation]
         ]
-    evidencePredicates checked = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceTerms checked]
+    evidencePredicates checked = dictionaryPredicates [predicate | Ev.EvGiven predicate <- tcAnnEvidenceTerms checked]
 
 patternTypeVariables :: Syn.Pattern -> [TyVarId]
 patternTypeVariables = go
@@ -1978,11 +2021,27 @@ patternMatchBindings pattern' binder ty =
     Syn.PAnn _ inner -> patternMatchBindings inner binder ty
     Syn.PParen inner -> patternMatchBindings inner binder ty
     Syn.PStrict inner -> patternMatchBindings inner binder ty
-    Syn.PIrrefutable inner -> patternMatchBindings inner binder ty
+    Syn.PIrrefutable inner
+      | patternIsDefault inner -> patternMatchBindings inner binder ty
+      | otherwise -> lazyPatternBindings inner binder ty
     Syn.PTypeSig inner _ -> patternMatchBindings inner binder ty
     Syn.PVar name -> binderEntry name binder ty
     Syn.PAs name inner -> (<>) <$> binderEntry name binder ty <*> patternMatchBindings inner binder ty
     _ -> pure []
+
+-- | The bindings of a lazy pattern with structure. Each variable gets a
+-- binder whose body matches the pattern against the scrutinee, so the
+-- match runs only when the variable is used.
+lazyPatternBindings :: Syn.Pattern -> Binder -> TcType -> ValueM [(TcTermKey, (Binder, TcType))]
+lazyPatternBindings pattern' scrutinee ty = do
+  specs <- patternBinderSpecs pattern'
+  forM specs $ \(key, name, fieldType) -> do
+    field <- freshBinder name fieldType
+    body <- desugarDoPattern fieldType scrutinee ty pattern' $ do
+      (bound, _) <- lookupLocal key name
+      pure (ExVar (binderName bound))
+    modify' (\state -> state {vsLazyDefinitions = Map.insert (binderName field) body (vsLazyDefinitions state)})
+    pure (key, (field, fieldType))
 
 binderEntry :: Syn.UnqualifiedName -> Binder -> TcType -> ValueM [(TcTermKey, (Binder, TcType))]
 binderEntry name binder ty = do
@@ -2173,7 +2232,7 @@ desugarExpr expression =
 
 desugarAnnotatedExpr :: TcAnnotation -> Syn.Expr -> ValueM Expr
 desugarAnnotatedExpr annotation inner = do
-  let evidencePredicates = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceBinders annotation]
+  let evidencePredicates = dictionaryPredicates [predicate | Ev.EvGiven predicate <- tcAnnEvidenceBinders annotation]
   evidenceBinders <- zipWithM (freshDictionaryBinder "$higher_rank_d") [0 :: Int ..] evidencePredicates
   body <-
     withAlternativeScope (not (null (tcAnnTypeBinders annotation))) (zipWith Dictionary evidencePredicates evidenceBinders) $
@@ -3393,7 +3452,7 @@ desugarEvidence evidence =
         Nothing -> failValue ("missing given dictionary for " <> show predicate)
     Ev.EvDict origin dictionaryName types subEvidence -> do
       convertedTypes <- mapM convertCheckedType types
-      evidenceArguments <- mapM desugarEvidence subEvidence
+      evidenceArguments <- mapM desugarEvidence (filter (not . isCoercionEvidence) subEvidence)
       let (packageName, moduleName') = origin
           package = PackageId packageName
           name = Name dictionaryName SortValue (OriginTop package moduleName')
@@ -3570,7 +3629,7 @@ desugarResolvedOccurrence :: TcAnnotation -> ResolutionAnnotation -> ValueM Expr
 desugarResolvedOccurrence annotation resolution = do
   name <- resolvedAnnotationName resolution
   types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
-  evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
+  evidence <- mapM desugarEvidence (filter (not . isCoercionEvidence) (tcAnnEvidenceTerms annotation))
   desugarTermReference name types evidence (seqTermArgumentTypes annotation)
 
 resolvedAnnotationName :: ResolutionAnnotation -> ValueM Name
@@ -3919,13 +3978,20 @@ numericRepresentation numericType =
     Syn.TWord32Hash -> Word32Rep
     Syn.TWord64Hash -> Word64Rep
 
-withLocals :: [(TcTermKey, (Binder, TcType))] -> ValueM a -> ValueM a
+withLocals :: [(TcTermKey, (Binder, TcType))] -> ValueM Expr -> ValueM Expr
 withLocals additions action = do
   previous <- gets vsLocals
   modify' (\state -> state {vsLocals = foldr (uncurry Map.insert) previous additions})
   result <- action
   modify' (\state -> state {vsLocals = previous})
-  pure result
+  -- A binder of a lazy pattern gets its selector body here.
+  lazyDefinitions <- gets vsLazyDefinitions
+  let lazyBindings =
+        [ Bind binder body
+        | (_, (binder, _)) <- additions,
+          Just body <- [Map.lookup (binderName binder) lazyDefinitions]
+        ]
+  pure (foldr ExLet result lazyBindings)
 
 -- | Run an action with more dictionaries in scope and bind the superclass
 -- projections that it shares inside its result.

@@ -1,0 +1,21 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    member :: Eq a => a -> [a] -> Bool
+    member x0 = go x0
+      where
+        go :: Eq a => a -> [a] -> Bool
+        go _ [] = False
+        go x (y : ys) = if x == y then True else go x ys
+
+    values :: (Bool, Bool)
+    values = (member (2 :: Int) [1, 2, 3], member 'z' "abc")
+output: |
+  (True,False)
+expression: |
+  values
+status: pass
+reason: a local binding whose signature has a context gets its dictionaries
+  from the context, also in the recursive call

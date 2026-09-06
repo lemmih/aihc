@@ -68,9 +68,12 @@ import Aihc.Tc.Types
     TcAxiomKey (..),
     TcType (..),
     TcTypeKey,
-    TyVarId,
+    TyVarId (..),
     TypeScheme (..),
     Unique (..),
+    applyVariableEqualities,
+    mkAppTy,
+    setTyVarKind,
     tyConKey,
     tyConModuleName,
     tyConName,
@@ -154,7 +157,7 @@ convertKindScheme :: ConvertEnv -> TypeScheme -> Either String Type
 convertKindScheme env (ForAll tyVars predicates body) = do
   let bindersEnv = withTyVars tyVars env
   binders <- mapM (tyVarBinder bindersEnv) tyVars
-  convertedPredicates <- mapM (convertPred bindersEnv) predicates
+  convertedPredicates <- mapM (convertPred bindersEnv) (dictionaryPredicates predicates)
   convertedBody <- convertKind bindersEnv body
   pure (foldr TyForAll (evidenceArrows bindersEnv body convertedPredicates convertedBody) binders)
 
@@ -162,7 +165,7 @@ convertTypeScheme :: ConvertEnv -> TypeScheme -> Either String Type
 convertTypeScheme env (ForAll tyVars predicates body) = do
   let bindersEnv = withTyVars tyVars env
   binders <- mapM (tyVarBinder bindersEnv) tyVars
-  convertedPredicates <- mapM (convertPred bindersEnv) predicates
+  convertedPredicates <- mapM (convertPred bindersEnv) (dictionaryPredicates predicates)
   convertedBody <- convertType bindersEnv body
   pure (foldr TyForAll (evidenceArrows bindersEnv body convertedPredicates convertedBody) binders)
 
@@ -208,8 +211,11 @@ desugarFromInterface config moduleBindings interface checked = do
 
 headerIndex :: ConvertEnv -> TcInterface -> Map.Map Name HeaderSource
 headerIndex convertEnv interface =
+  -- A later fact wins, so the method facts come first: a selector with a
+  -- term fact keeps it.
   Map.fromList
-    ( termFacts
+    ( methodFacts
+        <> termFacts
         <> tyConFacts
         <> dataTypeFacts
         <> synonymFacts
@@ -265,6 +271,14 @@ headerIndex convertEnv interface =
           ]
         | info <- tcInterfaceClasses interface
         ]
+    -- A selector without a term fact, like the compiler supplied typeRep
+    -- selector of Typeable, resolves through its class.
+    methodFacts =
+      [ (Name methodName SortValue (OriginTop (PackageId package) moduleName'), HeaderClass info)
+      | info <- tcInterfaceClasses interface,
+        Just (package, moduleName') <- [ciOrigin info],
+        (methodName, _) <- ciMethods info
+      ]
     dataConFacts =
       [ (Name (dciName constructor) SortDataConstructor (OriginTop package moduleName'), HeaderDataCon constructor)
       | dataType <- tcInterfaceDataTypes interface,
@@ -310,9 +324,10 @@ headerIndex convertEnv interface =
               origin = OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)
         ]
     defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =
-      case ordinaryScheme of
-        ForAll _ (classPredicate : _) _ -> ForAll variables (classPredicate : predicates) body
-        _ -> ForAll variables predicates body
+      applyVariableEqualities $
+        case ordinaryScheme of
+          ForAll _ (classPredicate : _) _ -> ForAll variables (classPredicate : predicates) body
+          _ -> ForAll variables predicates body
 
 lookupHeader :: ConvertEnv -> Map.Map TcTermKey TcBindingResult -> Map.Map Name HeaderSource -> Name -> Either String (Maybe TypeOf.TypeEnv)
 lookupHeader convertEnv bindings headers name =
@@ -390,9 +405,10 @@ bindingsFromInterface interface =
             workerScheme = maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
       ]
     defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =
-      case ordinaryScheme of
-        ForAll _ (classPredicate : _) _ -> ForAll variables (classPredicate : predicates) body
-        _ -> ForAll variables predicates body
+      applyVariableEqualities $
+        case ordinaryScheme of
+          ForAll _ (classPredicate : _) _ -> ForAll variables (classPredicate : predicates) body
+          _ -> ForAll variables predicates body
 
 interfaceSchemeType :: TypeScheme -> TcType
 interfaceSchemeType (ForAll [] [] ty) = ty
@@ -877,12 +893,20 @@ convertSynonym env info =
           Right []
       | Just body <- tsiBody synonym -> do
           kindVars <- extraKindVars env (tciTyCon info) (tsiParams synonym)
-          let tyVars = kindVars <> tsiParams synonym
+          -- A synonym with fewer parameters than its kind has arrows gets one
+          -- binder for each remaining arrow. The saturated body then has the
+          -- result kind of the synonym.
+          let (etaKinds, bodyKind) = splitKindArrows (synonymResultKind (tciKindScheme info) (tsiParams synonym))
+              etaVars =
+                [ setTyVarKind kind (TyVarId ("eta" <> T.pack (show index)) (Unique (negate index)))
+                | (index, kind) <- zip [1 :: Int ..] etaKinds
+                ]
+              tyVars = kindVars <> tsiParams synonym <> etaVars
               bindersEnv = withTyVars tyVars env
-              bodyKind = synonymResultKind (tciKindScheme info) (tsiParams synonym)
+              saturatedBody = foldl mkAppTy body (map TcTyVar etaVars)
           binders <- withConversionContext "binders" (mapM (tyVarBinder bindersEnv) tyVars)
-          result <- withConversionContext "result" (synonymResult bindersEnv (tciKindScheme info) (tsiParams synonym))
-          convertedBody <- withConversionContext "body" (convertTypeWithExpectedKind bindersEnv (Just bodyKind) body)
+          result <- withConversionContext "result" (convertKind bindersEnv bodyKind)
+          convertedBody <- withConversionContext "body" (convertTypeWithExpectedKind bindersEnv (Just bodyKind) saturatedBody)
           pure
             [ DeclSynonym
                 SynonymDecl
@@ -896,9 +920,14 @@ convertSynonym env info =
       | otherwise -> Left ("type synonym " <> T.unpack (tciName info) <> " has no body")
     Nothing -> Left ("type synonym " <> T.unpack (tciName info) <> " has no synonym info")
 
-synonymResult :: ConvertEnv -> TypeScheme -> [TyVarId] -> Either String Type
-synonymResult env scheme params =
-  convertKind env (synonymResultKind scheme params)
+-- | The argument kinds and the result kind of a kind with arrows.
+splitKindArrows :: TcType -> ([TcType], TcType)
+splitKindArrows kind =
+  case kind of
+    KFun argument result ->
+      let (arguments, final) = splitKindArrows result
+       in (argument : arguments, final)
+    _ -> ([], kind)
 
 synonymResultKind :: TypeScheme -> [TyVarId] -> TcType
 synonymResultKind scheme params =

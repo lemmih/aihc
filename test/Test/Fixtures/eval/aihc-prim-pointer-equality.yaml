@@ -1,0 +1,24 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (reallyUnsafePtrEquality#)
+    import GHC.Types (Bool (..), Int (..), isTrue#)
+
+    same :: [Int] -> [Int] -> Bool
+    same left right = isTrue# (reallyUnsafePtrEquality# left right)
+
+    shared :: [Int]
+    shared = [I# 1#, I# 2#]
+
+    values :: (Bool, Bool)
+    values = (same shared shared, same shared [I# 3#])
+output: |
+  (True,False)
+expression: |
+  values
+status: pass
+reason: pointer equality is true for one object and false for objects with
+  different contents

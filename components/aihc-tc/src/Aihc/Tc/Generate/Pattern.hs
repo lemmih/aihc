@@ -436,9 +436,19 @@ charLiteralPatternType literal =
       pure (Just (TcTyCon tyCon []))
     _ -> pure Nothing
 
+-- | The String type of a string literal pattern.
+stringLiteralPatternType :: TcM TcType
+stringLiteralPatternType = do
+  maybeListInfo <- lookupTyCon "[]"
+  listTyCon <- maybe (mkKnownTyCon "GHC.Types" "[]" 1 (KFun KType KType)) (pure . tciTyCon) maybeListInfo
+  maybeCharInfo <- lookupTyCon "Char"
+  charTyCon <- maybe (mkKnownTyCon "GHC.Types" "Char" 0 typeKindType) (pure . tciTyCon) maybeCharInfo
+  pure (TcTyCon listTyCon [TcTyCon charTyCon []])
+
 -- | The check of a literal pattern that needs its resolver annotations.
 --
 -- An overloaded integer pattern uses the resolved syntax terms.
+-- A string pattern uses the resolved equality syntax term.
 -- A primitive literal pattern uses the resolved primitive type.
 literalPatternCheck :: SourceSpan -> Pattern -> TcType -> Maybe (TcM PatternCheck)
 literalPatternCheck sp pat scrutTy =
@@ -446,6 +456,7 @@ literalPatternCheck sp pat scrutTy =
     Just (isNegative, lit)
       | isOverloadedIntegerLiteral lit -> Just (checkOverloadedIntegerPattern sp pat isNegative scrutTy)
       | isOverloadedFractionalLiteral lit -> Just (checkOverloadedLiteralPattern sp pat "fromRational" Nothing isNegative scrutTy)
+      | isStringLiteral lit, not isNegative -> Just (checkStringLiteralPattern sp pat scrutTy)
       | isPrimitiveLiteral lit -> Just (checkPrimitiveLiteralPattern sp pat scrutTy)
     _ -> Nothing
 
@@ -515,6 +526,41 @@ isOverloadedIntegerLiteral lit =
   case peelLiteralAnn lit of
     LitInt _ TInteger _ -> True
     _ -> False
+
+isStringLiteral :: Literal -> Bool
+isStringLiteral lit =
+  case peelLiteralAnn lit of
+    LitString {} -> True
+    _ -> False
+
+-- | Check a string literal pattern against the scrutinee type.
+--
+-- The scrutinee type must equal String. The equality syntax term compares
+-- the scrutinee with the literal, so the pattern gets its checked occurrence.
+checkStringLiteralPattern :: SourceSpan -> Pattern -> TcType -> TcM PatternCheck
+checkStringLiteralPattern sp pat scrutTy = do
+  stringTy <- stringLiteralPatternType
+  eqCt <- wantedEq sp scrutTy stringTy
+  (eqPending, eqCts) <-
+    checkPatternMethodWithExpected sp pat "==" $ \case
+      TcFunTy _ (TcFunTy _ boolTy) ->
+        let expectedTy = TcFunTy scrutTy (TcFunTy scrutTy boolTy)
+         in pure (expectedTy, expectedTy)
+      _ -> abortTc "== does not have a binary function type"
+  -- The outer annotation gives the pattern its type. The equality
+  -- occurrence inside has a function type.
+  let pat' =
+        PAnn
+          (mkAnnotation (pendingAnnotation scrutTy [] [] []))
+          (attachPendingPatternAnnotation "==" eqPending (checkedLiteralPattern scrutTy pat))
+  pure
+    PatternCheck
+      { pcBindings = [],
+        pcWantedCts = eqCt : eqCts,
+        pcGivenCts = [],
+        pcSkolems = [],
+        pcPatterns = [pat']
+      }
 
 isOverloadedFractionalLiteral :: Literal -> Bool
 isOverloadedFractionalLiteral lit =

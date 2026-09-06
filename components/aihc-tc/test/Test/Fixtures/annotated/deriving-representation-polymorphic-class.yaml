@@ -8,7 +8,7 @@ annotated:
        │     └─ type: Nat
        └─ type: Type
   class Lift (t :: TYPE r) where
-  └─ class methods: lift ∷ ∀ t. (Lift t) ⇒ t → Nat
+  └─ class methods: lift ∷ ∀ r t. (Lift t) ⇒ t → Nat
     lift :: t -> Nat
   data Box = Box Nat
   │    │     └─ type: Nat → Box

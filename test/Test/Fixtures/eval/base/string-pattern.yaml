@@ -1,0 +1,43 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    classify :: String -> Int
+    classify "" = 0
+    classify "fromList" = 1
+    classify ('x' : _) = 2
+    classify _ = 3
+
+    describe :: String -> Int -> Bool
+    describe name value =
+      case (name, value) of
+        ("one", 1) -> True
+        ("two", _) -> True
+        _ -> False
+
+    data Token = Ident String | Punc String
+
+    isFromList :: Token -> Bool
+    isFromList (Ident "fromList") = True
+    isFromList _ = False
+
+    values :: (Int, Int, Int, Int, Bool, Bool, Bool, Bool, Bool)
+    values =
+      ( classify "",
+        classify "fromList",
+        classify "xyz",
+        classify "fromLis",
+        describe "one" 1,
+        describe "two" 5,
+        describe "one" 2,
+        isFromList (Ident "fromList"),
+        isFromList (Punc "fromList")
+      )
+output: |
+  ((I# 0),(I# 1),(I# 2),(I# 3),True,True,False,True,False)
+expression: |
+  values
+status: pass
+reason: a string literal pattern compares with the equality method of the
+  scrutinee type

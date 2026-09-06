@@ -3,7 +3,9 @@
 
 -- | Convert checked kinds and types into System FC types.
 module Aihc.Fc.Convert
-  ( ConvertEnv (..),
+  (
+    dictionaryPredicates,
+    isEqualityPred, ConvertEnv (..),
     emptyConvertEnv,
     withTyVar,
     withTyVars,
@@ -212,6 +214,9 @@ convertTypeWithExpectedKind env expectedKind ty =
     -- The constraint type of an implicit parameter is the type of its value.
     TcTyCon tyCon [payload]
       | Tc.isImplicitParamTyConName (Tc.tyConName tyCon) -> convertType env payload
+    -- The constraint type of an equality is the coercion type.
+    TcTyCon tyCon [left, right]
+      | Tc.tyConName tyCon == "~" -> TyEq <$> convertType env left <*> convertType env right
     TcTyCon tyCon arguments -> do
       kindArgs <- invisibleKindArgs env tyCon arguments expectedKind
       argumentKinds <- visibleArgumentKinds env tyCon arguments expectedKind
@@ -228,7 +233,7 @@ convertTypeWithExpectedKind env expectedKind ty =
       convertedBody <- convertType (withTyVar tyVar env) body
       pure (TyForAll binder convertedBody)
     TcQualTy predicates body -> do
-      convertedPredicates <- mapM (convertPred env) predicates
+      convertedPredicates <- mapM (convertPred env) (dictionaryPredicates predicates)
       convertedBody <- convertType env body
       pure (evidenceArrows env body convertedPredicates convertedBody)
     TcAppTy function argument ->
@@ -335,14 +340,17 @@ invisibleKindArgs env tyCon arguments expectedKind = do
   variables <- extraKindVars env tyCon []
   mapM (kindVarToType env tyCon arguments expectedKind) variables
 
+-- | The kinds of the arguments give the invisible kind argument. A type
+-- variable of the same identity in scope is the fallback: a default method
+-- of a levity-polymorphic class quantifies the class kind variable while
+-- its default signature fixes the kind of the class parameter.
 kindVarToType :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> TyVarId -> Either String Type
 kindVarToType env tyCon arguments expectedKind tyVar =
-  case Map.lookup (tvUnique tyVar) (ceTyVars env) of
-    Just found -> Right (tyVarType found)
-    Nothing -> do
-      substitution <- kindSubst env tyCon arguments expectedKind
-      case Map.lookup (tvUnique tyVar) substitution of
-        Just runtimeRep -> convertRep env runtimeRep
+  case either (const Nothing) (Map.lookup (tvUnique tyVar)) (kindSubst env tyCon arguments expectedKind) of
+    Just runtimeRep -> convertRep env runtimeRep
+    Nothing ->
+      case Map.lookup (tvUnique tyVar) (ceTyVars env) of
+        Just found -> Right (tyVarType found)
         Nothing ->
           Left
             ( "cannot infer the invisible kind argument "
@@ -398,3 +406,14 @@ kindScheme env tyCon =
   case Map.lookup (tyConKey tyCon) (ceKindEnv env) of
     Just scheme -> Right scheme
     Nothing -> Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))
+
+-- | The predicates that carry runtime evidence. An equality is a fact of
+-- the type checker only, so its evidence is erased.
+dictionaryPredicates :: [Pred] -> [Pred]
+dictionaryPredicates = filter (not . isEqualityPred)
+
+isEqualityPred :: Pred -> Bool
+isEqualityPred predicate =
+  case predicate of
+    EqPred {} -> True
+    _ -> False

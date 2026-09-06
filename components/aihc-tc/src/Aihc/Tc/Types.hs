@@ -94,6 +94,8 @@ module Aihc.Tc.Types
     typeSchemeBody,
     applySubst,
     applySubstPred,
+    applyVariableEqualities,
+    applyVariableEqualitiesType,
     Pred (..),
     constraintTypeToPred,
     collectForAllTypes,
@@ -107,6 +109,7 @@ where
 
 import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
 import Control.Monad (zipWithM)
+import Data.List (partition)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -237,7 +240,8 @@ constraintTypeToPred ty =
 atomicConstraintTypeToPred :: TcType -> Maybe Pred
 atomicConstraintTypeToPred ty =
   case collectTypeApplications ty of
-    (TcTyCon (TyCon "~" 2) [], [left, right]) -> Just (EqPred left right)
+    (TcTyCon (TyCon "~" 2) headArgs, arguments)
+      | [left, right] <- headArgs <> arguments -> Just (EqPred left right)
     (TcTyCon tyCon [payload], [])
       | isImplicitParamTyConName (tyConName tyCon) -> Just (IParamPred (tyConName tyCon) payload)
     (TcTyCon tyCon headArgs, arguments) ->
@@ -692,3 +696,69 @@ topTcLevel = TcLevel 0
 
 pushLevel :: TcLevel -> TcLevel
 pushLevel (TcLevel level) = TcLevel (level + 1)
+
+-- | Apply the equalities of a scheme that fix a type variable, like the
+-- @r ~ LiftedRep@ of a default signature. Each equality becomes a
+-- substitution into the kinds of the other variables, the remaining
+-- predicates, and the body. The fixed variable stays in the binders, so
+-- the callers that give it a type argument keep their arity.
+applyVariableEqualities :: TypeScheme -> TypeScheme
+applyVariableEqualities scheme@(ForAll tyVars predicates body)
+  | Map.null substitution = scheme
+  | otherwise =
+      ForAll
+        (map (substituteTyVarKind substitution) tyVars)
+        (map (substitutePredTyVarKinds substitution . applySubstPred substitution) others)
+        (substituteTyVarKinds substitution (applySubst substitution body))
+  where
+    (equalities, others) = partition (\predicate -> variableEquality predicate /= Nothing) predicates
+    substitution = Map.fromList [entry | Just entry <- map variableEquality equalities]
+    variableEquality predicate =
+      case predicate of
+        EqPred (TcTyVar tyVar) other -> Just (tvUnique tyVar, other)
+        EqPred other (TcTyVar tyVar) -> Just (tvUnique tyVar, other)
+        _ -> Nothing
+
+-- | 'applyVariableEqualities' on a type with outer foralls and a context.
+applyVariableEqualitiesType :: TcType -> TcType
+applyVariableEqualitiesType ty =
+  case applyVariableEqualities (ForAll tyVars predicates body) of
+    ForAll tyVars' [] body' -> foldr TcForAllTy body' tyVars'
+    ForAll tyVars' predicates' body' -> foldr TcForAllTy (TcQualTy predicates' body') tyVars'
+  where
+    (tyVars, qualified) = peelOuterForAlls ty
+    (predicates, body) =
+      case qualified of
+        TcQualTy context inner -> (context, inner)
+        inner -> ([], inner)
+    peelOuterForAlls (TcForAllTy tyVar inner) =
+      let (rest, final) = peelOuterForAlls inner
+       in (tyVar : rest, final)
+    peelOuterForAlls final = ([], final)
+
+-- | Apply a substitution inside the kinds of the type variables of a
+-- predicate.
+substitutePredTyVarKinds :: Map Unique TcType -> Pred -> Pred
+substitutePredTyVarKinds substitution predicate =
+  case predicate of
+    ClassPred classTyCon arguments -> ClassPred classTyCon (map (substituteTyVarKinds substitution) arguments)
+    EqPred left right -> EqPred (substituteTyVarKinds substitution left) (substituteTyVarKinds substitution right)
+    IParamPred name payload -> IParamPred name (substituteTyVarKinds substitution payload)
+    QuantifiedPred {} -> predicate
+
+-- | Apply a substitution inside the kinds of the type variables of a type.
+substituteTyVarKinds :: Map Unique TcType -> TcType -> TcType
+substituteTyVarKinds substitution = go
+  where
+    go ty =
+      case ty of
+        TcTyVar tyVar -> TcTyVar (substituteTyVarKind substitution tyVar)
+        TcTyCon tyCon arguments -> TcTyCon tyCon (map go arguments)
+        TcFunTy argument result -> TcFunTy (go argument) (go result)
+        TcForAllTy tyVar inner -> TcForAllTy (substituteTyVarKind substitution tyVar) (go inner)
+        TcQualTy context inner -> TcQualTy (map (substitutePredTyVarKinds substitution . applySubstPred substitution) context) (go inner)
+        TcAppTy function argument -> TcAppTy (go function) (go argument)
+        TcMetaTv {} -> ty
+
+substituteTyVarKind :: Map Unique TcType -> TyVarId -> TyVarId
+substituteTyVarKind substitution tyVar = setTyVarKind (applySubst substitution (tvKind tyVar)) tyVar

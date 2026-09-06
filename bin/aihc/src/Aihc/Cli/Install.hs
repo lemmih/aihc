@@ -1306,9 +1306,14 @@ compileCheckedModules config writeFc verbose primIdentity interface outputPaths 
   (splitModules, desugarNs) <- measureTime $ do
     let bindings = concatMap tcModuleBindings checkedModules
         desugarResults = map (Fc.desugarModuleFc (DesugarConfig primIdentity) bindings interface) checkedModules
-    unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines (concatMap dsErrors desugarResults))))
-    let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
-        fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)
+        moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
+        desugarErrors =
+          [ T.unpack name <> ": " <> err
+          | (name, result) <- zip moduleNames desugarResults,
+            err <- dsErrors result
+          ]
+    unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines desugarErrors)))
+    let fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)
         fcErrors = [(fcModuleName fcModule, err) | fcModule <- fcModules, err <- Fc.lintProgram (fcProgram fcModule)]
         fcReport = ["    " <> T.unpack name <> ": " <> show err | (name, err) <- fcErrors]
     when lint $
@@ -1582,7 +1587,18 @@ moduleTypeInterface exports package interface source =
     visibleTerm (TcTermGlobal packageId' moduleName' identifier) =
       visibleTermIdentity (packageId', moduleName', identifier)
         || any (visibleTermIdentity . (packageId',moduleName',)) (patSynHelperBase identifier)
+        || methodOfVisibleClass packageId' moduleName' identifier
     visibleTerm (TcTermLocal {}) = False
+    -- The desugarer refers to a method through its selector in the module
+    -- of the class, so a visible class gives its selectors.
+    methodOfVisibleClass packageId' moduleName' identifier =
+      any
+        ( \info ->
+            ciOrigin info == Just (packageIdText packageId', moduleName')
+              && identifier `elem` map fst (ciMethods info)
+              && visibleClass info
+        )
+        (Map.elems (tcInterfaceClassMap interface))
     visibleTermIdentity identity@(_, _, identifier) =
       Map.member identifier (scopeTerms scope) || identity `Set.member` termIdentities || identity == localIdentity identifier
     -- The matcher and the builder of a visible pattern synonym are visible.
@@ -1600,11 +1616,17 @@ moduleTypeInterface exports package interface source =
       let identity = (packageId', moduleName', identifier)
        in namespace == ResolutionNamespaceType
             && (Map.member identifier (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity identifier)
+    -- A class is visible through its name, or through one of its methods
+    -- when the module imports only the method.
     visibleClass info =
       case ciOrigin info of
         Just (packageIdText, moduleName') ->
           let identity = (PackageId packageIdText, moduleName', ciName info)
-           in Map.member (ciName info) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (ciName info)
+              methodVisible (methodName, _) = visibleTermIdentity (PackageId packageIdText, moduleName', methodName)
+           in Map.member (ciName info) (scopeTypes scope)
+                || identity `Set.member` typeIdentities
+                || identity == localIdentity (ciName info)
+                || any methodVisible (ciMethods info)
         Nothing -> False
     visibleInstance info = iiDictOrigin info == (packageIdText (packageId package), name)
     visibleDataFamilyInstance = localTyCon . dfiiRepresentationTyCon

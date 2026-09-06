@@ -389,6 +389,7 @@ supportedNativePrimitiveNames =
     "plusAddr#",
     "minusAddr#",
     "eqAddr#",
+    "reallyUnsafePtrEquality#",
     "neAddr#",
     "ltAddr#",
     "leAddr#",

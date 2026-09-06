@@ -27,13 +27,20 @@ data Maybe a = Nothing | Just a
 
 class Functor (f :: Type -> Type) where
   fmap :: (a -> b) -> f a -> f b
+  (<$) :: a -> f b -> f a
+  value <$ functor = fmap (\_ -> value) functor
+
+infixl 4 <$
 
 {- HLINT ignore "Use const" -}
 class (Functor f) => Applicative (f :: Type -> Type) where
   pure :: a -> f a
   (<*>) :: f (a -> b) -> f a -> f b
+  liftA2 :: (a -> b -> c) -> f a -> f b -> f c
   (*>) :: f a -> f b -> f b
   (<*) :: f a -> f b -> f a
+  functions <*> values = liftA2 (\function value -> function value) functions values
+  liftA2 function left right = fmap function left <*> right
   first *> second = fmap (\_ value -> value) first <*> second
   first <* second = fmap (\value _ -> value) first <*> second
 
@@ -43,6 +50,8 @@ class (Applicative m) => Monad (m :: Type -> Type) where
   (>>=) :: m a -> (a -> m b) -> m b
   (>>) :: m a -> m b -> m b
   return :: a -> m a
+  first >> second = first >>= (\_ -> second)
+  return = pure
 
 infixl 1 >>=, >>
 

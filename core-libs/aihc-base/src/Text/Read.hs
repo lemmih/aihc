@@ -3,6 +3,11 @@ module Text.Read
     ReadS,
     read,
     reads,
+    readParen,
+    lex,
+    readMaybe,
+    readEither,
+    module Text.ParserCombinators.ReadPrec,
     Lexeme (..),
     lexP,
     parens,
@@ -11,6 +16,7 @@ module Text.Read
   )
 where
 
+import Data.Char (isSpace)
 import GHC.Read
   ( Read (..),
     ReadS,
@@ -20,4 +26,19 @@ import GHC.Read
     readListPrecDefault,
   )
 import GHC.Read.Lex (Lexeme (..))
-import Prelude (read, reads)
+import Prelude (Either (..), Maybe (..), String, all, lex, read, readParen, reads)
+import Text.ParserCombinators.ReadPrec
+
+-- | Parse a whole string. Trailing white space is permitted.
+readEither :: (Read a) => String -> Either String a
+readEither input =
+  case [value | (value, rest) <- reads input, all isSpace rest] of
+    [value] -> Right value
+    [] -> Left "Prelude.read: no parse"
+    _ -> Left "Prelude.read: ambiguous parse"
+
+readMaybe :: (Read a) => String -> Maybe a
+readMaybe input =
+  case readEither input of
+    Left _ -> Nothing
+    Right value -> Just value
