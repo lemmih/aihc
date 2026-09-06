@@ -185,7 +185,13 @@ backendCompiler target =
             "-msign-ext"
           ]
         )
-    AppleArm64 -> nativeCompiler
+    AppleArm64 -> do
+      -- A Linux host compiles for macOS with the SDK headers named by
+      -- AIHC_APPLE_SDK and, because the nixpkgs Clang wrapper injects Linux
+      -- arguments, usually an unwrapped Clang named by AIHC_APPLE_CLANG.
+      compiler <- fromMaybe "clang" <$> lookupEnv "AIHC_APPLE_CLANG"
+      sdk <- lookupEnv "AIHC_APPLE_SDK"
+      pure (compiler, ["--target=" <> nativeTargetTriple target] <> maybe [] (\root -> ["-isysroot", root]) sdk)
     LinuxAmd64 -> nativeCompiler
   where
     nativeCompiler = pure ("clang", ["--target=" <> nativeTargetTriple target])
