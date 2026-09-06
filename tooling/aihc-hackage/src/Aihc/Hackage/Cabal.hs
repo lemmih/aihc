@@ -12,6 +12,7 @@ module Aihc.Hackage.Cabal
     collectLibraryCCompileInfoFor,
     collectLibraryExposedModules,
     collectLibraryFiles,
+    collectLibraryFilesFor,
 
     -- * Condition evaluation
     conditionEvaluator,
@@ -158,8 +159,12 @@ collectComponentFiles gpd packageRoot = do
 
 -- | Collect source files from buildable library components only.
 collectLibraryFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
-collectLibraryFiles gpd packageRoot = do
-  let evalCond = conditionEvaluator gpd
+collectLibraryFiles = collectLibraryFilesFor buildOS buildArch
+
+-- | Collect source files from buildable library components for one platform.
+collectLibraryFilesFor :: OS -> Arch -> GenericPackageDescription -> FilePath -> IO [FileInfo]
+collectLibraryFilesFor os arch gpd packageRoot = do
+  let evalCond = conditionEvaluatorFor gpd os arch
       pkgDescr = packageDescription gpd
       libraryTrees = maybe [] (pure . (LMainLibName,)) (condLibrary gpd) <> map (first LSubLibName) (condSubLibraries gpd)
 

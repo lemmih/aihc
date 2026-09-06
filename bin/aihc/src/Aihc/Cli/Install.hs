@@ -439,9 +439,9 @@ installPackageDirect config storeRoot dependencies root = do
   gpd <- case runParseResult (parseGenericPackageDescription cabalBytes) of
     (_, Right value) -> pure value
     (_, Left (_, errors)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errors))
-  files <- HackageCabal.collectLibraryFiles gpd root
   let (targetOs, targetArch) = cabalPlatformForTarget target
-      cCompileInfo = HackageCabal.collectLibraryCCompileInfoFor targetOs targetArch gpd root
+  files <- HackageCabal.collectLibraryFilesFor targetOs targetArch gpd root
+  let cCompileInfo = HackageCabal.collectLibraryCCompileInfoFor targetOs targetArch gpd root
   let packageId = package (packageDescription gpd)
       packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))

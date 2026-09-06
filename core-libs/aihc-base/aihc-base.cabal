@@ -250,6 +250,7 @@ library
     Unsafe.Coerce
 
   other-modules:
+    Foreign.C.Types.Repr
     GHC.IO.Console
     GHC.IO.Runtime
     GHC.Internal.Char
@@ -260,7 +261,13 @@ library
     GHC.Internal.Integer
     GHC.Read.Lex
 
-  hs-source-dirs: src
+  if arch(wasm32)
+    hs-source-dirs:
+      src-wasm32
+      src
+  else
+    hs-source-dirs: src
+
   build-depends: aihc-prim ==0.13.0
   default-extensions: NoImplicitPrelude
   ghc-options: -Wall

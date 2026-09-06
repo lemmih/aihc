@@ -105,16 +105,28 @@ chooseBestCabalFile extractedRoot files =
       ]
 
 -- | Resolve module names to existing source files for a 'BuildInfo'.
+--
+-- Each module uses the first file that exists in @hs-source-dirs@ order.
 moduleFilesForBuildInfo :: FilePath -> BuildInfo -> [ModuleName] -> IO [FilePath]
 moduleFilesForBuildInfo packageRoot build modules = do
   let dirs = sourceDirs packageRoot build
-      moduleCandidates =
-        [ dir </> toFilePath modu <.> ext
-        | dir <- dirs,
-          modu <- modules,
-          ext <- ["hs", "lhs"]
-        ]
-  dedupeExistingFiles moduleCandidates
+  fmap catMaybes (mapM (firstExistingModule dirs) modules)
+
+firstExistingModule :: [FilePath] -> ModuleName -> IO (Maybe FilePath)
+firstExistingModule dirs modu =
+  firstExisting
+    [ dir </> toFilePath modu <.> ext
+    | dir <- dirs,
+      ext <- ["hs", "lhs"]
+    ]
+
+firstExisting :: [FilePath] -> IO (Maybe FilePath)
+firstExisting [] = pure Nothing
+firstExisting (candidate : rest) = do
+  exists <- doesFileExist candidate
+  if exists
+    then pure (Just (normalise candidate))
+    else firstExisting rest
 
 -- | Compute source directories from a 'BuildInfo'.
 sourceDirs :: FilePath -> BuildInfo -> [FilePath]

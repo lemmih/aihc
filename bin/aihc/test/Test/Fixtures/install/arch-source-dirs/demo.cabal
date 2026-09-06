@@ -1,0 +1,15 @@
+cabal-version: 3.0
+name: demo
+version: 0.1.0.0
+
+library
+  exposed-modules: Demo
+  other-modules: Payload
+  default-language: Haskell2010
+
+  if arch(wasm32)
+    hs-source-dirs:
+      src-wasm32
+      src
+  else
+    hs-source-dirs: src
