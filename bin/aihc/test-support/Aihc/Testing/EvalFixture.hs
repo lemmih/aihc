@@ -614,6 +614,14 @@ evaluateWithExpectedStdout tc action =
       (result, captured) <- captureStdout action
       pure (Just (T.unpack captured), result)
 
+-- | Run the program with file descriptor 1 redirected to a file and return
+-- what the program wrote.
+--
+-- The redirect is on the descriptor, not on the 'stdout' handle. A foreign
+-- call writes through the C library, and the GRIN interpreter writes through
+-- its own handle on descriptor 1. The test runner writes its progress to the
+-- 'stdout' handle, which "Aihc.Testing.HostStdout" moves to another
+-- descriptor before the tests start. That progress does not land in the file.
 captureStdout :: IO a -> IO (a, Text)
 captureStdout action =
   withMVar stdoutCaptureLock $ \() ->

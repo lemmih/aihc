@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Aihc.Testing.HostStdout (detachHostStdout)
 import Aihc.Testing.RuntimeArchive (releaseCachedRuntimeArchives)
 import Control.Exception (finally)
 import System.Directory (doesFileExist, getCurrentDirectory)
@@ -18,6 +19,7 @@ import Test.Wasm.Spec qualified as Wasm
 
 main :: IO ()
 main = do
+  detachHostStdout
   configureTestRoot
   fc <- Fc.tests
   grin <- Grin.tests
