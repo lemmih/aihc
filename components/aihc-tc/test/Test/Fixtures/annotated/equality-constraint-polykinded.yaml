@@ -1,0 +1,17 @@
+extensions:
+- GADTs
+- TypeOperators
+- PolyKinds
+- DataKinds
+- ScopedTypeVariables
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Proxy (a :: k) = Proxy
+  cast :: forall k (a :: k) (b :: k). (a ~ b) => Proxy a -> Proxy b
+  cast x = x
+  result = case cast (Proxy :: Proxy 'On) :: Proxy 'On of
+    Proxy -> On
+status: xfail
+reason: One equality function works at a polymorphic kind. AIHC cannot resolve the equality class.

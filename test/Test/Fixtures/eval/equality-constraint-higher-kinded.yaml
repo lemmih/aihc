@@ -1,0 +1,20 @@
+extensions:
+- GADTs
+- TypeOperators
+- KindSignatures
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  cast :: (f ~ g) => f a -> g a
+  cast x = x
+  result = case cast [On] :: [Flag] of
+    [x] -> x
+    _ -> Off
+expression: result
+output: |
+  On
+status: xfail
+reason: Equality can relate type constructors. AIHC cannot resolve the equality class.
+evaluators:
+- grin
