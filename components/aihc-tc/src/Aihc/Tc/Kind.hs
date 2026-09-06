@@ -682,15 +682,13 @@ defaultKindMetas kind =
       kind' <- defaultKindMetas (tvKind tyVar)
       pure (TcTyVar (setTyVarKind kind' tyVar))
     KTYPE (TcMetaTv representation) -> do
-      -- An open representation defaults to lifted, not to 'Type'.
+      -- An open representation defaults to lifted, not to 'Type'. The meta
+      -- may come from instantiating a representation-polymorphic kind, so
+      -- this does not depend on kind-meta tracking.
       solution <- readMetaTv representation
       case solution of
         Just {} -> defaultKindMetas =<< zonkKind kind
-        Nothing -> do
-          tracked <- isTrackedKindMeta representation
-          if tracked
-            then writeMetaTv representation liftedRep >> pure KType
-            else pure kind
+        Nothing -> writeMetaTv representation liftedRep >> pure KType
     TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM defaultKindMetas arguments
     TcFunTy argument result -> TcFunTy <$> defaultKindMetas argument <*> defaultKindMetas result
     TcForAllTy tyVar body -> do
