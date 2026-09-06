@@ -29,13 +29,6 @@ library
     GHC.Boot.TH.Quote
     GHC.Boot.TH.Syntax
     GHC.ForeignSrcLang.Type
-    GHC.Internal.ForeignSrcLang
-    GHC.Internal.LanguageExtensions
-    GHC.Internal.Lexeme
-    GHC.Internal.TH.Lib
-    GHC.Internal.TH.Lift
-    GHC.Internal.TH.Quote
-    GHC.Internal.TH.Syntax
     GHC.LanguageExtensions.Type
     GHC.Lexeme
     Text.PrettyPrint
@@ -43,6 +36,7 @@ library
   hs-source-dirs: src
   default-extensions: NoGeneralizedNewtypeDeriving
   build-depends:
+    aihc-internal ==9.1204.0,
     base >=4.21 && <4.22
 
   default-language: GHC2021

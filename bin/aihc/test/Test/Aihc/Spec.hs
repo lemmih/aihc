@@ -6,9 +6,11 @@ import Aihc.Cli.BuildExe (runBuildExe)
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcSemispace), InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
+import Aihc.Cli.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
+import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
 import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (tcInterfaceTerms, tcTermKeyIdentifier)
@@ -17,7 +19,8 @@ import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM, forM_, void)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort)
+import Data.Char (isSpace)
+import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort, stripPrefix)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -37,7 +40,7 @@ import System.Directory
   )
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
-import System.FilePath (takeDirectory, takeFileName, (</>))
+import System.FilePath (takeDirectory, takeExtension, takeFileName, (</>))
 import System.IO (IOMode (WriteMode), hClose, openTempFile, withFile)
 import System.IO.Error (ioeGetErrorString)
 import System.Process (readProcess, readProcessWithExitCode)
@@ -88,6 +91,8 @@ tests =
             testCase "writes Core for a ccall import" (test_installFcCcall primStore),
             testCase "compiles Cabal c-sources into the library archive" (test_installCSources primStore),
             testCase "writes an empty archive for a package with no code" (test_installEmptyArchive primStore),
+            testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros primStore),
+            testCase "core-libs versions match the emulated GHC release" test_coreLibsMatchRelease,
             testCase "selects Cabal source dirs by target architecture" (test_installArchSourceDirs primStore),
             testCase "retains Core and GRIN only with keep-core and keep-grin" (test_installKeepGrin primStore),
             testCase "writes target-specific objects and library archives" (test_installTargetArchives primStore),
@@ -590,6 +595,64 @@ test_installEmptyArchive getStore =
     assertFileExists archivePath
     members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
     assertEqual "archive members" [] members
+
+-- A file that guards code on @MIN_VERSION_base@ must see the version of
+-- the aihc-base it is compiled against, not an unconditional yes. The wrong
+-- branch here is not Haskell, so the install only succeeds when the macro
+-- compares honestly.
+test_installMinVersionMacros :: IO SeedStore -> Assertion
+test_installMinVersionMacros getStore =
+  withSandbox getStore "aihc-install-min-version-macros" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let sourceRoot = sandboxRoot sandbox </> "source"
+        sourceDir = sourceRoot </> "src"
+        baseVersion = maybe [] bootLibraryVersion (lookupBootLibrary "base" emulatedGhc)
+        (major, minor) = case baseVersion of
+          a : b : _ -> (a, b)
+          _ -> error "the emulated release has no base version"
+        guardOn a b = "MIN_VERSION_base(" <> show a <> "," <> show b <> ",0)"
+    createDirectoryIfMissing True sourceDir
+    writeFile
+      (sourceRoot </> "demo.cabal")
+      ( unlines
+          [ "cabal-version: 3.0",
+            "name: demo",
+            "version: 0.1.0.0",
+            "library",
+            "  exposed-modules: Demo",
+            "  hs-source-dirs: src",
+            "  build-depends: base",
+            "  default-language: Haskell2010",
+            "  default-extensions: CPP"
+          ]
+      )
+    writeFile
+      (sourceDir </> "Demo.hs")
+      ( unlines
+          [ "module Demo (current) where",
+            "#if " <> guardOn major minor <> " && !" <> guardOn major (minor + 1) <> " && !MIN_VERSION_GLASGOW_HASKELL(99,0,0,0)",
+            "current = ()",
+            "#else",
+            "this is not haskell (",
+            "#endif"
+          ]
+      )
+    result <- install (InstallOptions sourceRoot (Just storeRoot) False False False False False False False False AppleArm64)
+    assertEqual "written modules" ["Demo"] (installWrittenModules result)
+
+-- Every standin under core-libs claims the version of the boot library it
+-- replaces, and the emulated release is the single source of that version.
+test_coreLibsMatchRelease :: Assertion
+test_coreLibsMatchRelease =
+  forM_ coreProviders $ \provider -> do
+    sourcePath <- coreProviderSourcePath provider
+    cabalFiles <- filter ((== ".cabal") . takeExtension) <$> listDirectory sourcePath
+    cabalFile <- case cabalFiles of
+      [file] -> pure (sourcePath </> file)
+      _ -> assertFailure ("expected one .cabal file under " <> sourcePath)
+    contents <- readFile cabalFile
+    let declared = [dropWhile isSpace rest | line <- lines contents, Just rest <- [stripPrefix "version:" line]]
+    assertEqual (coreProviderName provider <> " version") [coreProviderVersion provider] declared
 
 test_installFcCcall :: IO SeedStore -> Assertion
 test_installFcCcall getStore =

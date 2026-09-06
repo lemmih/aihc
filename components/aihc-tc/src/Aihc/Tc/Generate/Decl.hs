@@ -3075,9 +3075,11 @@ typeArguments ty =
     TcAppTy function argument -> typeArguments function <> [argument]
     _ -> []
 
+-- | The @Lift@ class lives in aihc-internal, the standin for ghc-internal,
+-- as it does in GHC 9.12 and later.
 isTemplateHaskellLift :: (Text, Text) -> Text -> Bool
 isTemplateHaskellLift (packageId, moduleName') className =
-  "aihc-template-haskell-" `T.isPrefixOf` packageId
+  "aihc-internal-" `T.isPrefixOf` packageId
     && moduleName' == "GHC.Internal.TH.Lift"
     && className == "Lift"
 

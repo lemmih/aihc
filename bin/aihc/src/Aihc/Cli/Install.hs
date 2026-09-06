@@ -16,9 +16,11 @@ import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.PackagePlan
   ( DependencyResolver (..),
+    DependencyVersions,
     PackagePlan (..),
     ParsedInterfaceFile (ParsedInterfaceFile),
     buildPackagePlanWithResolver,
+    dependencyVersionsFromManifests,
     localDependencyResolverWithFallback,
     packageSpecFromSource,
     parseInterfaceFile,
@@ -174,6 +176,8 @@ data SourceModule = SourceModule
 
 data InstalledPackage = InstalledPackage
   { installedResult :: !InstallResult,
+    installedName :: !Text,
+    installedVersion :: !Text,
     installedExports :: !ModuleExports,
     installedTypes :: !(Map.Map Text TcInterface),
     installedScopeHashes :: !(Map.Map Text Text),
@@ -503,6 +507,8 @@ installPackageDirect config storeRoot dependencies root = do
   pure
     InstalledPackage
       { installedResult = InstallResult storePath (Set.toAscList written) (Set.toAscList reused),
+        installedName = packageNameText,
+        installedVersion = packageVersionText,
         installedExports = ownExports,
         installedTypes = Map.restrictKeys allTypes exposedNames,
         installedScopeHashes = Map.restrictKeys allScopeHashes exposedNames,
@@ -537,7 +543,10 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
   let verbose = compileVerbose config
   verbose ("Parse " <> show (length files) <> " modules")
   capabilities <- getNumCapabilities
-  (parsed, importTimings) <- loadSourceModules (max 1 capabilities) packageRoot files
+  let versions =
+        dependencyVersionsFromManifests
+          [(installedName dependency, installedVersion dependency) | dependency <- dependencies]
+  (parsed, importTimings) <- loadSourceModules (max 1 capabilities) packageRoot versions files
   loadedDependencies <- loadRequiredDependencies parsed dependencies
   let units = sourceModuleUnits parsed
       dependencyExports = Map.unions (map installedExports loadedDependencies)
@@ -704,6 +713,8 @@ loadInstalledPackage requirements storePath = do
   pure
     InstalledPackage
       { installedResult = InstallResult storePath [] (packageManifestModules manifest),
+        installedName = packageManifestName manifest,
+        installedVersion = packageManifestVersion manifest,
         installedExports = exports,
         installedTypes = types,
         installedScopeHashes = scopeHashes,
@@ -742,10 +753,10 @@ loadInstalledPackage requirements storePath = do
               visibleProviders = Set.unions (Map.elems providers)
           pure (selectInstanceProviders (typeArtifactInterface artifact) visibleProviders, providers)
 
-parseSource :: FilePath -> HackageCabal.FileInfo -> IO SourceModule
-parseSource root fileInfo = do
+parseSource :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
+parseSource root versions fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
-  ParsedInterfaceFile path modu sourceLines parseDiagnostics _ extensions <- parseInterfaceFile root fileInfo
+  ParsedInterfaceFile path modu sourceLines parseDiagnostics _ extensions <- parseInterfaceFile root versions fileInfo
   -- The type checker reads the language pragmas of the module. Give it the
   -- effective extensions, which include the cabal default extensions and
   -- the language edition. The type checker turns MonoLocalBinds on by
@@ -754,8 +765,8 @@ parseSource root fileInfo = do
       modu' = modu {Syntax.moduleLanguagePragmas = monoLocalBinds <> map Syntax.EnableExtension extensions <> Syntax.moduleLanguagePragmas modu}
   pure (SourceModule path (BS.length bytes) (T.pack (stableHash [bytes])) modu' extensions sourceLines parseDiagnostics)
 
-loadSourceModules :: Int -> FilePath -> [HackageCabal.FileInfo] -> IO ([SourceModule], [TaskTiming])
-loadSourceModules workers root files = do
+loadSourceModules :: Int -> FilePath -> DependencyVersions -> [HackageCabal.FileInfo] -> IO ([SourceModule], [TaskTiming])
+loadSourceModules workers root versions files = do
   results <- mapM (const newEmptyTMVarIO) files
   let tasks = zipWith3 loadTask [0 ..] files results
   timings <- runTaskGraph workers tasks
@@ -769,7 +780,7 @@ loadSourceModules workers root files = do
           taskOrder = order,
           taskDependencies = Set.empty,
           taskAction = do
-            source <- parseSource root fileInfo
+            source <- parseSource root versions fileInfo
             let ast = sourceModuleAst source
                 imports = map importDeclModule (Syntax.moduleImports ast)
             _ <- evaluate (rnf (moduleName ast, imports))
