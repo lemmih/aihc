@@ -62,8 +62,12 @@ when the name permits it. Otherwise it emits a quoted name. A bare label also
 starts with a letter or an underscore, so a label is never confused with a
 literal.
 
-Integer literals are decimal with an optional sign. Float literals contain a
-decimal point or an exponent, for example `1.5` and `1.0e-3`. The literals
+Integer literals are decimal with an optional sign. A character literal, for
+example `'K'` or `'\n'`, is an integer literal whose value is the code point
+of the character; it uses the escapes of a string literal plus `\'`, and
+`\xHH` gives the byte value. The pretty-printer emits every integer in
+decimal. Float literals contain a decimal point or an exponent, for example
+`1.5` and `1.0e-3`. The literals
 `inf`, `-inf`, and `nan` are also float literals. The literal `null` is the
 `ptr` or the `code` value with address zero.
 
@@ -383,7 +387,10 @@ The arguments of a target match the parameters of the block.
 | `tailcall.indirect %p(args) : signature` | The indirect form of `tailcall`. |
 | `trap "message"` | Stop the program with the message. |
 
-Switch cases are distinct literals that fit `iN`.
+Switch cases are distinct literals that fit `iN`. A case may list several
+literals separated by commas, for example `'K', 'k' -> kilo`. That is sugar
+for one case per literal: the module holds them separately and the
+pretty-printer emits one per line.
 
 ## Traps
 
@@ -515,6 +522,14 @@ The units are:
   it. Bulk moves call `aihc_memory_copy` and `aihc_memory_move`, which are
   `memcpy` and `memmove` behind a signature that states its length as an
   `i64`.
+- `aihc_runtime_options.lir` holds the RTS option parser and the program
+  arguments. The host flattens `argv` into one buffer of zero-terminated
+  strings in C, because the width of a C pointer is the one thing a unit does
+  not know, and `aihc_runtime_arguments_initialize` removes the `+RTS` to
+  `-RTS` options from that buffer and keeps the rest for `getArgs`. The
+  parsed options live in globals of the unit, and the C runtime reads them
+  through `aihc_rts_heap_max_bytes`, `aihc_rts_heap_limit_enabled`, and
+  `aihc_rts_static_reference_roots`, so no C structure describes them.
 
 A unit reaches the C runtime only through functions, never through the fields
 of a C structure, unless those fields sit one eight-byte slot apart on every

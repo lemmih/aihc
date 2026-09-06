@@ -1,0 +1,389 @@
+; The runtime-option parser, written in Lir. See docs/lir.md.
+;
+; The host hands the runtime its arguments as one buffer of strings, each
+; ended by a zero byte, and the buffer itself ends with the terminator of its
+; last string. This unit removes the RTS options from that buffer before the
+; Haskell machine starts and keeps what remains for getArgs, getProgName, and
+; withArgs:
+;
+;   +RTS   starts the RTS options; every argument up to -RTS is one
+;   -RTS   ends the RTS options
+;   --RTS  ends option processing; every later argument is a program argument
+;
+; The first argument is the program name and never an option. The recognized
+; options are -M<size>, a heap limit with an optional K, M, G, or T suffix,
+; and -Zs, which decides static object liveness from the reference tables.
+;
+; The parsed options and the kept arguments live in the globals below, and
+; the C runtime reads them through the accessor functions, so no C structure
+; describes them. The host converts argv to the buffer in C, since the width
+; of a C pointer is the one thing a Lir unit does not know.
+
+extern func @aihc_fail(ptr) cc c
+extern func @aihc_allocate_zeroed(i64) -> ptr cc c
+extern func @aihc_memory_copy(ptr, ptr, i64) cc c
+extern func @aihc_memory_free(ptr) cc c
+
+; The kept arguments, and the number of bytes they occupy.
+global @aihc_program_argument_buffer: ptr
+global @aihc_program_argument_bytes: i64
+; The RTS options of the process. Every one of them is zero until the host
+; initializes the arguments, so a program without options gets the defaults.
+global @aihc_rts_option_heap_max_bytes: i64
+global @aihc_rts_option_heap_limit_enabled: i64
+global @aihc_rts_option_static_reference_roots: i64
+
+data @aihc_rts_start_marker align 1 = { bytes "+RTS", zero 1 }
+data @aihc_rts_end_marker align 1 = { bytes "-RTS", zero 1 }
+data @aihc_rts_stop_marker align 1 = { bytes "--RTS", zero 1 }
+data @aihc_rts_static_roots_option align 1 = { bytes "-Zs", zero 1 }
+
+data @aihc_rts_missing_size_message align 1 = {
+  bytes "missing size for RTS option -M", zero 1
+}
+
+data @aihc_rts_size_too_large_message align 1 = {
+  bytes "size for RTS option -M is too large", zero 1
+}
+
+data @aihc_rts_invalid_size_message align 1 = {
+  bytes "invalid size for RTS option -M", zero 1
+}
+
+data @aihc_rts_unknown_option_message align 1 = {
+  bytes "unknown RTS option", zero 1
+}
+
+export func @aihc_rts_heap_max_bytes() -> i64 cc c {
+entry:
+  %value = global.get @aihc_rts_option_heap_max_bytes
+  return %value
+}
+
+export func @aihc_rts_heap_limit_enabled() -> i64 cc c {
+entry:
+  %value = global.get @aihc_rts_option_heap_limit_enabled
+  return %value
+}
+
+export func @aihc_rts_static_reference_roots() -> i64 cc c {
+entry:
+  %value = global.get @aihc_rts_option_static_reference_roots
+  return %value
+}
+
+; One when the zero-terminated string at %text equals the one at %expected.
+func @aihc_rts_text_is(%text: ptr, %expected: ptr) -> i64 cc c {
+entry:
+  jump compare(0)
+
+compare(%index: i64):
+  %text_address = ptr.add %text, %index
+  %expected_address = ptr.add %expected, %index
+  %text_byte = load i8 [%text_address] align 1
+  %expected_byte = load i8 [%expected_address] align 1
+  %differ = ne i8 %text_byte, %expected_byte
+  br %differ, different, same
+
+same:
+  %end = eq i8 %text_byte, 0
+  %next = add i64 %index, 1
+  br %end, equal, compare(%next)
+
+different:
+  return 0
+
+equal:
+  return 1
+}
+
+; The size after -M: a decimal number and an optional unit suffix. The
+; product must fit 64 bits, so every step checks before it multiplies.
+func @aihc_rts_parse_heap_size(%text: ptr) -> i64 cc c {
+entry:
+  %first = load i8 [%text] align 1
+  %below = lt.u i8 %first, '0'
+  %above = gt.u i8 %first, '9'
+  %missing = or i1 %below, %above
+  br %missing, no_size, digit(%text, 0)
+
+no_size:
+  call @aihc_fail(@aihc_rts_missing_size_message)
+  trap "missing size for RTS option -M"
+
+digit(%cursor: ptr, %value: i64):
+  %byte = load i8 [%cursor] align 1
+  %under = lt.u i8 %byte, '0'
+  %over = gt.u i8 %byte, '9'
+  %done = or i1 %under, %over
+  br %done, unit(%cursor, %value), accumulate
+
+accumulate:
+  %narrow = sub i8 %byte, '0'
+  %digit = zext i8 %narrow to i64
+  ; %value * 10 + %digit fits when %value <= (2^64 - 1 - %digit) / 10.
+  %headroom = sub i64 -1, %digit
+  %bound = div.u i64 %headroom, 10
+  %overflows = gt.u i64 %value, %bound
+  br %overflows, too_large, advance
+
+advance:
+  %scaled = mul i64 %value, 10
+  %total = add i64 %scaled, %digit
+  %next = ptr.add %cursor, 1
+  jump digit(%next, %total)
+
+too_large:
+  call @aihc_fail(@aihc_rts_size_too_large_message)
+  trap "size for RTS option -M is too large"
+
+unit(%suffix: ptr, %count: i64):
+  %letter = load i8 [%suffix] align 1
+  switch i8 %letter {
+    0 -> scale(%suffix, %count, 1)
+    'K', 'k' -> scale_after(%suffix, %count, 1024)
+    'M', 'm' -> scale_after(%suffix, %count, 1048576)
+    'G', 'g' -> scale_after(%suffix, %count, 1073741824)
+    'T', 't' -> scale_after(%suffix, %count, 1099511627776)
+    default -> invalid
+  }
+
+scale_after(%letter_address: ptr, %amount: i64, %multiplier: i64):
+  %after = ptr.add %letter_address, 1
+  jump scale(%after, %amount, %multiplier)
+
+; The text must end after the suffix.
+scale(%end: ptr, %number: i64, %factor: i64):
+  %trailing = load i8 [%end] align 1
+  %junk = ne i8 %trailing, 0
+  br %junk, invalid, multiply
+
+multiply:
+  %limit = div.u i64 -1, %factor
+  %exceeds = gt.u i64 %number, %limit
+  br %exceeds, too_large, product
+
+product:
+  %bytes = mul i64 %number, %factor
+  return %bytes
+
+invalid:
+  call @aihc_fail(@aihc_rts_invalid_size_message)
+  trap "invalid size for RTS option -M"
+}
+
+; Apply one argument that sits between +RTS and -RTS.
+func @aihc_rts_parse_option(%argument: ptr) cc c {
+entry:
+  %static_roots = call @aihc_rts_text_is(%argument, @aihc_rts_static_roots_option)
+  %is_static_roots = ne i64 %static_roots, 0
+  br %is_static_roots, enable_static_roots, dash
+
+enable_static_roots:
+  global.set @aihc_rts_option_static_reference_roots, 1
+  return
+
+; The second byte is read only after the first is known to be a dash, so the
+; read never leaves the argument.
+dash:
+  %first = load i8 [%argument] align 1
+  %is_dash = eq i8 %first, '-'
+  br %is_dash, letter, unknown
+
+letter:
+  %second = load i8 [%argument + 1] align 1
+  %is_heap_limit = eq i8 %second, 'M'
+  br %is_heap_limit, heap_limit, unknown
+
+heap_limit:
+  %size_text = ptr.add %argument, 2
+  %size = call @aihc_rts_parse_heap_size(%size_text)
+  global.set @aihc_rts_option_heap_max_bytes, %size
+  global.set @aihc_rts_option_heap_limit_enabled, 1
+  return
+
+unknown:
+  call @aihc_fail(@aihc_rts_unknown_option_message)
+  trap "unknown RTS option"
+}
+
+; One when %length bytes at %buffer are a well-formed argument buffer: a
+; non-negative length, a buffer when the length is not zero, and a zero as
+; the last byte.
+func @aihc_rts_buffer_is_valid(%buffer: ptr, %length: i64) -> i64 cc c {
+entry:
+  %negative = lt.s i64 %length, 0
+  %nonempty = ne i64 %length, 0
+  %missing = eq ptr %buffer, null
+  %missing_contents = and i1 %nonempty, %missing
+  %invalid = or i1 %negative, %missing_contents
+  br %invalid, rejected, terminator
+
+terminator:
+  br %nonempty, last_byte, accepted
+
+last_byte:
+  %last_offset = sub i64 %length, 1
+  %last_address = ptr.add %buffer, %last_offset
+  %last = load i8 [%last_address] align 1
+  %unterminated = ne i8 %last, 0
+  br %unterminated, rejected, accepted
+
+rejected:
+  return 0
+
+accepted:
+  return 1
+}
+
+; Make %arguments the program arguments and release the previous ones.
+func @aihc_rts_install(%arguments: ptr, %length: i64) cc c {
+entry:
+  %previous = global.get @aihc_program_argument_buffer
+  call @aihc_memory_free(%previous)
+  global.set @aihc_program_argument_buffer, %arguments
+  global.set @aihc_program_argument_bytes, %length
+  return
+}
+
+; Parse the RTS options out of the buffer and keep the rest. The result is
+; zero, or minus one when the buffer is malformed and nothing changed.
+export func @aihc_runtime_arguments_initialize(%buffer: ptr, %length: i64) -> i64 cc c {
+entry:
+  %valid = call @aihc_rts_buffer_is_valid(%buffer, %length)
+  %malformed = eq i64 %valid, 0
+  br %malformed, rejected, reset
+
+rejected:
+  return -1
+
+reset:
+  global.set @aihc_rts_option_heap_max_bytes, 0
+  global.set @aihc_rts_option_heap_limit_enabled, 0
+  global.set @aihc_rts_option_static_reference_roots, 0
+  ; An empty argument list still owns one byte, so the buffer is never null.
+  %empty = eq i64 %length, 0
+  %capacity = select i64 %empty, 1, %length
+  %arguments = call @aihc_allocate_zeroed(%capacity)
+  jump argument(0, 0, 0, 0, 0)
+
+; %input is the offset of the next argument, %output the number of bytes kept
+; so far, and %index the position of the argument. %in_options is one between
+; +RTS and -RTS, and %stopped is one after --RTS.
+argument(%input: i64, %output: i64, %index: i64, %in_options: i1, %stopped: i1):
+  %exhausted = ge.u i64 %input, %length
+  br %exhausted, install, scan(%input)
+
+; The buffer ends with a zero byte, so this scan stops inside it.
+scan(%end: i64):
+  %address = ptr.add %buffer, %end
+  %byte = load i8 [%address] align 1
+  %terminated = eq i8 %byte, 0
+  %after = add i64 %end, 1
+  br %terminated, classify, scan(%after)
+
+classify:
+  %argument = ptr.add %buffer, %input
+  %text_length = sub i64 %end, %input
+  %size = add i64 %text_length, 1
+  %next_input = add i64 %end, 1
+  %next_index = add i64 %index, 1
+  %program_name = eq i64 %index, 0
+  %passthrough = or i1 %program_name, %stopped
+  br %passthrough, keep, examine
+
+examine:
+  br %in_options, inside, outside
+
+outside:
+  %starts = call @aihc_rts_text_is(%argument, @aihc_rts_start_marker)
+  %starting = ne i64 %starts, 0
+  br %starting, argument(%next_input, %output, %next_index, 1, 0), outside_stop
+
+outside_stop:
+  %stops = call @aihc_rts_text_is(%argument, @aihc_rts_stop_marker)
+  %stopping = ne i64 %stops, 0
+  br %stopping, argument(%next_input, %output, %next_index, 0, 1), keep
+
+inside:
+  %ends = call @aihc_rts_text_is(%argument, @aihc_rts_end_marker)
+  %ending = ne i64 %ends, 0
+  br %ending, argument(%next_input, %output, %next_index, 0, 0), option
+
+option:
+  call @aihc_rts_parse_option(%argument)
+  jump argument(%next_input, %output, %next_index, 1, 0)
+
+keep:
+  %destination = ptr.add %arguments, %output
+  call @aihc_memory_copy(%destination, %argument, %size)
+  %next_output = add i64 %output, %size
+  jump argument(%next_input, %next_output, %next_index, %in_options, %stopped)
+
+install:
+  call @aihc_rts_install(%arguments, %output)
+  return 0
+}
+
+export func @aihc_program_arguments_size() -> i64 cc c {
+entry:
+  %size = global.get @aihc_program_argument_bytes
+  return %size
+}
+
+; Copy the arguments into %buffer when %capacity holds them. The result is
+; the size of the arguments either way, or minus one when the buffer is
+; missing or the capacity is negative.
+export func @aihc_program_arguments_copy(%buffer: ptr, %capacity: i64) -> i64 cc c {
+entry:
+  %required = global.get @aihc_program_argument_bytes
+  %negative = lt.s i64 %capacity, 0
+  %nonempty = ne i64 %capacity, 0
+  %missing = eq ptr %buffer, null
+  %missing_contents = and i1 %nonempty, %missing
+  %invalid = or i1 %negative, %missing_contents
+  br %invalid, rejected, measure
+
+rejected:
+  return -1
+
+measure:
+  %fits = ge.s i64 %capacity, %required
+  %present = ne i64 %required, 0
+  %copies = and i1 %fits, %present
+  br %copies, transfer, done
+
+transfer:
+  %arguments = global.get @aihc_program_argument_buffer
+  call @aihc_memory_copy(%buffer, %arguments, %required)
+  jump done
+
+done:
+  return %required
+}
+
+; Replace the arguments with a copy of %buffer. The result is zero, or minus
+; one when the buffer is malformed and nothing changed.
+export func @aihc_program_arguments_replace(%buffer: ptr, %length: i64) -> i64 cc c {
+entry:
+  %valid = call @aihc_rts_buffer_is_valid(%buffer, %length)
+  %malformed = eq i64 %valid, 0
+  br %malformed, rejected, replace
+
+rejected:
+  return -1
+
+replace:
+  %empty = eq i64 %length, 0
+  br %empty, clear, duplicate
+
+clear:
+  call @aihc_rts_install(null, 0)
+  return 0
+
+duplicate:
+  %arguments = call @aihc_allocate_zeroed(%length)
+  call @aihc_memory_copy(%arguments, %buffer, %length)
+  call @aihc_rts_install(%arguments, %length)
+  return 0
+}

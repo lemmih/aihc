@@ -20,6 +20,11 @@ tests =
     [ runtimeProgramTest "stable names survive collections" RuntimeGcSemispace [] stableNameSource,
       runtimeProgramTest "Lir runtime units implement mutable references" RuntimeGcSemispace [] mutVarSource,
       runtimeProgramTest "Lir runtime units implement byte arrays" RuntimeGcSemispace [] byteArraySource,
+      runtimeProgramTest
+        "Lir runtime units parse the RTS options"
+        RuntimeGcSemispace
+        ["+RTS", "-M2k", "-Zs", "-RTS", "kept", "--RTS", "+RTS", "-M1X"]
+        runtimeOptionsSource,
       runtimeProgramTest "semispace grows when live data exceeds the initial space" RuntimeGcSemispace [] growthSource,
       runtimeProgramTest "semispace stops at the heap limit" RuntimeGcSemispace ["+RTS", "-M256", "-RTS"] heapLimitSource,
       runtimeProgramTest
@@ -104,6 +109,48 @@ mutVarSource =
       "  if (aihc_mutvar_read(mutvar) != 10) return 6;",
       "  if (!aihc_mutvar_same(mutvar, mutvar)) return 7;",
       "  if (aihc_mutvar_same(mutvar, aihc_mutvar_new(machine, 0))) return 8;",
+      "  return 0;",
+      "}"
+    ]
+
+-- | The RTS option parser and the argument store live in
+-- aihc_runtime_options.lir. The arguments of this program hold every marker:
+-- the options between +RTS and -RTS are parsed and dropped, and after --RTS
+-- an option is a plain argument that the parser never sees.
+runtimeOptionsSource :: String
+runtimeOptionsSource =
+  unlines
+    [ "#include \"aihc_runtime.h\"",
+      "#include \"aihc_runtime_internal.h\"",
+      "#include <string.h>",
+      "/* The implicit terminator of each literal ends its last argument. */",
+      "static const char kept[] = \"kept\\0+RTS\\0-M1X\";",
+      "static const char replaced[] = \"other\";",
+      "int main(int argc, char *const argv[]) {",
+      "  aihc_program_arguments_initialize(argc, argv);",
+      "  AihcMachine *machine = aihc_machine_new(0);",
+      "  if (!machine->heap_limit_enabled || machine->heap_max_bytes != 2048) return 1;",
+      "  if (!aihc_rts_static_reference_roots()) return 19;",
+      "  size_t name_length = strlen(argv[0]) + 1;",
+      "  int64_t size = aihc_program_arguments_size();",
+      "  if (size != (int64_t)(name_length + sizeof(kept))) return 2;",
+      "  char buffer[512];",
+      "  if (aihc_program_arguments_copy(buffer, 1) != size) return 3;",
+      "  if (aihc_program_arguments_copy(NULL, 1) != -1) return 4;",
+      "  if (aihc_program_arguments_copy(buffer, sizeof(buffer)) != size) return 5;",
+      "  if (memcmp(buffer, argv[0], name_length) != 0) return 6;",
+      "  if (memcmp(buffer + name_length, kept, sizeof(kept)) != 0) return 7;",
+      "  if (aihc_program_arguments_replace(replaced, sizeof(replaced) - 1) != -1) return 8;",
+      "  if (aihc_program_arguments_size() != size) return 9;",
+      "  if (aihc_program_arguments_replace(replaced, sizeof(replaced)) != 0) return 10;",
+      "  if (aihc_program_arguments_size() != (int64_t)sizeof(replaced)) return 11;",
+      "  if (aihc_program_arguments_copy(buffer, sizeof(buffer)) != (int64_t)sizeof(replaced)) return 12;",
+      "  if (memcmp(buffer, replaced, sizeof(replaced)) != 0) return 13;",
+      "  if (aihc_program_arguments_replace(NULL, 0) != 0) return 14;",
+      "  if (aihc_program_arguments_size() != 0) return 15;",
+      "  if (aihc_runtime_arguments_initialize(replaced, sizeof(replaced) - 1) != -1) return 16;",
+      "  if (aihc_runtime_arguments_initialize(replaced, sizeof(replaced)) != 0) return 17;",
+      "  if (aihc_program_arguments_size() != (int64_t)sizeof(replaced)) return 18;",
       "  return 0;",
       "}"
     ]

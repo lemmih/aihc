@@ -56,7 +56,7 @@ data-files:
   compiler/native/runtime/aihc_runtime.c
   compiler/native/runtime/aihc_runtime.h
   compiler/native/runtime/aihc_runtime_internal.h
-  compiler/native/runtime/aihc_runtime_options.c
+  compiler/native/runtime/aihc_runtime_options.lir
   compiler/native/runtime/aihc_stable_name.lir
   compiler/native/runtime/include/HsFFI.h
   compiler/native/runtime/include/MachDeps.h
