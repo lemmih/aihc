@@ -114,7 +114,8 @@ runBuildExe options = do
   entry <- ensureEntry storeRoot target
   let compileConfig =
         ModuleCompileConfig
-          { compileKeepGrin = False,
+          { compileKeepCore = False,
+            compileKeepGrin = False,
             compileKeepNative = False,
             compileLint = buildExeLint options,
             compileNoCode = False,

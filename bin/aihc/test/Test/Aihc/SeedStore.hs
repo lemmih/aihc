@@ -167,7 +167,7 @@ releaseSeedStore store =
 
 installCoreLibrary :: FilePath -> FilePath -> NativeTarget -> IO ()
 installCoreLibrary source storeRoot target = do
-  _ <- install (InstallOptions source (Just storeRoot) False False False False False False False target)
+  _ <- install (InstallOptions source (Just storeRoot) False False False False False False False False target)
   pure ()
 
 -- | Give a test a scratch directory and copies of the seeded store.

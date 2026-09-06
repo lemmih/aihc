@@ -418,7 +418,7 @@
       store="$TMPDIR/store"
       mkdir -p "$store"
 
-      ${aihcExe} install core-libs/aihc-prim --store "$store" --keep-grin --lint --target apple-arm64
+      ${aihcExe} install core-libs/aihc-prim --store "$store" --keep-core --keep-grin --lint --target apple-arm64
 
       test -n "$(find "$store" -path '*/GHC/Prim/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
@@ -426,7 +426,7 @@
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
 
-      ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --lint --target apple-arm64
+      ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --keep-core --lint --target apple-arm64
 
       test -n "$(find "$store" -path '*/Language/Haskell/TH/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Internal/TH/Syntax/GHC.Internal.TH.Syntax.o' -print -quit)"
