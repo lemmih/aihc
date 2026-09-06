@@ -946,6 +946,7 @@ freeVarsPattern pat =
     PTuple _ items -> Set.unions <$> mapM freeVarsPattern items
     PUnboxedSum _ _ inner -> freeVarsPattern inner
     PCon name _ subPats -> Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM freeVarsPattern subPats)
+    PBuiltinCon _ _ subPats -> Set.unions <$> mapM freeVarsPattern subPats
     PInfix lhs name rhs -> Set.insert <$> resolvedTermKey name <*> (Set.union <$> freeVarsPattern lhs <*> freeVarsPattern rhs)
     PRecord _ fields _ -> Set.unions <$> mapM (freeVarsPattern . recordFieldValue) fields
     PView viewExpr inner -> Set.union <$> freeVarsExpr viewExpr <*> freeVarsPattern inner

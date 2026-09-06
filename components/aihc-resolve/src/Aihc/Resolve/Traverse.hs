@@ -216,6 +216,7 @@ instance HasAnnotations Pattern where
       PUnboxedSum position arity inner -> PUnboxedSum position arity <$> traverseAnnotations f inner
       PList items -> PList <$> traverseAnnotations f items
       PCon name types pats -> PCon <$> traverseAnnotations f name <*> traverseAnnotations f types <*> traverseAnnotations f pats
+      PBuiltinCon builtin types pats -> PBuiltinCon builtin <$> traverseAnnotations f types <*> traverseAnnotations f pats
       PInfix lhs name rhs -> PInfix <$> traverseAnnotations f lhs <*> traverseAnnotations f name <*> traverseAnnotations f rhs
       PView expr inner -> PView <$> traverseAnnotations f expr <*> traverseAnnotations f inner
       PAs name inner -> PAs <$> traverseAnnotations f name <*> traverseAnnotations f inner
@@ -246,7 +247,7 @@ instance HasAnnotations Type where
       TAnn ann inner -> TAnn <$> f ann <*> traverseAnnotations f inner
       TVar name -> TVar <$> traverseAnnotations f name
       TCon name promotion -> TCon <$> traverseAnnotations f name <*> pure promotion
-      TBuiltinCon builtin -> pure (TBuiltinCon builtin)
+      TBuiltinCon builtin promotion -> pure (TBuiltinCon builtin promotion)
       TImplicitParam name payload -> TImplicitParam name <$> traverseAnnotations f payload
       TTypeLit literal -> pure (TTypeLit literal)
       TStar text -> pure (TStar text)
@@ -497,6 +498,7 @@ instance HasAnnotations Expr where
       ELambdaCase alternatives -> ELambdaCase <$> traverseAnnotations f alternatives
       ELambdaCases alternatives -> ELambdaCases <$> traverseAnnotations f alternatives
       EInfix lhs name rhs -> EInfix <$> traverseAnnotations f lhs <*> traverseAnnotations f name <*> traverseAnnotations f rhs
+      EViewPat lhs rhs -> EViewPat <$> traverseAnnotations f lhs <*> traverseAnnotations f rhs
       ENegate inner -> ENegate <$> traverseAnnotations f inner
       ESectionL inner name -> ESectionL <$> traverseAnnotations f inner <*> traverseAnnotations f name
       ESectionR name inner -> ESectionR <$> traverseAnnotations f name <*> traverseAnnotations f inner

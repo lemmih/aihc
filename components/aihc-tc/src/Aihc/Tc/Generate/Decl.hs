@@ -21,6 +21,7 @@ import Aihc.Parser.Syntax
   ( Annotation,
     BangType (..),
     BinderHead (..),
+    BuiltinCon (..),
     CallConv (..),
     CaseAlt (..),
     ClassDecl (..),
@@ -2451,6 +2452,7 @@ patternVarBinder target = go
         PList items -> firstJust items
         PTuple _ items -> firstJust items
         PCon _ _ items -> firstJust items
+        PBuiltinCon _ _ items -> firstJust items
         PInfix left _ right -> firstJust [left, right]
         PRecord _ fields _ -> firstJust (map recordFieldValue fields)
         _ -> Nothing
@@ -2517,6 +2519,8 @@ patternToExpr pat =
     PTuple flavor items -> ETuple flavor <$> mapM (fmap Just . patternToExpr) items
     PList items -> EList <$> mapM patternToExpr items
     PCon name _ items -> foldl EApp (EVar name) <$> mapM patternToExpr items
+    PBuiltinCon (BuiltinTuple flavor arity) _ items
+      | length items == arity -> ETuple flavor <$> mapM (fmap Just . patternToExpr) items
     PInfix left name right -> EApp . EApp (EVar name) <$> patternToExpr left <*> patternToExpr right
     PParen inner -> EParen <$> patternToExpr inner
     PStrict inner -> patternToExpr inner

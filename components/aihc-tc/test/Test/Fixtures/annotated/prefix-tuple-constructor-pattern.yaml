@@ -1,0 +1,35 @@
+annotated:
+- |-
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  swap :: (Nat, Nat) -> (Nat, Nat)
+  swap ((,) a b) = (b, a)
+  │     │   │ │    └─ type: (Nat, Nat); type-args: Nat, Nat
+  │     │   │ └─ type: Nat
+  │     │   └─ type: Nat
+  │     └─ type: (Nat, Nat)
+  └─ type: (Nat, Nat) → (Nat, Nat)
+  firstOf :: (Nat, Nat) -> Nat
+  firstOf p = case p of
+  │       │   └─ type: Nat
+  │       └─ type: (Nat, Nat)
+  └─ type: (Nat, Nat) → Nat
+    (,) a _ -> a
+    │   │ └─ type: Nat
+    │   └─ type: Nat
+    └─ type: (Nat, Nat)
+extensions: []
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  swap :: (Nat, Nat) -> (Nat, Nat)
+  swap ((,) a b) = (b, a)
+  firstOf :: (Nat, Nat) -> Nat
+  firstOf p = case p of
+    (,) a _ -> a
+reason: a prefix tuple constructor pattern checks like the parenthesized tuple form
+status: pass
