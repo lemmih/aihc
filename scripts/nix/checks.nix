@@ -487,7 +487,25 @@
   # aihc-base takes minutes and runs single-threaded, so a combined derivation
   # serialised work that has no dependency between targets. Everything a target
   # writes is under a path named after it, so the outputs never overlap.
-  exampleToolchainFor = target:
+  exampleToolchainFor = exampleToolchainWith "";
+
+  # The macOS SDK headers, fetched the way nixpkgs fetches them for its own
+  # Darwin toolchain: a fixed-output download of Apple's Command Line Tools
+  # package, so it builds on any host and comes from the public cache. With
+  # it, a Linux host compiles the C runtime and package C sources for
+  # apple-arm64. The unwrapped Clang is used because the nixpkgs wrapper
+  # injects Linux arguments that Clang rejects for a Darwin target.
+  appleSdkVersions = builtins.fromJSON (builtins.readFile "${pkgs.path}/pkgs/by-name/ap/apple-sdk/metadata/versions.json");
+  appleSdk = pkgs.callPackage "${pkgs.path}/pkgs/by-name/ap/apple-sdk/common/fetch-sdk.nix" {} appleSdkVersions."15";
+  crossSetupFor = target:
+    if target == "apple-arm64"
+    then ''
+      export AIHC_APPLE_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+      export AIHC_APPLE_SDK=${appleSdk}
+    ''
+    else "";
+
+  exampleToolchainWith = extraSetup: target:
     pkgs.runCommand "aihc-example-toolchain-${target}" {
       src = sources.coreLibrariesSrc pkgs;
       nativeBuildInputs = [
@@ -505,6 +523,7 @@
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       export AIHC_WASM_SYSROOT=${wasmSysroot}
+      ${extraSetup}
       mkdir -p "$out"
 
       ${aihcExe} prepare-runtime --target ${target} --gc semispace --store "$out"
@@ -863,7 +882,7 @@
   # links the bundles on macOS. A failing example records its status and log
   # instead of failing the derivation, so the consumer reports every example.
   crossExampleBundlesFor = target: let
-    toolchain = exampleToolchainFor target;
+    toolchain = exampleToolchainWith (crossSetupFor target) target;
     renderExample = exampleName: let
       extraNames = exampleExtraHackagePackages.${exampleName} or [];
       packageFlags =
@@ -905,6 +924,7 @@
       export GHCRTS=-N1
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
+      ${crossSetupFor target}
       mkdir -p "$out"
       echo ${target} > "$out/target"
       ${pkgs.lib.concatMapStrings renderExample exampleNames}
