@@ -15,6 +15,7 @@ annotated:
   │    └─ type: Type
   └─ deriving plans: anyclass Lift Box [context: ()] [methods: lift]
     deriving anyclass Lift
+                      └─ $fLiftBox ∷ () ⇒ Lift Box
 extensions:
 - DeriveAnyClass
 - KindSignatures

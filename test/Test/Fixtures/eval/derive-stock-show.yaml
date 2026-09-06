@@ -1,0 +1,27 @@
+extensions:
+  - DerivingStrategies
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies #-}
+    module Test where
+
+    data Results = Results Bool Bool Bool Bool Bool
+
+    data Shape = Circle Int | Rect { width :: Int, height :: Int } | Int :+: Int | Origin
+      deriving stock Show
+
+    newtype Box = Box (Maybe Shape)
+      deriving stock Show
+
+    result :: Results
+    result =
+      Results
+        (show (Circle (-1)) == "Circle (-1)")
+        (show (Rect 2 3) == "Rect {width = 2, height = 3}")
+        (show (Box (Just (Circle 4))) == "Box (Just (Circle 4))")
+        (show (1 :+: 2) == "1 :+: 2")
+        (showsPrec 11 (5 :+: 6) "" == "(5 :+: 6)" && show Origin == "Origin")
+expression: result
+output: Results True True True True True
+status: pass
+reason: derived showsPrec renders prefix, record, infix, and nullary constructors with the precedence parentheses of GHC

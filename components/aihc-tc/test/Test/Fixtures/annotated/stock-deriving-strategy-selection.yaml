@@ -11,11 +11,16 @@ annotated:
   │    └─ type: Type
   └─ deriving plans: stock Eq E [context: ()] [methods: ==, /=]
     deriving Eq
+             └─ $fEqE ∷ () ⇒ Eq E
+             └─ type: E
+             └─ == ∷ E → E → Bool
+             └─ type: E
   data F a = F a
   │    │     └─ type: ∀ a. a → F a
   │    └─ type: Type → Type
   └─ deriving plans: anyclass Functor F [context: ()]
     deriving Functor
+             └─ $fFunctorF ∷ () ⇒ Functor F
 extensions:
 - DeriveAnyClass
 - DeriveFunctor

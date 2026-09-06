@@ -9,17 +9,70 @@ annotated:
   │    └─ type: Type → Type → Type
   └─ deriving plans: stock Eq (Expr a b) [context: Eq a, Eq b] [methods: ==, /=]
     deriving stock Eq
+                   └─ $fEqExprab ∷ ∀ a b. (Eq a, Eq b) ⇒ Eq (Expr a b)
+                   └─ type: a → a → GHC.Types.Bool; type-args: a; evidence: given Eq a
+                   └─ == ∷ Expr a b → Expr a b → Bool
+                   └─ type: a
+                   └─ type: Expr a b
+                   └─ type: a
+                   └─ type: Expr a b
+                   └─ type: Stmt a b → Stmt a b → GHC.Types.Bool; type-args: Stmt a b; evidence: $fEqStmtab @b @a (given Eq b, given Eq a)
+                   └─ type: Expr a b
+                   └─ type: Stmt a b
+                   └─ type: Expr a b
+                   └─ type: Stmt a b
+                   └─ type: Expr a b
+                   └─ type: Expr a b
   data Stmt a b = Bind b (Expr a b) | Seq (Stmt a b) (Alt a b)
   │    │          │                   └─ type: ∀ a b. Stmt a b → Alt a b → Stmt a b
   │    │          └─ type: ∀ a b. b → Expr a b → Stmt a b
   │    └─ type: Type → Type → Type
   └─ deriving plans: stock Eq (Stmt a b) [context: Eq b, Eq a] [methods: ==, /=]
     deriving stock Eq
+                   └─ $fEqStmtab ∷ ∀ b a. (Eq b, Eq a) ⇒ Eq (Stmt a b)
+                   └─ type: b → b → GHC.Types.Bool; type-args: b; evidence: given Eq b
+                   └─ == ∷ Stmt a b → Stmt a b → Bool
+                   └─ type: b
+                   └─ type: Alt a b
+                   └─ type: b
+                   └─ type: Alt a b
+                   └─ type: Stmt a b → Stmt a b → GHC.Types.Bool; type-args: Stmt a b; evidence: $fEqStmtab @b @a (given Eq b, given Eq a)
+                   └─ type: Alt a b → Alt a b → GHC.Types.Bool; type-args: Alt a b; evidence: $fEqAltab @a @b (given Eq a, given Eq b)
+                   └─ type: Stmt a b
+                   └─ type: Expr a b
+                   └─ type: Stmt a b
+                   └─ type: Expr a b
+                   └─ type: Stmt a b
+                   └─ type: Expr a b → Expr a b → GHC.Types.Bool; type-args: Expr a b; evidence: $fEqExprab @a @b (given Eq a, given Eq b)
+                   └─ type: Stmt a b
+                   └─ type: GHC.Types.Bool
+                   └─ type: Stmt a b
+                   └─ type: GHC.Types.Bool
+                   └─ type: Stmt a b
+                   └─ type: GHC.Types.Bool
+                   └─ type: Stmt a b
+                   └─ type: GHC.Types.Bool
+                   └─ type: Stmt a b
+                   └─ type: GHC.Types.Bool
+                   └─ type: GHC.Types.Bool
   data Alt a b = Alt (Expr a b) (Stmt a b)
   │    │         └─ type: ∀ a b. Expr a b → Stmt a b → Alt a b
   │    └─ type: Type → Type → Type
   └─ deriving plans: stock Eq (Alt a b) [context: Eq a, Eq b] [methods: ==, /=]
     deriving stock Eq
+                   └─ $fEqAltab ∷ ∀ a b. (Eq a, Eq b) ⇒ Eq (Alt a b)
+                   └─ type: Stmt a b → Stmt a b → GHC.Types.Bool; type-args: Stmt a b; evidence: $fEqStmtab @b @a (given Eq b, given Eq a)
+                   └─ == ∷ Alt a b → Alt a b → Bool
+                   └─ type: Stmt a b
+                   └─ type: Alt a b
+                   └─ type: Stmt a b
+                   └─ type: Alt a b
+                   └─ type: GHC.Types.Bool
+                   └─ type: Expr a b
+                   └─ type: GHC.Types.Bool
+                   └─ type: Expr a b
+                   └─ type: GHC.Types.Bool
+                   └─ type: Expr a b → Expr a b → GHC.Types.Bool; type-args: Expr a b; evidence: $fEqExprab @a @b (given Eq a, given Eq b)
 extensions:
 - DerivingStrategies
 modules:

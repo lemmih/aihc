@@ -1,0 +1,28 @@
+extensions:
+  - DerivingStrategies
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies #-}
+    module Test where
+
+    data Results = Results Bool Bool Bool Bool Bool Bool
+
+    data Color = Red | Green | Blue
+      deriving stock (Eq, Ord)
+
+    data Shape = Circle Int | Rect Int Int
+      deriving stock (Eq, Ord)
+
+    result :: Results
+    result =
+      Results
+        (compare Red Blue == LT)
+        (Blue > Green)
+        (max Red Green == Green)
+        (compare (Circle 3) (Rect 1 1) == LT)
+        (compare (Rect 2 1) (Rect 1 9) == GT)
+        (Rect 1 2 <= Rect 1 2)
+expression: result
+output: Results True True True True True True
+status: pass
+reason: derived compare orders by constructor position, then lexicographically by field, and the Ord defaults build on it
