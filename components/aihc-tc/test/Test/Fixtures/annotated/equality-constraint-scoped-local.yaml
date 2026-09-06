@@ -12,7 +12,6 @@ modules:
       local :: a -> b
       local y = y
   result = cast On :: Flag
-typecheck: true
 status: xfail
 reason: A local signature can use the outer equality constraint. AIHC cannot resolve the equality
   class.

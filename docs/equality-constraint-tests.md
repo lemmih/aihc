@@ -44,20 +44,20 @@ The resolver cases also cover `NoImplicitPrelude`, hidden imports, GADT contexts
 
 ## Fixture assertions
 
-A TC fixture can specify `typecheck: true` or `typecheck: false` instead of an annotation snapshot.
-This assertion requires successful parsing and name resolution before it examines the type diagnostics.
-Thus, a resolve error cannot satisfy `typecheck: false`.
-Existing fixtures still use exact annotation snapshots when they omit `typecheck`.
+If a TC fixture omits `annotated`, it requires successful parsing, name resolution, and type checks.
+If it supplies `annotated`, it compares the exact annotation snapshot, including type diagnostics.
+Negative TC fixtures use diagnostic snapshots to specify the required type errors.
+A parse error or resolve error cannot satisfy a diagnostic snapshot.
 
 If an FC fixture omits `expected`, it checks successful compilation without an output snapshot.
 This assertion still requires all normal compiler checks, FC lint, and the FC text round trip.
 If an FC fixture supplies `expected`, it compares exact FC text, including an explicitly empty snapshot.
 
-The three `fixture-*` control fixtures check successful TC, rejected TC, and successful FC assertions.
+The three `fixture-*` control fixtures check successful TC, a TC diagnostic snapshot, and successful FC assertions.
 These fixtures use ordinary source programs.
 
 For either assertion, future success changes an XFAIL result to XPASS and fails the test suite.
-No guessed output snapshot can keep a corrected equality case at XFAIL.
+The positive equality fixtures require no guessed output snapshots.
 
 ## Reference checks
 

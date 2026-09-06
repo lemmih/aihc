@@ -10,7 +10,6 @@ modules:
   cast :: Equal a b -> a -> b
   cast Equal x = x
   result = cast Equal On :: Flag
-typecheck: true
 status: xfail
 reason: A GADT pattern introduces an explicit equality constraint. AIHC cannot resolve the equality
   class.

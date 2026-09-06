@@ -6,9 +6,23 @@ modules:
   module Test where
   data Flag = Off | On
   newtype Wrap = Wrap Flag
-  cast :: (a ~ b) => a -> b
-  cast x = x
-  result = cast On :: Wrap
-typecheck: false
+  witness :: (Flag ~ Wrap) => Flag
+  witness = On
+  result = witness
 status: xfail
 reason: Nominal equality does not unwrap a newtype. AIHC cannot resolve the equality class.
+annotated:
+- |
+  module Test where
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  newtype Wrap = Wrap Flag
+          │      └─ type: Flag → Wrap
+          └─ type: Type
+  witness :: (Flag ~ Wrap) => Flag
+  witness = On
+  └─ type: (Flag ~ Wrap) ⇒ Flag
+  result = witness
+           └─ error: couldn't match Flag with Wrap

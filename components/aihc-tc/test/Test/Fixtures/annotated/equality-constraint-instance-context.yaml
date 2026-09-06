@@ -13,7 +13,6 @@ modules:
   instance (a ~ b) => Convert a b where
     convert x = x
   result = convert On :: Flag
-typecheck: true
 status: xfail
 reason: An instance context supplies equality evidence to its method. AIHC cannot resolve the equality
   class.

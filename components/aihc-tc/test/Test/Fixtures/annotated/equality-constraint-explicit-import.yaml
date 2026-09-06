@@ -10,6 +10,5 @@ modules:
   cast :: (a ~ b) => a -> b
   cast x = x
   result = cast On :: Flag
-typecheck: true
 status: xfail
 reason: An explicit type import exposes the equality class. AIHC cannot resolve the equality class.

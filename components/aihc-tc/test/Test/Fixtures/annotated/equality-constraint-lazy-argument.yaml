@@ -10,6 +10,5 @@ modules:
   loop :: Flag
   loop = loop
   result = keep loop On
-typecheck: true
 status: xfail
 reason: Equality evidence must not force an unused value. AIHC cannot resolve the equality class.

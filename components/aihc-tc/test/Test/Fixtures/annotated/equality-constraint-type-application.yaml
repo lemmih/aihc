@@ -10,7 +10,6 @@ modules:
   cast :: forall a b. (a ~ b) => a -> b
   cast x = x
   result = cast @Flag @Flag On
-typecheck: true
 status: xfail
 reason: Visible type arguments select a reflexive equality constraint. AIHC cannot resolve the equality
   class.
