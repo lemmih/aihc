@@ -5,6 +5,7 @@ module Aihc.Cli.Install
     ModuleCompileResult (..),
     compileModules,
     install,
+    installWith,
     parsePackageTarget,
     runInstall,
   )
@@ -150,7 +151,7 @@ import System.Directory (createDirectory, createDirectoryIfMissing, doesDirector
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, makeRelative, takeDirectory, takeFileName, (<.>), (</>))
-import System.IO (hClose, hIsTerminalDevice, openBinaryTempFile, stdout)
+import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stdout)
 import System.Process (readProcessWithExitCode)
 
 data InstallResult = InstallResult
@@ -326,14 +327,22 @@ runInstall options = do
   result <- install options
   putStrLn ("store: " <> installStorePath result)
 
+-- | Install a package and write the verbose and timing messages to stdout.
 install :: InstallOptions -> IO InstallResult
-install options = do
+install = installWith stdout
+
+-- | Install a package and write the verbose and timing messages to the given
+-- handle. A test gives a file handle here and reads the file. The test must
+-- not redirect the process stdout instead: the test runner writes its progress
+-- to stdout from other threads, and a redirect would capture that progress.
+installWith :: Handle -> InstallOptions -> IO InstallResult
+installWith output options = do
   storeRoot <- maybe defaultStoreRoot pure (installStoreRoot options)
-  useColor <- hIsTerminalDevice stdout
+  useColor <- hIsTerminalDevice output
   let target = installTarget options
       targetStoreRoot = storeRoot </> nativeTargetStoreDirectory target
-  let verbose message = when (installVerbose options) (putStrLn message)
-      printTimings message = when (installPrintTimings options) (putStrLn message)
+  let verbose message = when (installVerbose options) (hPutStrLn output message)
+      printTimings message = when (installPrintTimings options) (hPutStrLn output message)
   root <- resolveInstallTarget (installPackageTarget options)
   let fallbackResolver = networkDependencyResolver
       resolver = localDependencyResolverWithFallback fallbackResolver root
