@@ -143,6 +143,11 @@ class (Fractional a) => Floating a where
   log1pexp :: a -> a
   log1mexp :: a -> a
 
+  log1p x = log (1 + x)
+  expm1 x = exp x - 1
+  log1pexp x = log1p (exp x)
+  log1mexp x = log1p (negate (exp x))
+
 infixr 8 **
 
 -- | Machine-independent decomposition of real floating-point values.
