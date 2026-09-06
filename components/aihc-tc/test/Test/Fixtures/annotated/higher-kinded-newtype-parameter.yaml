@@ -1,0 +1,105 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  class Functor (f :: Type -> Type) where
+  └─ class methods: fmap ∷ ∀ f a b. (Functor f) ⇒ (a → b) → f a → f b
+    fmap :: (a -> b) -> f a -> f b
+
+  newtype Wrap m a = Wrap { unWrap :: m a }
+          │          └─ type: ∀ m a. m a → Wrap m a
+          └─ type: (Type → Type) → Type → Type
+
+  run :: Wrap m a -> m a
+  run w = unWrap w
+  │   │   └─ type: Wrap m a → m a; type-args: m, a
+  │   └─ type: Wrap m a
+  └─ type: ∀ m a. Wrap m a → m a
+
+  mk :: m a -> Wrap m a
+  mk = Wrap
+  │    └─ type: m a → Wrap m a; type-args: m, a
+  └─ type: ∀ m a. m a → Wrap m a
+
+  instance Functor m => Functor (Wrap m) where
+  └─ $fFunctorWrapm ∷ ∀ m. (Functor m) ⇒ Functor (Wrap m)
+    fmap f (Wrap x) = Wrap (fmap f x)
+    │    │  │    │    │     └─ type: (a → b) → m a → m b; type-args: m, a, b; evidence: given Functor m
+    │    │  │    │    └─ type: m b → Wrap m b; type-args: m, b
+    │    │  │    └─ type: m a
+    │    │  └─ type: Wrap m a
+    │    └─ type: a → b
+    └─ fmap ∷ ∀ a b. (a → b) → Wrap m a → Wrap m b
+
+  type Sig m a = m a -> m a
+       └─ type: (Type → Type) → Type → Type
+
+  idSig :: Sig m a
+  idSig x = x
+  │     └─ type: m a
+  └─ type: ∀ m a. m a → m a
+
+  data Pair f a = Pair (f a) (f a)
+       │          └─ type: ∀ f a. f a → f a → Pair f a
+       └─ type: (Type → Type) → Type → Type
+
+  firstOf :: Pair f a -> f a
+  firstOf (Pair x _) = x
+  │        │    │ └─ type: f a
+  │        │    └─ type: f a
+  │        └─ type: Pair f a
+  └─ type: ∀ f a. Pair f a → f a
+
+  class Container f where
+  └─ class methods: single ∷ ∀ f a. (Container f) ⇒ a → f a
+    single :: a -> f a
+
+  wrapSingle :: Container f => a -> Wrap f a
+  wrapSingle x = Wrap (single x)
+  │          │   │     └─ type: a → f a; type-args: f, a; evidence: given Container f
+  │          │   └─ type: f a → Wrap f a; type-args: f, a
+  │          └─ type: a
+  └─ type: ∀ f a. (Container f) ⇒ a → Wrap f a
+
+status: pass
+extensions:
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE KindSignatures #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  class Functor (f :: Type -> Type) where
+    fmap :: (a -> b) -> f a -> f b
+
+  newtype Wrap m a = Wrap { unWrap :: m a }
+
+  run :: Wrap m a -> m a
+  run w = unWrap w
+
+  mk :: m a -> Wrap m a
+  mk = Wrap
+
+  instance Functor m => Functor (Wrap m) where
+    fmap f (Wrap x) = Wrap (fmap f x)
+
+  type Sig m a = m a -> m a
+
+  idSig :: Sig m a
+  idSig x = x
+
+  data Pair f a = Pair (f a) (f a)
+
+  firstOf :: Pair f a -> f a
+  firstOf (Pair x _) = x
+
+  class Container f where
+    single :: a -> f a
+
+  wrapSingle :: Container f => a -> Wrap f a
+  wrapSingle x = Wrap (single x)

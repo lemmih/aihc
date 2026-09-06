@@ -46,11 +46,11 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy)
 import Aihc.Tc.Env (ClassInfo (..), DataTypeInfo, TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, surfacePredToPred, tcTypeKind)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, surfacePredToPred, takeVisibleArgumentKinds, tcTypeKind, unifyKinds)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds)
-import Control.Monad (filterM, zipWithM)
+import Control.Monad (filterM, zipWithM, zipWithM_)
 import Data.List (nub, (\\))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, mapMaybe, maybeToList)
@@ -73,9 +73,7 @@ checkAttachedDerivingPlans _ _ targetHead [] = do
   pure []
 checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
   rawParams <- makeParamEnv (binderHeadParams targetHead)
-  params <- mapM defaultParam rawParams
   let targetName = unqualifiedNameText (binderHeadName targetHead)
-      tvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- params]
   targetInfo <-
     case mapMaybe (fromAnnotation @ResolutionAnnotation) (unqualifiedNameAnns (binderHeadName targetHead)) of
       resolution : _ -> lookupResolvedTypeSyntax resolution
@@ -83,6 +81,14 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
   case targetInfo of
     Nothing -> missingTypeInfo ("deriving target " <> T.unpack targetName)
     Just info -> do
+      -- The parameters take the kinds that the declaration inferred, so a
+      -- higher-kinded parameter is not defaulted to 'Type' here.
+      zipWithM_
+        (unifyKinds . paramKind)
+        rawParams
+        (takeVisibleArgumentKinds (length rawParams) (typeSchemeBody (tciKindScheme info)))
+      params <- mapM defaultParam rawParams
+      let tvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- params]
       dataType <- lookupDataType (tciTyCon info)
       concat <$> mapM (checkClause info dataType params tvEnv) clauses
   where
