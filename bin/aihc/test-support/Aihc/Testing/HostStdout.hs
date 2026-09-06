@@ -4,22 +4,26 @@
 --
 -- The test runner writes its progress to the 'stdout' handle from its own
 -- thread. A program under test writes to file descriptor 1: the GRIN
--- interpreter writes through its own handle on that descriptor, and a foreign
--- call writes through the C library. An evaluation fixture with an expected
--- @stdout@ redirects descriptor 1 to a file while the program runs. When the
--- 'stdout' handle also points at descriptor 1, the progress of other tests
--- lands in that file and the fixture fails at random.
+-- interpreter writes through the handle that 'processStreams' gives it, and a
+-- foreign call writes through the C library. An evaluation fixture with an
+-- expected @stdout@ redirects descriptor 1 to a file while the program runs.
+-- When the 'stdout' handle also points at descriptor 1, the progress of other
+-- tests lands in that file and the fixture fails at random.
 --
 -- 'detachHostStdout' moves the 'stdout' handle to a duplicate of descriptor 1.
 -- The handle then writes to the same terminal or pipe as before, and a
 -- redirect of descriptor 1 no longer catches it.
-module Aihc.Testing.HostStdout (detachHostStdout) where
+module Aihc.Testing.HostStdout (detachHostStdout, processStreams) where
 
+import Aihc.Grin (ProgramStreams (..))
 import Control.Concurrent.MVar (modifyMVar_)
 import Data.Typeable (cast)
+import Foreign.C.Types (CInt)
+import GHC.IO.Device (IODeviceType (Stream))
 import GHC.IO.FD (FD (..))
+import GHC.IO.Handle.FD (fdToHandle')
 import GHC.IO.Handle.Types (Handle (..), Handle__ (..))
-import System.IO (hFlush, stdout)
+import System.IO (IOMode (..), hFlush, stdout)
 import System.Posix.IO (closeFd, dup, stdOutput)
 
 -- | Point the 'stdout' handle at a duplicate of file descriptor 1.
@@ -40,3 +44,20 @@ detachHostStdout = do
             closeFd duplicate
             pure Handle__ {..}
     DuplexHandle {} -> closeFd duplicate
+
+-- | Handles on the file descriptors 0, 1 and 2 of the process for an
+-- interpreted program. A compiled program uses the same descriptors.
+--
+-- Call this one time and keep the result for the whole test run. A handle
+-- that is not used any more closes its descriptor.
+processStreams :: IO ProgramStreams
+processStreams =
+  ProgramStreams
+    <$> processHandle 0 "<stdin>" ReadMode
+    <*> processHandle 1 "<stdout>" WriteMode
+    <*> processHandle 2 "<stderr>" WriteMode
+
+-- | A binary handle on one process descriptor. The descriptor is a stream, so
+-- the handle takes no file lock and stays in blocking mode.
+processHandle :: CInt -> FilePath -> IOMode -> IO Handle
+processHandle descriptor name mode = fdToHandle' descriptor (Just Stream) False name mode True

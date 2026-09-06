@@ -3,6 +3,7 @@
 -- | Reference interpreter for strict GRIN programs.
 module Aihc.Grin.Interpret
   ( InterpretError (..),
+    ProgramStreams (..),
     RuntimeValue (..),
     interpretProgramBinding,
     interpretProgramIoBinding,
@@ -31,7 +32,6 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Word (Word16, Word32, Word64, Word8)
-import Foreign.C.Types (CInt)
 import Foreign.LibFFI (Arg, RetType, argInt16, argInt32, argInt64, argInt8, argPtr, argWord16, argWord32, argWord64, argWord8, callFFI, retInt16, retInt32, retInt64, retInt8, retPtr, retVoid, retWord16, retWord32, retWord64, retWord8)
 import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
@@ -39,10 +39,7 @@ import Foreign.Marshal.Utils (copyBytes, fillBytes)
 import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, alignPtr, castFunPtrToPtr, castPtr, intPtrToPtr, minusPtr, plusPtr, ptrToIntPtr)
 import Foreign.Storable (peekByteOff, pokeByteOff)
 import GHC.Float (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble, double2Float, float2Double)
-import GHC.IO.Device (IODeviceType (Stream))
-import GHC.IO.Handle.FD (fdToHandle')
 import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile)
-import System.IO.Unsafe (unsafePerformIO)
 import System.Mem.StableName qualified as Host
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
@@ -177,7 +174,20 @@ data Machine = Machine
     machineNextLocation :: !Int,
     machineMVars :: !(IntMap GrinMVarState),
     machineNextMVar :: !Int,
-    machineRunQueue :: !(Seq ThreadAction)
+    machineRunQueue :: !(Seq ThreadAction),
+    machineStreams :: !ProgramStreams
+  }
+
+-- | The standard streams of the interpreted program.
+--
+-- The caller gives the handles. The interpreter does not use the 'System.IO.stdout'
+-- handle of the host on its own. A host, for example a test runner, writes its own
+-- messages to that handle from other threads. A test can then give a handle on
+-- file descriptor 1, redirect the descriptor, and get only the output of the program.
+data ProgramStreams = ProgramStreams
+  { programStdin :: !Handle,
+    programStdout :: !Handle,
+    programStderr :: !Handle
   }
 
 data EvalFailure
@@ -213,21 +223,21 @@ data SnapshotBuild = SnapshotBuild
 
 -- | Interpret and render a named top-level binding using the raw constructor
 -- representation shared by the compiler pipeline evaluation fixtures.
-interpretProgramBinding :: Text -> GrinProgram -> IO (Either InterpretError Text)
+interpretProgramBinding :: ProgramStreams -> Text -> GrinProgram -> IO (Either InterpretError Text)
 interpretProgramBinding = interpretProgramBindingWith pure
 
 -- | Interpret a named top-level binding and explicitly run its value as an IO
 -- action. The caller, rather than GRIN, owns the decision to use this entry
 -- point.
-interpretProgramIoBinding :: Text -> GrinProgram -> IO (Either InterpretError Text)
+interpretProgramIoBinding :: ProgramStreams -> Text -> GrinProgram -> IO (Either InterpretError Text)
 interpretProgramIoBinding = interpretProgramBindingWith runIOValue
 
 -- | Execute a nullary GRIN function and snapshot its raw return values and
 -- reachable heap. Snapshotting reads cells but never enters a thunk or forces
 -- a location; only 'GrinEval' nodes executed by the function may do that.
-interpretProgramFunctionSnapshot :: FunctionName -> GrinProgram -> IO (Either InterpretError HeapSnapshot)
-interpretProgramFunctionSnapshot functionName program = do
-  let machine = initialMachine program
+interpretProgramFunctionSnapshot :: ProgramStreams -> FunctionName -> GrinProgram -> IO (Either InterpretError HeapSnapshot)
+interpretProgramFunctionSnapshot streams functionName program = do
+  let machine = initialMachine streams program
   (result, finalMachine) <- runStateT (runExceptT (callFunction functionName [])) machine
   pure $
     case result of
@@ -235,9 +245,9 @@ interpretProgramFunctionSnapshot functionName program = do
       Left (EvalInterpret err) -> Left err
       Left (EvalRaised exception) -> Left (InterpretRaisedException (T.pack (show exception)))
 
-interpretProgramBindingWith :: (RuntimeValue -> EvalM RuntimeValue) -> Text -> GrinProgram -> IO (Either InterpretError Text)
-interpretProgramBindingWith enterValue name program = do
-  let machine = initialMachine program
+interpretProgramBindingWith :: (RuntimeValue -> EvalM RuntimeValue) -> ProgramStreams -> Text -> GrinProgram -> IO (Either InterpretError Text)
+interpretProgramBindingWith enterValue streams name program = do
+  let machine = initialMachine streams program
   (result, finalMachine) <- runStateT (runExceptT action) machine
   case result of
     Right rendered -> pure (Right rendered)
@@ -259,10 +269,11 @@ interpretProgramBindingWith enterValue name program = do
       result <- enterValue forced
       renderRawValueM result
 
-initialMachine :: GrinProgram -> Machine
-initialMachine program =
+initialMachine :: ProgramStreams -> GrinProgram -> Machine
+initialMachine streams program =
   Machine
     { machineProgram = program,
+      machineStreams = streams,
       machineFunctions =
         Map.fromList
           [ (grinFunctionName function, function)
@@ -1506,13 +1517,13 @@ callForeign foreignCall arguments
       (: []) . RuntimeAddress . castFunPtrToPtr <$> lookupForeignFunction foreignCall
   | symbol == "aihc_io_stdin",
     [] <- arguments =
-      pure [RuntimeIOHandle (GrinIOHandle 0 programStdin)]
+      (: []) . RuntimeIOHandle . GrinIOHandle 0 . programStdin <$> getsMachine machineStreams
   | symbol == "aihc_io_stdout",
     [] <- arguments =
-      pure [RuntimeIOHandle (GrinIOHandle 1 programStdout)]
+      (: []) . RuntimeIOHandle . GrinIOHandle 1 . programStdout <$> getsMachine machineStreams
   | symbol == "aihc_io_stderr",
     [] <- arguments =
-      pure [RuntimeIOHandle (GrinIOHandle 2 programStderr)]
+      (: []) . RuntimeIOHandle . GrinIOHandle 2 . programStderr <$> getsMachine machineStreams
   | symbol == "aihc_memory_write_byte",
     [bufferValue, offsetValue, byteValue] <- arguments = do
       buffer <- expectAddress symbol bufferValue
@@ -1613,28 +1624,6 @@ hostIOMode mode =
     1 -> WriteMode
     2 -> AppendMode
     _ -> ReadWriteMode
-
--- | The standard streams of the interpreted program.
---
--- An interpreted program uses the file descriptors 0, 1 and 2 of the process.
--- A compiled program uses the same descriptors. The program does not share the
--- 'System.IO.stdout' handle of the host. The host, for example a test runner,
--- writes its own messages to that handle from other threads. A test can then
--- redirect descriptor 1 and get only the output of the program.
---
--- The handles live for the whole process, so no finalizer closes a descriptor.
-programStdin, programStdout, programStderr :: Handle
-programStdin = unsafePerformIO (processHandle 0 "<stdin>" ReadMode)
-{-# NOINLINE programStdin #-}
-programStdout = unsafePerformIO (processHandle 1 "<stdout>" WriteMode)
-{-# NOINLINE programStdout #-}
-programStderr = unsafePerformIO (processHandle 2 "<stderr>" WriteMode)
-{-# NOINLINE programStderr #-}
-
--- | A binary handle on one process descriptor. The descriptor is a stream, so
--- the handle takes no file lock and keeps the descriptor in blocking mode.
-processHandle :: CInt -> FilePath -> IOMode -> IO Handle
-processHandle descriptor name mode = fdToHandle' descriptor (Just Stream) False name mode True
 
 expectIOHandle :: Text -> RuntimeValue -> EvalM GrinIOHandle
 expectIOHandle symbol value =
