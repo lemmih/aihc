@@ -1,7 +1,6 @@
 #include "aihc_runtime.h"
 #include "aihc_runtime_internal.h"
 
-#include <math.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1079,70 +1078,3 @@ void aihc_set_thread_done_continuation(AihcMachine *machine,
 }
 
 AihcEntry aihc_halt(AihcMachine *machine) { return machine->exit_code; }
-/* Floating point functions of the Floating class. A Double# arrives as its
-   IEEE 754 bit pattern in a 64-bit word, and a Float# arrives as its bit
-   pattern in the low 32 bits. The results have the same form. The functions
-   themselves are the ones of libm, which every target links: the C runtime
-   is compiled against the platform libc, and the WebAssembly target against
-   the wasi-libc of its sysroot. */
-
-static double aihc_double_from_bits(uint64_t bits) {
-  double value;
-  memcpy(&value, &bits, sizeof value);
-  return value;
-}
-
-static uint64_t aihc_double_to_bits(double value) {
-  uint64_t bits;
-  memcpy(&bits, &value, sizeof bits);
-  return bits;
-}
-
-static float aihc_float_from_bits(uint64_t bits) {
-  uint32_t low = (uint32_t)bits;
-  float value;
-  memcpy(&value, &low, sizeof value);
-  return value;
-}
-
-static uint64_t aihc_float_to_bits(float value) {
-  uint32_t low;
-  memcpy(&low, &value, sizeof low);
-  return (uint64_t)low;
-}
-
-/* The name of the primitive is the name of the libm function, and the Float#
-   form is the single-precision one rather than a rounded double: a Float# is
-   what GHC computes with sinf and its neighbours too. */
-#define AIHC_DEFINE_DOUBLE_UNARY(name)                                         \
-  uint64_t aihc_double_##name(uint64_t bits) {                                 \
-    return aihc_double_to_bits(name(aihc_double_from_bits(bits)));             \
-  }                                                                            \
-  uint64_t aihc_float_##name(uint64_t bits) {                                  \
-    return aihc_float_to_bits(name##f(aihc_float_from_bits(bits)));            \
-  }
-
-AIHC_DEFINE_DOUBLE_UNARY(exp)
-AIHC_DEFINE_DOUBLE_UNARY(log)
-AIHC_DEFINE_DOUBLE_UNARY(sin)
-AIHC_DEFINE_DOUBLE_UNARY(cos)
-AIHC_DEFINE_DOUBLE_UNARY(tan)
-AIHC_DEFINE_DOUBLE_UNARY(asin)
-AIHC_DEFINE_DOUBLE_UNARY(acos)
-AIHC_DEFINE_DOUBLE_UNARY(atan)
-AIHC_DEFINE_DOUBLE_UNARY(sinh)
-AIHC_DEFINE_DOUBLE_UNARY(cosh)
-AIHC_DEFINE_DOUBLE_UNARY(tanh)
-AIHC_DEFINE_DOUBLE_UNARY(asinh)
-AIHC_DEFINE_DOUBLE_UNARY(acosh)
-AIHC_DEFINE_DOUBLE_UNARY(atanh)
-
-uint64_t aihc_double_pow(uint64_t left, uint64_t right) {
-  return aihc_double_to_bits(
-      pow(aihc_double_from_bits(left), aihc_double_from_bits(right)));
-}
-
-uint64_t aihc_float_pow(uint64_t left, uint64_t right) {
-  return aihc_float_to_bits(
-      powf(aihc_float_from_bits(left), aihc_float_from_bits(right)));
-}

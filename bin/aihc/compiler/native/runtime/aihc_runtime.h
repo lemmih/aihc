@@ -201,38 +201,6 @@ uint64_t aihc_allocation_count(const AihcMachine *machine);
 void aihc_reset_allocation_count(AihcMachine *machine);
 void aihc_no_match(void);
 void aihc_unsupported_primitive(void);
-/* Floating point functions of the Floating class on IEEE 754 bit patterns. A
-   Float# uses the low 32 bits of its word. */
-uint64_t aihc_double_exp(uint64_t bits);
-uint64_t aihc_float_exp(uint64_t bits);
-uint64_t aihc_double_log(uint64_t bits);
-uint64_t aihc_float_log(uint64_t bits);
-uint64_t aihc_double_sin(uint64_t bits);
-uint64_t aihc_float_sin(uint64_t bits);
-uint64_t aihc_double_cos(uint64_t bits);
-uint64_t aihc_float_cos(uint64_t bits);
-uint64_t aihc_double_tan(uint64_t bits);
-uint64_t aihc_float_tan(uint64_t bits);
-uint64_t aihc_double_asin(uint64_t bits);
-uint64_t aihc_float_asin(uint64_t bits);
-uint64_t aihc_double_acos(uint64_t bits);
-uint64_t aihc_float_acos(uint64_t bits);
-uint64_t aihc_double_atan(uint64_t bits);
-uint64_t aihc_float_atan(uint64_t bits);
-uint64_t aihc_double_sinh(uint64_t bits);
-uint64_t aihc_float_sinh(uint64_t bits);
-uint64_t aihc_double_cosh(uint64_t bits);
-uint64_t aihc_float_cosh(uint64_t bits);
-uint64_t aihc_double_tanh(uint64_t bits);
-uint64_t aihc_float_tanh(uint64_t bits);
-uint64_t aihc_double_asinh(uint64_t bits);
-uint64_t aihc_float_asinh(uint64_t bits);
-uint64_t aihc_double_acosh(uint64_t bits);
-uint64_t aihc_float_acosh(uint64_t bits);
-uint64_t aihc_double_atanh(uint64_t bits);
-uint64_t aihc_float_atanh(uint64_t bits);
-uint64_t aihc_double_pow(uint64_t left, uint64_t right);
-uint64_t aihc_float_pow(uint64_t left, uint64_t right);
 /* The runtime removes RTS options before the Haskell machine starts. argv[0]
    stays because getProgName and withProgName use the same mutable vector.
    aihc_program_arguments_initialize flattens argv into one buffer of

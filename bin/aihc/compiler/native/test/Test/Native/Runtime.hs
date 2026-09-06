@@ -25,7 +25,6 @@ tests =
         RuntimeGcSemispace
         ["+RTS", "-M2k", "-Zs", "-RTS", "kept", "--RTS", "+RTS", "-M1X"]
         runtimeOptionsSource,
-      runtimeProgramTest "the Floating primitives call libm" RuntimeGcSemispace [] floatingSource,
       runtimeProgramTest "semispace grows when live data exceeds the initial space" RuntimeGcSemispace [] growthSource,
       runtimeProgramTest "semispace stops at the heap limit" RuntimeGcSemispace ["+RTS", "-M256", "-RTS"] heapLimitSource,
       runtimeProgramTest
@@ -64,63 +63,6 @@ runtimeProgramTest name collector programArguments source =
       assertEqual ("C compiler diagnostics:\n" <> compilerErr) ExitSuccess compilerExit
       (programExit, _programOut, programErr) <- readProcessWithExitCode executable programArguments ""
       assertEqual ("runtime diagnostics:\n" <> programErr) ExitSuccess programExit
-
--- | The functions of the Floating class come from libm, and the primitives
--- pass their arguments as bit patterns. This checks both halves of that: the
--- values libm returns, and the ABI the generated code relies on, where a
--- Float# occupies the low half of the word and the single-precision function
--- is the one that runs.
-floatingSource :: String
-floatingSource =
-  unlines
-    [ "#include \"aihc_runtime.h\"",
-      "#include <stdint.h>",
-      "#include <string.h>",
-      "static uint64_t double_bits(double value) {",
-      "  uint64_t bits;",
-      "  memcpy(&bits, &value, sizeof bits);",
-      "  return bits;",
-      "}",
-      "static double double_value(uint64_t bits) {",
-      "  double value;",
-      "  memcpy(&value, &bits, sizeof value);",
-      "  return value;",
-      "}",
-      "static uint64_t float_bits(float value) {",
-      "  uint32_t low;",
-      "  memcpy(&low, &value, sizeof low);",
-      "  return (uint64_t)low;",
-      "}",
-      "static float float_value(uint64_t bits) {",
-      "  uint32_t low = (uint32_t)bits;",
-      "  float value;",
-      "  memcpy(&value, &low, sizeof value);",
-      "  return value;",
-      "}",
-      "static int near(double left, double right) {",
-      "  double difference = left - right;",
-      "  if (difference < 0.0) difference = -difference;",
-      "  return difference < 1e-12;",
-      "}",
-      "int main(void) {",
-      "  if (!near(double_value(aihc_double_sin(double_bits(0.0))), 0.0)) return 1;",
-      "  if (!near(double_value(aihc_double_cos(double_bits(0.0))), 1.0)) return 2;",
-      "  if (!near(double_value(aihc_double_exp(double_bits(0.0))), 1.0)) return 3;",
-      "  if (!near(double_value(aihc_double_log(double_bits(1.0))), 0.0)) return 4;",
-      "  if (!near(double_value(aihc_double_pow(double_bits(2.0), double_bits(10.0))), 1024.0)) return 5;",
-      "  if (!near(double_value(aihc_double_atan(double_bits(1.0))) * 4.0, 3.14159265358979323846)) return 6;",
-      "  if (!near(double_value(aihc_double_asinh(aihc_double_sinh(double_bits(1.5)))), 1.5)) return 7;",
-      "  if (!near(double_value(aihc_double_atanh(aihc_double_tanh(double_bits(0.5)))), 0.5)) return 8;",
-      "  /* A large argument reduces against a full pi, not a two-term one. */",
-      "  if (!near(double_value(aihc_double_sin(double_bits(100.0))), -0.5063656411097588)) return 9;",
-      "  if (!near(double_value(aihc_double_cos(double_bits(1e6))), 0.9367521275331447)) return 10;",
-      "  uint64_t sine = aihc_float_sin(float_bits(1.0f));",
-      "  if ((sine >> 32) != 0) return 11;",
-      "  if (float_value(sine) != 0.84147096f) return 12;",
-      "  if (float_value(aihc_float_pow(float_bits(2.0f), float_bits(10.0f))) != 1024.0f) return 13;",
-      "  return 0;",
-      "}"
-    ]
 
 stableNameSource :: String
 stableNameSource =
