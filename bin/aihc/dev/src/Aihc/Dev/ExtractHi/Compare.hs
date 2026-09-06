@@ -8,21 +8,28 @@ module Aihc.Dev.ExtractHi.Compare
     comparePackageCompatibility,
     comparePackageSubset,
     compatibilityPercent,
+    coreLibApiDivergences,
     coreLibProgressReports,
     renderInterfaceMismatch,
     renderCoreLibProgressReport,
     renderCoreLibProgressReports,
+    runCoreLibApiDivergences,
     runCoreLibProgressReports,
   )
 where
 
 import Aihc.Dev.ExtractHi (extractPackage, extractSourcePackage)
 import Aihc.Dev.ExtractHi.Types
+import Data.Char (isDigit)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import System.FilePath ((</>))
+import System.Directory (doesFileExist, getCurrentDirectory)
+import System.Environment (lookupEnv)
+import System.FilePath (takeDirectory, (</>))
 import Text.Printf (printf)
 
 data InterfaceMismatch = InterfaceMismatch
@@ -84,11 +91,107 @@ coreLibProgressReports aihcPrim ghcPrim aihcBase base =
 
 runCoreLibProgressReports :: IO [CoreLibProgressReport]
 runCoreLibProgressReports = do
-  ghcPrim <- extractPackage "ghc-prim"
-  aihcPrim <- extractSourcePackage ("core-libs" </> "aihc-prim") "aihc-prim"
-  base <- extractPackage "base"
-  aihcBase <- extractSourcePackage ("core-libs" </> "aihc-base") "aihc-base"
+  (aihcPrim, ghcPrim, aihcBase, base) <- extractCoreLibs
   pure (coreLibProgressReports aihcPrim ghcPrim aihcBase base)
+
+-- | Exports of @aihc-prim@ and @aihc-base@ that GHC's @ghc-prim@ and @base@
+-- do not provide, restricted to modules that exist in those packages.
+-- Modules that only aihc defines may export anything.
+runCoreLibApiDivergences :: IO [InterfaceMismatch]
+runCoreLibApiDivergences = do
+  (aihcPrim, ghcPrim, aihcBase, base) <- extractCoreLibs
+  pure (coreLibApiDivergences [ghcPrim, base] aihcPrim <> coreLibApiDivergences [ghcPrim, base] aihcBase)
+
+extractCoreLibs :: IO (PackageInterface, PackageInterface, PackageInterface, PackageInterface)
+extractCoreLibs = do
+  root <- coreLibsRoot
+  ghcPrim <- extractPackage "ghc-prim"
+  aihcPrim <- extractSourcePackage (root </> "core-libs" </> "aihc-prim") "aihc-prim"
+  base <- extractPackage "base"
+  aihcBase <- extractSourcePackage (root </> "core-libs" </> "aihc-base") "aihc-base"
+  pure (aihcPrim, ghcPrim, aihcBase, base)
+
+-- | The directory holding @core-libs/@: @AIHC_CORE_LIBS_ROOT@ when set,
+-- otherwise the nearest ancestor of the working directory that has it.
+coreLibsRoot :: IO FilePath
+coreLibsRoot = do
+  override <- lookupEnv "AIHC_CORE_LIBS_ROOT"
+  case override of
+    Just root -> pure root
+    Nothing -> getCurrentDirectory >>= findRoot
+  where
+    marker = "core-libs" </> "aihc-base" </> "aihc-base.cabal"
+    findRoot dir = do
+      exists <- doesFileExist (dir </> marker)
+      if exists
+        then pure dir
+        else do
+          let parent = takeDirectory dir
+          if parent == dir
+            then ioError (userError ("Could not find " <> marker <> " from the current directory"))
+            else findRoot parent
+
+-- | Candidate exports that diverge from the oracle packages. Only modules
+-- that an oracle package also exports are checked: every name such a module
+-- exports must also be exported by the oracle module, and every fixity it
+-- declares must be declared identically there, so that code compiled against
+-- aihc's core libraries also compiles against GHC's. Candidate-only modules
+-- may export anything.
+--
+-- Names are compared without their namespace or signature: a class method
+-- may become a plain function and back, and the two extractors render types
+-- differently. Oracle modules without any extracted export are skipped;
+-- @GHC.Prim@ is wired into GHC and has no interface file to compare against.
+coreLibApiDivergences :: [PackageInterface] -> PackageInterface -> [InterfaceMismatch]
+coreLibApiDivergences oracles candidate =
+  concatMap divergences (piModules candidate)
+  where
+    oracleModules =
+      Map.fromList
+        [ (miModule modu, (packageDisplayName (piPackage oracle), modu))
+        | oracle <- oracles,
+          modu <- piModules oracle,
+          not (Set.null (moduleExportNames modu))
+        ]
+
+    divergences modu =
+      case Map.lookup (miModule modu) oracleModules of
+        Nothing -> []
+        Just (oraclePackage, oracleModule) ->
+          [ mismatch (miModule modu <> "." <> name) ("not exported by " <> oraclePackage)
+          | name <- Set.toAscList (moduleExportNames modu `Set.difference` moduleExportNames oracleModule)
+          ]
+            <> [ mismatch (miModule modu <> ".fixity:" <> fiName fixity) message
+               | fixity <- miFixities modu,
+                 Just message <- [fixityDivergence oraclePackage oracleFixities fixity]
+               ]
+          where
+            oracleFixities = keyed fiName (miFixities oracleModule)
+
+    fixityDivergence oraclePackage oracleFixities fixity =
+      case Map.lookup (fiName fixity) oracleFixities of
+        Nothing -> Just ("fixity is not declared by " <> oraclePackage)
+        Just oracleFixity
+          | fixity /= oracleFixity -> Just ("fixity differs from " <> oraclePackage <> ": " <> T.pack (show oracleFixity))
+          | otherwise -> Nothing
+
+-- | Every name a module exports, whatever its namespace: values, types and
+-- their constructors and fields, classes and their methods.
+moduleExportNames :: ModuleInterface -> Set Text
+moduleExportNames iface =
+  Set.fromList $
+    concat
+      [ map evName (miValues iface),
+        concatMap (\typ -> etName typ : etConstructors typ) (miTypes iface),
+        concatMap (\klass -> ecName klass : map cmName (ecMethods klass)) (miClasses iface)
+      ]
+
+-- | The package name of a @ghc-pkg@ package id such as @base-4.21.2.0-fc24@.
+packageDisplayName :: Text -> Text
+packageDisplayName packageId =
+  T.intercalate "-" (takeWhile (not . startsWithDigit) (T.splitOn "-" packageId))
+  where
+    startsWithDigit segment = maybe False (isDigit . fst) (T.uncons segment)
 
 renderCoreLibProgressReports :: [CoreLibProgressReport] -> String
 renderCoreLibProgressReports reports =
