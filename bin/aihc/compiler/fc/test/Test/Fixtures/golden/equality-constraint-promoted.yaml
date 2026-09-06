@@ -12,6 +12,5 @@ modules:
   cast :: (a ~ 'On) => Proxy a -> Flag
   cast _ = On
   result = cast (Proxy :: Proxy 'On)
-check-only: true
 status: xfail
 reason: Equality can relate promoted data constructors. AIHC cannot resolve the equality class.

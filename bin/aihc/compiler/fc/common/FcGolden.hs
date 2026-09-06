@@ -69,8 +69,7 @@ data FcCase = FcCase
     casePath :: !FilePath,
     caseExtensions :: ![Extension],
     caseModules :: ![Text],
-    caseExpected :: !String,
-    caseCheckOnly :: !Bool,
+    caseExpected :: !(Maybe String),
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
   }
@@ -145,22 +144,21 @@ loadFcCase path = do
 
 parseFcFixture :: FilePath -> Y.Value -> Either String FcCase
 parseFcFixture path value = do
-  (extNames, modules, expectedText, checkOnly, statusText, reasonText) <-
+  (extNames, modules, expectedText, statusText, reasonText) <-
     parseEither
       ( withObject "fc fixture" $ \obj -> do
           exts <- obj .: "extensions"
           mods <- obj .: "modules" >>= parseModules
-          expected <- (obj .:? "expected" >>= traverse parseExpectedValue) .!= ""
-          checkOnly <- obj .:? "check-only" .!= False
+          expected <- obj .:? "expected" >>= traverse parseExpectedValue
           status <- obj .: "status"
           reason <- obj .:? "reason" .!= ""
-          pure (exts, mods, expected, checkOnly, status, reason)
+          pure (exts, mods, expected, status, reason)
       )
       value
   exts <- validateExtensions path extNames
   status <- parseStatus path statusText
   let relPath = dropRootPrefix path
-      expected = trim (T.unpack expectedText)
+      expected = trim . T.unpack <$> expectedText
       reason = trim (T.unpack reasonText)
   pure
     FcCase
@@ -169,7 +167,6 @@ parseFcFixture path value = do
         caseExtensions = exts,
         caseModules = modules,
         caseExpected = expected,
-        caseCheckOnly = checkOnly,
         caseStatus = status,
         caseReason = reason
       }
@@ -331,18 +328,20 @@ classifySuccess :: FcCase -> String -> (Outcome, String)
 classifySuccess tc actual =
   case caseStatus tc of
     StatusPass
-      | caseCheckOnly tc || trim actual == trim (caseExpected tc) -> (OutcomePass, "")
+      | outputMatches -> (OutcomePass, "")
       | otherwise ->
           ( OutcomeFail,
-            "output mismatch\nexpected:\n" <> caseExpected tc <> "\nactual:\n" <> trim actual
+            "output mismatch\nexpected:\n" <> fromMaybe "" (caseExpected tc) <> "\nactual:\n" <> trim actual
           )
     StatusFail -> (OutcomeFail, "expected failure but desugaring succeeded")
     StatusXFail
-      | caseCheckOnly tc || trim actual == trim (caseExpected tc) -> (OutcomeXPass, "")
+      | outputMatches -> (OutcomeXPass, "")
       | otherwise -> (OutcomeXFail, "")
     StatusXPass
-      | caseCheckOnly tc || trim actual == trim (caseExpected tc) -> (OutcomeXPass, "known bug still passes")
+      | outputMatches -> (OutcomeXPass, "known bug still passes")
       | otherwise -> (OutcomeFail, "expected xpass output match but got: " <> trim actual)
+  where
+    outputMatches = maybe True (== trim actual) (caseExpected tc)
 
 classifyFailure :: FcCase -> String -> (Outcome, String)
 classifyFailure tc errDetails =

@@ -8,6 +8,5 @@ modules:
   cast :: (a ~ b) => (a -> a) -> b -> b
   cast f = f
   result = cast (\x -> x) On
-check-only: true
 status: xfail
 reason: Equality lifts through function arguments and results. AIHC cannot resolve the equality class.

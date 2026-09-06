@@ -4,6 +4,5 @@ modules:
   module Test where
   identity :: a -> a
   identity x = x
-check-only: true
 status: pass
 reason: The check-only assertion requires successful desugaring, FC lint, and a text round trip.

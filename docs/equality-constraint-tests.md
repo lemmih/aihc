@@ -49,9 +49,9 @@ This assertion requires successful parsing and name resolution before it examine
 Thus, a resolve error cannot satisfy `typecheck: false`.
 Existing fixtures still use exact annotation snapshots when they omit `typecheck`.
 
-An FC fixture can specify `check-only: true` instead of an output snapshot.
+If an FC fixture omits `expected`, it checks successful compilation without an output snapshot.
 This assertion still requires all normal compiler checks, FC lint, and the FC text round trip.
-Existing fixtures still compare exact FC text when they omit `check-only`.
+If an FC fixture supplies `expected`, it compares exact FC text, including an explicitly empty snapshot.
 
 The three `fixture-*` control fixtures check successful TC, rejected TC, and successful FC assertions.
 These fixtures use ordinary source programs.
