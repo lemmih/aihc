@@ -15,7 +15,6 @@ import Aihc.Lir.RegAlloc
   ( Allocation (..),
     Interval (..),
     Registers (..),
-    allocateRegisters,
     allocateRegistersFor,
     functionIntervals,
   )
@@ -29,22 +28,41 @@ import System.FilePath (takeExtension, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
--- | A pool of made-up registers. The allocator never looks inside one.
-pool :: Int -> [Text]
-pool count = take count ["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9"]
+-- | A pool of made-up preserved registers that cost a save, with no
+-- volatile register and no convention to hint from. The allocator never
+-- looks inside a register.
+pool :: Int -> Registers Text
+pool count =
+  Registers
+    { registersVolatile = [],
+      registersPreserved = take count ["p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9"],
+      registersPreservedCost = True,
+      registersArgument = const Nothing,
+      registersResult = const Nothing
+    }
+
+-- | Allocate with a preserved pool and no signatures.
+allocatePool :: Int -> Function -> Allocation Text
+allocatePool count = allocateRegistersFor (pool count) Map.empty
 
 -- | A made-up target: four volatile registers that carry no argument, the
--- argument registers @a0@ to @a7@, and two preserved registers.
+-- argument registers @a0@ to @a7@, the result register @r0@, and two
+-- preserved registers.
 target :: Bool -> Registers Text
 target preservedCost =
   Registers
-    { registersVolatile = ["t0", "t1", "t2", "t3"] <> arguments,
+    { registersVolatile = ["t0", "t1", "t2", "t3"] <> arguments <> ["r0"],
       registersPreserved = ["s0", "s1"],
       registersPreservedCost = preservedCost,
-      registersArgument = \index -> if index < length arguments then Just (arguments !! index) else Nothing
+      registersArgument = carrier arguments,
+      registersResult = carrier results
     }
   where
     arguments = ["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"]
+    results = ["r0", "a1", "a2"]
+    carrier registers index
+      | index < length registers = Just (registers !! index)
+      | otherwise = Nothing
 
 -- | The signatures a module declares, as the backends pass them.
 moduleSignatures :: Module -> Map.Map Symbol Signature
@@ -70,7 +88,7 @@ unitTests :: [TestTree]
 unitTests =
   [ testCase "a value touched once does not earn a register" $ do
       function <- one chainSource
-      let allocation = allocateRegisters (pool 4) function
+      let allocation = allocatePool 4 function
       assertEqual
         "every value stays in a frame slot"
         [Var "x", Var "a", Var "b", Var "c"]
@@ -78,7 +96,7 @@ unitTests =
       assertEqual "no register is saved" [] (allocationUsed allocation),
     testCase "a value touched often earns a register" $ do
       function <- one thriceSource
-      let allocation = allocateRegisters (pool 4) function
+      let allocation = allocatePool 4 function
       assertBool
         "the value three instructions read is in a register"
         (Map.member (Var "x") (allocationRegisters allocation))
@@ -90,11 +108,11 @@ unitTests =
       -- The same three reads no longer pay for themselves once two exits
       -- each have to restore the register.
       function <- one twoExitSource
-      let allocation = allocateRegisters (pool 4) function
+      let allocation = allocatePool 4 function
       assertEqual "no register is saved" [] (allocationUsed allocation),
     testCase "a loop keeps its carried values in registers" $ do
       function <- one loopSource
-      let registers = allocationRegisters (allocateRegisters (pool 10) function)
+      let registers = allocationRegisters (allocatePool 10 function)
       mapM_
         (\name -> assertBool (show name <> " is in a register") (Map.member (Var name) registers))
         ["i", "acc", "j", "total", "next", "sum"]
@@ -103,7 +121,7 @@ unitTests =
         (Map.lookup (Var "i") registers /= Map.lookup (Var "acc") registers),
     testCase "an empty pool spills every value in definition order" $ do
       function <- one loopSource
-      let allocation = allocateRegisters (pool 0) function
+      let allocation = allocatePool 0 function
       assertEqual "nothing is in a register" Map.empty (allocationRegisters allocation)
       assertEqual
         "every value spills, in the order the function defines them"
@@ -111,7 +129,7 @@ unitTests =
         (allocationSpills allocation),
     testCase "a small pool spills the rest of a loop" $ do
       function <- one loopSource
-      let allocation = allocateRegisters (pool 2) function
+      let allocation = allocatePool 2 function
       assertBool "some values spill" (not (null (allocationSpills allocation)))
       assertBool
         "no more registers than the pool holds"
@@ -135,7 +153,7 @@ conventionTests =
     testCase "a returned value takes the result register" $ do
       function <- one chainSource
       let registers = allocationRegisters (allocateRegistersFor (target False) Map.empty function)
-      assertEqual "the result is in the first argument register" (Just "a0") (Map.lookup (Var "c") registers),
+      assertEqual "the result is in the result register" (Just "r0") (Map.lookup (Var "c") registers),
     testCase "a loop carries each value in one register" $ do
       function <- one loopSource
       let registers = allocationRegisters (allocateRegistersFor (target False) Map.empty function)
@@ -155,7 +173,7 @@ conventionTests =
       (signatures, function) <- oneWith cCallSource
       let registers = allocationRegisters (allocateRegistersFor (target False) signatures function)
       assertBool "the value that lives across the call is preserved" (Map.lookup (Var "x") registers `elem` [Just "s0", Just "s1"])
-      assertEqual "the result of the call arrives in the result register" (Just "a0") (Map.lookup (Var "a") registers),
+      assertEqual "the result of the call arrives in the result register" (Just "r0") (Map.lookup (Var "a") registers),
     testCase "a value live across a C call earns its preserved register" $ do
       (signatures, function) <- oneWith cCallOnceSource
       let free = allocateRegistersFor (target False) signatures function
@@ -179,7 +197,7 @@ invariantTest directory name = testCase name $ do
     [ check description (allocate function) function
     | ItemFunction function <- moduleItems lirModule,
       (description, allocate) <-
-        [ ("a preserved pool", allocateRegisters (pool 5)),
+        [ ("a preserved pool", allocatePool 5),
           ("a target", allocateRegistersFor (target False) signatures),
           ("a target that charges for preserved registers", allocateRegistersFor (target True) signatures)
         ]

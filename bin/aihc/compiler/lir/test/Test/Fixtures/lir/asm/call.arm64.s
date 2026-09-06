@@ -10,8 +10,8 @@ _twice:
 	bl _helper
 	mov x20, x0
 	bl _helper
-	add x8, x20, x0
-	add x0, x8, x19
+	add x0, x20, x0
+	add x0, x0, x19
 	ldr x19, [sp]
 	ldr x20, [sp, #8]
 	mov sp, x29

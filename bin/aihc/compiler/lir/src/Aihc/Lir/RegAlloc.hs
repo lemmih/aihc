@@ -25,18 +25,15 @@
 -- call results, and returned values are hinted with the register the
 -- convention puts them in. The argument of a jump and the block parameter
 -- it reaches are partners: each prefers the register the other already has,
--- and failing that the register the other was hinted with. A hint that is
--- not free at the time is dropped, so hints cost nothing in correctness and
--- buy most of the moves that a convention would otherwise need.
---
--- 'allocateRegisters' is the older entry point: one pool of preserved
--- registers, no hints, and a value has to earn its register by being
--- touched often enough to pay for the save and the restores. The AMD64
--- backend still uses it.
+-- and failing that the register the other was hinted with. Last, a result
+-- prefers the register of an operand of its own instruction, which is free
+-- exactly when the operand dies there; on a two-operand machine that is the
+-- difference between one instruction and two. A hint that is not free at
+-- the time is dropped, so hints cost nothing in correctness and buy most of
+-- the moves that a convention would otherwise need.
 module Aihc.Lir.RegAlloc
   ( Allocation (..),
     Registers (..),
-    allocateRegisters,
     allocateRegistersFor,
     Interval (..),
     functionIntervals,
@@ -88,9 +85,12 @@ data Registers register = Registers
     -- restore. It does under the C convention, where the caller expects the
     -- register back, and it does not under the aihc convention.
     registersPreservedCost :: !Bool,
-    -- | The register that carries parameter, argument, and result number
-    -- @i@ under the conventions of the target, when one does.
-    registersArgument :: !(Int -> Maybe register)
+    -- | The register that carries parameter and argument number @i@ under
+    -- the conventions of the target, when one does.
+    registersArgument :: !(Int -> Maybe register),
+    -- | The register that carries result number @i@ of a call and of a
+    -- return, when one does.
+    registersResult :: !(Int -> Maybe register)
   }
 
 -- | Assign the registers of the target to the values of the function. The
@@ -103,13 +103,13 @@ allocateRegistersFor target signatures function =
     config =
       Config
         { configPool = pool,
-          configPreserved = Set.fromList (registersPreserved target),
-          configStrictBoundary = False
+          configPreserved = Set.fromList (registersPreserved target)
         }
     counts = accessCounts function
     exits = exitCount function
     calls = callPositions signatures function
     (fixedHints, partners) = hints target function
+    operandsOf = resultOperands function
     intervals = functionIntervals function
     starts = Map.fromList [(intervalVar interval, intervalStart interval) | interval <- intervals]
     candidates =
@@ -120,6 +120,7 @@ allocateRegistersFor target signatures function =
             candidateHints = direct,
             candidatePartners = ours,
             candidateWeakHints = nub (concatMap (\partner -> Map.findWithDefault [] partner fixedHints) ours),
+            candidateOperands = Map.findWithDefault [] var operandsOf,
             -- A value with a hint of its own, or with a partner placed
             -- before it, has a claim on a register; it goes before the
             -- values defined at the same position that have none.
@@ -129,35 +130,6 @@ allocateRegistersFor target signatures function =
         let var = intervalVar interval,
         let direct = Map.findWithDefault [] var fixedHints,
         let ours = Map.findWithDefault [] var partners
-      ]
-
--- | Assign the registers of one pool of preserved registers to the values of
--- the function. The pool is in preference order and holds no register that
--- instruction selection uses as a scratch register. A value takes a register
--- only when it is 'profitable', and a call clobbers nothing in the pool.
-allocateRegisters :: (Ord register) => [register] -> Function -> Allocation register
-allocateRegisters pool function =
-  finish pool function (linearScan config candidates)
-  where
-    config =
-      Config
-        { configPool = pool,
-          configPreserved = Set.fromList pool,
-          configStrictBoundary = True
-        }
-    counts = accessCounts function
-    exits = exitCount function
-    candidates =
-      [ Candidate
-          { candidateInterval = interval,
-            candidateReach = ReachAny,
-            candidateEarnsPreserved = profitable counts exits interval,
-            candidateHints = [],
-            candidatePartners = [],
-            candidateWeakHints = [],
-            candidateLeads = False
-          }
-      | interval <- functionIntervals function
       ]
 
 finish :: (Ord register) => [register] -> Function -> Map Var register -> Allocation register
@@ -236,18 +208,20 @@ hints target function = (fixed, partners)
     argument = registersArgument target
     blocks = functionBlocks function
     parameters = Map.fromList [(blockLabel block, map fst (blockParameters block)) | block <- blocks]
-    numbered values = [(var, register) | (index, OperandVar var) <- zip [0 ..] values, Just register <- [argument index]]
+    numbered = numberedBy argument
+    results = numberedBy (registersResult target)
+    numberedBy carrier values = [(var, register) | (index, OperandVar var) <- zip [0 ..] values, Just register <- [carrier index]]
     fixed =
       Map.fromListWith
         (flip (<>))
         ( [(var, [register]) | (index, (var, _)) <- zip [0 ..] (functionParameters function), Just register <- [argument index]]
             <> [ (var, [register])
                | block <- blocks,
-                 Instruction results operation <- blockInstructions block,
+                 Instruction defined operation <- blockInstructions block,
                  (var, register) <-
                    case operation of
-                     Call _ arguments -> numbered arguments <> numbered (map OperandVar results)
-                     CallIndirect _ arguments _ -> numbered arguments <> numbered (map OperandVar results)
+                     Call _ arguments -> numbered arguments <> results (map OperandVar defined)
+                     CallIndirect _ arguments _ -> numbered arguments <> results (map OperandVar defined)
                      _ -> []
                ]
             <> [ (var, [register])
@@ -256,7 +230,7 @@ hints target function = (fixed, partners)
                    case blockTerminator block of
                      TailCall _ arguments -> numbered arguments
                      TailCallIndirect _ arguments _ -> numbered arguments
-                     Return values -> numbered values
+                     Return values -> results values
                      _ -> []
                ]
         )
@@ -267,6 +241,16 @@ hints target function = (fixed, partners)
         (OperandVar var, parameter) <- zip arguments (Map.findWithDefault [] label parameters)
       ]
     partners = Map.fromListWith (flip (<>)) ([(var, [parameter]) | (var, parameter) <- pairs] <> [(parameter, [var]) | (var, parameter) <- pairs])
+
+-- | The operands each instruction result is computed from.
+resultOperands :: Function -> Map Var [Var]
+resultOperands function =
+  Map.fromList
+    [ (result, nub (operationReads operation))
+    | block <- functionBlocks function,
+      Instruction results operation <- blockInstructions block,
+      result <- results
+    ]
 
 -- | Whether a value earns the register it would take.
 --
@@ -485,12 +469,7 @@ functionIntervals function =
 data Config register = Config
   { -- | Every register, in preference order.
     configPool :: ![register],
-    configPreserved :: !(Set register),
-    -- | Whether an interval that ends where another begins overlaps it. The
-    -- older entry point keeps the two apart; the newer one lets the value an
-    -- instruction consumes hand its register to the value it defines, which
-    -- every instruction of a backend using it must tolerate.
-    configStrictBoundary :: !Bool
+    configPreserved :: !(Set register)
   }
 
 data Candidate register = Candidate
@@ -504,6 +483,8 @@ data Candidate register = Candidate
     candidatePartners :: ![Var],
     -- | The registers the conventions suggest for the partners.
     candidateWeakHints :: ![register],
+    -- | The operands the value is computed from.
+    candidateOperands :: ![Var],
     -- | Whether the value goes before the others defined at its position.
     candidateLeads :: !Bool
   }
@@ -523,9 +504,10 @@ accepts config candidate register =
 -- An interval that outlives another may take its register once that one has
 -- expired. A hint of the value that is free is taken first, then the
 -- register of a partner already placed, then a hint of a partner, then the
--- first free register of the pool. When nothing acceptable is free, the
--- acceptable interval that reaches furthest goes to a frame slot; it is the
--- one whose register would sit idle the longest.
+-- register of an operand that just died, then the first free register of
+-- the pool. When nothing acceptable is free, the acceptable interval that
+-- reaches furthest goes to a frame slot; it is the one whose register would
+-- sit idle the longest.
 linearScan :: (Ord register) => Config register -> [Candidate register] -> Map Var register
 linearScan config candidates = scanState (foldl' step (ScanState [] (configPool config) Map.empty) ordered)
   where
@@ -537,19 +519,22 @@ linearScan config candidates = scanState (foldl' step (ScanState [] (configPool 
             candidateHints candidate
               <> mapMaybe (`Map.lookup` scanState expired) (candidatePartners candidate)
               <> candidateWeakHints candidate
+              <> mapMaybe (`Map.lookup` scanState expired) (candidateOperands candidate)
           choices = [register | register <- preferred <> scanFree expired, register `elem` scanFree expired, accepts config candidate register]
        in case choices of
             register : _ -> activate interval register expired
             [] -> spill candidate expired
     -- The active intervals that end before this one starts give their
     -- registers back. An interval that ends exactly where the next begins
-    -- does so too unless the boundary is strict, and never when it never
-    -- lived past its definition: two values one instruction defines must
-    -- not share.
+    -- does so too: the value an instruction consumes hands its register to
+    -- the value the instruction defines, which every instruction a backend
+    -- selects has to tolerate. A value that never lived past its own
+    -- definition keeps its register, so two values one instruction defines
+    -- never share.
     expire position state =
       let finished active =
             intervalEnd active < position
-              || (not (configStrictBoundary config) && intervalEnd active == position && intervalStart active < intervalEnd active)
+              || (intervalEnd active == position && intervalStart active < intervalEnd active)
           (done, alive) = span (finished . fst) (scanActive state)
        in state
             { scanActive = alive,

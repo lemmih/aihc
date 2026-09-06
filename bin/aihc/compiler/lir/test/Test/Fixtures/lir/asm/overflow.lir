@@ -1,7 +1,7 @@
 ; A tail call whose arguments overrun the argument registers of both targets.
 ; The outgoing block is no larger than the incoming one, so it is written in
-; place above the frame. On ARM64 the function has no frame, and a word that
-; goes back where it came from is not stored at all.
+; place above the frame. The function has no frame on either target, and a
+; word that goes back where it came from is not stored at all.
 func @spread(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64, %i: i64, %j: i64) {
 entry:
   %k = add i64 %a, %j

@@ -83,6 +83,9 @@ instruction code =
     AmdImul destination source -> two "imul" destination source
     AmdTest destination source -> "test " <> rm destination <> ", " <> reg source
     AmdShl destination -> "shl " <> rm destination <> ", cl"
+    AmdShlImmediate destination count -> "shl " <> rm destination <> ", " <> show count
+    AmdShrImmediate destination count -> "shr " <> rm destination <> ", " <> show count
+    AmdSarImmediate destination count -> "sar " <> rm destination <> ", " <> show count
     AmdShr destination -> "shr " <> rm destination <> ", cl"
     AmdSar destination -> "sar " <> rm destination <> ", cl"
     AmdNot destination -> "not " <> rm destination

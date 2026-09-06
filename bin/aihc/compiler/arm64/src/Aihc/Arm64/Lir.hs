@@ -275,8 +275,13 @@ registersFor convention =
     { registersVolatile = volatileRegisters,
       registersPreserved = preservedRegisters,
       registersPreservedCost = convention == CConvention,
-      registersArgument = \index -> if index < length argumentRegisters then Just (argumentRegisters !! index) else Nothing
+      registersArgument = argument,
+      registersResult = argument
     }
+  where
+    argument index
+      | index < length argumentRegisters = Just (argumentRegisters !! index)
+      | otherwise = Nothing
 
 overflowBytes :: Int -> Int
 overflowBytes count = ((max 0 (count - length argumentRegisters) * 8 + 15) `div` 16) * 16

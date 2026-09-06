@@ -550,12 +550,15 @@ A hint is a register the scan tries first. Parameters, call arguments, call
 results, and returned values are hinted with the register the convention
 puts them in. The argument of a jump and the block parameter it reaches are
 partners: each prefers the register the other already has, and failing that
-the register the other was hinted with. A hint that is not free at the time
-is dropped, so hints cost nothing in correctness and buy most of the moves
-that a convention would otherwise need. The value an instruction consumes
-may hand its register to the value the instruction defines, which every
-instruction a backend selects has to tolerate: it reads every operand before
-it writes a result.
+the register the other was hinted with. Last, a result prefers the register
+of an operand of its own instruction, which is free exactly when the operand
+dies there; on a two-operand machine that is the difference between one
+instruction and two. A hint that is not free at the time is dropped, so
+hints cost nothing in correctness and buy most of the moves that a
+convention would otherwise need. The value an instruction consumes may hand
+its register to the value the instruction defines, which every instruction
+a backend selects has to tolerate: it reads every operand before it writes a
+result, or computes in a scratch register first.
 
 The allocator numbers the blocks in the order the function states them,
 computes live-in and live-out sets, and gives each value one interval from the
@@ -568,10 +571,6 @@ walks the intervals in order of their start, hands out the first free
 acceptable register, hints first and then the pool in preference order, and
 when nothing is free sends the acceptable interval that reaches furthest to
 a frame slot.
-
-The older entry point, `allocateRegisters`, offers one pool of preserved
-registers, no hints, and the touch count as the bar for every value. The
-AMD64 backend still uses it.
 
 ## Backends
 
@@ -630,18 +629,33 @@ rather than as a change of some object bytes. Run the suite with
 ### AMD64
 
 `Aihc.Amd64.Lir` assembles the module with the direct ELF writer. It has the
-design of the AArch64 backend, with `rbx` and `r12` to `r15` as the pool of
-the allocator:
+design of the AArch64 backend:
 
+- The allocator hands out `rax`, `rcx`, `rdx`, `rsi`, `rdi`, `r8`, and `r9`
+  as volatile registers and `rbx` and `r12` to `r15` as preserved ones;
+  `r10` and `r11` are the scratch registers of instruction selection. A
+  function that divides or multiplies wide keeps `rax` and `rdx` for
+  `rdx:rax` as well, and a function that shifts by a variable count keeps
+  `rcx` for `cl`; every other function hands those to the allocator too. A
+  two-operand instruction computes in place when its result already sits in
+  the register of its left operand, which the allocator arranges when the
+  operand dies there, and an addition of an immediate into another register
+  is one `lea`.
 - The `aihc` convention passes the first six arguments in `rdi`, `rsi`,
   `rdx`, `rcx`, `r8`, and `r9` and the rest in a 16-byte aligned block above
-  the return address. The callee pops that block with `ret imm16`. A tail
-  call builds the return address and the outgoing block below its frame,
-  moves them to the place of the incoming block, and jumps. Results come
-  back in `rax`, `rdx`, `rcx`, `rsi`, `rdi`, `r8`, `r9`, and `r10`.
+  the return address. The callee pops that block with `ret imm16`. Results
+  come back in `rax`, `rdx`, `rcx`, `rsi`, `rdi`, `r8`, `r9`, and `r10`. An
+  aihc function that calls nothing and spills nothing has no frame: the
+  stack pointer stays on the return address. A tail call writes its
+  outgoing block in place above the frame and moves the return address up
+  when the block is no larger than the incoming one, moves the return
+  address down to make room when it is larger and there is no frame, and
+  otherwise builds the return address and the block below the frame and
+  copies them up once the frame is gone.
 - The `c` convention is the System V convention with at most six integer and
   eight float arguments and one result. A float travels as its bit pattern
-  in the frame and moves through `xmm0` at the boundary.
+  and moves through `xmm0` at the boundary. A C function saves the preserved
+  registers it uses, and all of them when it calls an aihc function.
 - `clz`, `ctz`, and `popcount` are `lzcnt`, `tzcnt`, and `popcnt`. This
   backend targets modern hardware and assumes SSE4.2, LZCNT, and BMI1; a host
   without them uses the LLVM backend.
