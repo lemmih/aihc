@@ -675,11 +675,11 @@ packageIdentityNamed resolvePackage dependencyExports name
         ]
 
 -- | The core-library packages whose classes stock deriving accepts: the
--- Haskell report classes, and the classes behind the deriving extensions.
--- A class can come from a transitive dependency, so the identities are
--- gathered from every package the instance closure knows.
+-- Haskell report classes in aihc-prim and aihc-base, and @Lift@ in
+-- aihc-internal. A class can come from a transitive dependency, so the
+-- identities are gathered from every package the instance closure knows.
 stockClassPackageNames :: [Text]
-stockClassPackageNames = ["aihc-prim", "aihc-base", "aihc-internal", "aihc-template-haskell"]
+stockClassPackageNames = ["aihc-prim", "aihc-base", "aihc-internal"]
 
 -- | Whether a store identity such as @aihc-internal-9.1204.0-5e72@ names
 -- the given package.
