@@ -730,8 +730,8 @@ compileInstruction fn (Instruction results operation) =
       push fn (Map.findWithDefault I64 symbol (ctxGlobals (fnCtx fn))) value
       emit ("global.set\t" <> symbolText (fnCtx fn) symbol)
     Call symbol arguments -> do
-      let signature = Map.findWithDefault (Signature [] [] AihcConvention) symbol (ctxSignatures (fnCtx fn))
-      forM_ (zip (signatureParameters signature) arguments) (uncurry (push fn))
+      let original = Map.findWithDefault (Signature [] [] AihcConvention) symbol (ctxSignatures (fnCtx fn))
+      forM_ (zip (signatureParameters original) arguments) (uncurry (push fn))
       emit ("call\t" <> symbolText (fnCtx fn) symbol)
       storeResults
     CallIndirect target arguments signature -> do

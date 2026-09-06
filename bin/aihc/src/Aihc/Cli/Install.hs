@@ -45,7 +45,7 @@ import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower qualified as Lir
-import Aihc.Native (NativeTarget (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory, wasmSysroot)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
     ImportDecl (..),
@@ -139,15 +139,17 @@ import Distribution.PackageDescription (package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
+import Distribution.System (Arch (..), OS (..), buildArch, buildOS)
 import Distribution.Version (nullVersion)
 import GHC.Clock (getMonotonicTimeNSec)
 import Numeric (showHex)
+import Paths_aihc (getDataFileName)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
 import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
+import System.FilePath (dropExtension, makeRelative, takeDirectory, takeFileName, (<.>), (</>))
 import System.IO (hClose, hIsTerminalDevice, openBinaryTempFile, stdout)
 import System.Process (readProcessWithExitCode)
 
@@ -439,7 +441,9 @@ installPackageDirect config storeRoot dependencies root = do
   gpd <- case runParseResult (parseGenericPackageDescription cabalBytes) of
     (_, Right value) -> pure value
     (_, Left (_, errors)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errors))
-  files <- HackageCabal.collectLibraryFiles gpd root
+  let (targetOs, targetArch) = cabalPlatformForTarget target
+  files <- HackageCabal.collectLibraryFilesFor targetOs targetArch gpd root
+  let cCompileInfo = HackageCabal.collectLibraryCCompileInfoFor targetOs targetArch gpd root
   let packageId = package (packageDescription gpd)
       packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
@@ -464,7 +468,8 @@ installPackageDirect config storeRoot dependencies root = do
             [ outputObjectPath (moduleOutputPaths storePath target (sourceName source))
             | source <- parsed
             ]
-    buildLibraryArchive target verbose archive moduleObjects
+    cObjects <- compilePackageCFiles target verbose root storePath cCompileInfo
+    buildLibraryArchive target verbose archive (moduleObjects <> cObjects)
   writePackageManifest
     (packageManifestPath storePath)
     PackageManifest
@@ -1458,6 +1463,59 @@ withFinalNewline :: String -> String
 withFinalNewline rendered
   | "\n" `isSuffixOf` rendered = rendered
   | otherwise = rendered <> "\n"
+
+cabalPlatformForTarget :: NativeTarget -> (OS, Arch)
+cabalPlatformForTarget target =
+  case target of
+    AppleArm64 -> (OSX, AArch64)
+    LinuxAmd64 -> (Linux, X86_64)
+    Llvm -> (buildOS, buildArch)
+    Wasm32Wasip3 -> (Wasi, Wasm32)
+
+compilePackageCFiles :: NativeTarget -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
+compilePackageCFiles target verbose packageRoot storePath info
+  | null (HackageCabal.cCompileSources info) = pure []
+  | otherwise = do
+      (compiler, targetArguments) <- backendCompiler target
+      ffiHeader <- getDataFileName "compiler/native/runtime/include/HsFFI.h"
+      sysrootIncludes <- wasmSysrootIncludeArguments target
+      let ffiIncludeDir = takeDirectory ffiHeader
+          includeArguments =
+            sysrootIncludes
+              <> ["-I" <> directory | directory <- HackageCabal.cCompileIncludeDirs info]
+              <> ["-I" <> ffiIncludeDir]
+          objectRoot = storePath </> "cbits"
+      createDirectoryIfMissing True objectRoot
+      forM (HackageCabal.cCompileSources info) $ \source -> do
+        exists <- doesFileExist source
+        unless exists (ioError (userError ("C source is absent: " <> source)))
+        let object = objectRoot </> cObjectFileName (makeRelative packageRoot source)
+        verbose ("Compile C source: " <> source)
+        runTool
+          compiler
+          ( targetArguments
+              <> HackageCabal.cCompileCcOptions info
+              <> includeArguments
+              <> ["-c", source, "-o", object]
+          )
+        pure object
+
+wasmSysrootIncludeArguments :: NativeTarget -> IO [String]
+wasmSysrootIncludeArguments target =
+  case target of
+    Wasm32Wasip3 -> do
+      sysroot <- wasmSysroot
+      pure ["-isystem" <> wasmSysrootInclude sysroot]
+    _ -> pure []
+
+cObjectFileName :: FilePath -> FilePath
+cObjectFileName source =
+  map replaceSeparator (dropExtension source) <.> "o"
+  where
+    replaceSeparator character =
+      if character == '/' || character == '\\'
+        then '_'
+        else character
 
 buildLibraryArchive :: NativeTarget -> (String -> IO ()) -> FilePath -> [FilePath] -> IO ()
 buildLibraryArchive target verbose archive moduleObjects = do

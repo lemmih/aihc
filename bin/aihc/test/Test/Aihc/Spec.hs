@@ -14,7 +14,7 @@ import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (tcInterfaceTerms, tcTermKeyIdentifier)
 import Control.Concurrent (getNumCapabilities, setNumCapabilities)
 import Control.Exception (IOException, bracket, finally, try)
-import Control.Monad (forM)
+import Control.Monad (forM, forM_)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort)
@@ -88,6 +88,8 @@ tests =
             testCase "prints timings independently from verbose output" (test_installTimingOutput primStore),
             testCase "reports all frontend errors in stable dependency order" (test_installResolveError primStore),
             testCase "writes Core for a ccall import" (test_installFcCcall primStore),
+            testCase "compiles Cabal c-sources into the library archive" (test_installCSources primStore),
+            testCase "selects Cabal source dirs by target architecture" (test_installArchSourceDirs primStore),
             testCase "retains and repairs GRIN only with keep-grin" (test_installKeepGrin primStore),
             testCase "writes target-specific objects and library archives" (test_installTargetArchives primStore),
             -- This one installs aihc-prim into an empty store on purpose: it is
@@ -531,6 +533,43 @@ assertCoreFile path = do
   case Fc.parseProgram core of
     Left parseError -> assertFailure ("invalid Core file " <> path <> ": " <> Fc.renderParseError parseError)
     Right _ -> pure ()
+
+test_installArchSourceDirs :: IO SeedStore -> Assertion
+test_installArchSourceDirs getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/arch-source-dirs"
+  targets <- installTestTargets
+  withSandbox getStore "aihc-install-arch-source-dirs" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    forM_ targets $ \target -> do
+      result <- install (InstallOptions fixtureRoot (Just storeRoot) False False False False False False False target)
+      core <- readFile (installStorePath result </> "Payload" </> "core")
+      let expected = archSourceDirPayload target
+          unexpected = if expected == "32#" then "64#" else "32#"
+      assertBool
+        ("Core for " <> show target <> " contains " <> expected)
+        (expected `isInfixOf` core)
+      assertBool
+        ("Core for " <> show target <> " does not contain " <> unexpected)
+        (not (unexpected `isInfixOf` core))
+
+archSourceDirPayload :: NativeTarget -> String
+archSourceDirPayload target =
+  case target of
+    Wasm32Wasip3 -> "32#"
+    _ -> "64#"
+
+test_installCSources :: IO SeedStore -> Assertion
+test_installCSources getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/c-sources"
+  withSandbox getStore "aihc-install-c-sources" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    result <- install (InstallOptions fixtureRoot (Just storeRoot) False False False False False False False AppleArm64)
+    let archivePath = installStorePath result </> "lib" </> "libdemo.a"
+    assertFileExists archivePath
+    members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
+    assertEqual "archive members" ["Demo.o", "cbits_helper.o"] (sort members)
+    symbols <- readProcess "nm" [archivePath] ""
+    assertBool "archive defines the C symbol" ("aihc_c_add" `isInfixOf` symbols)
 
 test_installFcCcall :: IO SeedStore -> Assertion
 test_installFcCcall getStore =

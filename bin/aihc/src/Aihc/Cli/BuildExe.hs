@@ -34,9 +34,9 @@ import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (Package (..), PackageId (..))
 import Control.Exception (bracket)
 import Control.Monad (filterM, foldM, forM, unless, when)
-import Data.List (find, isInfixOf, isPrefixOf, nub, sortOn)
+import Data.List (find, isInfixOf, isPrefixOf, isSuffixOf, nub, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -133,7 +133,39 @@ runBuildExe options = do
           }
   compiled <- compileModules compileConfig compileRequest
   createDirectoryIfMissing True (takeDirectory output)
-  linkExecutable target output (compileObjectPaths compiled) (map packageArchive selected) entry runtime
+  let orderedPackages = linkOrderedPackages selected
+  cObjects <- fmap concat (mapM packageCObjects orderedPackages)
+  linkExecutable
+    target
+    output
+    (compileObjectPaths compiled <> cObjects)
+    (map packageArchive orderedPackages)
+    entry
+    runtime
+
+-- | Put a package before the packages it depends on.
+-- GNU ld searches each archive once, so a later archive cannot satisfy an
+-- earlier archive.
+linkOrderedPackages :: [InstalledPackage] -> [InstalledPackage]
+linkOrderedPackages packages =
+  reverse (snd (foldl visit (Set.empty, []) packages))
+  where
+    byIdentity =
+      Map.fromList
+        [ (packageIdentity package, package)
+        | package <- packages
+        ]
+    packageIdentity = packageManifestIdentity . installedManifest
+    visit (seen, ordered) package
+      | Set.member (packageIdentity package) seen = (seen, ordered)
+      | otherwise =
+          let seenSelf = Set.insert (packageIdentity package) seen
+              dependencies =
+                mapMaybe
+                  (`Map.lookup` byIdentity)
+                  (packageManifestDependencies (installedManifest package))
+              (seenDeps, orderedDeps) = foldl visit (seenSelf, ordered) dependencies
+           in (seenDeps, orderedDeps ++ [package])
 
 implicitConstraint :: Text -> PackageConstraint
 implicitConstraint name =
@@ -225,6 +257,16 @@ resolvePackages available constraints = do
           [] -> conflict name
           _ -> ioError (userError ("The dependency plan selects more than one version of " <> T.unpack name))
     conflict name = ioError (userError ("The installed dependency plan does not fulfill the constraint for " <> T.unpack name))
+
+packageCObjects :: InstalledPackage -> IO [FilePath]
+packageCObjects package = do
+  let directory = installedRoot package </> "cbits"
+  exists <- doesDirectoryExist directory
+  if not exists
+    then pure []
+    else do
+      names <- listDirectory directory
+      pure (sortOn id [directory </> name | name <- names, ".o" `isSuffixOf` name])
 
 packageArchive :: InstalledPackage -> FilePath
 packageArchive package =

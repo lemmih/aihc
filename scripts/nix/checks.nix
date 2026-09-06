@@ -190,8 +190,9 @@
     if timeout --foreground --kill-after=5s 120s ${aihcExe} build-exe "$source" \
       --target ${backend} \
       --gc ${gc} \
-      --store ${exampleToolchain} \
+      --store "$store" \
       --build-root "$TMPDIR/.aihc-cache" \
+      "''${package_flags[@]}" \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
       :
@@ -268,8 +269,9 @@
     fi
     if timeout --foreground --kill-after=5s 120s ${aihcExe} build-exe "$source" \
       --target wasm32-wasip3 \
-      --store ${wasip3Toolchain} \
+      --store "$store" \
       --build-root "$TMPDIR/.aihc-cache" \
+      "''${package_flags[@]}" \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
       :
@@ -304,6 +306,10 @@
     elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
       if [[ "$actual_exit" -ne "$expected_exit" ]]; then
         echo "Expected $example_name/wasm32-wasip3-${compilation.name} to exit with $expected_exit, got $actual_exit" >&2
+        echo "stdout:" >&2
+        cat "$actual_stdout" >&2 || true
+        echo "stderr:" >&2
+        cat "$actual_stderr" >&2 || true
         exit 1
       fi
     else
@@ -529,6 +535,11 @@
 
   hackage = import ./hackage-packages.nix;
   hackageInstallTargets = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
+  exampleExtraHackagePackages = {
+    bytestring = ["deepseq" "bytestring"];
+  };
+  findHackagePackage = name:
+    pkgs.lib.findFirst (package: package.name == name) (throw "missing Hackage package ${name}") hackage.packages;
 
   # Install a Hackage package into a copy of the example toolchain store so
   # the core libraries are reused instead of installed again.
@@ -596,10 +607,47 @@
     pkgs.coreutils
     pkgs.diffutils
     pkgs.findutils
+    pkgs.llvmPackages.bintools
     pkgs.llvmPackages.clang
   ];
 
-  mkExampleTest = exampleName:
+  mkExampleExtraInstall = {
+    toolchain,
+    targets,
+  }: exampleName: let
+    extraNames = exampleExtraHackagePackages.${exampleName} or [];
+    extraPackages = map findHackagePackage extraNames;
+    linkWorkspaceEntry = package: ''
+      ln -sfn ${hackage.fetchPackage pkgs package} "$workspace/${package.name}"
+    '';
+    installExtraForTarget = target:
+      pkgs.lib.concatMapStringsSep "\n" (package: ''
+        ${aihcExe} install "$workspace/${package.name}" --store "$store" --target ${target}
+      '')
+      extraPackages;
+  in
+    if extraNames == []
+    then ''
+      store=${toolchain}
+    ''
+    else ''
+      store="$TMPDIR/example-store"
+      cp -R --no-preserve=mode ${toolchain} "$store"
+      coreLibsRoot="$TMPDIR/aihc-core-libs-root"
+      mkdir -p "$coreLibsRoot"
+      ln -sfn ${sources.coreLibrariesSrc pkgs}/core-libs "$coreLibsRoot/core-libs"
+      export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
+      workspace="$TMPDIR/workspace"
+      mkdir -p "$workspace"
+      ${pkgs.lib.concatMapStrings linkWorkspaceEntry extraPackages}
+      ${pkgs.lib.concatMapStringsSep "\n" installExtraForTarget targets}
+    '';
+
+  mkExampleTest = exampleName: let
+    extraNames = exampleExtraHackagePackages.${exampleName} or [];
+    packageFlags =
+      pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames;
+  in
     mkSourceCheck "aihc-example-${exampleName}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
       set -euo pipefail
       export GHCRTS=-N1
@@ -607,6 +655,7 @@
       export LC_ALL=C.UTF-8
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
+      package_flags=(${packageFlags})
 
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
@@ -617,6 +666,11 @@
         exit 1
       fi
 
+      ${mkExampleExtraInstall {
+          toolchain = exampleToolchain;
+          targets = backends;
+        }
+        exampleName}
       ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest (exampleCompilationMatrix exampleName)}
       touch "$out"
     '';
@@ -752,7 +806,11 @@
     wasmLd
   ];
 
-  mkWasip3ExampleTest = exampleName:
+  mkWasip3ExampleTest = exampleName: let
+    extraNames = exampleExtraHackagePackages.${exampleName} or [];
+    packageFlags =
+      pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames;
+  in
     mkSourceCheck "aihc-wasip3-example-${exampleName}" (sources.exampleSrc exampleName pkgs) wasip3ExampleInputs ''
       set -euo pipefail
       export GHCRTS=-N1
@@ -762,6 +820,7 @@
       export AIHC_WASM_SYSROOT=${wasmSysroot}
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
+      package_flags=(${packageFlags})
 
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
@@ -772,6 +831,11 @@
         exit 1
       fi
 
+      ${mkExampleExtraInstall {
+          toolchain = wasip3Toolchain;
+          targets = ["wasm32-wasip3"];
+        }
+        exampleName}
       ${pkgs.lib.concatMapStringsSep "\n" renderWasip3ExampleTest (wasip3CompilationModes exampleName)}
 
       touch "$out"
