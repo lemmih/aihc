@@ -21,8 +21,10 @@ if [[ $# -ne 2 ]]; then
 	echo "usage: $0 BUNDLES RESULTS" >&2
 	exit 2
 fi
-bundles=$1
-results=$2
+# The programs run inside their own directory, so every path is absolute.
+bundles=$(cd "$1" && pwd)
+mkdir -p "$2"
+results=$(cd "$2" && pwd)
 aihc=${AIHC:-aihc}
 store=${AIHC_STORE:-$results/store}
 target=$(<"$bundles/target")
@@ -38,7 +40,6 @@ run_limited() {
 		"$seconds" "$program" "$argv0" "$@"
 }
 
-mkdir -p "$results"
 failed=0
 for bundle in "$bundles"/*/; do
 	bundle=${bundle%/}
