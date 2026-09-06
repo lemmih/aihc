@@ -120,8 +120,9 @@ cc ::= "cc" ("aihc" | "c")
 ```
 
 The default calling convention is `aihc`. The `aihc` convention permits every
-arity and every result count. Tail calls are guaranteed. The `c` convention is
-the platform C convention. Use it for the host boundary. A function without
+arity and every result count. Tail calls are guaranteed. An `aihc` function
+preserves no register: a call clobbers them all. The `c` convention is the
+platform C convention. Use it for the host boundary. A function without
 `export` is internal to the module.
 
 The first block is the entry block. The entry block has no parameters and no
@@ -528,28 +529,33 @@ word-shaped record uses `word` fields, which follow the target word size.
 ## Register allocation
 
 `Aihc.Lir.RegAlloc` assigns registers to the values of one function. It is
-target-independent: a backend passes the registers it is willing to give away
-and receives, for each value, either one of them or the verdict that the value
-stays in a frame slot. The AArch64 and the AMD64 backends share it.
+target-independent: a backend describes the registers it is willing to give
+away and receives, for each value, either one of them or the verdict that the
+value stays in a frame slot. The AArch64 and the AMD64 backends share it.
 
-The pool is the callee-saved registers of the target and nothing else. A
-register the callee owns survives a call, so no interval has to be split
-around one, and instruction selection keeps loading its operands into scratch
-registers that are never in the pool. An allocated value therefore has no
-fixed-register constraint anywhere in the function, and the allocator needs
-neither pre-colored intervals nor clobber ranges. The prologue saves the
-registers the allocator handed out and every exit restores them: a `return`
-after it has loaded the results, and a `tailcall` after it has loaded the
-arguments and before it takes the frame down.
+The registers come in two classes. A volatile register is clobbered by every
+call and costs nothing to use. A preserved register survives a C call,
+because the C callee saves it, and is clobbered by an aihc call, because an
+aihc function saves nothing. So a value that lives across a C call takes a
+preserved register, a value that lives across an aihc call goes to a frame
+slot, and everything else takes whatever is free. That is the whole of the
+interaction between calls and registers: no interval is ever split, and no
+register is ever pre-colored. Under the C convention a preserved register
+costs the function a save and a restore, so there a value takes one only once
+the function touches it more often than it has exits plus the one save, with
+a touch inside a loop counting for a power of ten per enclosing loop. Under
+the aihc convention a preserved register is free.
 
-Not every value earns a register. A value in a frame slot costs one memory
-access per definition and per use; a value in a register costs none of those,
-and instead the prologue saves the register once and every exit restores it.
-The allocator offers a value a register only once the function touches it more
-often than it has exits plus the one save. A touch inside a loop counts for a
-power of ten per enclosing loop, because it happens once for every turn, so a
-loop keeps its values in registers while a short straight-line function keeps
-the frame it had.
+A hint is a register the scan tries first. Parameters, call arguments, call
+results, and returned values are hinted with the register the convention
+puts them in. The argument of a jump and the block parameter it reaches are
+partners: each prefers the register the other already has, and failing that
+the register the other was hinted with. A hint that is not free at the time
+is dropped, so hints cost nothing in correctness and buy most of the moves
+that a convention would otherwise need. The value an instruction consumes
+may hand its register to the value the instruction defines, which every
+instruction a backend selects has to tolerate: it reads every operand before
+it writes a result.
 
 The allocator numbers the blocks in the order the function states them,
 computes live-in and live-out sets, and gives each value one interval from the
@@ -558,9 +564,14 @@ and the allocator never splits one, so a value that dies and revives inside
 its span keeps its register throughout. That costs registers on a wide
 function and buys independence from the block order: the result is correct
 whatever order the blocks arrive in and whatever the loops look like. The scan
-walks the intervals in order of their start, hands out the first free register
-of the pool, and when nothing is free sends the interval that reaches furthest
-to a frame slot.
+walks the intervals in order of their start, hands out the first free
+acceptable register, hints first and then the pool in preference order, and
+when nothing is free sends the acceptable interval that reaches furthest to
+a frame slot.
+
+The older entry point, `allocateRegisters`, offers one pool of preserved
+registers, no hints, and the touch count as the bar for every value. The
+AMD64 backend still uses it.
 
 ## Backends
 
@@ -580,17 +591,34 @@ rather than as a change of some object bytes. Run the suite with
 
 `Aihc.Arm64.Lir` assembles the module with the direct Mach-O writer:
 
-- Instruction selection loads the operands into scratch registers and writes
-  the result back. The allocator gives a value one of `x19` to `x28`, and a
-  value it spills lives in an 8-byte frame slot instead. Reading a value is a
-  register move or a load, and writing one is a register move or a store.
+- The allocator hands out `x0` to `x13` as volatile registers and `x19` to
+  `x28` as preserved ones; `x14` to `x17` are the scratch registers of
+  instruction selection. A value the allocator spills lives in an 8-byte
+  frame slot. Instruction selection reads a register operand in place, loads
+  a slot or a literal into a scratch register, folds a small literal into
+  the immediate of `add`, `sub`, and `cmp`, and writes the result straight
+  into its home. A comparison that only the branch of its block reads is not
+  materialized: the block compares and branches on the flags, or on the
+  register itself against zero.
+- The arguments of a call, the values of a return, and the arguments of a
+  jump are one parallel move each: every source is read before the
+  destination it lives in is written, a cycle is broken through a scratch
+  register, and a value that is already where the convention wants it costs
+  nothing.
 - The `aihc` convention passes the first eight arguments in `x0` to `x7` and
   the rest in a 16-byte aligned block on the stack. The callee pops that
-  block. A tail call restores the stack of the caller, copies the outgoing
-  block below it, and branches. The stack does not grow. Results come back in
-  `x0` to `x7`.
+  block. Results come back in `x0` to `x7`. An aihc function preserves no
+  register, so one that calls nothing and spills nothing has no frame: it
+  leaves the stack pointer where it found it. A function with a frame saves
+  the frame pointer pair and keeps its slots below it. A tail call writes
+  its outgoing block in place of the incoming one when it is no larger,
+  moves the stack pointer down to make room when it is larger and there is
+  no frame, and otherwise builds the block below the frame and copies it up
+  once the frame is gone. The stack does not grow.
 - The `c` convention uses the platform convention for at most eight integer
-  or float arguments and one result.
+  or float arguments and one result. A C function saves the preserved
+  registers it uses, and all of them when it calls an aihc function, since
+  that call clobbers them.
 - A narrow integer is canonical: an `iN` value is zero-extended to 64 bits.
   Signed operations sign-extend the operands first.
 - `clz` and `ctz` are `clz` and `rbit` followed by `clz`. AArch64 has no
