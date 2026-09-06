@@ -11,4 +11,4 @@ modules:
     [x] -> x
     _ -> Off
 status: xfail
-reason: Equality lifts through a list type constructor. AIHC cannot resolve the equality class.
+reason: Equality lifts through a list type constructor. AIHC still lacks complete equality support.

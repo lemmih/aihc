@@ -12,4 +12,4 @@ modules:
   cast x = x
   result = use cast
 status: xfail
-reason: A higher-rank argument can require equality evidence. AIHC cannot resolve the equality class.
+reason: A higher-rank argument can require equality evidence. AIHC still lacks complete equality support.

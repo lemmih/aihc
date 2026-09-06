@@ -13,4 +13,4 @@ modules:
   cast x = x
   result = cast On :: Flag
 status: xfail
-reason: An equality superclass permits a cast. AIHC cannot resolve the equality class.
+reason: An equality superclass permits a cast. AIHC still lacks complete equality support.

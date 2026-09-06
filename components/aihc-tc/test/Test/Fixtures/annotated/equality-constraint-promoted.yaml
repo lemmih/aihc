@@ -13,4 +13,4 @@ modules:
   cast _ = On
   result = cast (Proxy :: Proxy 'On)
 status: xfail
-reason: Equality can relate promoted data constructors. AIHC cannot resolve the equality class.
+reason: Equality can relate promoted data constructors. AIHC still lacks complete equality support.

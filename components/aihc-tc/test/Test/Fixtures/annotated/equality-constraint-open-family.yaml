@@ -13,4 +13,4 @@ modules:
   result = cast On On
 status: xfail
 reason: An open type family equation solves an equality constraint. AIHC cannot resolve the equality
-  class.
+  class. AIHC still lacks complete equality support.

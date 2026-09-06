@@ -11,4 +11,4 @@ modules:
   cast x = x
   result = cast On :: Flag
 status: xfail
-reason: The prefix equality class comes from GHC.Types. AIHC cannot resolve the equality class.
+reason: The prefix equality class comes from GHC.Types. AIHC still lacks complete equality support.

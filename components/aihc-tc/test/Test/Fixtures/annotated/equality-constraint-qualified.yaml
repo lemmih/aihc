@@ -10,5 +10,4 @@ modules:
   cast x = x
   result = cast On :: Flag
 status: xfail
-reason: A qualified equality class has the same meaning as equality syntax. AIHC cannot resolve the
-  equality class.
+reason: A qualified equality class has the same meaning as equality syntax. AIHC still lacks complete equality support.

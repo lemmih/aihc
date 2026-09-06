@@ -9,9 +9,9 @@ modules:
   type family F a
   cast :: (F a ~ F b) => a -> b
   cast x = x
-status: xfail
-reason: A non-injective type family does not permit argument decomposition. AIHC cannot resolve the
-  equality class.
+status: pass
+reason: A non-injective type family does not permit argument decomposition.
+
 annotated:
 - |
   module Test where

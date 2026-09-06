@@ -71,6 +71,7 @@ import Aihc.Tc.Types
     TyVarId,
     TypeScheme (..),
     Unique (..),
+    isEqualityTyCon,
     tyConKey,
     tyConModuleName,
     tyConName,
@@ -263,7 +264,8 @@ headerIndex convertEnv interface =
         [ [ (classDictTypeName (ciTyCon info), HeaderClass info),
             (classDictConName (ciTyCon info), HeaderClass info)
           ]
-        | info <- tcInterfaceClasses interface
+        | info <- tcInterfaceClasses interface,
+          not (isEqualityTyCon (ciTyCon info))
         ]
     dataConFacts =
       [ (Name (dciName constructor) SortDataConstructor (OriginTop package moduleName'), HeaderDataCon constructor)
@@ -448,7 +450,11 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
           convertSynonym env info
         Syn.DeclClass classDecl -> do
           info <- lookupClassInfo package moduleName' (unqualifiedNameText (binderHeadName (Syn.classDeclHead classDecl))) classes
-          classDecl' <- convertClass env info
+          -- Nominal equality uses coercions instead of a class dictionary.
+          classDecls <-
+            if isEqualityTyCon (ciTyCon info)
+              then pure []
+              else (: []) <$> convertClass env info
           -- Each associated type family of the class is an empty family
           -- type, the same as a top-level family declaration.
           families <-
@@ -459,7 +465,7 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
                   convertEmptyFamily env (associatedFamilyParamNames familyName classDecl) Nominal familyInfo
               )
               (ciAssociatedTypes info)
-          pure (classDecl' : families)
+          pure (classDecls <> families)
         Syn.DeclNewtype newtypeDecl ->
           convertNewtype env
             =<< lookupDataType NewtypeTyCon package moduleName' (unqualifiedNameText (binderHeadName (Syn.newtypeDeclHead newtypeDecl))) dataTypes

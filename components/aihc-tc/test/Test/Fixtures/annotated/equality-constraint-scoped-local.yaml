@@ -14,4 +14,4 @@ modules:
   result = cast On :: Flag
 status: xfail
 reason: A local signature can use the outer equality constraint. AIHC cannot resolve the equality
-  class.
+  class. AIHC still lacks complete equality support.

@@ -12,4 +12,4 @@ modules:
   result = cast @Flag @Flag On
 status: xfail
 reason: Visible type arguments select a reflexive equality constraint. AIHC cannot resolve the equality
-  class.
+  class. AIHC still lacks complete equality support.
