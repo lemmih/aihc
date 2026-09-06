@@ -896,9 +896,21 @@ convertSynonym env info =
       | otherwise -> Left ("type synonym " <> T.unpack (tciName info) <> " has no body")
     Nothing -> Left ("type synonym " <> T.unpack (tciName info) <> " has no synonym info")
 
+-- | The result kind of a synonym. An eta-reduced synonym such as
+-- @type RDoc = Doc@ keeps arrows after its parameters. They become the
+-- binders that a type constructor kind has, so the kind of the body
+-- matches the declared result.
 synonymResult :: ConvertEnv -> TypeScheme -> [TyVarId] -> Either String Type
 synonymResult env scheme params =
-  convertKind env (synonymResultKind scheme params)
+  residualKind (0 :: Int) (synonymResultKind scheme params)
+  where
+    residualKind index kind =
+      case kind of
+        KFun argument result -> do
+          binder <- kindBinder env (T.pack ("eta" <> show index)) argument
+          converted <- residualKind (index + 1) result
+          pure (TyForAll binder converted)
+        _ -> convertKind env kind
 
 synonymResultKind :: TypeScheme -> [TyVarId] -> TcType
 synonymResultKind scheme params =

@@ -1,0 +1,30 @@
+---
+extensions: []
+modules:
+- |
+  module Text.Doc where
+  (<>) :: a -> a -> a
+  x <> _ = x
+  infixl 6 <>
+  combine = (Text.Doc.<>)
+  pair = combine Text.Doc.<> combine
+annotated:
+- |-
+  module Text.Doc where
+  (<>) :: a -> a -> a
+   └─ v Text.Doc
+  x <> _ = x
+  │ │      └─ v 0
+  │ └─ v Text.Doc
+  └─ v 0
+  infixl 6 <>
+  combine = (Text.Doc.<>)
+  │          └─ v Text.Doc
+  └─ v Text.Doc
+  pair = combine Text.Doc.<> combine
+  │      │       │           └─ v Text.Doc
+  │      │       └─ v Text.Doc
+  │      └─ v Text.Doc
+  └─ v Text.Doc
+status: pass
+reason: A module's own top-level names are in scope qualified by the module name

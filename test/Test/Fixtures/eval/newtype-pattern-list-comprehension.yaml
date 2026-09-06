@@ -1,0 +1,23 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim ((+#))
+    import GHC.Types (Int (..))
+
+    newtype Wrap = Wrap Int
+
+    unwrapAll :: [Wrap] -> [Int]
+    unwrapAll ws = [ n | Wrap n <- ws ]
+
+    total :: [Int] -> Int
+    total [] = 0
+    total (I# x : rest) = case total rest of I# y -> I# (x +# y)
+output: |
+  I# 6
+expression: total (unwrapAll [Wrap 1, Wrap 2, Wrap 3])
+status: pass
+reason: a newtype constructor pattern in a list comprehension generator
+  unwraps the element with the newtype axiom

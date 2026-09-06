@@ -59,5 +59,7 @@ modules:
         )
 output: "True"
 expression: result
-status: xfail
-reason: System.Exit values and the complete GHC.TopHandler interface match base
+status: pass
+reason: System.Exit values and the complete GHC.TopHandler interface match base;
+  the string literal pattern in readsExitCode and Ord Char kept this an expected
+  failure until both worked
