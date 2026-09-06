@@ -17,6 +17,8 @@ extra-source-files:
   compiler/fc/test/Test/Fixtures/golden/*.yaml
   compiler/grin/test/Test/Fixtures/grin-snapshot/*.yaml
   compiler/grin/test/Test/Fixtures/grin/*.yaml
+  compiler/lir/test/Test/Fixtures/lir/asm/*.lir
+  compiler/lir/test/Test/Fixtures/lir/asm/*.s
   compiler/lir/test/Test/Fixtures/lir/eval/*.lir
   compiler/lir/test/Test/Fixtures/lir/lint/*.lir
   compiler/native/test/Test/Runtime/aihc_snapshot.c
