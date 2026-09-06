@@ -2804,7 +2804,7 @@ desugarListCompPattern resultType binder ty pattern' success failure =
     _ -> do
       -- The wrappers above are peeled off, so the pattern can have lost
       -- its checked type. A list pattern needs it for its synthesized
-      -- tail.
+      -- tail, and a newtype pattern reads its type arguments from it.
       let typed =
             case patternType pattern' of
               Just _ -> pattern'

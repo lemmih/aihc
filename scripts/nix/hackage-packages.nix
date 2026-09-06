@@ -75,6 +75,18 @@ let
         }
       ];
     }
+    {
+      name = "pretty";
+      version = "1.1.3.6";
+      hash = "sha256-5UIpOfD+0vxVCsb+3Efe8w91dIqFpLcaGsZ+RZm4Wx4=";
+      dependencies = [
+        {
+          name = "deepseq";
+          version = "1.5.2.0";
+          hash = "sha256-vNcooswfE2geBWNtB08cATNIhQlJRRF587lcjfD3XyM=";
+        }
+      ];
+    }
   ];
 
   fetchPackage = pkgs: {

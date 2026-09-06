@@ -3,6 +3,7 @@
 module GHC.Float
   ( Double (..),
     Float (..),
+    FFFormat (..),
     Floating (..),
     RealFloat (..),
     castDoubleToWord64,
@@ -15,13 +16,20 @@ module GHC.Float
     float2Int,
     int2Double,
     int2Float,
+    floatToDigits,
+    formatRealFloat,
     roundTo,
+    showFloat,
+    showSignedFloat,
   )
 where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
+import GHC.Base (Maybe (..), String, (++), (.))
+import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
+import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Integer (Integer (..), integerToInt#)
 import GHC.Num (Num (..))
@@ -105,7 +113,8 @@ import GHC.Prim
     (>#),
     (>##),
   )
-import GHC.Real (Fractional (..), Integral (..), Rational, Real (..), RealFrac (..), denominator, even, numerator, (%), (^), (^^))
+import GHC.Real (Fractional (..), Integral (..), Rational, Real (..), RealFrac (..), denominator, even, fromIntegral, numerator, (%), (^), (^^))
+import GHC.Show (Show (..), ShowS, intToDigit, showChar, showList__, showParen, showString, shows)
 import GHC.Types (Double (..), Float (..), Ordering (..))
 import GHC.Word (Word32 (..), Word64 (..))
 
@@ -523,3 +532,202 @@ instance RealFloat Double where
   isNegativeZero (D# value) = isTrue (eqWord# (word64ToWord# (castDoubleToWord64# value)) 0x8000000000000000##)
   isIEEE _ = True
   atan2 = atan2Value
+
+-- Showing floating-point numbers
+
+-- | The layout of a formatted floating-point number.
+data FFFormat = FFExponent | FFFixed | FFGeneric
+
+instance Show Float where
+  showsPrec = showSignedFloat showFloat
+  showList = showList__ shows
+
+instance Show Double where
+  showsPrec = showSignedFloat showFloat
+  showList = showList__ shows
+
+-- | Show a signed floating-point number, parenthesising a negative number
+-- above precedence 6 like GHC does.
+showSignedFloat :: (RealFloat a) => (a -> ShowS) -> Int -> a -> ShowS
+showSignedFloat showPositive precedence value
+  | value < 0 || isNegativeZero value =
+      showParen (precedence > 6) (showChar '-' . showPositive (negate value))
+  | otherwise = showPositive value
+
+-- | Show a non-negative floating-point number in the shortest decimal form
+-- that reads back to the same value.
+showFloat :: (RealFloat a) => a -> ShowS
+showFloat value = showString (formatRealFloat FFGeneric Nothing value)
+
+-- | Format a floating-point number. The digit count only applies to the
+-- exponent and fixed layouts; @Nothing@ prints every significant digit.
+formatRealFloat :: (RealFloat a) => FFFormat -> Maybe Int -> a -> String
+formatRealFloat format decimals value
+  | isNaN value = "NaN"
+  | isInfinite value = if value < 0 then "-Infinity" else "Infinity"
+  | value < 0 || isNegativeZero value = '-' : formatDigits format decimals (floatToDigits 10 (negate value))
+  | otherwise = formatDigits format decimals (floatToDigits 10 value)
+
+formatDigits :: FFFormat -> Maybe Int -> ([Int], Int) -> String
+formatDigits format decimals (digits, exponent') =
+  case format of
+    FFGeneric ->
+      formatDigits (if exponent' < 0 || exponent' > 7 then FFExponent else FFFixed) decimals (digits, exponent')
+    FFExponent -> formatExponent decimals digits exponent'
+    FFFixed -> formatFixed decimals digits exponent'
+
+formatExponent :: Maybe Int -> [Int] -> Int -> String
+formatExponent decimals digits exponent' =
+  case decimals of
+    Nothing ->
+      case mapList intToDigit digits of
+        [] -> errorWithoutStackTrace "formatRealFloat/formatExponent: []"
+        [digit] ->
+          if digit == '0'
+            then "0.0e0"
+            else digit : ".0e" ++ show (exponent' - 1)
+        (digit : rest) -> digit : '.' : rest ++ "e" ++ show (exponent' - 1)
+    Just requested ->
+      let count = max 1 requested
+       in case digits of
+            [0] -> '0' : '.' : replicateChar count '0' ++ "e0"
+            _ ->
+              case roundTo 10 (count + 1) digits of
+                (carry, rounded) ->
+                  case mapList intToDigit (if carry > 0 then initList rounded else rounded) of
+                    [] -> errorWithoutStackTrace "formatRealFloat/formatExponent: rounded to nothing"
+                    (digit : rest) -> digit : '.' : rest ++ 'e' : show (exponent' - 1 + carry)
+
+formatFixed :: Maybe Int -> [Int] -> Int -> String
+formatFixed decimals digits exponent' =
+  case decimals of
+    Nothing
+      | exponent' <= 0 -> "0." ++ replicateChar (negate exponent') '0' ++ mapList intToDigit digits
+      | otherwise -> splitFixed exponent' [] (mapList intToDigit digits)
+    Just requested ->
+      let count = max 0 requested
+       in if exponent' >= 0
+            then case roundTo 10 (count + exponent') digits of
+              (carry, rounded) ->
+                case splitAtList (exponent' + carry) (mapList intToDigit rounded) of
+                  (whole, fraction) -> nonEmptyDigits whole ++ (if null fraction then "" else '.' : fraction)
+            else case roundTo 10 count (replicateZero (negate exponent') ++ digits) of
+              (carry, rounded) ->
+                case mapList intToDigit (if carry > 0 then rounded else 0 : rounded) of
+                  [] -> errorWithoutStackTrace "formatRealFloat/formatFixed: rounded to nothing"
+                  (digit : fraction) -> digit : (if null fraction then "" else '.' : fraction)
+
+-- | Place the decimal point after the given number of digits, padding the
+-- whole part with zeros when the digits run out first.
+splitFixed :: Int -> String -> String -> String
+splitFixed remaining whole fraction
+  | remaining == 0 = nonEmptyDigits (reverseList whole) ++ '.' : nonEmptyDigits fraction
+  | otherwise =
+      case fraction of
+        [] -> splitFixed (remaining - 1) ('0' : whole) []
+        (digit : rest) -> splitFixed (remaining - 1) (digit : whole) rest
+
+nonEmptyDigits :: String -> String
+nonEmptyDigits [] = "0"
+nonEmptyDigits digits = digits
+
+-- | The shortest digit sequence in the given base that uniquely identifies
+-- the number, with the exponent of the first digit, following Burger and
+-- Dybvig's free-format algorithm as in GHC.
+floatToDigits :: (RealFloat a) => Integer -> a -> ([Int], Int)
+floatToDigits base value
+  | value == 0 = ([0], 0)
+  | otherwise =
+      case decodeFloat value of
+        (mantissa0, exponent0) ->
+          let precision = floatDigits value
+              radix = floatRadix value
+              minExponent = case floatRange value of (lowest, _) -> lowest - precision
+              -- A denormalized mantissa gets its exponent raised so the
+              -- exponent never drops below the minimum.
+              shift = minExponent - exponent0
+              mantissa = if shift > 0 then mantissa0 `quot` expt radix shift else mantissa0
+              exponent' = if shift > 0 then exponent0 + shift else exponent0
+              scaled
+                | exponent' >= 0 =
+                    let radixPower = expt radix exponent'
+                     in if mantissa == expt radix (precision - 1)
+                          then (mantissa * radixPower * radix * 2, 2 * radix, radixPower * radix, radixPower)
+                          else (mantissa * radixPower * 2, 2, radixPower, radixPower)
+                | exponent' > minExponent && mantissa == expt radix (precision - 1) =
+                    (mantissa * radix * 2, expt radix (negate exponent' + 1) * 2, radix, 1)
+                | otherwise = (mantissa * 2, expt radix (negate exponent') * 2, 1, 1)
+           in case scaled of
+                (r, s, mUp, mDown) ->
+                  let estimate =
+                        if radix == 2 && base == 10
+                          then
+                            -- logBase 10 2 is slightly above 8651/28738, so a
+                            -- non-negative estimate is one too small.
+                            let logValue = precision - 1 + exponent0
+                                approx = (logValue * 8651) `quot` 28738
+                             in if logValue >= 0 then approx + 1 else approx
+                          else
+                            ceiling
+                              ( (log (fromInteger (mantissa + 1) :: Float) + fromIntegral exponent' * log (fromInteger radix))
+                                  / log (fromInteger base)
+                              )
+                      fixup n
+                        | n >= 0 = if r + mUp <= expt base n * s then n else fixup (n + 1)
+                        | otherwise = if expt base (negate n) * (r + mUp) <= s then n else fixup (n + 1)
+                      k = fixup estimate
+                      digits =
+                        if k >= 0
+                          then generateDigits base [] r (s * expt base k) mUp mDown
+                          else
+                            let scale = expt base (negate k)
+                             in generateDigits base [] (r * scale) s (mUp * scale) (mDown * scale)
+                   in (mapList fromInteger (reverseList digits), k)
+
+generateDigits :: Integer -> [Integer] -> Integer -> Integer -> Integer -> Integer -> [Integer]
+generateDigits base acc r s mUp mDown =
+  case (r * base) `quotRem` s of
+    (digit, remainder) ->
+      let mUp' = mUp * base
+          mDown' = mDown * base
+       in case (remainder < mDown', remainder + mUp' > s) of
+            (True, False) -> digit : acc
+            (False, True) -> digit + 1 : acc
+            (True, True) -> if remainder * 2 < s then digit : acc else digit + 1 : acc
+            (False, False) -> generateDigits base (digit : acc) remainder s mUp' mDown'
+
+expt :: Integer -> Int -> Integer
+expt base power = base ^ power
+
+mapList :: (a -> b) -> [a] -> [b]
+mapList _ [] = []
+mapList f (x : xs) = f x : mapList f xs
+
+reverseList :: [a] -> [a]
+reverseList = reverseOnto []
+  where
+    reverseOnto acc [] = acc
+    reverseOnto acc (x : xs) = reverseOnto (x : acc) xs
+
+replicateChar :: Int -> Char -> String
+replicateChar count char =
+  case count <= 0 of
+    True -> []
+    False -> char : replicateChar (count - 1) char
+
+initList :: [a] -> [a]
+initList [] = []
+initList [_] = []
+initList (x : xs) = x : initList xs
+
+splitAtList :: Int -> [a] -> ([a], [a])
+splitAtList count list
+  | count <= 0 = ([], list)
+  | otherwise =
+      case list of
+        [] -> ([], [])
+        (x : xs) -> case splitAtList (count - 1) xs of (front, back) -> (x : front, back)
+
+null :: [a] -> Bool
+null [] = True
+null _ = False
