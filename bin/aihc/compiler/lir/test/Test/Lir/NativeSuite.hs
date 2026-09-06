@@ -277,7 +277,7 @@ runObservedUnit backend output metadata =
         ( backendClangArguments backend
             <> ["-std=c11", "-Wall", "-Wextra", "-Werror", "-I", takeDirectory snapshotRuntime]
             <> runtimeIncludeArguments runtimeBuild
-            <> [snapshotRuntime, metadataPath, unit, runtimeBuildArchive runtimeBuild, "-o", executablePath]
+            <> [snapshotRuntime, metadataPath, unit, runtimeBuildArchive runtimeBuild, "-lm", "-o", executablePath]
         )
         ""
     assertEqual ("clang failed to link the observed program:\n" <> clangErr) ExitSuccess clangExit
@@ -355,7 +355,7 @@ withProgramExecutable backend collector units action =
       -- This step links the units against the runtime archive and compiles no
       -- C, so it carries no C compile flags: a toolchain that injects its own
       -- preprocessor flags would report every one of them as unused.
-      readProcessWithExitCode "clang" (backendClangArguments backend <> unitPaths <> [runtimeBuildArchive runtimeBuild, "-o", executablePath]) ""
+      readProcessWithExitCode "clang" (backendClangArguments backend <> unitPaths <> [runtimeBuildArchive runtimeBuild, "-lm", "-o", executablePath]) ""
     assertEqual ("clang failed to link the program:\n" <> clangErr) ExitSuccess clangExit
     action executablePath
 

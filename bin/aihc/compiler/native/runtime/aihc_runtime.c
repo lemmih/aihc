@@ -1,6 +1,7 @@
 #include "aihc_runtime.h"
 #include "aihc_runtime_internal.h"
 
+#include <math.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1044,13 +1045,12 @@ void aihc_set_thread_done_continuation(AihcMachine *machine,
 }
 
 AihcEntry aihc_halt(AihcMachine *machine) { return machine->exit_code; }
-
-/* Floating point functions of the Floating class. The runtime is freestanding
-   on some targets, so the functions do not use libm. A Double# arrives as
-   its IEEE 754 bit pattern in a 64-bit word, and a Float# arrives as its
-   bit pattern in the low 32 bits. The results have the same form. The
-   implementations reduce the argument and sum a short series, so their
-   error stays within a few units in the last place for ordinary arguments. */
+/* Floating point functions of the Floating class. A Double# arrives as its
+   IEEE 754 bit pattern in a 64-bit word, and a Float# arrives as its bit
+   pattern in the low 32 bits. The results have the same form. The functions
+   themselves are the ones of libm, which every target links: the C runtime
+   is compiled against the platform libc, and the WebAssembly target against
+   the wasi-libc of its sysroot. */
 
 static double aihc_double_from_bits(uint64_t bits) {
   double value;
@@ -1077,347 +1077,15 @@ static uint64_t aihc_float_to_bits(float value) {
   return (uint64_t)low;
 }
 
-static const uint64_t AIHC_DOUBLE_NAN_BITS = 0x7ff8000000000000ULL;
-static const uint64_t AIHC_DOUBLE_INFINITY_BITS = 0x7ff0000000000000ULL;
-static const double AIHC_LN2_HIGH = 6.93147180369123816490e-01;
-static const double AIHC_LN2_LOW = 1.90821492927058770002e-10;
-static const double AIHC_LN2 = 6.93147180559945309417e-01;
-static const double AIHC_PI = 3.14159265358979323846;
-static const double AIHC_HALF_PI_HIGH = 1.57079632673412561417e+00;
-static const double AIHC_HALF_PI_LOW = 6.07710050650619224932e-11;
-static const double AIHC_EXP_OVERFLOW = 709.782712893384;
-static const double AIHC_EXP_UNDERFLOW = -745.1332191019412;
-static const double AIHC_SQRT_HALF = 0.70710678118654752440;
-static const double AIHC_TAN_EIGHTH_PI = 0.41421356237309503;
-
-static double aihc_double_nan(void) {
-  return aihc_double_from_bits(AIHC_DOUBLE_NAN_BITS);
-}
-
-static double aihc_double_infinity(void) {
-  return aihc_double_from_bits(AIHC_DOUBLE_INFINITY_BITS);
-}
-
-static int aihc_double_is_nan(double value) { return value != value; }
-
-static int aihc_double_is_infinite(double value) {
-  return !aihc_double_is_nan(value) && aihc_double_is_nan(value - value);
-}
-
-/* value * 2^power, with two steps when the power is large. */
-static double aihc_double_scale(double value, int power) {
-  while (power > 1000) {
-    value *= aihc_double_from_bits((uint64_t)(1023 + 1000) << 52);
-    power -= 1000;
-  }
-  while (power < -1000) {
-    value *= aihc_double_from_bits((uint64_t)(1023 - 1000) << 52);
-    power += 1000;
-  }
-  return value * aihc_double_from_bits((uint64_t)(1023 + power) << 52);
-}
-
-/* The mantissa in [1, 2) and the exponent of a positive finite value. */
-static double aihc_double_split(double value, int *power) {
-  uint64_t bits = aihc_double_to_bits(value);
-  int exponent_field = (int)((bits >> 52) & 0x7ff);
-  if (exponent_field == 0) {
-    value *= aihc_double_from_bits((uint64_t)(1023 + 54) << 52);
-    bits = aihc_double_to_bits(value);
-    exponent_field = (int)((bits >> 52) & 0x7ff) - 54;
-  }
-  *power = exponent_field - 1023;
-  bits = (bits & 0x000fffffffffffffULL) | ((uint64_t)1023 << 52);
-  return aihc_double_from_bits(bits);
-}
-
-/* The square root of a non-negative value. Newton iteration from an
- * estimate that halves the exponent. The C runtime is freestanding, so it
- * cannot call sqrt from libm; the sqrt builtin still calls it on some
- * targets. */
-static double aihc_math_sqrt_value(double value) {
-  if (aihc_double_is_nan(value) || value < 0.0) {
-    return 0.0 / 0.0;
-  }
-  if (value == 0.0 || aihc_double_is_infinite(value)) {
-    return value;
-  }
-  /* The estimate needs a normal value. A subnormal value is scaled by an
-   * even power of two, and the result is scaled back. */
-  if (value < 2.2250738585072014e-308) {
-    return aihc_math_sqrt_value(value * 0x1p108) * 0x1p-54;
-  }
-  uint64_t bits = aihc_double_to_bits(value);
-  uint64_t half_bias = (uint64_t)1023 << 51;
-  double guess = aihc_double_from_bits((bits >> 1) + half_bias);
-  for (int i = 0; i < 8; i++) {
-    guess = 0.5 * (guess + value / guess);
-  }
-  return guess;
-}
-
-/* The largest integer value that is not above the value. */
-static double aihc_math_floor_value(double value) {
-  if (aihc_double_is_nan(value) || aihc_double_is_infinite(value)) {
-    return value;
-  }
-  if (value > 4503599627370496.0 || value < -4503599627370496.0) {
-    return value;
-  }
-  double truncated = (double)(long long)value;
-  return truncated > value ? truncated - 1.0 : truncated;
-}
-
-static double aihc_math_exp(double x) {
-  if (aihc_double_is_nan(x)) {
-    return x;
-  }
-  if (x > AIHC_EXP_OVERFLOW) {
-    return aihc_double_infinity();
-  }
-  if (x < AIHC_EXP_UNDERFLOW) {
-    return 0.0;
-  }
-  double quotient = x / AIHC_LN2;
-  int k = (int)(quotient < 0.0 ? quotient - 0.5 : quotient + 0.5);
-  double r = (x - (double)k * AIHC_LN2_HIGH) - (double)k * AIHC_LN2_LOW;
-  double term = 1.0;
-  double sum = 1.0;
-  for (int n = 1; n <= 18; n++) {
-    term *= r / (double)n;
-    sum += term;
-  }
-  return aihc_double_scale(sum, k);
-}
-
-static double aihc_math_log(double x) {
-  if (aihc_double_is_nan(x) || x < 0.0) {
-    return aihc_double_nan();
-  }
-  if (x == 0.0) {
-    return -aihc_double_infinity();
-  }
-  if (aihc_double_is_infinite(x)) {
-    return x;
-  }
-  int power;
-  double m = aihc_double_split(x, &power);
-  if (m > 1.0 / AIHC_SQRT_HALF) {
-    m *= 0.5;
-    power += 1;
-  }
-  double s = (m - 1.0) / (m + 1.0);
-  double s2 = s * s;
-  double term = s;
-  double sum = 0.0;
-  for (int n = 1; n <= 31; n += 2) {
-    sum += term / (double)n;
-    term *= s2;
-  }
-  return (double)power * AIHC_LN2_HIGH +
-         (2.0 * sum + (double)power * AIHC_LN2_LOW);
-}
-
-static int aihc_double_is_integer(double value) {
-  return !aihc_double_is_infinite(value) && !aihc_double_is_nan(value) &&
-         aihc_math_floor_value(value) == value;
-}
-
-static double aihc_math_pow(double x, double y) {
-  if (y == 0.0 || x == 1.0) {
-    return 1.0;
-  }
-  if (aihc_double_is_nan(x) || aihc_double_is_nan(y)) {
-    return aihc_double_nan();
-  }
-  if (x == 0.0) {
-    if (y < 0.0) {
-      return aihc_double_infinity();
-    }
-    return 0.0;
-  }
-  if (x < 0.0) {
-    if (!aihc_double_is_integer(y)) {
-      return aihc_double_nan();
-    }
-    double magnitude = aihc_math_exp(y * aihc_math_log(-x));
-    double half = y * 0.5;
-    int odd = aihc_math_floor_value(half) != half;
-    return odd ? -magnitude : magnitude;
-  }
-  return aihc_math_exp(y * aihc_math_log(x));
-}
-
-/* sin and cos of a value in [-pi/4, pi/4]. */
-static double aihc_math_sin_reduced(double r) {
-  double r2 = r * r;
-  double term = r;
-  double sum = r;
-  for (int n = 1; n <= 9; n++) {
-    term *= -r2 / (double)((2 * n) * (2 * n + 1));
-    sum += term;
-  }
-  return sum;
-}
-
-static double aihc_math_cos_reduced(double r) {
-  double r2 = r * r;
-  double term = 1.0;
-  double sum = 1.0;
-  for (int n = 1; n <= 9; n++) {
-    term *= -r2 / (double)((2 * n - 1) * (2 * n));
-    sum += term;
-  }
-  return sum;
-}
-
-/* The quadrant of a value and its remainder after removing quadrants. */
-static double aihc_math_reduce_quadrant(double x, int *quadrant) {
-  double quotient = x / (2.0 * AIHC_HALF_PI_HIGH);
-  double k = quotient < 0.0 ? (double)(long long)(quotient - 0.5)
-                            : (double)(long long)(quotient + 0.5);
-  *quadrant = (int)(((long long)k % 4 + 4) % 4);
-  return (x - k * AIHC_HALF_PI_HIGH) - k * AIHC_HALF_PI_LOW;
-}
-
-static double aihc_math_sin(double x) {
-  if (aihc_double_is_nan(x) || aihc_double_is_infinite(x)) {
-    return aihc_double_nan();
-  }
-  int quadrant;
-  double r = aihc_math_reduce_quadrant(x, &quadrant);
-  switch (quadrant) {
-  case 0:
-    return aihc_math_sin_reduced(r);
-  case 1:
-    return aihc_math_cos_reduced(r);
-  case 2:
-    return -aihc_math_sin_reduced(r);
-  default:
-    return -aihc_math_cos_reduced(r);
-  }
-}
-
-static double aihc_math_cos(double x) {
-  if (aihc_double_is_nan(x) || aihc_double_is_infinite(x)) {
-    return aihc_double_nan();
-  }
-  int quadrant;
-  double r = aihc_math_reduce_quadrant(x, &quadrant);
-  switch (quadrant) {
-  case 0:
-    return aihc_math_cos_reduced(r);
-  case 1:
-    return -aihc_math_sin_reduced(r);
-  case 2:
-    return -aihc_math_cos_reduced(r);
-  default:
-    return aihc_math_sin_reduced(r);
-  }
-}
-
-static double aihc_math_tan(double x) {
-  return aihc_math_sin(x) / aihc_math_cos(x);
-}
-
-static double aihc_math_atan(double x) {
-  if (aihc_double_is_nan(x)) {
-    return x;
-  }
-  double sign = x < 0.0 ? -1.0 : 1.0;
-  double t = x < 0.0 ? -x : x;
-  if (aihc_double_is_infinite(t)) {
-    return sign * AIHC_PI * 0.5;
-  }
-  double offset = 0.0;
-  if (t > 1.0) {
-    t = 1.0 / t;
-    offset = AIHC_PI * 0.5;
-    sign = -sign;
-  }
-  double extra = 0.0;
-  if (t > AIHC_TAN_EIGHTH_PI) {
-    t = (t - 1.0) / (t + 1.0);
-    extra = AIHC_PI * 0.25;
-  }
-  double t2 = t * t;
-  double term = t;
-  double sum = 0.0;
-  for (int n = 1; n <= 45; n += 2) {
-    sum += term / (double)n;
-    term *= -t2;
-  }
-  double result = sum + extra;
-  if (offset != 0.0) {
-    return -sign * (offset - result);
-  }
-  return sign * result;
-}
-
-static double aihc_math_asin(double x) {
-  if (aihc_double_is_nan(x) || x > 1.0 || x < -1.0) {
-    return aihc_double_nan();
-  }
-  if (x == 1.0 || x == -1.0) {
-    return x * AIHC_PI * 0.5;
-  }
-  return aihc_math_atan(x / aihc_math_sqrt_value(1.0 - x * x));
-}
-
-static double aihc_math_acos(double x) {
-  return AIHC_PI * 0.5 - aihc_math_asin(x);
-}
-
-static double aihc_math_sinh(double x) {
-  return (aihc_math_exp(x) - aihc_math_exp(-x)) * 0.5;
-}
-
-static double aihc_math_cosh(double x) {
-  return (aihc_math_exp(x) + aihc_math_exp(-x)) * 0.5;
-}
-
-static double aihc_math_tanh(double x) {
-  if (x > 20.0) {
-    return 1.0;
-  }
-  if (x < -20.0) {
-    return -1.0;
-  }
-  double e = aihc_math_exp(2.0 * x);
-  return (e - 1.0) / (e + 1.0);
-}
-
-static double aihc_math_asinh(double x) {
-  double magnitude = x < 0.0 ? -x : x;
-  double result = aihc_math_log(
-      magnitude + aihc_math_sqrt_value(magnitude * magnitude + 1.0));
-  return x < 0.0 ? -result : result;
-}
-
-static double aihc_math_acosh(double x) {
-  if (aihc_double_is_nan(x) || x < 1.0) {
-    return aihc_double_nan();
-  }
-  return aihc_math_log(x + aihc_math_sqrt_value(x * x - 1.0));
-}
-
-static double aihc_math_atanh(double x) {
-  if (aihc_double_is_nan(x) || x > 1.0 || x < -1.0) {
-    return aihc_double_nan();
-  }
-  if (x == 1.0 || x == -1.0) {
-    return x * aihc_double_infinity();
-  }
-  return 0.5 * aihc_math_log((1.0 + x) / (1.0 - x));
-}
-
+/* The name of the primitive is the name of the libm function, and the Float#
+   form is the single-precision one rather than a rounded double: a Float# is
+   what GHC computes with sinf and its neighbours too. */
 #define AIHC_DEFINE_DOUBLE_UNARY(name)                                         \
   uint64_t aihc_double_##name(uint64_t bits) {                                 \
-    return aihc_double_to_bits(aihc_math_##name(aihc_double_from_bits(bits))); \
+    return aihc_double_to_bits(name(aihc_double_from_bits(bits)));             \
   }                                                                            \
   uint64_t aihc_float_##name(uint64_t bits) {                                  \
-    return aihc_float_to_bits(                                                 \
-        (float)aihc_math_##name((double)aihc_float_from_bits(bits)));          \
+    return aihc_float_to_bits(name##f(aihc_float_from_bits(bits)));            \
   }
 
 AIHC_DEFINE_DOUBLE_UNARY(exp)
@@ -1437,10 +1105,10 @@ AIHC_DEFINE_DOUBLE_UNARY(atanh)
 
 uint64_t aihc_double_pow(uint64_t left, uint64_t right) {
   return aihc_double_to_bits(
-      aihc_math_pow(aihc_double_from_bits(left), aihc_double_from_bits(right)));
+      pow(aihc_double_from_bits(left), aihc_double_from_bits(right)));
 }
 
 uint64_t aihc_float_pow(uint64_t left, uint64_t right) {
-  return aihc_float_to_bits((float)aihc_math_pow(
-      (double)aihc_float_from_bits(left), (double)aihc_float_from_bits(right)));
+  return aihc_float_to_bits(
+      powf(aihc_float_from_bits(left), aihc_float_from_bits(right)));
 }
