@@ -45,7 +45,7 @@ import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower qualified as Lir
-import Aihc.Native (NativeTarget (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory, wasmSysroot)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
     ImportDecl (..),
@@ -1476,9 +1476,11 @@ compilePackageCFiles target verbose packageRoot storePath info
   | otherwise = do
       (compiler, targetArguments) <- backendCompiler target
       ffiHeader <- getDataFileName "compiler/native/runtime/include/HsFFI.h"
+      sysrootIncludes <- wasmSysrootIncludeArguments target
       let ffiIncludeDir = takeDirectory ffiHeader
           includeArguments =
-            ["-I" <> directory | directory <- HackageCabal.cCompileIncludeDirs info]
+            sysrootIncludes
+              <> ["-I" <> directory | directory <- HackageCabal.cCompileIncludeDirs info]
               <> ["-I" <> ffiIncludeDir]
           objectRoot = storePath </> "cbits"
       createDirectoryIfMissing True objectRoot
@@ -1495,6 +1497,14 @@ compilePackageCFiles target verbose packageRoot storePath info
               <> ["-c", source, "-o", object]
           )
         pure object
+
+wasmSysrootIncludeArguments :: NativeTarget -> IO [String]
+wasmSysrootIncludeArguments target =
+  case target of
+    Wasm32Wasip3 -> do
+      sysroot <- wasmSysroot
+      pure ["-isystem" <> wasmSysrootInclude sysroot]
+    _ -> pure []
 
 cObjectFileName :: FilePath -> FilePath
 cObjectFileName source =

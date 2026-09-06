@@ -20,8 +20,6 @@
   # This example uses more than the temporary 100 MB heap limit.
   disabledExampleNames = ["unboxed-tail-recursion"];
   exampleNames = builtins.filter (name: !builtins.elem name disabledExampleNames) allExampleNames;
-  # Package C sources need a WASI C library that this runtime does not give.
-  wasip3ExampleNames = builtins.filter (name: name != "bytestring") exampleNames;
   cTidyCompilerFlags =
     ["-std=c11" "-Wall" "-Wextra" "-Wpedantic"]
     ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
@@ -271,8 +269,9 @@
     fi
     if timeout --foreground --kill-after=5s 120s ${aihcExe} build-exe "$source" \
       --target wasm32-wasip3 \
-      --store ${wasip3Toolchain} \
+      --store "$store" \
       --build-root "$TMPDIR/.aihc-cache" \
+      "''${package_flags[@]}" \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
       :
@@ -608,7 +607,10 @@
     pkgs.llvmPackages.clang
   ];
 
-  mkExampleExtraInstall = exampleName: let
+  mkExampleExtraInstall = {
+    toolchain,
+    targets,
+  }: exampleName: let
     extraNames = exampleExtraHackagePackages.${exampleName} or [];
     extraPackages = map findHackagePackage extraNames;
     linkWorkspaceEntry = package: ''
@@ -622,11 +624,11 @@
   in
     if extraNames == []
     then ''
-      store=${exampleToolchain}
+      store=${toolchain}
     ''
     else ''
       store="$TMPDIR/example-store"
-      cp -R --no-preserve=mode ${exampleToolchain} "$store"
+      cp -R --no-preserve=mode ${toolchain} "$store"
       coreLibsRoot="$TMPDIR/aihc-core-libs-root"
       mkdir -p "$coreLibsRoot"
       ln -sfn ${sources.coreLibrariesSrc pkgs}/core-libs "$coreLibsRoot/core-libs"
@@ -634,7 +636,7 @@
       workspace="$TMPDIR/workspace"
       mkdir -p "$workspace"
       ${pkgs.lib.concatMapStrings linkWorkspaceEntry extraPackages}
-      ${pkgs.lib.concatMapStringsSep "\n" installExtraForTarget backends}
+      ${pkgs.lib.concatMapStringsSep "\n" installExtraForTarget targets}
     '';
 
   mkExampleTest = exampleName: let
@@ -660,7 +662,11 @@
         exit 1
       fi
 
-      ${mkExampleExtraInstall exampleName}
+      ${mkExampleExtraInstall {
+          toolchain = exampleToolchain;
+          targets = backends;
+        }
+        exampleName}
       ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest (exampleCompilationMatrix exampleName)}
       touch "$out"
     '';
@@ -796,7 +802,11 @@
     wasmLd
   ];
 
-  mkWasip3ExampleTest = exampleName:
+  mkWasip3ExampleTest = exampleName: let
+    extraNames = exampleExtraHackagePackages.${exampleName} or [];
+    packageFlags =
+      pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames;
+  in
     mkSourceCheck "aihc-wasip3-example-${exampleName}" (sources.exampleSrc exampleName pkgs) wasip3ExampleInputs ''
       set -euo pipefail
       export GHCRTS=-N1
@@ -806,6 +816,7 @@
       export AIHC_WASM_SYSROOT=${wasmSysroot}
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
+      package_flags=(${packageFlags})
 
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
@@ -816,6 +827,11 @@
         exit 1
       fi
 
+      ${mkExampleExtraInstall {
+          toolchain = wasip3Toolchain;
+          targets = ["wasm32-wasip3"];
+        }
+        exampleName}
       ${pkgs.lib.concatMapStringsSep "\n" renderWasip3ExampleTest (wasip3CompilationModes exampleName)}
 
       touch "$out"
@@ -826,13 +842,13 @@
       name = exampleName;
       path = mkWasip3ExampleTest exampleName;
     })
-    wasip3ExampleNames;
+    exampleNames;
 
   # Every example gets one incremental WASI smoke test. Nix schedules these
   # derivations in parallel against the immutable shared library and runtime
   # artifacts. Whole-program linking has focused CLI coverage because it
   # intentionally recompiles the merged dependency bodies.
-  wasip3ExampleTest = assert wasip3ExampleNames != [];
+  wasip3ExampleTest = assert exampleNames != [];
     pkgs.linkFarm "aihc-wasip3-example-test" wasip3ExampleCases;
 in {
   resolve-tests = resolveTests;
