@@ -1161,7 +1161,15 @@ data NameSpace
         --   - For a field of a pattern synonym, this is the name of the pattern synonym.
         fldParent :: !String
       }
-  deriving stock (Eq, Ord, Show)
+  deriving stock (Ord, Show)
+
+-- The compiler does not emit a stock Eq dictionary. This instance supplies $fEqNameSpace.
+instance Eq NameSpace where
+  VarName == VarName = True
+  DataName == DataName = True
+  TcClsName == TcClsName = True
+  FldName left == FldName right = left == right
+  _ == _ = False
 
 -- | @Uniq@ is used by GHC to distinguish names from each other.
 type Uniq = Integer

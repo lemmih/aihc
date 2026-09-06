@@ -33,6 +33,14 @@ where
 
 import Data.Int (Int16, Int32, Int64, Int8)
 import Data.Word (Word16, Word32, Word64, Word8)
+import Foreign.C.Types.Repr
+  ( CIntPtrRep,
+    CLongRep,
+    CPtrdiffRep,
+    CSizeRep,
+    CUIntPtrRep,
+    CULongRep,
+  )
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.Float ()
 import GHC.Internal.Classes (Eq (..), Ord (..))
@@ -58,15 +66,15 @@ newtype CInt = CInt Int32
 
 newtype CIntMax = CIntMax Int64
 
-newtype CIntPtr = CIntPtr Int64
+newtype CIntPtr = CIntPtr CIntPtrRep
 
 data CJmpBuf = CJmpBuf
 
 newtype CLLong = CLLong Int64
 
-newtype CLong = CLong Int64
+newtype CLong = CLong CLongRep
 
-newtype CPtrdiff = CPtrdiff Int64
+newtype CPtrdiff = CPtrdiff CPtrdiffRep
 
 newtype CSChar = CSChar Int8
 
@@ -76,7 +84,7 @@ newtype CShort = CShort Int16
 
 newtype CSigAtomic = CSigAtomic Int32
 
-newtype CSize = CSize Word64
+newtype CSize = CSize CSizeRep
 
 newtype CTime = CTime Int64
 
@@ -86,11 +94,11 @@ newtype CUInt = CUInt Word32
 
 newtype CUIntMax = CUIntMax Word64
 
-newtype CUIntPtr = CUIntPtr Word64
+newtype CUIntPtr = CUIntPtr CUIntPtrRep
 
 newtype CULLong = CULLong Word64
 
-newtype CULong = CULong Word64
+newtype CULong = CULong CULongRep
 
 newtype CUSeconds = CUSeconds Word32
 

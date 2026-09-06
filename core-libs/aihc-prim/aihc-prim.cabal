@@ -15,6 +15,7 @@ library
     GHC.Magic.Dict
     GHC.Prim
     GHC.Prim.Base
+    GHC.Prim.Enum
     GHC.Prim.Exception
     GHC.Prim.Ext
     GHC.Prim.IO
