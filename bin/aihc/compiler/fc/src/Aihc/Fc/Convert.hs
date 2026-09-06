@@ -32,7 +32,7 @@ where
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.Wired
-import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
+import Aihc.Resolve (PackageId, ResolutionNamespace (..))
 import Aihc.Tc.Types
   ( Pred (..),
     TcAxiomKey (..),
@@ -212,8 +212,7 @@ convertTypeWithExpectedKind env expectedKind ty =
     -- The constraint type of an implicit parameter is the type of its value.
     TcTyCon tyCon [payload]
       | Tc.isImplicitParamTyConName (Tc.tyConName tyCon) -> convertType env payload
-    TcTyCon rawTyCon arguments -> do
-      let tyCon = configuredPrimTyCon env rawTyCon
+    TcTyCon tyCon arguments -> do
       kindArgs <- invisibleKindArgs env tyCon arguments expectedKind
       argumentKinds <- visibleArgumentKinds env tyCon arguments expectedKind
       converted <- zipWithM (convertTypeWithExpectedKind env) (map Just argumentKinds <> repeat Nothing) arguments
@@ -310,37 +309,8 @@ tyVarName tyVar =
 tyVarType :: TyVarId -> Type
 tyVarType tyVar = TyVar (tyVarName tyVar)
 
--- | A wired @GHC.Types@ constructor that the type checker built without a
--- package identity, under the identity of the primitive package in use.
--- Such a constructor reaches the desugarer as the type argument of a
--- representation-polymorphic binder.
-configuredPrimTyCon :: ConvertEnv -> TyCon -> TyCon
-configuredPrimTyCon env tyCon
-  | isBarePrimTyCon tyCon =
-      Tc.mkTyConWithNamespace (tyConNamespace tyCon) (cePrimPackage env) (tyConModuleName tyCon) (tyConName tyCon) (Tc.tyConArity tyCon)
-  | otherwise = tyCon
-
--- | Whether the type checker built the constructor for @GHC.Types@ without a
--- package identity. A real package identity carries a version and hash, so
--- the bare name only ever comes from the type checker.
-isBarePrimTyCon :: TyCon -> Bool
-isBarePrimTyCon tyCon =
-  tyConPackageId tyCon == PackageId "aihc-prim" && tyConModuleName tyCon == "GHC.Types"
-
--- | Whether the constructor is a @GHC.Types@ constructor of the primitive
--- package in use, under either its configured or its bare identity.
-isPrimGhcTypes :: ConvertEnv -> TyCon -> Bool
-isPrimGhcTypes env tyCon =
-  isBarePrimTyCon tyCon
-    || (tyConPackageId tyCon == cePrimPackage env && tyConModuleName tyCon == "GHC.Types")
-
 tyConNameFc :: ConvertEnv -> TyCon -> Name
-tyConNameFc env rawTyCon =
-  let tyCon = configuredPrimTyCon env rawTyCon
-   in tyConNameFcConfigured env tyCon
-
-tyConNameFcConfigured :: ConvertEnv -> TyCon -> Name
-tyConNameFcConfigured env tyCon =
+tyConNameFc env tyCon =
   if Set.member (tyConKey tyCon) (ceClassTyCons env)
     then classDictTypeName tyCon
     else
@@ -427,44 +397,4 @@ kindScheme :: ConvertEnv -> TyCon -> Either String TypeScheme
 kindScheme env tyCon =
   case Map.lookup (tyConKey tyCon) (ceKindEnv env) of
     Just scheme -> Right scheme
-    Nothing
-      | Just kind <- wiredRepConstructorKind env tyCon -> Right (ForAll [] [] kind)
-      | otherwise -> Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))
-
--- | The kind of a promoted @RuntimeRep@ or @Levity@ constructor from
--- @GHC.Types@. The type checker builds these without an environment, for
--- example as the type argument of a representation-polymorphic binder, so
--- a module that never names @GHC.Types@ has no kind scheme for them.
---
--- Only the primitive package qualifies: a user module also called
--- @GHC.Types@ can define its own @BoxedRep@, and that one keeps needing
--- a kind scheme from the interface.
-wiredRepConstructorKind :: ConvertEnv -> TyCon -> Maybe TcType
-wiredRepConstructorKind env tyCon
-  | tyConNamespace tyCon /= ResolutionNamespaceTerm || not (isPrimGhcTypes env tyCon) = Nothing
-  | otherwise =
-      case tyConName tyCon of
-        "BoxedRep" -> Just (KFun KLevity KRuntimeRep)
-        "Lifted" -> Just KLevity
-        "Unlifted" -> Just KLevity
-        "VecRep" -> Just (KFun KVecCount (KFun KVecElem KRuntimeRep))
-        name
-          | name `elem` nullaryRepConstructorNames -> Just KRuntimeRep
-          | otherwise -> Nothing
-
-nullaryRepConstructorNames :: [Text]
-nullaryRepConstructorNames =
-  [ "IntRep",
-    "Int8Rep",
-    "Int16Rep",
-    "Int32Rep",
-    "Int64Rep",
-    "WordRep",
-    "Word8Rep",
-    "Word16Rep",
-    "Word32Rep",
-    "Word64Rep",
-    "AddrRep",
-    "FloatRep",
-    "DoubleRep"
-  ]
+    Nothing -> Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))
