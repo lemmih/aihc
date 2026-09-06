@@ -10,7 +10,7 @@ module System.Environment
 where
 
 import Control.Exception.Base (SomeException, catch, throwIO)
-import GHC.Environment (getFullArgs, setFullArgs)
+import GHC.Internal.Environment (getFullArgs, setFullArgs)
 import Prelude
 
 getEnv :: String -> IO String

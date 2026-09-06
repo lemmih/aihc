@@ -8,6 +8,7 @@ where
 
 import GHC.Read (expectP, parens, readListDefault, readListPrecDefault)
 import GHC.Read.Lex (Lexeme (..))
+import Text.ParserCombinators.ReadPrec (prec, step)
 import Prelude
 
 newtype Down a = Down {getDown :: a}

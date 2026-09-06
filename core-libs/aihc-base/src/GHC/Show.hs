@@ -10,7 +10,6 @@ module GHC.Show
     showParen,
     shows,
     showString,
-    showListWith,
     showList__,
     showSpace,
     appPrec,

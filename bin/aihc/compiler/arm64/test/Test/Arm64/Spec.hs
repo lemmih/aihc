@@ -72,7 +72,13 @@ slotReloadTests =
       testCase "a write to the destination ends the copy" $
         elideSlotReloads [move X9 X19, add X9, move X9 X19] @?= [move X9 X19, add X9, move X9 X19],
       testCase "a copy of a narrow name is only a write" $
-        elideSlotReloads [move W9 W19, move W9 W19] @?= [move W9 W19, move W9 W19]
+        elideSlotReloads [move W9 W19, move W9 W19] @?= [move W9 W19, move W9 W19],
+      testCase "a store of what the slot holds is dropped" $
+        elideSlotReloads [load X9 0, store X9 0] @?= [load X9 0],
+      testCase "a store after the register changed stays" $
+        elideSlotReloads [load X9 0, add X9, store X9 0] @?= [load X9 0, add X9, store X9 0],
+      testCase "a store to another slot stays" $
+        elideSlotReloads [load X9 0, store X9 8] @?= [load X9 0, store X9 8]
     ]
   where
     load register offset = arm64Instruction (ArmLdr register (Arm64Offset SP offset))

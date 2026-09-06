@@ -10,7 +10,8 @@
 -- versions of the packages the file is compiled against, never from the
 -- compiler that built aihc.
 module Aihc.Hackage.Cpp
-  ( builtinCppMacros,
+  ( emulatedGhcVersion,
+    builtinCppMacros,
     cppMacrosFromOptions,
     DependencyVersions,
     minVersionMacroName,
@@ -27,6 +28,14 @@ import Data.Set (Set)
 import Data.Set qualified as S
 import Data.Text (Text)
 import Data.Text qualified as T
+
+-- | The GHC version aihc presents to packages.
+--
+-- Both the CPP macros and the @impl(ghc ...)@ conditions in @.cabal@ files
+-- must agree on this, or a package can take one branch in its source and the
+-- other in its @build-depends@.
+emulatedGhcVersion :: [Int]
+emulatedGhcVersion = [9, 6, 7]
 
 -- | GHC version macros that every preprocessed file sees.
 -- Mirrors what GHC itself defines when invoking @cpp@.

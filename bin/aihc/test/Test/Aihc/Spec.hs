@@ -2,9 +2,9 @@
 
 module Test.Aihc.Spec (tests) where
 
-import Aihc.Cli.BuildExe (runBuildExe)
+import Aihc.Cli.BuildExe (LinkBundle (..), linkBundleManifestPath, runBuildExe, runLinkExe)
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
-import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcSemispace), InstallOptions (..))
+import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcSemispace), InstallOptions (..), LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.Cli.Store (installedEntryArchivePath)
@@ -17,6 +17,7 @@ import Aihc.Tc (tcInterfaceTerms, tcTermKeyIdentifier)
 import Control.Concurrent (getNumCapabilities, setNumCapabilities)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM, forM_, void)
+import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isSpace)
@@ -76,7 +77,8 @@ tests =
               testCase "reports the ambiguous installed module" (test_buildExeAmbiguousModule coreStore),
               testCase "reports ambiguous package builds" (test_buildExeAmbiguousPackage coreStore),
               testCase "reports conflicting dependency builds" (test_buildExeConflictingDependencies coreStore),
-              testCase "reports the generated entry collision" (test_buildExeEntryCollision coreStore)
+              testCase "reports the generated entry collision" (test_buildExeEntryCollision coreStore),
+              testCase "writes a link bundle that link-exe turns into the executable" (test_buildExeLinkBundle coreStore)
             ],
         testGroup
           "install"
@@ -133,6 +135,7 @@ withBuildExeSandbox getStore prefix action = do
               buildExeStoreRoot = Just storeRoot,
               buildExeBuildRoot = Nothing,
               buildExeLint = False,
+              buildExeNoLink = False,
               buildExeOutputFile = Just (sandboxRoot sandbox </> "program")
             }
     action sandbox fixtureRoot storeRoot options
@@ -200,6 +203,34 @@ test_buildExeSourceDirectories getStore =
     assertBool "invalid heap size terminates the executable" (invalidStatus /= ExitSuccess)
     assertEqual "invalid heap size stdout" "" invalidStdout
     assertEqual "invalid heap size diagnostic" "aihc runtime: invalid size for RTS option -M\n" invalidStderr
+
+-- | @--no-link@ leaves no executable behind. The bundle it writes instead is
+-- self-contained: linking it from another directory, with the store gone,
+-- still produces the program.
+test_buildExeLinkBundle :: IO SeedStore -> Assertion
+test_buildExeLinkBundle getStore =
+  withBuildExeSandbox getStore "aihc-link-bundle" $ \sandbox _fixtureRoot storeRoot options -> do
+    let root = sandboxRoot sandbox
+        bundle = root </> "bundle"
+        output = root </> "linked" </> "program"
+    withCurrentDirectory root (runBuildExe options {buildExeNoLink = True, buildExeOutputFile = Just bundle})
+    assertFileDoesNotExist (root </> "program")
+    assertFileExists (linkBundleManifestPath bundle)
+    decoded <- Aeson.eitherDecode <$> BL.readFile (linkBundleManifestPath bundle)
+    manifest <- either assertFailure pure decoded
+    assertEqual "bundle target" (buildExeTarget options) (linkBundleTarget manifest)
+    assertBool "bundle lists the main object" (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest))
+    assertBool "bundle lists the base archive" (any ("libaihc-base.a" `isSuffixOf`) (linkBundleArchives manifest))
+    forM_ (linkBundleObjects manifest <> linkBundleArchives manifest <> [linkBundleEntry manifest, linkBundleRuntime manifest]) $ \input -> do
+      assertBool ("bundle input is relative: " <> input) ("inputs/" `isPrefixOf` input)
+      assertFileExists (bundle </> input)
+    removeDirectoryRecursive storeRoot
+    withCurrentDirectory root $
+      runLinkExe LinkExeOptions {linkExeBundle = bundle, linkExeOutputFile = output}
+    (status, stdout, stderr) <- readProcessWithExitCode output [] ""
+    assertEqual "linked executable exit status" ExitSuccess status
+    assertEqual "linked executable stdout" "build-exe works\n" stdout
+    assertEqual "linked executable stderr" "" stderr
 
 test_buildExeAmbiguousModule :: IO SeedStore -> Assertion
 test_buildExeAmbiguousModule getStore =

@@ -17,7 +17,6 @@ module GHC.Generics
     C,
     S,
     R,
-    P,
     Generic (..),
     Generic1 (..),
     Rep,
@@ -60,8 +59,6 @@ data C
 data S
 
 data R
-
-data P
 
 type family Rep a :: Type -> Type
 
