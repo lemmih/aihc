@@ -1854,4 +1854,4 @@ stableHash chunks = replicate (16 - length rendered) '0' <> rendered
     hashChunk = BS.foldl' (\hash byte -> (hash `xor` fromIntegral byte) * 1099511628211)
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-10"
+packageArtifactFormatVersion = "aihc-artifacts-11"

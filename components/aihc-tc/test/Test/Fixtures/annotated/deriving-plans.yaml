@@ -18,24 +18,38 @@ annotated:
   │    └─ type: Type → Type
   └─ deriving plans: anyclass C (T a) [context: ()] [methods: c], anyclass HK T [context: ()], via Wrapper a D (T a) [context: infer]
     deriving anyclass C
+                      └─ $fCTa ∷ ∀ a. () ⇒ C (T a)
     deriving anyclass HK
+                      └─ $fHKT ∷ () ⇒ HK T
     deriving D via Wrapper a
+             └─ warning: deriving via is not supported yet; no instance is generated for D
   newtype N a = N a
   │       │     └─ type: ∀ a. a → N a
   │       └─ type: Type → Type
-  └─ deriving plans: newtype C (N a) [context: infer] [methods: c]
+  └─ deriving plans: newtype C (N a) [context: C a] [methods: c]
     deriving newtype C
+                     └─ $fCNa ∷ ∀ a. (C a) ⇒ C (N a)
+                     └─ type: a → a; type-args: a; evidence: given C a
+                     └─ c ∷ N a → N a
+                     └─ type: a → N a; type-args: a
+                     └─ type: N a
+                     └─ type: a
+                     └─ type: N a
+                     └─ type: a
+                     └─ type: N a → N a
   newtype PreferAnyclass a = PreferAnyclass a
   │       │                  └─ type: ∀ a. a → PreferAnyclass a
   │       └─ type: Type → Type
   └─ deriving plans: anyclass C (PreferAnyclass a) [context: ()] [methods: c]
     deriving C
+             └─ $fCPreferAnyclassa ∷ ∀ a. () ⇒ C (PreferAnyclass a)
              └─ warning: both DeriveAnyClass and GeneralizedNewtypeDeriving are enabled; defaulting to anyclass for C
   data Default a = Default a
   │    │           └─ type: ∀ a. a → Default a
   │    └─ type: Type → Type
   └─ deriving plans: anyclass C (Default a) [context: ()] [methods: c]
     deriving C
+             └─ $fCDefaulta ∷ ∀ a. () ⇒ C (Default a)
 extensions:
 - DeriveAnyClass
 - DerivingStrategies

@@ -13,15 +13,56 @@ annotated:
   │       └─ type: Type → Type → Type
   └─ deriving plans: stock Eq (Tagged s b) [context: Eq b] [methods: ==, /=], stock Ord (Tagged s b) [context: Ord b] [methods: compare, <, <=, >, >=, max, min]
     deriving stock (Eq, Ord)
+                    │││││││   └─ $fOrdTaggedsb ∷ ∀ b s. (Ord b) ⇒ Ord (Tagged s b) [superclasses: $fEqTaggedsb @b @s (super[0](given Ord b))]
+                    │││││││   └─ type: b → b → GHC.Types.Ordering; type-args: b; evidence: given Ord b
+                    │││││││   └─ compare ∷ Tagged s b → Tagged s b → Ordering
+                    │││││││   └─ type: b
+                    │││││││   └─ type: Tagged s b
+                    │││││││   └─ type: b
+                    │││││││   └─ type: Tagged s b
+                    └─ type: b → b → GHC.Types.Bool; type-args: b; evidence: given Eq b
+                    └─ $fEqTaggedsb ∷ ∀ b s. (Eq b) ⇒ Eq (Tagged s b)
+                    └─ type: b
+                    └─ == ∷ Tagged s b → Tagged s b → Bool
+                    └─ type: b
+                    └─ type: Tagged s b
+                    └─ type: Tagged s b
   data Pair a = Pair a (Tagged a a)
   │    │        └─ type: ∀ a. a → Tagged a a → Pair a
   │    └─ type: Type → Type
   └─ deriving plans: stock Eq (Pair a) [context: Eq a] [methods: ==, /=], stock Ord (Pair a) [context: Ord a] [methods: compare, <, <=, >, >=, max, min]
     deriving stock (Eq, Ord)
+                    │││││││││││││   └─ $fOrdPaira ∷ ∀ a. (Ord a) ⇒ Ord (Pair a) [superclasses: $fEqPaira @a (super[0](given Ord a))]
+                    │││││││││││││   └─ type: a → a → GHC.Types.Ordering; type-args: a; evidence: given Ord a
+                    │││││││││││││   └─ compare ∷ Pair a → Pair a → Ordering
+                    │││││││││││││   └─ type: a
+                    │││││││││││││   └─ type: GHC.Types.Ordering
+                    │││││││││││││   └─ type: a
+                    │││││││││││││   └─ type: GHC.Types.Ordering
+                    │││││││││││││   └─ type: Tagged a a → Tagged a a → GHC.Types.Ordering; type-args: Tagged a a; evidence: $fOrdTaggedsb @a @a (given Ord a)
+                    │││││││││││││   └─ type: GHC.Types.Ordering
+                    │││││││││││││   └─ type: Tagged a a
+                    │││││││││││││   └─ type: GHC.Types.Ordering
+                    │││││││││││││   └─ type: Tagged a a
+                    │││││││││││││   └─ type: Pair a
+                    │││││││││││││   └─ type: Pair a
+                    └─ $fEqPaira ∷ ∀ a. (Eq a) ⇒ Eq (Pair a)
+                    └─ type: a → a → GHC.Types.Bool; type-args: a; evidence: given Eq a
+                    └─ == ∷ Pair a → Pair a → Bool
+                    └─ type: a
+                    └─ type: GHC.Types.Bool
+                    └─ type: a
+                    └─ type: GHC.Types.Bool
+                    └─ type: Tagged a a → Tagged a a → GHC.Types.Bool; type-args: Tagged a a; evidence: $fEqTaggedsb @a @a (given Eq a)
+                    └─ type: GHC.Types.Bool
+                    └─ type: Tagged a a
+                    └─ type: Pair a
+                    └─ type: Tagged a a
+                    └─ type: Pair a
   instance Num a => Num (Tagged s a) where
   └─ $fNumTaggedsa ∷ ∀ a s. (Num a) ⇒ Num (Tagged s a)
   instance Real a => Real (Tagged s a) where
-  └─ $fRealTaggedsa ∷ ∀ a s. (Real a) ⇒ Real (Tagged s a) [superclasses: $fNumTaggedsa @a @s (super[0](given Real a)), $fOrdTaggedsb @s @a (super[1](given Real a))]
+  └─ $fRealTaggedsa ∷ ∀ a s. (Real a) ⇒ Real (Tagged s a) [superclasses: $fNumTaggedsa @a @s (super[0](given Real a)), $fOrdTaggedsb @a @s (super[1](given Real a))]
     toRational (Tagged a) = Tagged (toRational a)
     │           │      │    │       └─ type: a → a; type-args: a; evidence: given Real a
     │           │      │    └─ type: a → Tagged s a; type-args: s, a

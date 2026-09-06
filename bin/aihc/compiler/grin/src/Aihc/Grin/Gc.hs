@@ -187,6 +187,10 @@ nodeWords node =
   1
     + case grinNodeTag node of
       GrinThunk {} -> max 1 fieldCount
+      -- A constructor that still wants arguments spends one payload word on
+      -- the count of the fields it holds, because every stage of one
+      -- constructor shares a single info table.
+      GrinConstructor _ remaining | remaining > 0 -> 1 + fieldCount
       _ -> fieldCount
   where
     fieldCount = length (grinNodeFields node)

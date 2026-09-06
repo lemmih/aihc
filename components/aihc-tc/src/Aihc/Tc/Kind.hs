@@ -30,12 +30,13 @@ module Aihc.Tc.Kind
 where
 
 import Aihc.Parser.Syntax
-  ( Name (..),
+  ( BuiltinCon (..),
+    Name (..),
     SourceSpan (..),
     TupleFlavor (..),
     TyVarBinder (..),
     Type (..),
-    TypeBuiltinCon (..),
+    TypePromotion (..),
     UnqualifiedName (..),
     forallTelescopeBinders,
     fromAnnotation,
@@ -53,7 +54,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Instantiate (instantiate)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
-import Control.Monad (foldM, zipWithM, zipWithM_)
+import Control.Monad (foldM, replicateM, zipWithM, zipWithM_)
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -222,8 +223,8 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       inferTypeVariable tvEnv name
     TCon name _ ->
       inferTypeConstructor name
-    TBuiltinCon builtin ->
-      inferBuiltinTypeConstructor builtin
+    TBuiltinCon builtin promotion ->
+      inferBuiltinTypeConstructor builtin promotion
     TStar {} ->
       knownType "GHC.Types" "Type" KType
     TApp f a -> do
@@ -480,26 +481,60 @@ instantiateTyConKind info = do
   (kindType, _) <- instantiate (tciKindScheme info)
   pure kindType
 
-inferBuiltinTypeConstructor :: TypeBuiltinCon -> TcM (TcType, TcType)
-inferBuiltinTypeConstructor builtin =
+-- | A built-in constructor used as a type: @[]@, @(:)@, @(,)@, @(->)@, and
+-- their promoted forms such as @\'[]@.  A promoted constructor is a data
+-- constructor lifted into the type namespace, so it gets the kind of the
+-- data constructor rather than the kind of the type constructor.
+inferBuiltinTypeConstructor :: BuiltinCon -> TypePromotion -> TcM (TcType, TcType)
+inferBuiltinTypeConstructor builtin promotion =
   case builtin of
-    TBuiltinList ->
-      do
-        maybeInfo <- lookupTyCon "[]"
-        tyCon <- maybe (mkKnownTyCon "GHC.Types" "[]" 1 (KFun KType KType)) (pure . tciTyCon) maybeInfo
-        pure (TcTyCon tyCon [], KFun KType KType)
-    TBuiltinCons -> do
-      let kind = KFun KType (KFun (listTypeKind KType) (listTypeKind KType))
-      tyCon <- mkKnownDataCon "GHC.Types" ":" 2 kind
-      pure (TcTyCon tyCon [], kind)
-    TBuiltinTuple arity ->
-      let argKinds = replicate arity KType
-          kind = foldr KFun KType argKinds
-       in knownTypeWithArity "GHC.Tuple" (tupleTyConText Boxed arity) arity kind
-    TBuiltinArrow -> do
+    BuiltinList
+      | promoted -> do
+          -- @\'[]@ has kind @[k]@.
+          resultKind <- listType =<< freshKindMeta
+          tyCon <- mkKnownDataCon "GHC.Types" "[]" 0 resultKind
+          pure (TcTyCon tyCon [], resultKind)
+      | otherwise -> do
+          maybeInfo <- lookupTyCon "[]"
+          tyCon <- maybe (mkKnownTyCon "GHC.Types" "[]" 1 (KFun KType KType)) (pure . tciTyCon) maybeInfo
+          pure (TcTyCon tyCon [], KFun KType KType)
+    BuiltinCons
+      | promoted -> do
+          -- @\'(:)@ has kind @k -> [k] -> [k]@.
+          elementKind <- freshKindMeta
+          listKind <- listType elementKind
+          let kind = KFun elementKind (KFun listKind listKind)
+          tyCon <- mkKnownDataCon "GHC.Types" ":" 2 kind
+          pure (TcTyCon tyCon [], kind)
+      | otherwise -> do
+          let kind = KFun KType (KFun (listTypeKind KType) (listTypeKind KType))
+          tyCon <- mkKnownDataCon "GHC.Types" ":" 2 kind
+          pure (TcTyCon tyCon [], kind)
+    BuiltinTuple flavor arity
+      | promoted -> do
+          -- @\'(,)@ has kind @k1 -> k2 -> (k1, k2)@, so the tuple type
+          -- constructor has to be in scope to give the result kind.
+          argKinds <- replicateM arity freshKindMeta
+          let typeName = tupleTyConText flavor arity
+          maybeInfo <- lookupTyCon typeName
+          tupleTyCon <-
+            case maybeInfo of
+              Just info -> pure (tciTyCon info)
+              Nothing -> abortTc ("promoted tuple constructor " <> T.unpack typeName <> " has no type constructor in scope")
+          let resultKind = TcTyCon tupleTyCon argKinds
+              kind = foldr KFun resultKind argKinds
+          tyCon <- mkKnownDataCon (tupleTyConModule flavor) typeName arity kind
+          pure (TcTyCon tyCon [], kind)
+      | otherwise ->
+          let argKinds = replicate arity KType
+              kind = foldr KFun KType argKinds
+           in knownTypeWithArity (tupleTyConModule flavor) (tupleTyConText flavor arity) arity kind
+    BuiltinArrow -> do
       let kind = KFun KType (KFun KType KType)
       tyCon <- mkKnownTyCon "GHC.Types" "(->)" 2 kind
       pure (TcTyCon tyCon [], kind)
+  where
+    promoted = promotion == Promoted
 
 knownType :: Text -> Text -> TcType -> TcM (TcType, TcType)
 knownType moduleName name = knownTypeWithArity moduleName name 0

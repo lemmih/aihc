@@ -26,10 +26,16 @@ annotated:
   │          └─ type: a
   └─ type: ∀ a b c. a → b → c → ()
   data Color = Red | Green | Blue deriving (Eq)
-  │    │       │     │       └─ type: Color
-  │    │       │     └─ type: Color
-  │    │       └─ type: Color
-  │    └─ type: Type
+  │    │       │     │       └─ type: Color └─ $fEqColor ∷ () ⇒ Eq Color
+  │    │       │     └─ type: Color         └─ type: Color
+  │    │       └─ type: Color               └─ == ∷ Color → Color → Bool
+  │    └─ type: Type                        └─ type: Color
+  │                                         └─ type: Color
+  │                                         └─ type: Color
+  │                                         └─ type: Color
+  │                                         └─ type: Color
+  │                                         └─ type: Color
+  │                                         └─ type: Color
   └─ deriving plans: stock Eq Color [context: ()] [methods: ==, /=]
 reason: derived code does not use the RebindableSyntax terms in scope
 status: pass

@@ -36,6 +36,105 @@ modules:
 
   useAny :: Required a => Wrapped a -> Wrapped a
   useAny = anyValue
-expected: ''
-status: xfail
-reason: FC desugaring does not emit the derived Any dictionary $fAnyWrappeda.
+expected: |
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tUnit :: 2.tType {
+      pub 1.vUnit :: 1.tUnit
+  }
+
+  pub type 1.tBox (a : 2.tType) :: 2.tType {
+      pub 1.vBox :: ∀(a : 2.tType). a 2.→ 1.tBox a
+  }
+
+  pub type 1.t$Dict$Required (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Required :: ∀(a : 2.tType). (a 2.→ a) 2.→ 1.t$Dict$Required a
+  }
+
+  pub type 1.t$Dict$Any (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Any :: ∀(a : 2.tType). (a 2.→ a) 2.→ 1.t$Dict$Any a
+  }
+
+  pub type 1.tWrapped (a : 2.tType) :: 2.tType {
+      pub 1.vWrapped :: ∀(a : 2.tType). 1.tBox a 2.→ 1.tWrapped a
+  }
+
+  pub type 1.t$Dict$Parent (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Parent :: ∀(a : 2.tType). 1.t$Dict$Parent a
+  }
+
+  pub type 1.t$Dict$Child (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Child :: ∀(a : 2.tType). 1.t$Dict$Parent a 2.→ 1.t$Dict$Child a
+  }
+
+  pub type 1.tBoth :: 2.tType {
+      pub 1.vBoth :: 1.tBoth
+  }
+
+  pub val 1.vrequired :: ∀(a : 2.tType). 1.t$Dict$Required a 2.→ a 2.→ a
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Required a).
+      case $d0 as ($dict : 1.t$Dict$Required a) return (a 2.→ a) of {
+          1.v$Dict$Required ($method0 : a 2.→ a) →
+              $method0
+      }
+
+  pub val 1.vanyValue :: ∀(a : 2.tType). 1.t$Dict$Any a 2.→ a 2.→ a
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Any a).
+      case $d0 as ($dict : 1.t$Dict$Any a) return (a 2.→ a) of {
+          1.v$Dict$Any ($method0 : a 2.→ a) →
+              $method0
+      }
+
+  pub val 1.v$dmanyValue :: ∀(a : 2.tType). 1.t$Dict$Any a 2.→ 1.t$Dict$Required a 2.→ a 2.→ a
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Any a).
+      λ($d1 : 1.t$Dict$Required a).
+        λ(x : a).
+          1.vrequired @a $d1 x
+
+  pub val 1.v$fRequiredBoxa :: ∀(a : 2.tType). 1.t$Dict$Required a 2.→ 1.t$Dict$Required (1.tBox a)
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Required a).
+      1.v$Dict$Required @(1.tBox a) (λ(x : 1.tBox a).
+        x)
+
+  pub val 1.v$fRequiredWrappeda :: ∀(a : 2.tType). 1.t$Dict$Required a 2.→ 1.t$Dict$Required (1.tWrapped a)
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Required a).
+      1.v$Dict$Required @(1.tWrapped a) (λ(x : 1.tWrapped a).
+        x)
+
+  pub val 1.v$fAnyWrappeda :: ∀(a : 2.tType). 1.t$Dict$Required a 2.→ 1.t$Dict$Any (1.tWrapped a)
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Required a).
+      1.v$Dict$Any @(1.tWrapped a) (1.v$dmanyValue @(1.tWrapped a) (1.v$fAnyWrappeda @a $d0) (1.v$fRequiredWrappeda @a $d0))
+
+  pub val 1.v$fChildBoth :: 1.t$Dict$Child 1.tBoth
+   = 1.v$Dict$Child @1.tBoth 1.v$fParentBoth
+
+  pub val 1.v$fParentBoth :: 1.t$Dict$Parent 1.tBoth
+   = 1.v$Dict$Parent @1.tBoth
+
+  pub val 1.vuseAny :: ∀(a : 2.tType). 1.t$Dict$Required a 2.→ 1.tWrapped a 2.→ 1.tWrapped a
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Required a).
+      1.vanyValue @(1.tWrapped a) (1.v$fAnyWrappeda @a $d0)
+
+status: pass
+reason: the derived anyclass instance is an ordinary instance declaration that lowers to a dictionary

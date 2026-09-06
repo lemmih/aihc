@@ -16,6 +16,7 @@ annotated:
   │    └─ type: Type → Type
   └─ deriving plans: anyclass C (T a) [context: Show a] [methods: c]
     deriving anyclass C
+                      └─ $fCTa ∷ ∀ a. (Show a) ⇒ C (T a)
   instance Show a => Show (T a)
   └─ $fShowTa ∷ ∀ a. (Show a) ⇒ Show (T a)
   class Parent a where
@@ -27,6 +28,8 @@ annotated:
   │    └─ type: Type → Type
   └─ deriving plans: anyclass Child (S a) [context: ()], anyclass Parent (S a) [context: ()]
     deriving anyclass (Child, Parent)
+                       │      └─ $fParentSa ∷ ∀ a. () ⇒ Parent (S a)
+                       └─ $fChildSa ∷ ∀ a. () ⇒ Child (S a) [superclasses: $fParentSa @a]
   data Missing = Missing
   │    │         └─ type: Missing
   │    └─ type: Type

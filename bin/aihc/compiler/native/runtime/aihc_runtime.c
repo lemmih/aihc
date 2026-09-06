@@ -1,7 +1,6 @@
 #include "aihc_runtime.h"
 #include "aihc_runtime_internal.h"
 
-#include <math.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -144,6 +143,11 @@ uint64_t aihc_value_words(const AihcValue *value) {
   if (aihc_value_kind(value) == AIHC_OBJECT_ARRAY) {
     return 2 + aihc_array_length(value);
   }
+  /* A partial constructor spends field zero on its applied count, and its
+     shared info table cannot say how wide this stage is. */
+  if (aihc_value_kind(value) == AIHC_OBJECT_PARTIAL_CONSTRUCTOR) {
+    return 2 + aihc_partial_applied(value);
+  }
   return aihc_object_words(aihc_value_info_table(value));
 }
 
@@ -165,11 +169,12 @@ AihcSlot *aihc_array_elements(AihcValue *array) {
    arrays through them, including the ones the GC fuzz harness builds with
    info tables of its own. */
 
-/* aihc_mutvar_*, aihc_stable_name_*, and the byte-array primitives live in
-   compiler/native/runtime/aihc_mutvar.lir, aihc_stable_name.lir, and
-   aihc_byte_array.lir. The two accessors below stay here: the offsets of the
-   machine fields they reach follow the target word size, and a Lir unit is
-   one file for every target. */
+/* aihc_mutvar_*, aihc_stable_name_*, the byte-array primitives, and the RTS
+   option parser live in compiler/native/runtime/aihc_mutvar.lir,
+   aihc_stable_name.lir, aihc_byte_array.lir, and aihc_runtime_options.lir.
+   The two accessors below stay here: the offsets of the machine fields they
+   reach follow the target word size, and a Lir unit is one file for every
+   target. */
 
 AihcStableName **aihc_stable_names(AihcMachine *machine) {
   return &machine->stable_names;
@@ -188,6 +193,40 @@ void aihc_memory_copy(void *destination, const void *source, uint64_t length) {
 
 void aihc_memory_move(void *destination, const void *source, uint64_t length) {
   memmove(destination, source, (size_t)length);
+}
+
+void aihc_memory_free(void *pointer) { free(pointer); }
+
+/* The RTS option parser and the argument store live in
+   compiler/native/runtime/aihc_runtime_options.lir. This flattens argv for
+   it: the width of a C pointer is the one thing a Lir unit does not know. */
+void aihc_program_arguments_initialize(int argc, char *const argv[]) {
+  if (argc < 0 || (argc != 0 && argv == NULL)) {
+    aihc_fail("invalid initial program arguments");
+  }
+  size_t length = 0;
+  for (int index = 0; index < argc; ++index) {
+    if (argv[index] == NULL) {
+      aihc_fail("null initial program argument");
+    }
+    size_t argument_length = strlen(argv[index]);
+    if ((uint64_t)argument_length >= (uint64_t)INT64_MAX - (uint64_t)length) {
+      aihc_fail("program arguments are too large");
+    }
+    length += argument_length + 1;
+  }
+  uint8_t *arguments = aihc_allocate_zeroed(length == 0 ? 1 : length);
+  size_t offset = 0;
+  for (int index = 0; index < argc; ++index) {
+    size_t argument_length = strlen(argv[index]);
+    memcpy(arguments + offset, argv[index], argument_length);
+    offset += argument_length + 1;
+  }
+  if (aihc_runtime_arguments_initialize(arguments, (int64_t)length) != 0) {
+    free(arguments);
+    aihc_fail("invalid initial program arguments");
+  }
+  free(arguments);
 }
 
 static void aihc_visit_value(AihcValue **value, AihcRootVisitor visitor,
@@ -292,6 +331,24 @@ AihcValue *aihc_make_node(AihcMachine *machine, const AihcInfo *info) {
   return aihc_make_node_unchecked(machine, info);
 }
 
+/* One stage of a constructor that is not saturated yet. Its width is not in
+   the info table - every stage of the constructor shares one - so the caller
+   names the slots and the object records them in field zero. */
+AihcValue *aihc_make_partial_unchecked(AihcMachine *machine,
+                                       const AihcInfo *info, uint64_t applied) {
+  AihcValue *value = aihc_gc_allocate(machine, 2 + applied);
+  aihc_record_allocation(machine);
+  value->header = aihc_make_header(info);
+  value->fields[0] = applied;
+  return value;
+}
+
+AihcValue *aihc_make_partial(AihcMachine *machine, const AihcInfo *info,
+                             uint64_t applied) {
+  aihc_ensure_heap(machine, 2 + applied, 0, NULL);
+  return aihc_make_partial_unchecked(machine, info, applied);
+}
+
 uint64_t aihc_allocation_count(const AihcMachine *machine) {
   return machine->allocation_count;
 }
@@ -300,6 +357,8 @@ void aihc_reset_allocation_count(AihcMachine *machine) {
   machine->allocation_count = 0;
 }
 
+/* The next stage of a closure. Closures keep a chain of info tables: each
+   stage names the slots it holds and points at the stage after it. */
 const AihcInfo *aihc_next_application_info(const AihcInfo *info,
                                            uint64_t supplied_count) {
   const AihcInfo *next = info->next;
@@ -312,18 +371,48 @@ const AihcInfo *aihc_next_application_info(const AihcInfo *info,
   return next;
 }
 
+/* The info table a partial constructor takes on once it has the given slots.
+   A stage that fills the last slot becomes the saturated constructor and
+   drops the applied count; every earlier stage keeps the shared partial info
+   table it already has. */
+const AihcInfo *aihc_applied_constructor_info(const AihcInfo *info,
+                                              uint64_t applied) {
+  const AihcInfo *saturated = info->next;
+  if (info->object_kind != AIHC_OBJECT_PARTIAL_CONSTRUCTOR ||
+      saturated == NULL) {
+    aihc_fail("applied a value that is not a partial constructor");
+  }
+  if (applied > saturated->field_count) {
+    aihc_fail("constructor application overruns the constructor");
+  }
+  return applied == saturated->field_count ? saturated : info;
+}
+
+/* Extend one object by the given slots. A closure grows into the next stage
+   of its own chain; a partial constructor keeps its single shared info table
+   until the last slot arrives and it becomes the saturated constructor. */
 static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
                                         AihcValue **value_pointer,
                                         uint64_t count, const AihcSlot *fields,
                                         AihcValue **continuation_pointer) {
   AihcValue *value = *value_pointer;
   const AihcInfo *info = aihc_value_info_table(value);
-  const AihcInfo *next_info = aihc_next_application_info(info, count);
-  uint64_t original_count = info->field_count;
+  int partial = info->object_kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR;
+  uint64_t original_count =
+      partial ? aihc_partial_applied(value) : info->field_count;
+  const AihcInfo *next_info =
+      partial ? aihc_applied_constructor_info(info, original_count + count)
+              : aihc_next_application_info(info, count);
+  /* Both stages of a constructor index the saturated bitmap, so the pointer
+     map of the arriving slots is the same array either way. */
+  const uint8_t *field_is_pointer = next_info->field_is_pointer;
+  int next_partial = next_info->object_kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR;
+  uint64_t words =
+      next_partial ? 2 + original_count + count : aihc_object_words(next_info);
 
   uint64_t pointer_count = 0;
   for (uint64_t index = 0; index < count; ++index) {
-    if (next_info->field_is_pointer[original_count + index]) {
+    if (field_is_pointer[original_count + index]) {
       ++pointer_count;
     }
   }
@@ -332,29 +421,34 @@ static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
   roots[1] = (AihcSlot)*continuation_pointer;
   uint64_t root_index = 2;
   for (uint64_t index = 0; index < count; ++index) {
-    if (next_info->field_is_pointer[original_count + index]) {
+    if (field_is_pointer[original_count + index]) {
       roots[root_index++] = fields[index];
     }
   }
 
-  aihc_ensure_heap(machine, aihc_object_words(next_info), 2 + pointer_count,
-                   roots);
+  aihc_ensure_heap(machine, words, 2 + pointer_count, roots);
   value = (AihcValue *)roots[0];
   *value_pointer = value;
   *continuation_pointer = (AihcValue *)roots[1];
 
-  AihcValue *copy = aihc_make_node_unchecked(machine, next_info);
-  AihcSlot *original_fields = aihc_value_fields(value);
-  AihcSlot *copy_fields = aihc_value_fields(copy);
+  /* The stage that fills the last slot becomes a saturated node and drops the
+     applied count, so the result decides the allocator, not the source. */
+  AihcValue *copy = next_partial
+                        ? aihc_make_partial_unchecked(machine, next_info,
+                                                      original_count + count)
+                        : aihc_make_node_unchecked(machine, next_info);
+  const AihcSlot *original_fields = partial ? aihc_partial_fields_const(value)
+                                            : aihc_value_fields_const(value);
+  AihcSlot *copy_fields =
+      next_partial ? aihc_partial_fields(copy) : aihc_value_fields(copy);
   for (uint64_t index = 0; index < original_count; ++index) {
     copy_fields[index] = original_fields[index];
   }
   root_index = 2;
   for (uint64_t index = 0; index < count; ++index) {
     copy_fields[original_count + index] =
-        next_info->field_is_pointer[original_count + index]
-            ? roots[root_index++]
-            : fields[index];
+        field_is_pointer[original_count + index] ? roots[root_index++]
+                                                 : fields[index];
   }
   return copy;
 }
@@ -453,10 +547,9 @@ int64_t aihc_get_exit_status(const AihcMachine *machine) {
 
 AihcMachine *aihc_machine_new(uint64_t global_count) {
   AihcMachine *machine = aihc_allocate_zeroed(sizeof(*machine));
-  const AihcRtsConfig *rts_config = aihc_rts_config();
   machine->allocation_count = 1;
-  machine->heap_max_bytes = rts_config->heap_max_bytes;
-  machine->heap_limit_enabled = rts_config->heap_limit_enabled;
+  machine->heap_max_bytes = aihc_rts_heap_max_bytes();
+  machine->heap_limit_enabled = aihc_rts_heap_limit_enabled() != 0;
   machine->global_count = global_count;
   machine->globals = aihc_allocate_auxiliary(
       machine,
@@ -492,13 +585,14 @@ AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
                                  continuation);
   }
   case AIHC_OBJECT_PARTIAL_CONSTRUCTOR: {
-    uint64_t arity = aihc_value_arity(function);
-    if (arity == 0) {
-      aihc_fail("saturated constructor was applied");
+    if (aihc_partial_applied(function) + count > aihc_partial_total(function)) {
+      aihc_fail("constructor application overruns the constructor");
     }
     return aihc_copy_with_fields(machine, &function, count, arguments,
                                  continuation);
   }
+  case AIHC_OBJECT_NODE:
+    aihc_fail("saturated constructor was applied");
   default:
     aihc_fail("attempted to apply a non-function value");
   }
@@ -1045,70 +1139,3 @@ void aihc_set_thread_done_continuation(AihcMachine *machine,
 }
 
 AihcEntry aihc_halt(AihcMachine *machine) { return machine->exit_code; }
-/* Floating point functions of the Floating class. A Double# arrives as its
-   IEEE 754 bit pattern in a 64-bit word, and a Float# arrives as its bit
-   pattern in the low 32 bits. The results have the same form. The functions
-   themselves are the ones of libm, which every target links: the C runtime
-   is compiled against the platform libc, and the WebAssembly target against
-   the wasi-libc of its sysroot. */
-
-static double aihc_double_from_bits(uint64_t bits) {
-  double value;
-  memcpy(&value, &bits, sizeof value);
-  return value;
-}
-
-static uint64_t aihc_double_to_bits(double value) {
-  uint64_t bits;
-  memcpy(&bits, &value, sizeof bits);
-  return bits;
-}
-
-static float aihc_float_from_bits(uint64_t bits) {
-  uint32_t low = (uint32_t)bits;
-  float value;
-  memcpy(&value, &low, sizeof value);
-  return value;
-}
-
-static uint64_t aihc_float_to_bits(float value) {
-  uint32_t low;
-  memcpy(&low, &value, sizeof low);
-  return (uint64_t)low;
-}
-
-/* The name of the primitive is the name of the libm function, and the Float#
-   form is the single-precision one rather than a rounded double: a Float# is
-   what GHC computes with sinf and its neighbours too. */
-#define AIHC_DEFINE_DOUBLE_UNARY(name)                                         \
-  uint64_t aihc_double_##name(uint64_t bits) {                                 \
-    return aihc_double_to_bits(name(aihc_double_from_bits(bits)));             \
-  }                                                                            \
-  uint64_t aihc_float_##name(uint64_t bits) {                                  \
-    return aihc_float_to_bits(name##f(aihc_float_from_bits(bits)));            \
-  }
-
-AIHC_DEFINE_DOUBLE_UNARY(exp)
-AIHC_DEFINE_DOUBLE_UNARY(log)
-AIHC_DEFINE_DOUBLE_UNARY(sin)
-AIHC_DEFINE_DOUBLE_UNARY(cos)
-AIHC_DEFINE_DOUBLE_UNARY(tan)
-AIHC_DEFINE_DOUBLE_UNARY(asin)
-AIHC_DEFINE_DOUBLE_UNARY(acos)
-AIHC_DEFINE_DOUBLE_UNARY(atan)
-AIHC_DEFINE_DOUBLE_UNARY(sinh)
-AIHC_DEFINE_DOUBLE_UNARY(cosh)
-AIHC_DEFINE_DOUBLE_UNARY(tanh)
-AIHC_DEFINE_DOUBLE_UNARY(asinh)
-AIHC_DEFINE_DOUBLE_UNARY(acosh)
-AIHC_DEFINE_DOUBLE_UNARY(atanh)
-
-uint64_t aihc_double_pow(uint64_t left, uint64_t right) {
-  return aihc_double_to_bits(
-      pow(aihc_double_from_bits(left), aihc_double_from_bits(right)));
-}
-
-uint64_t aihc_float_pow(uint64_t left, uint64_t right) {
-  return aihc_float_to_bits(
-      powf(aihc_float_from_bits(left), aihc_float_from_bits(right)));
-}

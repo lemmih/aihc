@@ -1,0 +1,73 @@
+; expect: 3, 1024, 1048576, 14
+; Character literals are integer literals, and a switch case may list
+; several of them.
+
+data @text align 1 = { bytes "a1\n2K3m\t", zero 1 }
+
+func @classify(%byte: i8) -> i64 {
+entry:
+  switch i8 %byte {
+    'K', 'k' -> kilo
+    'M', 'm' -> mega
+    '\n', '\t', ' ' -> space
+    default -> other
+  }
+
+kilo:
+  return 1024
+
+mega:
+  return 1048576
+
+space:
+  return 7
+
+other:
+  return 0
+}
+
+; Count the digits, and add up the classes of the other characters.
+func @main() -> (i64, i64, i64, i64) {
+entry:
+  jump step(@text, 0, 0, 0, 0)
+
+step(%cursor: ptr, %digits: i64, %kilos: i64, %megas: i64, %spaces: i64):
+  %byte = load i8 [%cursor] align 1
+  %end = eq i8 %byte, '\0'
+  br %end, done, examine
+
+examine:
+  %low = ge.u i8 %byte, '0'
+  %high = le.u i8 %byte, '9'
+  %digit = and i1 %low, %high
+  %next = ptr.add %cursor, 1
+  br %digit, count, classify
+
+count:
+  %more = add i64 %digits, 1
+  jump step(%next, %more, %kilos, %megas, %spaces)
+
+classify:
+  %class = call @classify(%byte)
+  switch i64 %class {
+    1024 -> kilo
+    1048576 -> mega
+    7 -> space
+    default -> step(%next, %digits, %kilos, %megas, %spaces)
+  }
+
+kilo:
+  %kilo_total = add i64 %kilos, %class
+  jump step(%next, %digits, %kilo_total, %megas, %spaces)
+
+mega:
+  %mega_total = add i64 %megas, %class
+  jump step(%next, %digits, %kilos, %mega_total, %spaces)
+
+space:
+  %space_total = add i64 %spaces, %class
+  jump step(%next, %digits, %kilos, %megas, %space_total)
+
+done:
+  return %digits, %kilos, %megas, %spaces
+}

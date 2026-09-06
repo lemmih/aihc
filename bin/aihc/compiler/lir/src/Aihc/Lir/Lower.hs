@@ -71,10 +71,11 @@ import Aihc.Native
     renderLinkedConstructorInfoSymbol,
     renderLinkedFunctionSymbol,
     renderLinkedGlobalSymbol,
+    renderLinkedPartialConstructorInfoSymbol,
   )
 import Control.Monad (foldM, forM, forM_, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
+import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
 import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Foldable (for_)
@@ -177,11 +178,27 @@ data Typed = Typed
 
 -- Environment
 
+-- | Which of the two info tables of one constructor an object uses. A
+-- constructor that still wants arguments shares a single info table across
+-- every stage and records how much it holds in the object itself, so the
+-- number of arguments outstanding is not part of its identity here.
+data ConstructorStage
+  = SaturatedConstructor
+  | PartialConstructor
+  deriving (Eq, Ord, Show)
+
 data RuntimeInfoKey
-  = ConstructorRuntimeInfo !Text !Int
+  = ConstructorRuntimeInfo !Text !ConstructorStage
   | ClosureRuntimeInfo !FunctionName ![GrinRep] ![[GrinRep]]
   | ThunkRuntimeInfo !FunctionName ![GrinRep]
   deriving (Eq, Ord, Show)
+
+-- | The stage a node tag names. GRIN counts the arguments a constructor still
+-- wants; zero of them means the constructor is finished.
+constructorStage :: Int -> ConstructorStage
+constructorStage remaining
+  | remaining == 0 = SaturatedConstructor
+  | otherwise = PartialConstructor
 
 data RuntimeEnter = RuntimeEnter
   { enterTarget :: !Symbol,
@@ -263,6 +280,8 @@ data LowerState = LowerState
     stateExterns :: !(Map Symbol Signature),
     stateExternData :: !(Set Symbol),
     stateHelpers :: !(Set Helper),
+    -- | The pointer-bitmap array emitted for each distinct bitmap so far.
+    stateBitmaps :: !(Map BS.ByteString Symbol),
     stateItemsRev :: ![Item],
     stateBlocksRev :: ![Block],
     stateOpen :: !(Maybe OpenBlock)
@@ -285,6 +304,7 @@ runLower options gcProgram action = do
             stateExterns = Map.empty,
             stateExternData = Set.empty,
             stateHelpers = Set.empty,
+            stateBitmaps = Map.empty,
             stateItemsRev = [],
             stateBlocksRev = [],
             stateOpen = Nothing
@@ -333,18 +353,24 @@ lowerEnvironment options gcProgram =
     constructorLayouts = grinConstructors program
     requiredConstructorInfos =
       Set.fromList
-        ( [ConstructorRuntimeInfo name 0 | (name, layouts) <- constructorLayouts, null layouts]
+        ( [ConstructorRuntimeInfo name SaturatedConstructor | (name, layouts) <- constructorLayouts, null layouts]
             <> concatMap requiredNodeConstructorInfos (programNodes program)
         )
+    -- One constructor needs at most two info tables: the saturated object,
+    -- and one shared by every stage that still wants arguments. The partial
+    -- table carries the saturated one as its next stage, which is where the
+    -- runtime reads the full width and the pointer map from.
     constructorEntries =
       [ ( key,
           RuntimeInfo
-            { infoSymbol = constructorInfoSymbol name remaining,
+            { infoSymbol = symbol,
               infoLinkage = Export,
               infoIdentity = DataSymbol (constructorInfoSymbol name 0) 0,
-              infoFields = concat (take (arity - remaining) layouts),
-              infoRemainingArity = remaining,
-              infoNext = if remaining == 0 then Nothing else Just (constructorInfoSymbol name (remaining - 1)),
+              -- Both tables describe the saturated slots. A partial object
+              -- has filled a prefix of them.
+              infoFields = concat layouts,
+              infoRemainingArity = if stage == SaturatedConstructor then 0 else length layouts,
+              infoNext = if stage == SaturatedConstructor then Nothing else Just (constructorInfoSymbol name 0),
               infoEnter = Nothing,
               infoFrameKind = Nothing,
               infoObjectKind = runtimeInfoKeyObjectKind key,
@@ -352,9 +378,9 @@ lowerEnvironment options gcProgram =
             }
         )
       | (name, layouts) <- constructorLayouts,
-        let arity = length layouts,
-        remaining <- [arity, arity - 1 .. 0],
-        let key = ConstructorRuntimeInfo name remaining,
+        stage <- [SaturatedConstructor, PartialConstructor],
+        let key = ConstructorRuntimeInfo name stage,
+        let symbol = constructorStageSymbol name stage,
         key `Set.member` requiredConstructorInfos
       ]
     infoKeys =
@@ -408,10 +434,16 @@ lowerEnvironment options gcProgram =
 
 -- | The Lir symbol of one GRIN function.
 functionSymbol :: FunctionName -> Symbol
-functionSymbol (FunctionName name) = Symbol ("aihc_lir_function_" <> renderLinkedFunctionSymbol name)
+functionSymbol (FunctionName name) = Symbol ("aihc_f_" <> renderLinkedFunctionSymbol name)
 
 constructorInfoSymbol :: Text -> Int -> Symbol
 constructorInfoSymbol name remaining = Symbol (renderLinkedConstructorInfoSymbol name remaining)
+
+constructorStageSymbol :: Text -> ConstructorStage -> Symbol
+constructorStageSymbol name stage =
+  case stage of
+    SaturatedConstructor -> constructorInfoSymbol name 0
+    PartialConstructor -> Symbol (renderLinkedPartialConstructorInfoSymbol name)
 
 globalSymbol :: Text -> Symbol
 globalSymbol = Symbol . renderLinkedGlobalSymbol
@@ -653,15 +685,39 @@ validateRuntimeRep runtimeRep =
     SumRep reps -> mapM_ validateRuntimeRep reps
     _ -> pure ()
 
+-- | The pointer bitmap one info table describes.
+infoBitmap :: RuntimeInfo -> BS.ByteString
+infoBitmap info = BS.pack [if isPointerRuntimeRep field then 1 else 0 | field <- infoFields info]
+
+-- | The array holding one pointer bitmap, emitted once per distinct bitmap.
+--
+-- Info tables share an array whenever their bitmaps agree, which is often:
+-- the application stages of an arity-n constructor ask between them for every
+-- prefix of one layout, and those prefixes repeat across every constructor
+-- built the same way. Naming the arrays after the info tables that wanted
+-- them would keep one array per stage, and each such name spells out the
+-- mangled constructor name -- hundreds of bytes for a wide tuple, where the
+-- symbol costs far more than the handful of bytes it points at.
+internBitmap :: BS.ByteString -> LowerM (Maybe Symbol)
+internBitmap bytes
+  | BS.null bytes = pure Nothing
+  | otherwise = do
+      known <- gets stateBitmaps
+      case Map.lookup bytes known of
+        Just symbol -> pure (Just symbol)
+        Nothing -> do
+          let symbol = Symbol ("aihc_lir_bitmap_" <> T.pack (show (Map.size known)))
+          modify' (\state -> state {stateBitmaps = Map.insert bytes symbol (stateBitmaps state)})
+          emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes bytes]))
+          pure (Just symbol)
+
 lowerInfo :: RuntimeInfo -> LowerM ()
 lowerInfo info = do
   target <- targetM
-  let bitmap = Symbol (unSymbol (infoSymbol info) <> "_bitmap")
-      stub = Symbol (unSymbol (infoSymbol info) <> "_enter")
+  let stub = Symbol (unSymbol (infoSymbol info) <> "_e")
       fields = infoFields info
       word = wordField target
-  unless (null fields) $
-    emitItem (ItemData (DataItem bitmap Internal False 1 [DataBytes (BS.pack [if isPointerRuntimeRep field then 1 else 0 | field <- fields])]))
+  bitmap <- internBitmap (infoBitmap info)
   forM_ (infoEnter info) (lowerEnterStub stub)
   emitItem
     ( ItemData
@@ -675,7 +731,7 @@ lowerInfo info = do
                 DataCode Nothing,
                 word (toInteger (length fields)),
                 word (toInteger (infoRemainingArity info)),
-                if null fields then DataNull else DataSymbol bitmap 0,
+                maybe DataNull (`DataSymbol` 0) bitmap,
                 maybe DataNull (`DataSymbol` 0) (infoNext info),
                 DataCode (stub <$ infoEnter info),
                 word (toInteger (continuationFrameKindCode (infoFrameKind info))),
@@ -763,8 +819,9 @@ lowerStaticObject env object = do
   target <- targetM
   header <- slotPointerFields target . (`DataSymbol` 0) <$> nodeInfoSymbol env node
   fields <- concat <$> mapM (staticField target) (grinNodeFields node)
-  let payload = if null fields && isThunk then [DataZero 8] else fields
-  emitItem (ItemData (DataItem (globalSymbol (staticObjectName object)) Export True 8 (header <> payload)))
+  let applied = [wordField target (toInteger (length (grinNodeFields node))) | isPartialConstructorNode node]
+      payload = if null fields && isThunk then [DataZero 8] else fields
+  emitItem (ItemData (DataItem (globalSymbol (staticObjectName object)) Export True 8 (header <> applied <> payload)))
   where
     node = staticObjectNode object
     isThunk = case grinNodeTag node of
@@ -788,7 +845,7 @@ lowerStaticObject env object = do
 nodeInfoSymbol :: LowerEnv -> GrinNode -> LowerM Symbol
 nodeInfoSymbol env node =
   case grinNodeTag node of
-    GrinConstructor name remaining -> lookupInfo (ConstructorRuntimeInfo name remaining)
+    GrinConstructor name remaining -> lookupInfo (ConstructorRuntimeInfo name (constructorStage remaining))
     GrinClosure name layouts -> lookupInfo (ClosureRuntimeInfo name fields layouts)
     GrinThunk name -> lookupInfo (ThunkRuntimeInfo name fields)
   where
@@ -798,8 +855,8 @@ nodeInfoSymbol env node =
         Just symbol -> pure symbol
         Nothing ->
           case key of
-            ConstructorRuntimeInfo name remaining -> do
-              let symbol = constructorInfoSymbol name remaining
+            ConstructorRuntimeInfo name stage -> do
+              let symbol = constructorStageSymbol name stage
               requireExternData symbol
               pure symbol
             ClosureRuntimeInfo name _ _ -> failWith (LowerMissingFunction name)
@@ -1090,14 +1147,43 @@ bindVars env vars values
 allocateNode :: FunctionCtx -> Text -> GrinNode -> LowerM Typed
 allocateNode ctx allocator node = do
   info <- nodeInfoSymbol (ctxEnv ctx) node
-  object <- callRuntime allocator [Ptr, Ptr] [Ptr] [ctxMachine ctx, OperandLiteral (LitSymbol info)]
+  object <-
+    if isPartialConstructorNode node
+      then
+        -- The shared info table of an unsaturated constructor does not say
+        -- how wide this stage is, so the allocator is told and writes the
+        -- count into the object.
+        callRuntime
+          (partialAllocator allocator)
+          [Ptr, Ptr, I64]
+          [Ptr]
+          [ctxMachine ctx, OperandLiteral (LitSymbol info), OperandLiteral (LitInt (toInteger (length (grinNodeFields node))))]
+      else callRuntime allocator [Ptr, Ptr] [Ptr] [ctxMachine ctx, OperandLiteral (LitSymbol info)]
   pure (Typed object Ptr)
+
+-- | The allocator of an unsaturated constructor, matching the checked or
+-- unchecked node allocator it stands in for.
+partialAllocator :: Text -> Text
+partialAllocator allocator =
+  case allocator of
+    "aihc_make_node_unchecked" -> "aihc_make_partial_unchecked"
+    _ -> "aihc_make_partial"
+
+-- | An unsaturated constructor spends field zero on its applied count, so its
+-- payload starts one slot later than every other object's.
+isPartialConstructorNode :: GrinNode -> Bool
+isPartialConstructorNode node =
+  case grinNodeTag node of
+    GrinConstructor _ remaining -> constructorStage remaining == PartialConstructor
+    _ -> False
 
 initializeFields :: FunctionCtx -> ValueEnv -> Typed -> GrinNode -> LowerM ()
 initializeFields ctx env object node =
   forM_ (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
     typed <- materialize ctx env field
-    storeSlot (typedType typed) (typedOperand typed) (typedOperand object) (toInteger (8 * (index + 1)))
+    storeSlot (typedType typed) (typedOperand typed) (typedOperand object) (toInteger (8 * (index + 1 + payloadShift)))
+  where
+    payloadShift = if isPartialConstructorNode node then 1 else 0
 
 -- | A GRIN value as a typed Lir operand.
 materialize :: FunctionCtx -> ValueEnv -> GrinValue -> LowerM Typed
@@ -1689,7 +1775,7 @@ compileCase ctx env scrutinee binder alternatives = do
         case grinAltCon alternative of
           GrinDataAlt name -> do
             let symbol = constructorInfoSymbol name 0
-            unless (Map.member (ConstructorRuntimeInfo name 0) (envInfoSymbols (ctxEnv ctx))) (requireExternData symbol)
+            unless (Map.member (ConstructorRuntimeInfo name SaturatedConstructor) (envInfoSymbols (ctxEnv ctx))) (requireExternData symbol)
             pure (symbol, label)
           _ -> failWith (LowerUnsupportedExpression "literal case on a lifted value")
       pointerChecks identity checks fallback
@@ -2161,13 +2247,24 @@ generateHelper env helper =
       next <- loadSlot "next" Ptr (OperandVar current) 8
       terminate (Jump (Target (Label "loop") [typedOperand next]))
       beginBlock (Label "check") []
-      count <- loadInfoWord "count" header infoFieldCountIndex
       nextInfo <- loadInfoPointer "next_info" header infoNextIndex
       hasNext <- emitValue "has_next" I1 (Compare Ne Ptr (typedOperand nextInfo) (OperandLiteral LitNull))
-      terminate (Branch (typedOperand hasNext) (Target (Label "bitmap") []) (Target (Label "word") []))
-      beginBlock (Label "bitmap") []
+      terminate (Branch (typedOperand hasNext) (Target (Label "count") []) (Target (Label "word") []))
+      -- An unsaturated constructor holds its own count; every other object
+      -- with a next stage takes it from its info table.
+      beginBlock (Label "count") []
+      kindIsPartial <- emitValue "kind_is_partial" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectPartialConstructor))))
+      terminate (Branch (typedOperand kindIsPartial) (Target (Label "partial_count") []) (Target (Label "info_count") []))
+      beginBlock (Label "partial_count") []
+      applied <- loadSlot "applied" I64 (OperandVar current) 8
+      terminate (Jump (Target (Label "bitmap") [typedOperand applied]))
+      beginBlock (Label "info_count") []
+      infoCount <- loadInfoWord "count" header infoFieldCountIndex
+      terminate (Jump (Target (Label "bitmap") [typedOperand infoCount]))
+      count <- fresh "count"
+      beginBlock (Label "bitmap") [(count, I64)]
       bitmap <- loadInfoPointer "bitmap" (typedOperand nextInfo) infoFieldIsPointerIndex
-      entry <- emitValue "entry" Ptr (PtrAdd (typedOperand bitmap) (typedOperand count))
+      entry <- emitValue "entry" Ptr (PtrAdd (typedOperand bitmap) (OperandVar count))
       flag <- emitValue "flag" I8 (Load I8 (Address (typedOperand entry) 0) 1)
       isPointer <- emitValue "is_pointer" I1 (Compare Ne I8 (typedOperand flag) (OperandLiteral (LitInt 0)))
       terminate (Branch (typedOperand isPointer) (Target (Label "pointer") []) (Target (Label "word") []))
@@ -2227,16 +2324,24 @@ programRuntimeReps program =
         GrinCase value binder alternatives -> grinValueRuntimeRep value : grinVarRuntimeRep binder : concatMap (\alternative -> map grinVarRuntimeRep (grinAltBinders alternative) <> exprReps (grinAltRhs alternative)) alternatives
         _ -> []
 
+-- | The info tables one node needs. An unsaturated constructor names the
+-- saturated table too: its own table points at it, and the runtime reads the
+-- full width and the pointer map from there.
 requiredNodeConstructorInfos :: GrinNode -> [RuntimeInfoKey]
 requiredNodeConstructorInfos node =
   case grinNodeTag node of
-    GrinConstructor name remaining -> [ConstructorRuntimeInfo name stage | stage <- [remaining, remaining - 1 .. 0]]
+    GrinConstructor name remaining
+      | constructorStage remaining == SaturatedConstructor -> [ConstructorRuntimeInfo name SaturatedConstructor]
+      | otherwise ->
+          [ ConstructorRuntimeInfo name PartialConstructor,
+            ConstructorRuntimeInfo name SaturatedConstructor
+          ]
     _ -> []
 
 runtimeInfoKeyStages :: GrinNode -> [RuntimeInfoKey]
 runtimeInfoKeyStages node =
   case grinNodeTag node of
-    GrinConstructor name remaining -> [ConstructorRuntimeInfo name remaining]
+    GrinConstructor name remaining -> [ConstructorRuntimeInfo name (constructorStage remaining)]
     GrinClosure name layouts -> stages fields layouts
       where
         stages current remaining =
@@ -2264,22 +2369,22 @@ runtimeInfoKeyFields key =
 runtimeInfoKeyRemainingArity :: RuntimeInfoKey -> Int
 runtimeInfoKeyRemainingArity key =
   case key of
-    ConstructorRuntimeInfo _ remaining -> remaining
+    ConstructorRuntimeInfo {} -> 0
     ClosureRuntimeInfo _ _ layouts -> length layouts
     ThunkRuntimeInfo {} -> 0
 
 runtimeInfoKeyObjectKind :: RuntimeInfoKey -> Int
 runtimeInfoKeyObjectKind key =
   case key of
-    ConstructorRuntimeInfo _ 0 -> runtimeObjectNode
-    ConstructorRuntimeInfo {} -> runtimeObjectPartialConstructor
+    ConstructorRuntimeInfo _ SaturatedConstructor -> runtimeObjectNode
+    ConstructorRuntimeInfo _ PartialConstructor -> runtimeObjectPartialConstructor
     ClosureRuntimeInfo {} -> runtimeObjectClosure
     ThunkRuntimeInfo {} -> runtimeObjectThunk
 
 runtimeInfoKeyNext :: RuntimeInfoKey -> Maybe RuntimeInfoKey
 runtimeInfoKeyNext key =
   case key of
-    ConstructorRuntimeInfo name remaining | remaining > 0 -> Just (ConstructorRuntimeInfo name (remaining - 1))
+    ConstructorRuntimeInfo name PartialConstructor -> Just (ConstructorRuntimeInfo name SaturatedConstructor)
     ConstructorRuntimeInfo {} -> Nothing
     ClosureRuntimeInfo name fields (layout : rest) -> Just (ClosureRuntimeInfo name (fields <> layout) rest)
     ClosureRuntimeInfo {} -> Nothing

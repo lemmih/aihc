@@ -21,6 +21,8 @@ library
     Aihc.Tc.Constraint
     Aihc.Tc.Deriving
     Aihc.Tc.Deriving.Context
+    Aihc.Tc.Deriving.Generate
+    Aihc.Tc.Deriving.References
     Aihc.Tc.Deriving.Strategy
     Aihc.Tc.Env
     Aihc.Tc.Error

@@ -249,19 +249,15 @@ mkDerivingPlan sourceSpan strategy classInfo tyVars headTypes dataType context m
       tcDerivingClassName = className,
       tcDerivingClassTyCon = ciTyCon classInfo,
       tcDerivingClassOrigin = ciOrigin classInfo,
-      tcDerivingDictName = instanceDictName className headTypes,
       tcDerivingTyVars = tyVars,
       tcDerivingHeadTypes = headTypes,
       tcDerivingDataType = dataType,
       tcDerivingContext = context,
-      tcDerivingStockPlan = Nothing,
       tcDerivingClassTyVars = ciTyVars classInfo,
       tcDerivingClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes classInfo),
       tcDerivingClassMethods = methods,
       tcDerivingDefaultMethods = ciDefaultMethods classInfo,
-      tcDerivingDefaultSignatures = [(methodName, predicates) | (methodName, ForAll _ predicates _) <- ciDefaultSignatures classInfo],
-      tcDerivingSuperClasses = [],
-      tcDerivingDefaultMethodEvidence = []
+      tcDerivingDefaultSignatures = [(methodName, predicates) | (methodName, ForAll _ predicates _) <- ciDefaultSignatures classInfo]
     }
   where
     className = ciName classInfo
@@ -326,18 +322,6 @@ constraintTypeDictBinder ty =
   case constraintTypeToPred ty of
     Just (ClassPred classTyCon arguments) -> TcDictBinderAnnotation (tyConName classTyCon) arguments ty
     _ -> TcDictBinderAnnotation "<constraint>" [] ty
-
-instanceDictName :: Text -> [TcType] -> Text
-instanceDictName className types = "$f" <> className <> T.concat (map typeSuffix types)
-
-typeSuffix :: TcType -> Text
-typeSuffix ty =
-  case ty of
-    TcTyVar tyVar -> tvName tyVar
-    TcTyCon tyCon [] -> tyConName tyCon
-    TcTyCon (TyCon "[]" _) [_] -> "List"
-    TcTyCon tyCon arguments -> tyConName tyCon <> T.concat (map typeSuffix arguments)
-    _ -> "T"
 
 schemeToType :: TypeScheme -> TcType
 schemeToType (ForAll [] [] ty) = ty

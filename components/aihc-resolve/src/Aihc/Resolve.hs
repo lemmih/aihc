@@ -794,6 +794,10 @@ resolveExpr expr =
       ELambdaCases <$> mapM resolveLambdaCaseAlt alts
     EInfix {} ->
       resolveInfixExpr expr
+    -- The parser only builds this for the view-pattern arrow, so it reaches
+    -- the resolver only when a view pattern appears where a pattern cannot.
+    EViewPat lhs rhs ->
+      EViewPat <$> resolveExpr lhs <*> resolveExpr rhs
     ENegate inner ->
       annotateNegate . ENegate =<< resolveExpr inner
     ESectionL inner op ->
@@ -1295,6 +1299,12 @@ bindPattern pat =
       typeArgs' <- mapM resolveType typeArgs
       (scope, pats') <- bindPatterns pats
       pure (scope, PCon name' typeArgs' pats')
+    -- A built-in constructor has no name for a scope to bind, so only the
+    -- type arguments and the sub-patterns need resolving.
+    PBuiltinCon builtin typeArgs pats -> do
+      typeArgs' <- mapM resolveType typeArgs
+      (scope, pats') <- bindPatterns pats
+      pure (scope, PBuiltinCon builtin typeArgs' pats')
     PInfix {} -> do
       let (operands, names) = flattenInfixPattern pat
       bound <- mapM bindPattern operands
@@ -1398,6 +1408,8 @@ resolvePatternDefinition termDefinition pat =
           resolvePatternDefinition termDefinition (PTuple Boxed pats)
     PCon name typeArgs pats ->
       PCon <$> resolveTermUseAtName name <*> mapM resolveType typeArgs <*> mapM (resolvePatternDefinition termDefinition) pats
+    PBuiltinCon builtin typeArgs pats ->
+      PBuiltinCon builtin <$> mapM resolveType typeArgs <*> mapM (resolvePatternDefinition termDefinition) pats
     PInfix {} -> do
       let (operands, names) = flattenInfixPattern pat
       operands' <- mapM (resolvePatternDefinition termDefinition) operands

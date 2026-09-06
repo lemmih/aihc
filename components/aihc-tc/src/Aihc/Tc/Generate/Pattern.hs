@@ -18,6 +18,7 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
+    BuiltinCon (..),
     Expr (..),
     FloatType (..),
     Literal (..),
@@ -47,7 +48,6 @@ import Aihc.Tc.Kind (tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Control.Monad (when)
-import Data.Either (fromRight)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set qualified as Set
@@ -72,6 +72,7 @@ patternBinderNames pat =
     PUnboxedSum _ _ inner -> patternBinderNames inner
     PList items -> concatMap patternBinderNames items
     PCon _ _ pats -> concatMap patternBinderNames pats
+    PBuiltinCon _ _ pats -> concatMap patternBinderNames pats
     PInfix lhs _ rhs -> patternBinderNames lhs <> patternBinderNames rhs
     PView _ inner -> patternBinderNames inner
     PAs name inner -> name : patternBinderNames inner
@@ -344,31 +345,31 @@ checkPatternCore gadtHandling sp pat scrutTy =
           { pcWantedCts = eqCt : viewCts <> pcWantedCts innerCheck,
             pcPatterns = [PView viewExpr' (checkedPattern innerCheck)]
           }
-    PTuple flavor items -> do
-      elemTys <- mapM (const freshMetaTv) items
-      let arity = length items
-          typeName = tupleTyConText flavor arity
-      maybeTyCon <- lookupTyCon typeName
-      elementKinds <- mapM tcTypeKind elemTys
-      let fallbackKind =
-            case flavor of
-              Boxed -> foldr KFun KType elementKinds
-              Unboxed -> foldr KFun (KTYPE (TupleRep (map runtimeRepOrLifted elementKinds))) elementKinds
-      tupleTyCon <-
-        case maybeTyCon of
-          Just info -> pure (tciTyCon info)
-          Nothing -> mkKnownTyCon (tupleTyConModule flavor) typeName arity fallbackKind
-      let tupleTy = TcTyCon tupleTyCon elemTys
-      eqCt <- wantedEq sp scrutTy tupleTy
-      itemChecks <- checkPatternsWith gadtHandling sp (zip items elemTys)
-      pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [PTuple flavor (pcPatterns itemChecks)]}
+    PTuple flavor items -> checkTuplePattern gadtHandling sp flavor items scrutTy
+    -- A prefix tuple constructor, @(,) a b@, checks like the @(a, b)@ form.
+    -- The type arguments follow 'PCon', which ignores them.
+    PBuiltinCon (BuiltinTuple flavor arity) _typeArgs items
+      | length items == arity ->
+          checkTuplePattern gadtHandling sp flavor items scrutTy
     _ -> pure (checkedOnly pat)
+
+checkTuplePattern :: GadtHandling -> SourceSpan -> TupleFlavor -> [Pattern] -> TcType -> TcM PatternCheck
+checkTuplePattern gadtHandling sp flavor items scrutTy = do
+  elemTys <- mapM (const freshMetaTv) items
+  let arity = length items
+      typeName = tupleTyConText flavor arity
+  maybeTyCon <- lookupTyCon typeName
+  tupleTyCon <-
+    case maybeTyCon of
+      Just info -> pure (tciTyCon info)
+      Nothing -> abortTc ("tuple pattern needs the type constructor " <> T.unpack typeName <> ", which is not in scope")
+  let tupleTy = TcTyCon tupleTyCon elemTys
+  eqCt <- wantedEq sp scrutTy tupleTy
+  itemChecks <- checkPatternsWith gadtHandling sp (zip items elemTys)
+  pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [PTuple flavor (pcPatterns itemChecks)]}
 
 checkedOnly :: Pattern -> PatternCheck
 checkedOnly pat = mempty {pcPatterns = [pat]}
-
-runtimeRepOrLifted :: TcType -> TcType
-runtimeRepOrLifted kind = fromRight liftedRep (runtimeRepFromKind kind)
 
 checkedLiteral :: TcType -> Literal -> Literal
 checkedLiteral ty = LitAnn (mkAnnotation (pendingAnnotation ty [] [] []))
@@ -934,12 +935,6 @@ tupleTyConText flavor arity =
   case flavor of
     Boxed -> boxedTupleTyConName arity
     Unboxed -> unboxedTupleTyConName arity
-
-tupleTyConModule :: TupleFlavor -> Text
-tupleTyConModule flavor =
-  case flavor of
-    Boxed -> "GHC.Tuple"
-    Unboxed -> "GHC.Types"
 
 patternNameText :: Name -> Text
 patternNameText name =

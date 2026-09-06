@@ -21,6 +21,7 @@ module Aihc.Native
     parseNativeTarget,
     renderLinkedFunctionSymbol,
     renderLinkedConstructorInfoSymbol,
+    renderLinkedPartialConstructorInfoSymbol,
     renderLinkedGlobalSymbol,
     renderNativeTarget,
     runtimePlan,
@@ -42,6 +43,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
+import Data.Word (Word8)
 import Paths_aihc (getDataFileName)
 import System.Directory (doesFileExist, findExecutable)
 import System.Environment (lookupEnv)
@@ -98,6 +100,18 @@ parseNativeTarget value =
 -- object symbol. ASCII letters and digits stay intact, components use a single
 -- underscore separator, and only literal underscores or unsafe UTF-8 bytes
 -- are escaped.
+--
+-- An escape is @__@, an optional decimal repeat count, and then either a
+-- single-letter code from 'escapeCodes' or @x@ and two hex digits. Reading it
+-- back is unambiguous: the count stops at the first non-digit, which is the
+-- code. Both the count and the codes exist because tuple constructors are
+-- almost entirely punctuation, and spelling @(,,,)@ out one @__x2c@ at a time
+-- made the symbol grow with the arity and the object file grow with its cube.
+--
+-- Reading it back needs the components to be non-empty, which
+-- 'Aihc.Grin.Syntax.grinScopedName' guarantees by always supplying a package,
+-- a module, and a base name. An empty one would put two separators in a row,
+-- and a run of underscores cannot say how it was split.
 renderLinkedFunctionSymbol :: Text -> Text
 renderLinkedFunctionSymbol logicalName =
   Text.decodeUtf8 (BL.toStrict (Builder.toLazyByteString rendered))
@@ -106,17 +120,29 @@ renderLinkedFunctionSymbol logicalName =
       case BS.split 0 (Text.encodeUtf8 logicalName) of
         [unstructured] -> Builder.string7 "aihc_entry_" <> renderComponent unstructured
         components -> mconcat (intersperse (Builder.word8 underscore) (map renderComponent components))
-    -- Copy the run of bytes that stay intact, then escape the one that stops
-    -- it. Almost every name is one such run.
+    -- Copy the run of bytes that stay intact, then escape the run of the byte
+    -- that stops it. Almost every name is one such intact run.
     renderComponent bytes =
       case BS.span asciiAlphaNumeric bytes of
         (intact, rest) ->
           Builder.byteString intact <> case BS.uncons rest of
             Nothing -> mempty
-            Just (byte, remaining) -> renderByte byte <> renderComponent remaining
-    renderByte byte
-      | byte == underscore = Builder.string7 "__u"
-      | otherwise = Builder.string7 "__x" <> Builder.word8 (hexDigit (byte `shiftR` 4)) <> Builder.word8 (hexDigit (byte .&. 0x0f))
+            Just (byte, remaining) ->
+              case BS.span (== byte) remaining of
+                (repeated, following) ->
+                  renderRun byte (1 + BS.length repeated) <> renderComponent following
+    -- A count of one stays implicit so that every name has one spelling.
+    renderRun byte count =
+      Builder.string7 "__"
+        <> (if count == 1 then mempty else Builder.string7 (show count))
+        <> renderCode byte
+    renderCode byte =
+      case lookup byte escapeCodes of
+        Just code -> Builder.word8 code
+        Nothing ->
+          Builder.word8 lowerX
+            <> Builder.word8 (hexDigit (byte `shiftR` 4))
+            <> Builder.word8 (hexDigit (byte .&. 0x0f))
     hexDigit nibble
       | nibble < 10 = 48 + nibble
       | otherwise = 87 + nibble
@@ -125,15 +151,57 @@ renderLinkedFunctionSymbol logicalName =
         || (byte >= 65 && byte <= 90)
         || (byte >= 97 && byte <= 122)
     underscore = 95
+    lowerX = 120
+
+-- | Short escape codes for the bytes that Haskell names use most, measured
+-- over the installed store. A coded escape costs three bytes where the hex
+-- form costs five.
+--
+-- A code may be neither @x@, which introduces the hex form, nor a digit,
+-- which a repeat count uses. Any byte without a code still round-trips
+-- through the hex form, so this table is a size choice and not a limit on
+-- what can be named.
+escapeCodes :: [(Word8, Word8)]
+escapeCodes = [(ascii source, ascii code) | (source, code) <- table]
+  where
+    ascii = fromIntegral . fromEnum
+    table =
+      [ ('_', 'u'),
+        (',', 'c'),
+        ('.', 'd'),
+        ('-', 'm'),
+        ('(', 'p'),
+        (')', 'q'),
+        ('$', 's'),
+        ('#', 'h'),
+        ('\'', 'r'),
+        ('>', 'g'),
+        ('=', 'e'),
+        ('<', 'l'),
+        ('*', 'a'),
+        (':', 'o'),
+        ('/', 'f'),
+        ('+', 't'),
+        ('[', 'k'),
+        (']', 'j')
+      ]
 
 -- | Render the object symbol for one static Haskell value.
 renderLinkedGlobalSymbol :: Text -> Text
 renderLinkedGlobalSymbol = renderLinkedFunctionSymbol
 
--- | Render the object symbol for one constructor application stage.
+-- | Render the object symbol for the saturated form of one constructor.
 renderLinkedConstructorInfoSymbol :: Text -> Int -> Text
 renderLinkedConstructorInfoSymbol name remaining =
-  "aihc_constructor_" <> renderLinkedFunctionSymbol name <> "_" <> T.pack (show remaining)
+  "aihc_c_" <> renderLinkedFunctionSymbol name <> "_" <> T.pack (show remaining)
+
+-- | Render the object symbol for the unsaturated form of one constructor.
+-- Every stage between the bare constructor and the saturated one shares this
+-- info table and records its own width in the object, so one constructor
+-- needs one such symbol however many arguments it takes.
+renderLinkedPartialConstructorInfoSymbol :: Text -> Text
+renderLinkedPartialConstructorInfoSymbol name =
+  "aihc_constructor_" <> renderLinkedFunctionSymbol name <> "_partial"
 
 hostNativeTarget :: Maybe NativeTarget
 hostNativeTarget
@@ -185,7 +253,13 @@ backendCompiler target =
             "-msign-ext"
           ]
         )
-    AppleArm64 -> nativeCompiler
+    AppleArm64 -> do
+      -- A Linux host compiles for macOS with the SDK headers named by
+      -- AIHC_APPLE_SDK and, because the nixpkgs Clang wrapper injects Linux
+      -- arguments, usually an unwrapped Clang named by AIHC_APPLE_CLANG.
+      compiler <- fromMaybe "clang" <$> lookupEnv "AIHC_APPLE_CLANG"
+      sdk <- lookupEnv "AIHC_APPLE_SDK"
+      pure (compiler, ["--target=" <> nativeTargetTriple target] <> maybe [] (\root -> ["-isysroot", root]) sdk)
     LinuxAmd64 -> nativeCompiler
   where
     nativeCompiler = pure ("clang", ["--target=" <> nativeTargetTriple target])
@@ -302,7 +376,6 @@ runtimeSourcePath = getDataFileName "compiler/native/runtime/aihc_runtime.c"
 runtimePlan :: NativeTarget -> RuntimeGarbageCollector -> IO RuntimePlan
 runtimePlan target garbageCollector = do
   core <- runtimeSourcePath
-  runtimeOptions <- getDataFileName "compiler/native/runtime/aihc_runtime_options.c"
   collector <-
     getDataFileName $ case garbageCollector of
       RuntimeGcSemispace -> "compiler/native/runtime/aihc_gc_semispace.c"
@@ -313,10 +386,10 @@ runtimePlan target garbageCollector = do
   lirUnits <-
     traverse
       (getDataFileName . ("compiler/native/runtime/" <>))
-      ["aihc_array.lir", "aihc_byte_array.lir", "aihc_mutvar.lir", "aihc_stable_name.lir"]
+      ["aihc_array.lir", "aihc_byte_array.lir", "aihc_mutvar.lir", "aihc_runtime_options.lir", "aihc_stable_name.lir"]
   pure
     RuntimePlan
-      { runtimeSources = [core, runtimeOptions, collector, host],
+      { runtimeSources = [core, collector, host],
         runtimeLirSources = lirUnits,
         runtimeIncludeDirectories = [takeDirectory core]
       }
@@ -562,36 +635,36 @@ nativeRuntimePrimitiveCalls =
     procedure "copyByteArrayToAddr#" "aihc_byte_array_copy_to_addr" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     procedure "copyMutableByteArrayToAddr#" "aihc_byte_array_copy_to_addr" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "compareByteArrays#" "aihc_byte_array_compare" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "expDouble#" "aihc_double_exp" [GrinForeignWord64] GrinForeignWord64,
-    call "logDouble#" "aihc_double_log" [GrinForeignWord64] GrinForeignWord64,
-    call "sinDouble#" "aihc_double_sin" [GrinForeignWord64] GrinForeignWord64,
-    call "cosDouble#" "aihc_double_cos" [GrinForeignWord64] GrinForeignWord64,
-    call "tanDouble#" "aihc_double_tan" [GrinForeignWord64] GrinForeignWord64,
-    call "asinDouble#" "aihc_double_asin" [GrinForeignWord64] GrinForeignWord64,
-    call "acosDouble#" "aihc_double_acos" [GrinForeignWord64] GrinForeignWord64,
-    call "atanDouble#" "aihc_double_atan" [GrinForeignWord64] GrinForeignWord64,
-    call "sinhDouble#" "aihc_double_sinh" [GrinForeignWord64] GrinForeignWord64,
-    call "coshDouble#" "aihc_double_cosh" [GrinForeignWord64] GrinForeignWord64,
-    call "tanhDouble#" "aihc_double_tanh" [GrinForeignWord64] GrinForeignWord64,
-    call "asinhDouble#" "aihc_double_asinh" [GrinForeignWord64] GrinForeignWord64,
-    call "acoshDouble#" "aihc_double_acosh" [GrinForeignWord64] GrinForeignWord64,
-    call "atanhDouble#" "aihc_double_atanh" [GrinForeignWord64] GrinForeignWord64,
-    call "**##" "aihc_double_pow" [GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "expFloat#" "aihc_float_exp" [GrinForeignWord64] GrinForeignWord64,
-    call "logFloat#" "aihc_float_log" [GrinForeignWord64] GrinForeignWord64,
-    call "sinFloat#" "aihc_float_sin" [GrinForeignWord64] GrinForeignWord64,
-    call "cosFloat#" "aihc_float_cos" [GrinForeignWord64] GrinForeignWord64,
-    call "tanFloat#" "aihc_float_tan" [GrinForeignWord64] GrinForeignWord64,
-    call "asinFloat#" "aihc_float_asin" [GrinForeignWord64] GrinForeignWord64,
-    call "acosFloat#" "aihc_float_acos" [GrinForeignWord64] GrinForeignWord64,
-    call "atanFloat#" "aihc_float_atan" [GrinForeignWord64] GrinForeignWord64,
-    call "sinhFloat#" "aihc_float_sinh" [GrinForeignWord64] GrinForeignWord64,
-    call "coshFloat#" "aihc_float_cosh" [GrinForeignWord64] GrinForeignWord64,
-    call "tanhFloat#" "aihc_float_tanh" [GrinForeignWord64] GrinForeignWord64,
-    call "asinhFloat#" "aihc_float_asinh" [GrinForeignWord64] GrinForeignWord64,
-    call "acoshFloat#" "aihc_float_acosh" [GrinForeignWord64] GrinForeignWord64,
-    call "atanhFloat#" "aihc_float_atanh" [GrinForeignWord64] GrinForeignWord64,
-    call "powerFloat#" "aihc_float_pow" [GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "expDouble#" "exp" [GrinForeignDouble] GrinForeignDouble,
+    call "logDouble#" "log" [GrinForeignDouble] GrinForeignDouble,
+    call "sinDouble#" "sin" [GrinForeignDouble] GrinForeignDouble,
+    call "cosDouble#" "cos" [GrinForeignDouble] GrinForeignDouble,
+    call "tanDouble#" "tan" [GrinForeignDouble] GrinForeignDouble,
+    call "asinDouble#" "asin" [GrinForeignDouble] GrinForeignDouble,
+    call "acosDouble#" "acos" [GrinForeignDouble] GrinForeignDouble,
+    call "atanDouble#" "atan" [GrinForeignDouble] GrinForeignDouble,
+    call "sinhDouble#" "sinh" [GrinForeignDouble] GrinForeignDouble,
+    call "coshDouble#" "cosh" [GrinForeignDouble] GrinForeignDouble,
+    call "tanhDouble#" "tanh" [GrinForeignDouble] GrinForeignDouble,
+    call "asinhDouble#" "asinh" [GrinForeignDouble] GrinForeignDouble,
+    call "acoshDouble#" "acosh" [GrinForeignDouble] GrinForeignDouble,
+    call "atanhDouble#" "atanh" [GrinForeignDouble] GrinForeignDouble,
+    call "**##" "pow" [GrinForeignDouble, GrinForeignDouble] GrinForeignDouble,
+    call "expFloat#" "expf" [GrinForeignFloat] GrinForeignFloat,
+    call "logFloat#" "logf" [GrinForeignFloat] GrinForeignFloat,
+    call "sinFloat#" "sinf" [GrinForeignFloat] GrinForeignFloat,
+    call "cosFloat#" "cosf" [GrinForeignFloat] GrinForeignFloat,
+    call "tanFloat#" "tanf" [GrinForeignFloat] GrinForeignFloat,
+    call "asinFloat#" "asinf" [GrinForeignFloat] GrinForeignFloat,
+    call "acosFloat#" "acosf" [GrinForeignFloat] GrinForeignFloat,
+    call "atanFloat#" "atanf" [GrinForeignFloat] GrinForeignFloat,
+    call "sinhFloat#" "sinhf" [GrinForeignFloat] GrinForeignFloat,
+    call "coshFloat#" "coshf" [GrinForeignFloat] GrinForeignFloat,
+    call "tanhFloat#" "tanhf" [GrinForeignFloat] GrinForeignFloat,
+    call "asinhFloat#" "asinhf" [GrinForeignFloat] GrinForeignFloat,
+    call "acoshFloat#" "acoshf" [GrinForeignFloat] GrinForeignFloat,
+    call "atanhFloat#" "atanhf" [GrinForeignFloat] GrinForeignFloat,
+    call "powerFloat#" "powf" [GrinForeignFloat, GrinForeignFloat] GrinForeignFloat,
     call "indexCharArray#" "aihc_byte_array_index_byte_word8" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "indexWord8ArrayAsWord16#" "aihc_byte_array_index_byte_word16" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "indexWord8ArrayAsWord32#" "aihc_byte_array_index_byte_word32" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,

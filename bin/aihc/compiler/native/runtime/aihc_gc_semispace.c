@@ -272,10 +272,19 @@ static void aihc_scan_object(AihcForwardingContext *context,
     for (uint64_t index = 0; index < length; ++index) {
       elements[index] = aihc_forward_root(elements[index], context);
     }
+  } else if (kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR) {
+    /* Field zero holds the applied count, and the slots filled so far are a
+       prefix of the saturated constructor's, so the shared bitmap answers
+       for them. */
+    uint64_t applied = aihc_partial_applied(object);
+    AihcSlot *fields = aihc_partial_fields(object);
+    for (uint64_t index = 0; index < applied; ++index) {
+      if (info->field_is_pointer != NULL && info->field_is_pointer[index]) {
+        fields[index] = aihc_forward_root(fields[index], context);
+      }
+    }
   } else if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
-             kind == AIHC_OBJECT_THUNK ||
-             kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR ||
-             kind == AIHC_OBJECT_BLACKHOLE) {
+             kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE) {
     for (uint64_t index = 0; index < count; ++index) {
       if (info->field_is_pointer != NULL && info->field_is_pointer[index]) {
         object->fields[index] =
@@ -376,7 +385,7 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
   aihc_address_set_clear(&aihc_marked_statics);
   aihc_static_worklist.count = 0;
   aihc_srt_worklist.count = 0;
-  if (aihc_rts_config()->static_reference_roots) {
+  if (aihc_rts_static_reference_roots()) {
     /* The running function has no heap object of its own to carry its table,
        so it publishes one on entry. Suspended code is a continuation closure
        and reaches its table through its info table like any other object. */

@@ -14,6 +14,73 @@ modules:
 
   sameTree :: Eq a => Tree a -> Tree a -> Bool
   sameTree = (==)
-expected: ''
-status: xfail
-reason: FC desugaring does not emit the derived Eq dictionary $fEqTreea.
+expected: |
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Classes
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    2.t$Dict$Eq :: ∀(a : 3.tType). 3.tType;
+    3.tBool :: 3.tType;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    2.v$Dict$Eq :: ∀(a : 3.tType). (a 3.→ a 3.→ 3.tBool) 3.→ (a 3.→ a 3.→ 3.tBool) 3.→ 2.t$Dict$Eq a;
+    2.v$dm$47$$61$ :: ∀(a : 3.tType). 2.t$Dict$Eq a 3.→ a 3.→ a 3.→ 3.tBool;
+    2.v== :: ∀(a : 3.tType). 2.t$Dict$Eq a 3.→ a 3.→ a 3.→ 3.tBool;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vFalse :: 3.tBool;
+    3.vLifted :: 3.tLevity;
+    3.vTrue :: 3.tBool
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub type 1.tTree (a : 3.tType) :: 3.tType {
+      pub 1.vLeaf :: ∀(a : 3.tType). a 3.→ 1.tTree a;
+      pub 1.vBranch :: ∀(a : 3.tType). 1.tTree a 3.→ 1.tTree a 3.→ 1.tTree a
+  }
+
+  pub val 1.v$fEqTreea :: ∀(a : 3.tType). 2.t$Dict$Eq a 3.→ 2.t$Dict$Eq (1.tTree a)
+   = Λ(a : 3.tType).
+    λ($d0 : 2.t$Dict$Eq a).
+      2.v$Dict$Eq @(1.tTree a) (λ(x : 1.tTree a).
+        λ(y : 1.tTree a).
+          case x as (_scrut : 1.tTree a) return (3.tBool) of {
+              1.vLeaf (a1 : a) →
+                  case y as (_scrut{1} : 1.tTree a) return (3.tBool) of {
+                      1.vLeaf (b1 : a) →
+                          2.v== @a $d0 a1 b1;
+                      _ →
+                          3.vFalse
+                  };
+              1.vBranch (a1 : 1.tTree a) (a2 : 1.tTree a) →
+                  case y as (_scrut{1} : 1.tTree a) return (3.tBool) of {
+                      1.vBranch (b1 : 1.tTree a) (b2 : 1.tTree a) →
+                          let {
+                              _case : 3.tBool =
+                                  2.v== @(1.tTree a) (1.v$fEqTreea @a $d0) a1 b1
+                          } in
+                              case _case as (_scrut{2} : 3.tBool) return (3.tBool) of {
+                                  3.vTrue →
+                                      2.v== @(1.tTree a) (1.v$fEqTreea @a $d0) a2 b2;
+                                  3.vFalse →
+                                      3.vFalse
+                              };
+                      _ →
+                          3.vFalse
+                  };
+              _ →
+                  3.vFalse
+          }) (2.v$dm$47$$61$ @(1.tTree a) (1.v$fEqTreea @a $d0))
+
+  pub val 1.vsameTree :: ∀(a : 3.tType). 2.t$Dict$Eq a 3.→ 1.tTree a 3.→ 1.tTree a 3.→ 3.tBool
+   = Λ(a : 3.tType).
+    λ($d0 : 2.t$Dict$Eq a).
+      2.v== @(1.tTree a) (1.v$fEqTreea @a $d0)
+
+status: pass
+reason: the derived Eq instance is an ordinary instance declaration that lowers to a dictionary

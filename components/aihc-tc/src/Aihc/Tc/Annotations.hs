@@ -23,7 +23,6 @@ module Aihc.Tc.Annotations
     TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
-    TcStockDerivingPlan (..),
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
     TcPatSynAnnotation (..),
@@ -221,42 +220,27 @@ data TcDerivingContext
   | TcDerivingExplicitContext ![Pred]
   deriving (Eq, Show)
 
--- | Strategy-specific proof payload for stock deriving. Each constructor's
--- equality evidence is aligned with its checked runtime fields.
-newtype TcStockDerivingPlan
-  = TcStockEqPlan
-  { tcStockEqFieldEvidence :: [[EvTerm]]
-  }
-  deriving (Eq, Show)
-
--- | Typed input to strategy-specific deriving. This deliberately contains
--- the class layout needed by System FC lowering so downstream phases never
--- need to reconstruct Haskell class information.
+-- | The checked shape of one deriving request. The context is inferred
+-- for an attached clause and checked for a standalone declaration; the
+-- generated instance declaration is an ordinary 'DeclInstance' that the
+-- instance checker and System FC lowering treat like source.
 data TcDerivingPlan = TcDerivingPlan
   { tcDerivingSourceSpan :: !SourceSpan,
     tcDerivingStrategy :: !TcDerivingStrategy,
     tcDerivingClassName :: !Text,
     tcDerivingClassTyCon :: !TyCon,
     tcDerivingClassOrigin :: !(Maybe (Text, Text)),
-    tcDerivingDictName :: !Text,
     tcDerivingTyVars :: ![TyVarId],
     tcDerivingHeadTypes :: ![TcType],
     -- | Checked constructor layout of the final instance-head type, when the
     -- target is a data or newtype constructor known to this compilation.
     tcDerivingDataType :: !(Maybe DataTypeInfo),
     tcDerivingContext :: !TcDerivingContext,
-    tcDerivingStockPlan :: !(Maybe TcStockDerivingPlan),
     tcDerivingClassTyVars :: ![TyVarId],
     tcDerivingClassSuperClasses :: ![TcDictBinderAnnotation],
     tcDerivingClassMethods :: ![TcClassMethodAnnotation],
     tcDerivingDefaultMethods :: ![Text],
-    tcDerivingDefaultSignatures :: ![(Text, [Pred])],
-    -- | Evidence for the instantiated superclass fields after context
-    -- inference. It remains empty while an attached context is unresolved.
-    tcDerivingSuperClasses :: ![(TcDictBinderAnnotation, EvTerm)],
-    -- | Evidence arguments required by each selected default method, excluding
-    -- the recursive dictionary for the derived instance itself.
-    tcDerivingDefaultMethodEvidence :: ![(Text, [EvTerm])]
+    tcDerivingDefaultSignatures :: ![(Text, [Pred])]
   }
   deriving (Eq, Show)
 
@@ -289,6 +273,11 @@ data TcInstanceAnnotation = TcInstanceAnnotation
     tcInstanceSuperClasses :: ![(TcDictBinderAnnotation, EvTerm)],
     tcInstanceMethodOrder :: ![Text],
     tcInstanceDefaultMethods :: ![Text],
+    -- | For each default method whose class gives it a default signature,
+    -- evidence for the constraints of that signature at the instance head,
+    -- in signature order. The default-method worker takes them after the
+    -- instance dictionary itself.
+    tcInstanceDefaultMethodEvidence :: ![(Text, [EvTerm])],
     -- | The checked associated type family equations of the instance,
     -- explicit ones and instantiated class defaults.
     tcInstanceAssociatedTypes :: ![TypeFamilyInstanceInfo]
