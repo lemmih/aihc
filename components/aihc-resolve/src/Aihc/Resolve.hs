@@ -88,7 +88,6 @@ import Aihc.Parser.Syntax
     RoleAnnotation (..),
     SourceSpan (..),
     StandaloneDerivingDecl (..),
-    TupleFlavor (..),
     TyVarBinder (..),
     Type (..),
     TypeFamilyDecl (..),
@@ -1004,19 +1003,6 @@ annotatePatternLiteral pat lit = do
         PNegLit {} -> [conversion, "negate", "=="]
         _ -> [conversion, "=="]
 
--- | The arity of a boxed tuple constructor that the parser gives as a name
--- of commas in a pattern, like @(,) a b@. The expression form is already a
--- tuple section. See ai-haskell-compiler/aihc-parser#15.
-tupleConstructorArity :: Name -> Maybe Int
-tupleConstructorArity name
-  | Nothing <- nameQualifier name,
-    not (T.null text),
-    T.all (== ',') text =
-      Just (T.length text + 1)
-  | otherwise = Nothing
-  where
-    text = nameText name
-
 literalSpan :: SourceSpan -> Literal -> SourceSpan
 literalSpan ambient (LitAnn ann inner) = literalSpan (pushSpanFromAnn ambient ann) inner
 literalSpan ambient _ = ambient
@@ -1290,10 +1276,6 @@ bindPattern pat =
     PList pats -> do
       (scope, pats') <- bindPatterns pats
       pure (scope, PList pats')
-    PCon name _ pats
-      | Just arity <- tupleConstructorArity name,
-        length pats == arity ->
-          bindPattern (PTuple Boxed pats)
     PCon name typeArgs pats -> do
       name' <- resolveTermUseAtName name
       typeArgs' <- mapM resolveType typeArgs
@@ -1402,10 +1384,6 @@ resolvePatternDefinition termDefinition pat =
       PUnboxedSum alt arity <$> resolvePatternDefinition termDefinition inner
     PList pats ->
       PList <$> mapM (resolvePatternDefinition termDefinition) pats
-    PCon name _ pats
-      | Just arity <- tupleConstructorArity name,
-        length pats == arity ->
-          resolvePatternDefinition termDefinition (PTuple Boxed pats)
     PCon name typeArgs pats ->
       PCon <$> resolveTermUseAtName name <*> mapM resolveType typeArgs <*> mapM (resolvePatternDefinition termDefinition) pats
     PBuiltinCon builtin typeArgs pats ->

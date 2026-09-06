@@ -128,7 +128,7 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
+import Aihc.Tc.Solve (SolveResult (..), predTyVars, solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
@@ -1354,20 +1354,30 @@ annotateInstanceDeclTc origin instanceDecl =
       superClasses <- mapM constraintTypePred superClassTypes
       superClassEvidence <- mapM (solveInstanceSuperClass classNameText context) superClasses
       -- Only a method the instance leaves to its class default needs the
-      -- evidence of the default signature.
+      -- evidence of the default signature. An equality of the signature,
+      -- like @r ~ LiftedRep@, is a substitution and not evidence. A
+      -- predicate that mentions a variable of the signature itself, like
+      -- @Quote m@, is a constraint of the method and the method gives its
+      -- dictionary, so such a signature gets no evidence here.
       let definedMethods =
             [ name
             | item <- instanceDeclItems instanceDecl,
               InstanceItemBind valueDecl <- [peelInstanceDeclItemAnn item],
               name <- valueDeclBinderNames valueDecl
             ]
+          classVariables = ciKindTyVars info <> ciTyVars info
+          signatureLocal (ForAll signatureTyVars _ _) predicate =
+            any (\tyVar -> tyVar `elem` signatureTyVars && tyVar `notElem` classVariables) (predTyVars predicate)
       defaultMethodEvidence <-
         sequence
           [ (methodName,) <$> mapM (solveInstanceSuperClass classNameText context) predicates
           | methodName <- defaults,
             methodName `notElem` definedMethods,
-            Just (ForAll _ signaturePredicates _) <- [lookup methodName (ciDefaultSignatures info)],
-            let predicates = filter (not . isPredicateOfClass (ciTyCon info)) (map (applySubstPred classSubstitution) signaturePredicates)
+            Just signatureScheme <- [lookup methodName (ciDefaultSignatures info)],
+            let rewritten@(ForAll _ signaturePredicates _) = applyVariableEqualities signatureScheme
+                instancePredicates = filter (not . isPredicateOfClass (ciTyCon info)) signaturePredicates,
+            not (any (signatureLocal rewritten) instancePredicates),
+            let predicates = map (applySubstPred classSubstitution) instancePredicates
           ]
       contextDicts <- mapM predDictBinder context
       superClassBinders <- mapM predDictBinder superClasses

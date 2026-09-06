@@ -15,6 +15,7 @@
 module Aihc.Tc.Solve
   ( solveConstraints,
     solveWithImpls,
+    predTyVars,
     SolveResult (..),
   )
 where
