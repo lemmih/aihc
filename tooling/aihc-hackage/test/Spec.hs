@@ -161,7 +161,10 @@ test_evaluatesImplConditions = do
   gpd <- parseTestCabal cabalSource
   assertEqual "exposed modules" ["Current.Branch"] (map T.unpack (HC.collectLibraryExposedModules gpd))
   let macro name = T.unpack <$> Map.lookup (T.pack name) builtinCppMacros
-  assertEqual "__GLASGOW_HASKELL__" (Just (show (head major * 100 + major !! 1))) (macro "__GLASGOW_HASKELL__")
+  let ghcVersionMacro = case major of
+        (majorFirst : majorSecond : _) -> show (majorFirst * 100 + majorSecond)
+        _ -> "the emulated GHC version needs two components"
+  assertEqual "__GLASGOW_HASKELL__" (Just ghcVersionMacro) (macro "__GLASGOW_HASKELL__")
   assertEqual "__GLASGOW_HASKELL_FULL_VERSION__" (Just (show (showVersionBranch compilerVersion))) (macro "__GLASGOW_HASKELL_FULL_VERSION__")
 
 -- The synthetic @MIN_VERSION_*@ macros compare against the resolved

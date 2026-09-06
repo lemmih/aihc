@@ -3,11 +3,26 @@ module Text.Read
     ReadS,
     read,
     reads,
+    readParen,
     Lexeme (..),
     lexP,
     parens,
     readListDefault,
     readListPrecDefault,
+    ReadPrec,
+    Prec,
+    minPrec,
+    prec,
+    step,
+    reset,
+    get,
+    look,
+    (+++),
+    (<++),
+    pfail,
+    choice,
+    readPrec_to_S,
+    readS_to_Prec,
   )
 where
 
@@ -18,6 +33,23 @@ import GHC.Read
     parens,
     readListDefault,
     readListPrecDefault,
+    readParen,
   )
 import GHC.Read.Lex (Lexeme (..))
+import Text.ParserCombinators.ReadPrec
+  ( Prec,
+    ReadPrec,
+    choice,
+    get,
+    look,
+    minPrec,
+    pfail,
+    prec,
+    readPrec_to_S,
+    readS_to_Prec,
+    reset,
+    step,
+    (+++),
+    (<++),
+  )
 import Prelude (read, reads)
