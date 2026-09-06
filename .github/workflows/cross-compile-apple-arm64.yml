@@ -1,8 +1,8 @@
 name: Cross Compile apple-arm64
 
 # Compile the examples for apple-arm64 on an amd64 Linux host without linking,
-# then link and run them on an arm64 macOS host. A failure opens a pull request
-# holding the report.
+# then link and run them on an arm64 macOS host. A failure opens a GitHub
+# issue holding the report, or adds the report to the open issue.
 
 on:
   schedule:
@@ -10,8 +10,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  issues: write
 
 env:
   TARGET: apple-arm64
@@ -132,27 +132,34 @@ jobs:
             mkdir cross-examples
             tar -C cross-examples -xf "artifacts/cross-examples-$TARGET/cross-examples.tar"
           fi
-          mkdir -p docs/cross-compile-reports
           scripts/cross-compile-report.sh \
-            "docs/cross-compile-reports/$TARGET.md" \
+            report.md \
             "$TARGET" \
             cross-examples \
             "artifacts/results-$TARGET" \
             "artifacts/compile-log-$TARGET/compile.log"
-          cat "docs/cross-compile-reports/$TARGET.md" >>"$GITHUB_STEP_SUMMARY"
+          cat report.md >>"$GITHUB_STEP_SUMMARY"
 
-      - name: Open pull request with the report
-        uses: peter-evans/create-pull-request@v8
-        with:
-          token: ${{ secrets.AUTOMATION_PR_TOKEN }}
-          branch-token: ${{ secrets.AUTOMATION_PR_TOKEN }}
-          commit-message: "ci: report ${{ env.TARGET }} cross-compilation failure"
-          add-paths: docs/cross-compile-reports/${{ env.TARGET }}.md
-          branch: "automation/cross-compile-${{ env.TARGET }}-failure"
-          title: "ci: report ${{ env.TARGET }} cross-compilation failure"
-          body: |
-            This PR was created automatically by the weekly cross-compilation workflow.
-
-            The examples were compiled for ${{ env.TARGET }} on linux-amd64 and linked and run on ${{ env.TARGET }}. At least one step failed; the report lists every example and the logs of the failures.
-
-            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      - name: Open or update the failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          title="Cross-compilation failure: $TARGET"
+          # An issue body holds at most 65536 characters; the run link at the
+          # top of the report leads to the full logs.
+          if (( $(wc -c <report.md) > 60000 )); then
+            head -c 60000 report.md >body.md
+            printf '\n\n[... report truncated, see the run for the full logs ...]\n' >>body.md
+          else
+            cp report.md body.md
+          fi
+          gh label create cross-compile --description "Weekly cross-compilation failures" --color D93F0B --force
+          existing=$(gh issue list --state open --label cross-compile --search "\"$title\" in:title" --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [[ -n "$existing" ]]; then
+            gh issue comment "$existing" --body-file body.md
+            echo "Added the report to issue #$existing" >>"$GITHUB_STEP_SUMMARY"
+          else
+            gh issue create --title "$title" --label cross-compile --body-file body.md
+          fi
