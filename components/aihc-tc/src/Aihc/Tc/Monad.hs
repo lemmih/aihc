@@ -32,8 +32,10 @@ module Aihc.Tc.Monad
     lookupEvidence,
 
     -- * Environment
-    TcConfig,
+    TcConfig (..),
     tcConfig,
+    tcConfigWithDeriving,
+    getDerivingReferences,
     TcEnv (..),
     TcBinder (..),
     TcTermKey (..),
@@ -123,6 +125,7 @@ where
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
 import Aihc.Tc.Annotations (TcForeignImportInfo)
+import Aihc.Tc.Deriving.References (DerivingReferences, defaultDerivingReferences)
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
@@ -199,11 +202,25 @@ data TcEnv = TcEnv
   }
   deriving (Show)
 
-newtype TcConfig = TcConfig PackageId
+-- | Facts about the surrounding compiler that the type checker cannot
+-- derive from source: the identity of the primitive package and the library
+-- names that generated deriving code refers to.
+data TcConfig = TcConfig
+  { tcConfigPrimPackage :: !PackageId,
+    tcConfigDerivingReferences :: !DerivingReferences
+  }
   deriving (Show)
 
+-- | A configuration whose deriving references follow the aihc core-library
+-- layout, with @aihc-base@ named by its bare package name.
 tcConfig :: PackageId -> TcConfig
-tcConfig = TcConfig
+tcConfig prim = tcConfigWithDeriving prim (defaultDerivingReferences prim (PackageId "aihc-base"))
+
+tcConfigWithDeriving :: PackageId -> DerivingReferences -> TcConfig
+tcConfigWithDeriving = TcConfig
+
+getDerivingReferences :: TcM DerivingReferences
+getDerivingReferences = asks (tcConfigDerivingReferences . tcEnvConfig)
 
 mkKnownTyCon :: Text -> Text -> Int -> TcType -> TcM TyCon
 mkKnownTyCon = mkKnownTyConInNamespace ResolutionNamespaceType
@@ -221,7 +238,7 @@ implicitParamType name payload = do
 
 mkKnownTyConInNamespace :: ResolutionNamespace -> Text -> Text -> Int -> TcType -> TcM TyCon
 mkKnownTyConInNamespace namespace moduleName name arity kind = do
-  TcConfig packageIdentity <- asks tcEnvConfig
+  packageIdentity <- asks (tcConfigPrimPackage . tcEnvConfig)
   let tyCon = mkTyConWithNamespace namespace packageIdentity moduleName name arity
   maybeInfo <- lookupTyConByIdentity tyCon
   case maybeInfo of
@@ -235,7 +252,7 @@ configuredTyCon :: TyCon -> TcM TyCon
 configuredTyCon tyCon
   | tyConPackageId tyCon == PackageId "aihc-prim",
     tyConModuleName tyCon == "GHC.Types" = do
-      TcConfig packageIdentity <- asks tcEnvConfig
+      packageIdentity <- asks (tcConfigPrimPackage . tcEnvConfig)
       pure
         ( mkTyConWithNamespace
             (tyConNamespace tyCon)
@@ -426,7 +443,7 @@ lookupTerm name =
 
 lookupKnownTerm :: Text -> Text -> TcM (Maybe TcBinder)
 lookupKnownTerm moduleName name = do
-  TcConfig packageId <- asks tcEnvConfig
+  packageId <- asks (tcConfigPrimPackage . tcEnvConfig)
   lookupTermKey (TcTermGlobal packageId moduleName name)
 
 lookupResolvedTerm :: Text -> ResolvedName -> TcM (Maybe TcBinder)

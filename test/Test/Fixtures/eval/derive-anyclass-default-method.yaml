@@ -36,5 +36,5 @@ output: |
   Wrapped (Box Unit)
 expression: |
   answer
-status: xfail
+status: pass
 reason: evaluates a constrained default method through a derived AnyClass dictionary

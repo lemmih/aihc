@@ -23,7 +23,6 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcPatSynAnnotation (..),
-    TcStockDerivingPlan (..),
     renderTcType,
   )
 import Aihc.Tc.Env (AssociatedTypeInfo (..), DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TypeFamilyInstanceInfo (..))
@@ -246,11 +245,6 @@ firstMetaDerivingPlan plan =
         ++ map firstMetaClassMethodAnnotation (tcDerivingClassMethods plan)
         ++ map firstMetaDictBinderAnnotation (tcDerivingClassSuperClasses plan)
         ++ concatMap (map firstMetaPred . snd) (tcDerivingDefaultSignatures plan)
-        ++ [ firstMetaDictBinderAnnotation superClass <|> firstMetaEvTerm evidence
-           | (superClass, evidence) <- tcDerivingSuperClasses plan
-           ]
-        ++ concatMap (map firstMetaEvTerm . snd) (tcDerivingDefaultMethodEvidence plan)
-        ++ maybe [] (concatMap (map firstMetaEvTerm) . tcStockEqFieldEvidence) (tcDerivingStockPlan plan)
         ++ [firstMetaDerivingStrategy (tcDerivingStrategy plan), firstMetaDerivingContext (tcDerivingContext plan)]
     )
 
@@ -277,6 +271,7 @@ firstMetaInstanceAnnotation ann =
         ++ [ firstMetaDictBinderAnnotation superClass <|> firstMetaEvTerm evidence
            | (superClass, evidence) <- tcInstanceSuperClasses ann
            ]
+        ++ concatMap (map firstMetaEvTerm . snd) (tcInstanceDefaultMethodEvidence ann)
         ++ map firstMetaTypeFamilyInstance (tcInstanceAssociatedTypes ann)
     )
 

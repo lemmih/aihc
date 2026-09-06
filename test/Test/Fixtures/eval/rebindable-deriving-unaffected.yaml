@@ -16,5 +16,5 @@ output: |
   (True,False)
 expression: |
   (Red == Red, Red == Blue)
-status: xfail
-reason: derived instance dictionaries are not evaluated yet, so this case tracks derived Eq under RebindableSyntax
+status: pass
+reason: derived Eq under RebindableSyntax uses the built-in Bool and Eq rather than the rebound names

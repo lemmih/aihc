@@ -1,16 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Finalize strategy-specific deriving contexts as a module batch.
+-- | Infer the contexts of the deriving plans of a module batch.
 --
--- AnyClass contexts come from instantiated superclasses and default
--- signatures. Stock Eq contexts come from checked constructor fields. The
--- whole batch is visible while simplifying those predicates so recursive and
--- mutually recursive derived dictionaries are independent of source order.
+-- An anyclass context comes from the instantiated superclasses and default
+-- signatures of the class. A stock context asks the class of every
+-- constructor field, and a newtype context asks the class of the
+-- representation type. The whole batch is visible while simplifying those
+-- predicates, so recursive and mutually recursive derived instances are
+-- independent of source order.
 module Aihc.Tc.Deriving.Context
-  ( finalizeDerivingModulesTc,
+  ( inferDerivingContexts,
+    derivingObligations,
+    newtypeRepresentation,
+    stockFieldTypes,
+    isSupportedStockClass,
     typeTyVars,
-    derivingPlanInstanceInfo,
+    moduleDerivingPlans,
+    replaceModulePlans,
+    planKey,
   )
 where
 
@@ -21,38 +29,35 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Tc.Annotations
-  ( TcClassMethodAnnotation (..),
-    TcDerivingAnnotation (..),
+  ( TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
     TcDictBinderAnnotation (..),
-    TcStockDerivingPlan (..),
   )
-import Aihc.Tc.Constraint (Ct (..), CtOrigin (..), mkWantedCt)
+import Aihc.Tc.Constraint (CtOrigin (..))
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Dict (DictResult (..), matchTypes, solveDictWithGivens)
+import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Types
 import Data.List (find, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
+import Data.Text qualified as T
 
-finalizeDerivingModulesTc :: [(Text, Text)] -> [Module] -> TcM [Module]
-finalizeDerivingModulesTc moduleOrigins modules = do
+-- | Infer every attached context in the batch and record it in the plan.
+-- A plan whose obligations cannot be met reports an unsolved constraint and
+-- keeps its unresolved context, so no instance is generated for it.
+inferDerivingContexts :: [Module] -> TcM [Module]
+inferDerivingContexts modules = do
   existingInstances <- getInstances
   let originalPlans = concatMap moduleDerivingPlans modules
-      originalOrigins = concat (zipWith (\origin modu -> replicate (length (moduleDerivingPlans modu)) origin) moduleOrigins modules)
       environment = derivingEnv existingInstances originalPlans
   contextPlans <- mapM (inferPlanContext environment) originalPlans
-  let derivedInstances = mapMaybe (uncurry derivingPlanInstanceInfo) (zip originalOrigins contextPlans)
-  mapM_ addInstance derivedInstances
-  evidencePlans <- mapM attachDerivingEvidence contextPlans
-  pure (map (replaceModulePlans evidencePlans) modules)
+  pure (map (replaceModulePlans contextPlans) modules)
 
 -- | Everything context simplification needs about the batch: the instances
 -- and deriving plans in scope, indexed by class source name, and the context
@@ -78,11 +83,11 @@ derivingEnv existingInstances plans =
         }
     groupByClass className = Map.fromListWith (flip (<>)) . map (\value -> (className value, [value]))
 
-    inferable = [(plan, obligations) | plan <- plans, Just obligations <- [inferableObligations plan]]
+    inferable = [(plan, obligations) | plan <- plans, Just (Right obligations) <- [inferableObligations plan]]
 
-    -- A plan that mentions itself starts out with the context the old
-    -- depth-first search cut a cycle with: anyclass deriving rejects the
-    -- cycle, stock Eq assumes the recursive occurrence needs nothing.
+    -- A plan that mentions itself starts out with the context a depth-first
+    -- search would cut the cycle with: anyclass deriving rejects the cycle,
+    -- a structural strategy assumes the recursive occurrence needs nothing.
     initialContext (plan, _)
       | tcDerivingStrategy plan == TcDerivingAnyclass = (planKey plan, Left (planPredicate plan))
       | otherwise = (planKey plan, Right [])
@@ -104,21 +109,42 @@ derivingEnv existingInstances plans =
             ]
 
 -- | The obligations of a plan whose context the compiler has to infer, or
--- 'Nothing' when the plan carries its context or needs no inference.
-inferableObligations :: TcDerivingPlan -> Maybe [Pred]
+-- 'Nothing' when the plan carries its context or needs no inference. A
+-- 'Left' reports why the plan cannot be derived.
+inferableObligations :: TcDerivingPlan -> Maybe (Either String [Pred])
 inferableObligations plan =
-  case (tcDerivingStrategy plan, tcDerivingContext plan) of
-    (TcDerivingAnyclass, TcDerivingInferContext) -> Just (anyClassObligations plan)
-    (TcDerivingStock, TcDerivingInferContext)
-      | tcDerivingClassName plan == "Eq",
-        Right obligations <- stockEqObligations plan ->
-          Just (concat obligations)
-    _ -> Nothing
+  case tcDerivingContext plan of
+    TcDerivingInferContext -> derivingObligations plan
+    TcDerivingExplicitContext {} -> Nothing
+
+-- | The predicates that the generated instance body of a plan needs, before
+-- simplification, or 'Nothing' for a strategy that generates nothing.
+derivingObligations :: TcDerivingPlan -> Maybe (Either String [Pred])
+derivingObligations plan =
+  case tcDerivingStrategy plan of
+    TcDerivingAnyclass -> Just (Right (anyClassObligations plan))
+    TcDerivingStock
+      | isSupportedStockClass (tcDerivingClassName plan) ->
+          Just (map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concat <$> stockFieldTypes plan)
+      | otherwise -> Nothing
+    TcDerivingNewtype ->
+      Just $ do
+        representation <- newtypeRepresentation plan
+        pure [ClassPred (tcDerivingClassTyCon plan) (init (tcDerivingHeadTypes plan) <> [representation])]
+    TcDerivingVia {} -> Nothing
+
+-- | The stock classes that the generator can write an instance for.
+isSupportedStockClass :: Text -> Bool
+isSupportedStockClass className = className `elem` ["Eq", "Ord", "Show", "Bounded"]
 
 inferPlanContext :: DerivingEnv -> TcDerivingPlan -> TcM TcDerivingPlan
 inferPlanContext environment plan =
-  case (tcDerivingStrategy plan, tcDerivingContext plan) of
-    (TcDerivingAnyclass, TcDerivingInferContext) ->
+  case inferableObligations plan of
+    Nothing -> pure plan
+    Just (Left message) -> do
+      emitError (tcDerivingSourceSpan plan) (OtherError message)
+      pure plan
+    Just (Right _) ->
       case inferredContext environment plan of
         Left predicate -> do
           emitError
@@ -127,25 +153,6 @@ inferPlanContext environment plan =
           pure plan
         Right context ->
           pure plan {tcDerivingContext = TcDerivingExplicitContext context}
-    (TcDerivingStock, context)
-      | tcDerivingClassName plan == "Eq" ->
-          case stockEqObligations plan of
-            Left message -> do
-              emitError (tcDerivingSourceSpan plan) (OtherError message)
-              pure plan
-            Right _ ->
-              case context of
-                TcDerivingExplicitContext {} -> pure plan
-                TcDerivingInferContext ->
-                  case inferredContext environment plan of
-                    Left predicate -> do
-                      emitError
-                        (tcDerivingSourceSpan plan)
-                        (UnsolvedWanted predicate (InstOrigin "Eq"))
-                      pure plan
-                    Right inferred ->
-                      pure plan {tcDerivingContext = TcDerivingExplicitContext inferred}
-    _ -> pure plan
 
 inferredContext :: DerivingEnv -> TcDerivingPlan -> Either Pred [Pred]
 inferredContext environment plan =
@@ -211,7 +218,11 @@ anyClassObligations plan =
   mapMaybe
     (constraintTypeToPred . applySubst substitution . tcDictBinderType)
     (tcDerivingClassSuperClasses plan)
-    <> concatMap snd (instantiatedDefaultSignaturePredicates plan)
+    <> concat
+      [ map (applySubstPred substitution) predicates
+      | (methodName, predicates) <- tcDerivingDefaultSignatures plan,
+        methodName `elem` tcDerivingDefaultMethods plan
+      ]
   where
     substitution =
       Map.fromList
@@ -219,165 +230,97 @@ anyClassObligations plan =
         | (tyVar, headType) <- zip (tcDerivingClassTyVars plan) (tcDerivingHeadTypes plan)
         ]
 
-attachDerivingEvidence :: TcDerivingPlan -> TcM TcDerivingPlan
-attachDerivingEvidence plan =
-  case (tcDerivingStrategy plan, tcDerivingContext plan) of
-    (TcDerivingAnyclass, TcDerivingExplicitContext context) -> do
-      superClassEvidence <- mapM (solveObligation context) superClasses
-      superClassBinders <- mapM predDictBinder superClasses
-      defaultMethodEvidence <-
-        mapM
-          (traverse (mapM (solveObligation context)))
-          (instantiatedDefaultSignaturePredicates plan)
-      pure
-        plan
-          { tcDerivingSuperClasses = zip superClassBinders superClassEvidence,
-            tcDerivingDefaultMethodEvidence = defaultMethodEvidence
-          }
-    (TcDerivingStock, TcDerivingExplicitContext context)
-      | tcDerivingClassName plan == "Eq",
-        Right obligations <- stockEqObligations plan -> do
-          fieldEvidence <- mapM (mapM (solveObligation context)) obligations
-          pure plan {tcDerivingStockPlan = Just (TcStockEqPlan fieldEvidence)}
-    _ -> pure plan
-  where
-    superClasses =
-      mapMaybe
-        (constraintTypeToPred . applySubst substitution . tcDictBinderType)
-        (tcDerivingClassSuperClasses plan)
-    substitution =
-      Map.fromList
-        [ (tvUnique tyVar, headType)
-        | (tyVar, headType) <- zip (tcDerivingClassTyVars plan) (tcDerivingHeadTypes plan)
-        ]
-    solveObligation context predicate = do
-      evidenceVariable <- freshEvVar
-      let constraint = mkWantedCt predicate evidenceVariable (InstOrigin (tcDerivingClassName plan)) (tcDerivingSourceSpan plan)
-      result <- solveDictWithGivens context constraint
-      case result of
-        DictSolved -> do
-          evidence <- lookupEvidence evidenceVariable
-          case evidence of
-            Just term -> pure term
-            Nothing -> pure (EvVarTerm evidenceVariable)
-        DictStuck stuck -> do
-          emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
-          pure (EvVarTerm evidenceVariable)
-
-instantiatedDefaultSignaturePredicates :: TcDerivingPlan -> [(Text, [Pred])]
-instantiatedDefaultSignaturePredicates plan =
-  [ (methodName, map (applySubstPred substitution) predicates)
-  | (methodName, predicates) <- tcDerivingDefaultSignatures plan,
-    methodName `elem` tcDerivingDefaultMethods plan
-  ]
-  where
-    substitution =
-      Map.fromList
-        [ (tvUnique tyVar, headType)
-        | (tyVar, headType) <- zip (tcDerivingClassTyVars plan) (tcDerivingHeadTypes plan)
-        ]
-
-derivingPlanInstanceInfo :: (Text, Text) -> TcDerivingPlan -> Maybe InstanceInfo
-derivingPlanInstanceInfo origin plan =
-  case (tcDerivingStrategy plan, tcDerivingContext plan) of
-    (strategy, TcDerivingExplicitContext context)
-      | strategy == TcDerivingAnyclass || isValidStockEqPlan plan ->
-          Just
-            InstanceInfo
-              { iiClassName = tcDerivingClassName plan,
-                iiDictName = tcDerivingDictName plan,
-                iiDictOrigin = origin,
-                iiDictType = foldr TcForAllTy (TcQualTy context (planPredicateType plan)) (tcDerivingTyVars plan),
-                iiTyVars = tcDerivingTyVars plan,
-                iiContext = context,
-                iiHead = tcDerivingHeadTypes plan
-              }
-    _ -> Nothing
-
-isValidStockEqPlan :: TcDerivingPlan -> Bool
-isValidStockEqPlan plan =
-  tcDerivingStrategy plan == TcDerivingStock
-    && tcDerivingClassName plan == "Eq"
-    && case stockEqObligations plan of
-      Right {} -> True
-      Left {} -> False
-
-stockEqObligations :: TcDerivingPlan -> Either String [[Pred]]
-stockEqObligations plan = do
+-- | The field types of every constructor of a stock deriving target, with
+-- the datatype parameters instantiated to the instance head.
+stockFieldTypes :: TcDerivingPlan -> Either String [[TcType]]
+stockFieldTypes plan = do
   dataType <-
     maybe
-      (Left "stock Eq deriving requires checked datatype metadata")
+      (Left (mechanism <> " requires checked datatype metadata"))
       Right
       (tcDerivingDataType plan)
-  targetArguments <- stockEqTargetArguments dataType plan
-  validateStockEqClass plan
-  validateStockEqDataType dataType
+  targetArguments <- targetTypeArguments mechanism dataType plan
+  validateStockDataType mechanism dataType
   let substitution =
         Map.fromList
           [ (tvUnique tyVar, argument)
           | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
           ]
   pure
-    [ [ClassPred (tcDerivingClassTyCon plan) [applySubst substitution (dcfiType field)] | field <- dciFields constructor]
+    [ [applySubst substitution (dcfiType field) | field <- dciFields constructor]
     | constructor <- dtiConstructors dataType
     ]
+  where
+    mechanism = "stock " <> T.unpack (tcDerivingClassName plan) <> " deriving"
 
-stockEqTargetArguments :: DataTypeInfo -> TcDerivingPlan -> Either String [TcType]
-stockEqTargetArguments dataType plan =
+-- | The representation type of a newtype deriving target: the field type
+-- of the newtype constructor, eta-reduced over the datatype parameters
+-- that the instance head leaves out.
+newtypeRepresentation :: TcDerivingPlan -> Either String TcType
+newtypeRepresentation plan = do
+  dataType <-
+    maybe
+      (Left "newtype deriving requires checked datatype metadata")
+      Right
+      (tcDerivingDataType plan)
+  constructor <-
+    case (dtiFlavor dataType, dtiConstructors dataType) of
+      (NewtypeTyCon, [constructor]) -> Right constructor
+      _ -> Left "newtype deriving requires a newtype declaration"
+  field <-
+    case dciFields constructor of
+      [field] -> Right (dcfiType field)
+      _ -> Left "newtype deriving requires a newtype with one field"
+  targetArguments <- targetTypeArguments "newtype deriving" dataType plan
+  let supplied = length targetArguments
+      substitution =
+        Map.fromList
+          [ (tvUnique tyVar, argument)
+          | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
+          ]
+      dropped = drop supplied (dtiTyVars dataType)
+  case etaReduce dropped (applySubst substitution field) of
+    Just representation
+      | not (any (`elem` typeTyVars representation) dropped) -> Right representation
+    _ -> Left "newtype deriving cannot eta-reduce the representation type to the instance head"
+
+-- | Remove trailing arguments that are exactly the given type variables.
+etaReduce :: [TyVarId] -> TcType -> Maybe TcType
+etaReduce [] ty = Just ty
+etaReduce tyVars ty =
+  case (ty, last tyVars) of
+    (TcAppTy function (TcTyVar argument), expected)
+      | argument == expected -> etaReduce (init tyVars) function
+    (TcTyCon tyCon arguments, expected)
+      | not (null arguments),
+        TcTyVar argument <- last arguments,
+        argument == expected ->
+          etaReduce (init tyVars) (TcTyCon tyCon (init arguments))
+    _ -> Nothing
+
+-- | The arguments the instance head applies the target type constructor to.
+-- A head may apply fewer arguments than the datatype has parameters.
+targetTypeArguments :: String -> DataTypeInfo -> TcDerivingPlan -> Either String [TcType]
+targetTypeArguments mechanism dataType plan =
   case reverse (tcDerivingHeadTypes plan) of
     TcTyCon tyCon arguments : _
-      | tyConName tyCon == dtiName dataType,
-        length arguments == length (dtiTyVars dataType) ->
+      | tyConKey tyCon == tyConKey (dtiTyCon dataType),
+        length arguments <= length (dtiTyVars dataType) ->
           Right arguments
-    _ -> Left "stock Eq deriving target does not match its checked datatype metadata"
+    _ -> Left (mechanism <> " target does not match its checked datatype metadata")
 
-validateStockEqClass :: TcDerivingPlan -> Either String ()
-validateStockEqClass plan
-  | [_] <- tcDerivingClassTyVars plan,
-    null (tcDerivingClassSuperClasses plan),
-    map tcClassMethodName (tcDerivingClassMethods plan) == ["==", "/="],
-    all validMethod (tcDerivingClassMethods plan) =
-      Right ()
-  | otherwise = Left "stock Eq deriving requires the standard Eq class layout"
-  where
-    validMethod method =
-      tcClassMethodName method `elem` ["==", "/="]
-        && case methodTypeParts (tcClassMethodType method) of
-          ( [classVar],
-            [ClassPred eqTyCon [TcTyVar predicateVar]],
-            TcFunTy (TcTyVar left) (TcFunTy (TcTyVar right) (TcTyCon boolTyCon []))
-            ) ->
-              tyConName eqTyCon == "Eq"
-                && [classVar] == tcDerivingClassTyVars plan
-                && predicateVar == classVar
-                && left == classVar
-                && right == classVar
-                && tyConName boolTyCon == "Bool"
-          _ -> False
-
-    methodTypeParts ty =
-      let (tyVars, qualified) = peelMethodForAlls ty
-       in case qualified of
-            TcQualTy predicates body -> (tyVars, predicates, body)
-            body -> (tyVars, [], body)
-
-    peelMethodForAlls (TcForAllTy tyVar body) =
-      let (tyVars, inner) = peelMethodForAlls body
-       in (tyVar : tyVars, inner)
-    peelMethodForAlls ty = ([], ty)
-
-validateStockEqDataType :: DataTypeInfo -> Either String ()
-validateStockEqDataType dataType
+validateStockDataType :: String -> DataTypeInfo -> Either String ()
+validateStockDataType mechanism dataType
   | dtiFlavor dataType `notElem` [DataTyCon, NewtypeTyCon] =
-      Left "stock Eq deriving requires a data or newtype declaration"
+      Left (mechanism <> " requires a data or newtype declaration")
   | null constructors =
-      Left "stock Eq deriving does not yet support empty data declarations"
+      Left (mechanism <> " does not yet support empty data declarations")
   | not (all (null . dciExTyVars) constructors) =
-      Left "stock Eq deriving does not yet support existential constructors"
+      Left (mechanism <> " does not yet support existential constructors")
   | not (all (null . dciTheta) constructors) =
-      Left "stock Eq deriving does not yet support constrained constructors"
+      Left (mechanism <> " does not yet support constrained constructors")
   | any ((/= expectedResult) . dciResTy) constructors =
-      Left "stock Eq deriving does not yet support refined GADT result types"
+      Left (mechanism <> " does not yet support refined GADT result types")
   | otherwise = Right ()
   where
     constructors = dtiConstructors dataType
@@ -527,35 +470,3 @@ typeTyVars ty =
     TcForAllTy tyVar body -> filter (/= tyVar) (typeTyVars body)
     TcQualTy predicates body -> concatMap predTyVars predicates <> typeTyVars body
     TcAppTy function argument -> typeTyVars function <> typeTyVars argument
-
-planPredicateType :: TcDerivingPlan -> TcType
-planPredicateType plan =
-  TcTyCon (tcDerivingClassTyCon plan) (tcDerivingHeadTypes plan)
-
-predDictBinder :: Pred -> TcM TcDictBinderAnnotation
-predDictBinder predicate =
-  case predicate of
-    ClassPred classTyCon arguments ->
-      pure (TcDictBinderAnnotation (tyConName classTyCon) arguments (TcTyCon classTyCon arguments))
-    EqPred left right -> do
-      equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
-      pure (TcDictBinderAnnotation "<constraint>" [] (TcTyCon equalityTyCon [left, right]))
-    quantified@QuantifiedPred {} ->
-      TcDictBinderAnnotation "<quantified>" [] <$> predicateType quantified
-    implicit@(IParamPred name payload) ->
-      TcDictBinderAnnotation name [payload] <$> predicateType implicit
-
-predicateType :: Pred -> TcM TcType
-predicateType predicate =
-  case predicate of
-    ClassPred classTyCon arguments -> pure (TcTyCon classTyCon arguments)
-    EqPred left right -> do
-      equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
-      pure (TcTyCon equalityTyCon [left, right])
-    IParamPred name payload -> implicitParamType name payload
-    QuantifiedPred variables antecedents consequent -> do
-      consequentType <- predicateType consequent
-      let qualified
-            | null antecedents = consequentType
-            | otherwise = TcQualTy antecedents consequentType
-      pure (foldr TcForAllTy qualified variables)

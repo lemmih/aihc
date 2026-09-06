@@ -1018,6 +1018,9 @@ desugarDefaultMethod annotation dictionaries methodName = do
   extraTypeBinders <- convertTypeBinders extraTyVars
   convertedExtraTypes <- mapM (convertCheckedType . TcTyVar) extraTyVars
   extraDictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] extraPredicates
+  -- A default signature gives the worker its own constraints, which the
+  -- type checker solved at the instance head.
+  signatureEvidence <- traverse (mapM desugarEvidence) (lookup methodName (tcInstanceDefaultMethodEvidence annotation))
   let workerOrigin =
         case tcInstanceClassOrigin annotation of
           Just (packageName, moduleName') -> OriginTop (PackageId packageName) moduleName'
@@ -1027,7 +1030,8 @@ desugarDefaultMethod annotation dictionaries methodName = do
   moduleOrigin <- gets vsModuleOrigin
   let selfName = topName moduleOrigin (tcInstanceDictName annotation)
       self = foldl ExApp (foldl ExTyApp (ExVar selfName) convertedInstanceTypes) dictionaryArguments
-      body = foldl ExApp (ExApp worker self) (map (ExVar . binderName) extraDictionaries)
+      workerDictionaries = fromMaybe (map (ExVar . binderName) extraDictionaries) signatureEvidence
+      body = foldl ExApp (ExApp worker self) workerDictionaries
   pure (foldr ExTyLam (foldr ExLam body extraDictionaries) extraTypeBinders)
 
 dropClassPredicate :: TyCon -> [Pred] -> [Pred]

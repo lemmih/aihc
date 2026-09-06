@@ -55,7 +55,7 @@ import Aihc.Resolve
     unionScope,
     unnamedPackage,
   )
-import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), diagKind, emptyTcInterface, renderPred, renderTcType, tcConfig, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
+import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), defaultDerivingReferences, diagKind, emptyTcInterface, renderPred, renderTcType, tcConfigWithDeriving, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
 import Control.Exception (evaluate)
 import Control.Monad (forM, unless)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -289,7 +289,9 @@ compileEvalCase env tc = do
       Left ("resolve error: " <> show resolveErrors)
 
 evalTcConfig :: TcConfig
-evalTcConfig = tcConfig primPackageId
+-- The eval harness loads aihc-base as the unnamed package, so generated
+-- deriving code must find its base helpers under that identity.
+evalTcConfig = tcConfigWithDeriving primPackageId (defaultDerivingReferences primPackageId (packageId unnamedPackage))
 
 evalDesugarConfig :: Fc.DesugarConfig
 evalDesugarConfig = Fc.DesugarConfig {Fc.primPackageId = primPackageId}

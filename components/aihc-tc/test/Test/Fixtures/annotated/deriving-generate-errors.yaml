@@ -1,0 +1,61 @@
+annotated:
+- |-
+  {-# LANGUAGE DerivingStrategies, DerivingVia, ExistentialQuantification, GeneralizedNewtypeDeriving #-}
+  module Main where
+  import GHC.Classes (Eq)
+  class Container a where
+  └─ class methods: contents ∷ ∀ a. (Container a) ⇒ a → [a], size ∷ ∀ a. (Container a) ⇒ a → a
+    contents :: a -> [a]
+    size :: a -> a
+  data Wrapper a = Wrapper a
+       │           └─ type: ∀ a. a → Wrapper a
+       └─ type: Type → Type
+  data Some = forall b. Some b
+  │    │      └─ type: ∀ b. b → Some
+  │    └─ type: Type
+  └─ deriving plans: stock Eq Some [context: infer] [methods: ==, /=]
+    deriving stock Eq
+                   └─ error: stock Eq deriving does not yet support existential constructors
+  newtype N a = N a
+  │       │     └─ type: ∀ a. a → N a
+  │       └─ type: Type → Type
+  └─ deriving plans: newtype Container (N a) [context: Container a] [methods: contents, size]
+    deriving newtype Container
+                     └─ $fContainerNa ∷ ∀ a. (Container a) ⇒ Container (N a)
+                     └─ type: a → a; type-args: a; evidence: given Container a
+                     └─ error: newtype deriving cannot coerce the method contents of Container
+                     └─ type: a → N a; type-args: a
+                     └─ size ∷ N a → N a
+                     └─ type: a
+                     └─ type: N a
+                     └─ type: a
+                     └─ type: N a
+                     └─ type: N a → N a
+  newtype V a = V a
+  │       │     └─ type: ∀ a. a → V a
+  │       └─ type: Type → Type
+  └─ deriving plans: via Wrapper a Eq (V a) [context: infer] [methods: ==, /=]
+    deriving Eq via Wrapper a
+             └─ warning: deriving via is not supported yet; no instance is generated for Eq
+extensions:
+- DerivingStrategies
+- DerivingVia
+- ExistentialQuantification
+- GeneralizedNewtypeDeriving
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies, DerivingVia, ExistentialQuantification, GeneralizedNewtypeDeriving #-}
+  module Main where
+  import GHC.Classes (Eq)
+  class Container a where
+    contents :: a -> [a]
+    size :: a -> a
+  data Wrapper a = Wrapper a
+  data Some = forall b. Some b
+    deriving stock Eq
+  newtype N a = N a
+    deriving newtype Container
+  newtype V a = V a
+    deriving Eq via Wrapper a
+reason: the generator reports what it cannot derive and warns about strategies it does not support yet
+status: pass

@@ -23,8 +23,10 @@ OutsideIn(X) algorithm.
 - No desugaring to core IR (that is `aihc-desugar`).
 - No code generation.
 - No runtime representation decisions.
-- No deriving mechanism implementation (the TC accepts derived instances as
-  given).
+- No deriving-specific lowering. The TC selects the deriving strategy,
+  infers the instance context, and then writes each derived instance as an
+  ordinary `instance` declaration (see `Aihc.Tc.Deriving.Generate`), which
+  the instance checker and later phases treat like source.
 
 ---
 

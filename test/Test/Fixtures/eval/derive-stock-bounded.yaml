@@ -1,0 +1,25 @@
+extensions:
+  - DerivingStrategies
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies #-}
+    module Test where
+
+    data Results = Results Bool Bool Bool
+
+    data Color = Red | Green | Blue
+      deriving stock (Eq, Bounded)
+
+    data Pair = Pair Bool Color
+      deriving stock (Eq, Bounded)
+
+    result :: Results
+    result =
+      Results
+        (minBound == Red)
+        (maxBound == Blue)
+        (maxBound == Pair True Blue && minBound == Pair False Red)
+expression: result
+output: Results True True True
+status: pass
+reason: derived Bounded takes the first and last constructor of an enumeration and the bounds of every field of a product

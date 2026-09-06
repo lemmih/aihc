@@ -338,6 +338,18 @@ instance Eq Char where
 
   x /= y = not (x == y)
 
+compareChar :: Char -> Char -> Ordering
+compareChar (C# x) (C# y) = compareInt (I# (ord# x)) (I# (ord# y))
+
+instance Ord Char where
+  compare = compareChar
+  left < right = classesLessBy compareChar left right
+  left <= right = classesLessOrEqualBy compareChar left right
+  left > right = classesGreaterBy compareChar left right
+  left >= right = classesGreaterOrEqualBy compareChar left right
+  max = classesMaxBy compareChar
+  min = classesMinBy compareChar
+
 instance Eq () where
   () == () = True
   () /= () = False

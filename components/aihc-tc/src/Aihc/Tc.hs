@@ -22,6 +22,10 @@ module Aihc.Tc
     TcResult (..),
     TcConfig,
     tcConfig,
+    tcConfigWithDeriving,
+    DerivingReferences (..),
+    DerivingReference (..),
+    defaultDerivingReferences,
     TcBindingResult (..),
     defaultMethodName,
     TcTermKey (..),
@@ -98,7 +102,6 @@ module Aihc.Tc
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
-    TcStockDerivingPlan (..),
     TcDiagnostic (..),
     TcErrorKind (..),
     TcSeverity (..),
@@ -138,7 +141,8 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (PackageId (..))
 import Aihc.Resolve.Generic (everywhereM)
 import Aihc.Resolve.Traverse (annotationList)
-import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcForeignImportInfo (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
+import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcForeignImportInfo (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
+import Aihc.Tc.Deriving.References (DerivingReference (..), DerivingReferences (..), defaultDerivingReferences)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)

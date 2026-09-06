@@ -14,22 +14,26 @@ import Aihc.Parser.Syntax
     Extension (..),
     SourceSpan,
   )
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcDerivingStrategy (..))
+import Aihc.Tc.Deriving.References (DerivingReferences (..))
 import Aihc.Tc.Env (TyConFlavor (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (TvKindEnv, checkSurfaceType)
-import Aihc.Tc.Monad (TcM, emitError, emitWarning)
+import Aihc.Tc.Monad (TcM, emitError, emitWarning, getDerivingReferences)
 import Aihc.Tc.Types (TcType)
 import Control.Monad (unless, when)
 import Data.Text (Text)
 import Data.Text qualified as T
 
 checkDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Maybe (Text, Text) -> TvKindEnv -> TcType -> SourceSpan -> Maybe DerivingStrategy -> TcM TcDerivingStrategy
-checkDerivingStrategy extensions targetFlavor className classOrigin tvEnv targetKind sourceSpan strategy =
+checkDerivingStrategy extensions targetFlavor className classOrigin tvEnv targetKind sourceSpan strategy = do
+  stockPackages <- derivingStockPackages <$> getDerivingReferences
+  let isStock = isStockClassOrigin stockPackages classOrigin
   case strategy of
-    Nothing -> selectDefaultDerivingStrategy extensions targetFlavor className classOrigin sourceSpan
+    Nothing -> selectDefaultDerivingStrategy extensions targetFlavor className isStock sourceSpan
     Just DerivingStock -> do
-      checkStockDeriving extensions className classOrigin sourceSpan
+      checkStockDeriving extensions className isStock sourceSpan
       pure TcDerivingStock
     Just DerivingAnyclass -> do
       requireDerivingExtension extensions DeriveAnyClass "anyclass deriving" sourceSpan
@@ -43,9 +47,9 @@ checkDerivingStrategy extensions targetFlavor className classOrigin tvEnv target
       requireDerivingExtension extensions DerivingViaExtension "via deriving" sourceSpan
       TcDerivingVia <$> checkSurfaceType tvEnv viaType targetKind
 
-selectDefaultDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Maybe (Text, Text) -> SourceSpan -> TcM TcDerivingStrategy
-selectDefaultDerivingStrategy extensions targetFlavor className classOrigin sourceSpan =
-  case (isStockClassOrigin classOrigin, stockDerivingRequirement className) of
+selectDefaultDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Bool -> SourceSpan -> TcM TcDerivingStrategy
+selectDefaultDerivingStrategy extensions targetFlavor className isStock sourceSpan =
+  case (isStock, stockDerivingRequirement className) of
     (True, Just requiredExtension)
       | maybe True (`elem` extensions) requiredExtension -> pure TcDerivingStock
     _
@@ -60,9 +64,9 @@ selectDefaultDerivingStrategy extensions targetFlavor className classOrigin sour
           emitError sourceSpan (OtherError (defaultStrategyError targetFlavor className))
           pure TcDerivingStock
 
-checkStockDeriving :: [Extension] -> Text -> Maybe (Text, Text) -> SourceSpan -> TcM ()
-checkStockDeriving extensions className classOrigin sourceSpan
-  | not (isStockClassOrigin classOrigin) =
+checkStockDeriving :: [Extension] -> Text -> Bool -> SourceSpan -> TcM ()
+checkStockDeriving extensions className isStock sourceSpan
+  | not isStock =
       emitError sourceSpan (OtherError "stock deriving requires a standard class")
   | otherwise =
       case stockDerivingRequirement className of
@@ -72,14 +76,11 @@ checkStockDeriving extensions className classOrigin sourceSpan
         Just (Just extension) ->
           requireDerivingExtension extensions extension ("stock deriving for " <> T.unpack className) sourceSpan
 
-isStockClassOrigin :: Maybe (Text, Text) -> Bool
-isStockClassOrigin (Just (packageId, _)) =
-  isPackage "aihc-prim" packageId || isPackage "aihc-base" packageId || isPackage "aihc-internal" packageId || isPackage "aihc-template-haskell" packageId
-isStockClassOrigin _ = False
-
-isPackage :: Text -> Text -> Bool
-isPackage packageName packageId =
-  packageId == packageName || (packageName <> "-") `T.isPrefixOf` packageId
+-- | Whether a class comes from a package whose classes GHC's stock
+-- deriving mechanisms know about. The configuration names those packages.
+isStockClassOrigin :: [PackageId] -> Maybe (Text, Text) -> Bool
+isStockClassOrigin stockPackages (Just (packageId, _)) = PackageId packageId `elem` stockPackages
+isStockClassOrigin _ _ = False
 
 -- | Extensions required by GHC's stock deriving mechanisms. A @Nothing@
 -- requirement denotes the six classes available for ordinary Haskell data

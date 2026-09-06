@@ -97,7 +97,6 @@ import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
-    TcDerivingAnnotation (..),
     TcDictBinderAnnotation (..),
     TcForeignAbiType (..),
     TcForeignEffect (..),
@@ -114,7 +113,8 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
-import Aihc.Tc.Deriving.Context (derivingPlanInstanceInfo, finalizeDerivingModulesTc, typeTyVars)
+import Aihc.Tc.Deriving.Context (inferDerivingContexts, typeTyVars)
+import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -284,7 +284,7 @@ declInstances origin decl =
 
 annotationInstances :: (Text, Text) -> Annotation -> Decl -> [InstanceInfo]
 annotationInstances origin ann decl =
-  explicitInstance <> derivedInstances
+  explicitInstance
   where
     explicitInstance =
       case (fromAnnotation @TcInstanceAnnotation ann, peelDeclAnn decl) of
@@ -301,10 +301,6 @@ annotationInstances origin ann decl =
                   }
               ]
         _ -> []
-    derivedInstances =
-      case fromAnnotation @TcDerivingAnnotation ann of
-        Just derivingAnnotation -> mapMaybe (derivingPlanInstanceInfo origin) (tcDerivingPlans derivingAnnotation)
-        Nothing -> []
 
 dictBinderPred :: TcDictBinderAnnotation -> Pred
 dictBinderPred dictBinder =
@@ -316,7 +312,7 @@ declBindings :: (Text, Text) -> Decl -> [TcBindingResult]
 declBindings origin decl =
   case decl of
     DeclAnn ann inner ->
-      annotationBindings origin ann inner <> declBindings origin inner
+      annotationBindings ann inner <> declBindings origin inner
     DeclData dataDecl ->
       concatMap dataConBindings (dataDeclConstructors dataDecl)
         <> concatMap recordSelectorBindings (dataDeclConstructors dataDecl)
@@ -326,12 +322,11 @@ declBindings origin decl =
       concatMap dataConBindings (dataFamilyInstConstructors familyInst)
     _ -> []
 
-annotationBindings :: (Text, Text) -> Annotation -> Decl -> [TcBindingResult]
-annotationBindings origin ann decl =
+annotationBindings :: Annotation -> Decl -> [TcBindingResult]
+annotationBindings ann decl =
   tcAnnotationBindings ann decl
     <> classAnnotationBindings ann decl
     <> instanceAnnotationBindings ann
-    <> derivingAnnotationBindings origin ann
 
 tcAnnotationBindings :: Annotation -> Decl -> [TcBindingResult]
 tcAnnotationBindings ann decl =
@@ -389,16 +384,6 @@ instanceAnnotationBindings ann =
   case fromAnnotation ann of
     Just instAnn ->
       [TcBindingResult (tcInstanceDictName instAnn) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)]
-    Nothing -> []
-
-derivingAnnotationBindings :: (Text, Text) -> Annotation -> [TcBindingResult]
-derivingAnnotationBindings origin ann =
-  case fromAnnotation ann of
-    Just derivingAnnotation ->
-      [ TcBindingResult (iiDictName instanceInfo) (iiDictName instanceInfo) (iiDictType instanceInfo)
-      | plan <- tcDerivingPlans derivingAnnotation,
-        Just instanceInfo <- [derivingPlanInstanceInfo origin plan]
-      ]
     Nothing -> []
 
 dataConBindings :: DataConDecl -> [TcBindingResult]
@@ -522,7 +507,8 @@ tcModuleScc modules = do
   defaultGlobalKindMetas initialKeys
   structuralKeys <- globalStateKeys <$> lift get
   derivingAnnotated <- mapM annotateModuleDerivingTc modules
-  derivingFinalized <- finalizeDerivingModulesTc (map resolvedModuleOrigin modules) derivingAnnotated
+  derivingInferred <- inferDerivingContexts derivingAnnotated
+  derivingFinalized <- mapM registerDerivedInstances derivingInferred
   -- Phase 2: collect type signatures and convert them to schemes.
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
   schemes <- mapM (traverse checkUserSig) rawSigs
@@ -804,6 +790,17 @@ annotateModuleDerivingTc modu = do
   pure modu {moduleDecls = declarations}
   where
     extensions = moduleEnabledExtensions modu
+
+-- | Append the instance declarations that the deriving plans of a module
+-- generate, registered like source instances so that the signatures and
+-- bodies checked afterwards can use them.
+registerDerivedInstances :: Module -> TcM Module
+registerDerivedInstances modu = do
+  generated <- generateDerivedInstances origin modu
+  mapM_ (registerStructuralDecl origin) generated
+  pure modu {moduleDecls = moduleDecls modu <> generated}
+  where
+    origin = resolvedModuleOrigin modu
 
 annotateDeclDerivingTc :: [Extension] -> Decl -> TcM Decl
 annotateDeclDerivingTc extensions decl =
@@ -1350,6 +1347,13 @@ annotateInstanceDeclTc origin instanceDecl =
           defaults = ciDefaultMethods info
       superClasses <- mapM constraintTypePred superClassTypes
       superClassEvidence <- mapM (solveInstanceSuperClass classNameText context) superClasses
+      defaultMethodEvidence <-
+        sequence
+          [ (methodName,) <$> mapM (solveInstanceSuperClass classNameText context) predicates
+          | methodName <- defaults,
+            Just (ForAll _ signaturePredicates _) <- [lookup methodName (ciDefaultSignatures info)],
+            let predicates = filter (not . isPredicateOfClass (ciTyCon info)) (map (applySubstPred classSubstitution) signaturePredicates)
+          ]
       contextDicts <- mapM predDictBinder context
       superClassBinders <- mapM predDictBinder superClasses
       familyInstances <- getTypeFamilyInstances
@@ -1390,6 +1394,7 @@ annotateInstanceDeclTc origin instanceDecl =
                 tcInstanceSuperClasses = zip superClassBinders superClassEvidence,
                 tcInstanceMethodOrder = methodOrder,
                 tcInstanceDefaultMethods = defaults,
+                tcInstanceDefaultMethodEvidence = defaultMethodEvidence,
                 tcInstanceAssociatedTypes = associatedEquations
               }
       pure (DeclAnn (mkAnnotation instAnn) (DeclInstance (instanceDecl {instanceDeclItems = items})))
@@ -1406,6 +1411,12 @@ classMethodFromInfo info index (methodName, scheme) =
           tcClassMethodDictType = dictionaryType,
           tcClassMethodIndex = index
         }
+
+isPredicateOfClass :: TyCon -> Pred -> Bool
+isPredicateOfClass classTyCon predicate =
+  case predicate of
+    ClassPred predicateClass _ -> tyConKey predicateClass == tyConKey classTyCon
+    _ -> False
 
 solveInstanceSuperClass :: Text -> [Pred] -> Pred -> TcM EvTerm
 solveInstanceSuperClass className givens predicate = do

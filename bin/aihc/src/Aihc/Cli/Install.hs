@@ -83,6 +83,7 @@ import Aihc.Tc
     DataConInfo (..),
     DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
+    DerivingReferences (..),
     InstanceInfo (..),
     Pred (..),
     TcDiagnostic (..),
@@ -95,10 +96,11 @@ import Aihc.Tc
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
     TypeScheme (..),
+    defaultDerivingReferences,
     mergeTcInterfaces,
     renderPred,
     renderTcType,
-    tcConfig,
+    tcConfigWithDeriving,
     tcInterfaceClasses,
     tcInterfaceDataFamilyInstances,
     tcInterfaceDataTypes,
@@ -317,6 +319,11 @@ data PackageTaskContext = PackageTaskContext
     taskStorePath :: !FilePath,
     taskResolvePackage :: !Package,
     taskPrimIdentity :: !PackageId,
+    -- | The identity of @aihc-base@, where generated deriving code finds
+    -- its library helpers.
+    taskBaseIdentity :: !PackageId,
+    -- | The packages whose classes stock deriving accepts.
+    taskStockPackages :: ![PackageId],
     taskPackageRoot :: !FilePath,
     taskDependencyExports :: !ModuleExports,
     taskDependencyScopeHashes :: !(Map.Map Text Text),
@@ -556,6 +563,8 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
       dependencyInstanceFacts = mergeTcInterfaces (map installedInstanceFacts loadedDependencies)
       dependencyInstanceProviders = Map.unions (map installedInstanceProviders loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
+      baseIdentity = packageBaseIdentity resolvePackage dependencyExports
+      stockPackages = nub (primIdentity : baseIdentity : mapMaybe (packageIdentityNamed resolvePackage dependencyExports) stockClassPackageNames)
   backendPhaseTimings <- newIORef mempty
   let taskContext =
         PackageTaskContext
@@ -563,6 +572,8 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
             taskStorePath = outputRoot,
             taskResolvePackage = resolvePackage,
             taskPrimIdentity = primIdentity,
+            taskBaseIdentity = baseIdentity,
+            taskStockPackages = stockPackages,
             taskPackageRoot = packageRoot,
             taskDependencyExports = dependencyExports,
             taskDependencyScopeHashes = dependencyScopeHashes,
@@ -632,6 +643,30 @@ packagePrimIdentity resolvePackage dependencyExports =
           | ModuleKey (Package dependencyName dependencyIdentity) _ <- Map.keys dependencyExports,
             dependencyName == "aihc-prim"
           ]
+
+-- | The identity of @aihc-base@ as this package or one of its
+-- dependencies knows it. A package without it keeps the bare name, which
+-- only matters when it derives a class whose generated code needs base.
+packageBaseIdentity :: Package -> ModuleExports -> PackageId
+packageBaseIdentity resolvePackage dependencyExports =
+  fromMaybe (PackageId "aihc-base") (packageIdentityNamed resolvePackage dependencyExports "aihc-base")
+
+-- | The identity of a package by name, when it is this package or one of
+-- its dependencies.
+packageIdentityNamed :: Package -> ModuleExports -> Text -> Maybe PackageId
+packageIdentityNamed resolvePackage dependencyExports name
+  | packageName resolvePackage == name = Just (packageId resolvePackage)
+  | otherwise =
+      listToMaybe
+        [ dependencyIdentity
+        | ModuleKey (Package dependencyName dependencyIdentity) _ <- Map.keys dependencyExports,
+          dependencyName == name
+        ]
+
+-- | The core-library packages whose classes stock deriving accepts: the
+-- Haskell report classes, and the classes behind the deriving extensions.
+stockClassPackageNames :: [Text]
+stockClassPackageNames = ["aihc-prim", "aihc-base", "aihc-internal", "aihc-template-haskell"]
 
 packageStoreDirectory :: [InstalledPackage] -> FilePath -> IO FilePath
 packageStoreDirectory dependencies root = do
@@ -1117,6 +1152,13 @@ runTypeUnit context runtimes runtime = do
   let storePath = taskStorePath context
       resolvePackage = taskResolvePackage context
       primIdentity = taskPrimIdentity context
+      typeCheckerConfig =
+        tcConfigWithDeriving
+          primIdentity
+          ( (defaultDerivingReferences primIdentity (taskBaseIdentity context))
+              { derivingStockPackages = taskStockPackages context
+              }
+          )
       root = taskPackageRoot context
       dependencyExports = taskDependencyExports context
       dependencyScopeHashes = taskDependencyScopeHashes context
@@ -1173,7 +1215,7 @@ runTypeUnit context runtimes runtime = do
                in pure (resolveWithDeps builtinScope availableExports packageModules)
         let checked =
               typecheckModuleSccWithInterface
-                (tcConfig primIdentity)
+                typeCheckerConfig
                 importedTypes
                 (map snd (resolvedModules resolved))
             checkedDiagnostics = concatMap tcModuleDiagnostics (fst checked)

@@ -1,0 +1,30 @@
+extensions:
+  - DerivingStrategies
+  - GeneralizedNewtypeDeriving
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, GeneralizedNewtypeDeriving #-}
+    module Test where
+
+    data Results = Results Bool Bool Bool Bool
+
+    newtype Age = Age Int
+      deriving newtype (Eq, Ord, Show)
+
+    newtype Boxed a = Boxed (Maybe a)
+      deriving newtype (Functor, Show)
+
+    unbox :: Boxed a -> Maybe a
+    unbox (Boxed value) = value
+
+    result :: Results
+    result =
+      Results
+        (Age 3 < Age 4 && Age 3 == Age 3)
+        (show (Age 42) == "42")
+        (unbox (fmap (+ 1) (Boxed (Just (1 :: Int)))) == Just 2)
+        (show (Boxed (Just True)) == "Just True")
+expression: result
+output: Results True True True True
+status: pass
+reason: newtype deriving wraps and unwraps the representation instance around each class method, including higher-kinded classes
