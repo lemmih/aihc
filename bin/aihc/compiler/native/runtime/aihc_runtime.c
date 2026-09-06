@@ -165,11 +165,12 @@ AihcSlot *aihc_array_elements(AihcValue *array) {
    arrays through them, including the ones the GC fuzz harness builds with
    info tables of its own. */
 
-/* aihc_mutvar_*, aihc_stable_name_*, and the byte-array primitives live in
-   compiler/native/runtime/aihc_mutvar.lir, aihc_stable_name.lir, and
-   aihc_byte_array.lir. The two accessors below stay here: the offsets of the
-   machine fields they reach follow the target word size, and a Lir unit is
-   one file for every target. */
+/* aihc_mutvar_*, aihc_stable_name_*, the byte-array primitives, and the RTS
+   option parser live in compiler/native/runtime/aihc_mutvar.lir,
+   aihc_stable_name.lir, aihc_byte_array.lir, and aihc_runtime_options.lir.
+   The two accessors below stay here: the offsets of the machine fields they
+   reach follow the target word size, and a Lir unit is one file for every
+   target. */
 
 AihcStableName **aihc_stable_names(AihcMachine *machine) {
   return &machine->stable_names;
@@ -188,6 +189,40 @@ void aihc_memory_copy(void *destination, const void *source, uint64_t length) {
 
 void aihc_memory_move(void *destination, const void *source, uint64_t length) {
   memmove(destination, source, (size_t)length);
+}
+
+void aihc_memory_free(void *pointer) { free(pointer); }
+
+/* The RTS option parser and the argument store live in
+   compiler/native/runtime/aihc_runtime_options.lir. This flattens argv for
+   it: the width of a C pointer is the one thing a Lir unit does not know. */
+void aihc_program_arguments_initialize(int argc, char *const argv[]) {
+  if (argc < 0 || (argc != 0 && argv == NULL)) {
+    aihc_fail("invalid initial program arguments");
+  }
+  size_t length = 0;
+  for (int index = 0; index < argc; ++index) {
+    if (argv[index] == NULL) {
+      aihc_fail("null initial program argument");
+    }
+    size_t argument_length = strlen(argv[index]);
+    if ((uint64_t)argument_length >= (uint64_t)INT64_MAX - (uint64_t)length) {
+      aihc_fail("program arguments are too large");
+    }
+    length += argument_length + 1;
+  }
+  uint8_t *arguments = aihc_allocate_zeroed(length == 0 ? 1 : length);
+  size_t offset = 0;
+  for (int index = 0; index < argc; ++index) {
+    size_t argument_length = strlen(argv[index]);
+    memcpy(arguments + offset, argv[index], argument_length);
+    offset += argument_length + 1;
+  }
+  if (aihc_runtime_arguments_initialize(arguments, (int64_t)length) != 0) {
+    free(arguments);
+    aihc_fail("invalid initial program arguments");
+  }
+  free(arguments);
 }
 
 static void aihc_visit_value(AihcValue **value, AihcRootVisitor visitor,
@@ -453,10 +488,9 @@ int64_t aihc_get_exit_status(const AihcMachine *machine) {
 
 AihcMachine *aihc_machine_new(uint64_t global_count) {
   AihcMachine *machine = aihc_allocate_zeroed(sizeof(*machine));
-  const AihcRtsConfig *rts_config = aihc_rts_config();
   machine->allocation_count = 1;
-  machine->heap_max_bytes = rts_config->heap_max_bytes;
-  machine->heap_limit_enabled = rts_config->heap_limit_enabled;
+  machine->heap_max_bytes = aihc_rts_heap_max_bytes();
+  machine->heap_limit_enabled = aihc_rts_heap_limit_enabled() != 0;
   machine->global_count = global_count;
   machine->globals = aihc_allocate_auxiliary(
       machine,

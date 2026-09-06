@@ -125,28 +125,27 @@ struct AihcIoBackend {
 
 typedef AihcSlot (*AihcRootVisitor)(AihcSlot root, void *context);
 
-typedef struct {
-  uint64_t heap_max_bytes;
-  uint8_t heap_limit_enabled;
-  /* Decide static object liveness from static reference tables instead of
-     keeping every evaluated static object alive. This is off by default: the
-     tables do not yet name everything a running program reaches, so enabling
-     it can collect a CAF that is still needed. */
-  uint8_t static_reference_roots;
-} AihcRtsConfig;
-
 _Noreturn void aihc_fail(const char *message);
 void aihc_record_allocation(AihcMachine *machine);
 void *aihc_allocate_zeroed(uint64_t bytes);
 void *aihc_allocate_auxiliary(AihcMachine *machine, uint64_t bytes);
 void aihc_memory_copy(void *destination, const void *source, uint64_t length);
 void aihc_memory_move(void *destination, const void *source, uint64_t length);
+void aihc_memory_free(void *pointer);
 /* The machine fields that aihc_stable_name.lir needs. Their offsets in
    AihcMachine follow the target word size, so a Lir unit reaches them through
    these accessors instead of by offset. */
 AihcStableName **aihc_stable_names(AihcMachine *machine);
 uint64_t aihc_stable_name_take_hash(AihcMachine *machine);
-const AihcRtsConfig *aihc_rts_config(void);
+/* The RTS options of the process, parsed by aihc_runtime_options.lir from
+   the arguments the host passed. */
+uint64_t aihc_rts_heap_max_bytes(void);
+uint64_t aihc_rts_heap_limit_enabled(void);
+/* Decide static object liveness from static reference tables instead of
+   keeping every evaluated static object alive. This is off by default: the
+   tables do not yet name everything a running program reaches, so enabling
+   it can collect a CAF that is still needed. */
+uint64_t aihc_rts_static_reference_roots(void);
 uint64_t aihc_object_words(const AihcInfo *info);
 uint64_t aihc_value_words(const AihcValue *value);
 AihcSlot *aihc_array_elements(AihcValue *array);

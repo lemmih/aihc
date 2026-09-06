@@ -376,7 +376,7 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
   aihc_address_set_clear(&aihc_marked_statics);
   aihc_static_worklist.count = 0;
   aihc_srt_worklist.count = 0;
-  if (aihc_rts_config()->static_reference_roots) {
+  if (aihc_rts_static_reference_roots()) {
     /* The running function has no heap object of its own to carry its table,
        so it publishes one on entry. Suspended code is a continuation closure
        and reaches its table through its info table like any other object. */

@@ -302,7 +302,6 @@ runtimeSourcePath = getDataFileName "compiler/native/runtime/aihc_runtime.c"
 runtimePlan :: NativeTarget -> RuntimeGarbageCollector -> IO RuntimePlan
 runtimePlan target garbageCollector = do
   core <- runtimeSourcePath
-  runtimeOptions <- getDataFileName "compiler/native/runtime/aihc_runtime_options.c"
   collector <-
     getDataFileName $ case garbageCollector of
       RuntimeGcSemispace -> "compiler/native/runtime/aihc_gc_semispace.c"
@@ -313,10 +312,10 @@ runtimePlan target garbageCollector = do
   lirUnits <-
     traverse
       (getDataFileName . ("compiler/native/runtime/" <>))
-      ["aihc_array.lir", "aihc_byte_array.lir", "aihc_mutvar.lir", "aihc_stable_name.lir"]
+      ["aihc_array.lir", "aihc_byte_array.lir", "aihc_mutvar.lir", "aihc_runtime_options.lir", "aihc_stable_name.lir"]
   pure
     RuntimePlan
-      { runtimeSources = [core, runtimeOptions, collector, host],
+      { runtimeSources = [core, collector, host],
         runtimeLirSources = lirUnits,
         runtimeIncludeDirectories = [takeDirectory core]
       }

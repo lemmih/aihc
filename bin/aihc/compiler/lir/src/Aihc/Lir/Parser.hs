@@ -68,13 +68,26 @@ quotedBytes :: Parser BS.ByteString
 quotedBytes = BS.concat . map (either BS.singleton (TE.encodeUtf8 . T.singleton)) <$> stringUnits
 
 stringUnits :: Parser [Either Word8 Char]
-stringUnits = MPC.char '"' *> MP.manyTill unit (MPC.char '"')
+stringUnits = MPC.char '"' *> MP.manyTill stringUnit (MPC.char '"')
+
+-- | A character literal, for example @\'K\'@ or @\'\\n\'@. Its value is the code
+-- point, so it stands wherever an integer literal does. The escape @\\xHH@
+-- gives the byte value @HH@.
+characterLiteral :: Parser Integer
+characterLiteral = do
+  unit <- MPC.char '\'' *> stringUnit <* MPC.char '\''
+  pure (either fromIntegral (fromIntegral . fromEnum) unit)
+
+-- | One character of a string or a character literal. A byte escape is
+-- @Left@; every other character, escaped or not, is @Right@.
+stringUnit :: Parser (Either Word8 Char)
+stringUnit = (MPC.char '\\' *> escape) <|> (Right <$> MP.anySingle)
   where
-    unit = (MPC.char '\\' *> escape) <|> (Right <$> MP.anySingle)
     escape =
       MP.choice
         [ Right '\\' <$ MPC.char '\\',
           Right '"' <$ MPC.char '"',
+          Right '\'' <$ MPC.char '\'',
           Right '\n' <$ MPC.char 'n',
           Right '\r' <$ MPC.char 'r',
           Right '\t' <$ MPC.char 't',
@@ -109,8 +122,9 @@ symbolName = lexeme (Symbol <$> (MPC.char '@' *> nameAfterSigil))
 label :: Parser Label
 label = lexeme (Label <$> (bareName <|> quotedText))
 
+-- | An integer literal: a signed decimal or a character literal.
 integer :: Parser Integer
-integer = lexeme (L.signed (pure ()) L.decimal)
+integer = lexeme (characterLiteral <|> L.signed (pure ()) L.decimal)
 
 natural :: Parser Integer
 natural = lexeme L.decimal
@@ -134,6 +148,7 @@ literal =
   MP.choice
     [ LitNull <$ keyword "null",
       LitSymbol <$> symbolName,
+      LitInt <$> lexeme characterLiteral,
       lexeme number
     ]
   where
@@ -362,12 +377,18 @@ switchTerminator = do
   ty <- typeParser
   scrutinee <- operand
   token "{"
-  cases <- MP.many switchCase
+  cases <- concat <$> MP.many switchCase
   fallback <- optional (keyword "default" *> token "->" *> target)
   token "}"
   pure (Switch ty scrutinee cases fallback)
   where
-    switchCase = SwitchCase <$> integer <* token "->" <*> target
+    -- A case lists one or more literals. The list is sugar for one case per
+    -- literal, so the module holds them separately.
+    switchCase = do
+      values <- integer `MP.sepBy1` token ","
+      token "->"
+      chosen <- target
+      pure [SwitchCase value chosen | value <- values]
 
 target :: Parser Target
 target = Target <$> label <*> MP.option [] argumentList
