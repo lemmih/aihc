@@ -2,8 +2,8 @@
 
 ## Summary
 
-- Total Extensions: 15
-- Supported: 15
+- Total Extensions: 21
+- Supported: 21
 - In Progress: 0
 
 ## Extension Status
@@ -16,13 +16,19 @@
 | DerivingVia               |   🟢    | 2/2           |
 | ExistentialQuantification |   🟢    | 1/1           |
 | ExplicitForAll            |   🟢    | 1/1           |
+| ExtendedLiterals          |   🟢    | 1/1           |
+| ImplicitParams            |   🟢    | 2/2           |
 | LambdaCase                |   🟢    | 2/2           |
-| MagicHash                 |   🟢    | 7/7           |
+| MagicHash                 |   🟢    | 9/9           |
 | PackageImports            |   🟢    | 2/2           |
-| RecordWildCards           |   🟢    | 1/1           |
+| PatternSynonyms           |   🟢    | 11/11         |
+| RebindableSyntax          |   🟢    | 2/2           |
+| RecordWildCards           |   🟢    | 2/2           |
+| RoleAnnotations           |   🟢    | 1/1           |
 | ScopedTypeVariables       |   🟢    | 1/1           |
 | StandaloneDeriving        |   🟢    | 1/1           |
 | StandaloneKindSignatures  |   🟢    | 1/1           |
-| TypeFamilies              |   🟢    | 2/2           |
+| TemplateHaskellQuotes     |   🟢    | 1/1           |
+| TypeFamilies              |   🟢    | 4/4           |
 | UnboxedTuples             |   🟢    | 1/1           |
 
