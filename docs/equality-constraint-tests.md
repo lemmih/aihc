@@ -19,8 +19,8 @@ This declaration represents the exported class for name resolution only.
 The GHC reference check uses the installed `GHC.Types` module instead.
 The TC, FC, and GRIN fixtures use the project libraries without a substitute equality class.
 
-Five resolver fixtures pass through explicit imports, qualified names, or a re-export.
-Five resolver fixtures have XFAIL status because equality syntax needs an explicit import in AIHC.
+All ten resolver fixtures pass.
+Equality syntax uses the exported `GHC.Types` identity without an explicit import.
 All equality TC, FC, and GRIN fixtures currently have XFAIL status because AIHC cannot resolve `~`.
 Later corrections can expose separate errors in each downstream stage.
 

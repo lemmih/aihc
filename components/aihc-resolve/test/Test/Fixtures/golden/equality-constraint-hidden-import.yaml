@@ -28,5 +28,4 @@ annotated:
   │    │   └─ v 0
   │    └─ v 0
   └─ v Main
-status: xfail
-reason: The equality constraint resolves to the class in GHC.Types. AIHC requires an explicit import.
+status: pass
