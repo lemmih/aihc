@@ -277,7 +277,6 @@ test-suite spec
   other-modules:
     Aihc.Testing.EvalFixture
     Aihc.Testing.ExceptionProgram
-    Aihc.Testing.HostStdout
     Aihc.Testing.RuntimeArchive
     Aihc.Testing.SchedulerProgram
     FcGolden
@@ -323,7 +322,6 @@ test-suite spec
     filepath,
     haskeline,
     hedgehog,
-    libffi >=0.2 && <0.3,
     prettyprinter,
     process,
     tasty,
@@ -332,7 +330,6 @@ test-suite spec
     temporary,
     text,
     time,
-    unix,
     yaml,
 
 test-suite dev-spec

@@ -4,7 +4,7 @@ module Test.Grin.Spec (tests) where
 
 import Aihc.Fc qualified as Fc
 import Aihc.Fc.TypeOf qualified as FcType
-import Aihc.Grin (GrinProgram (..), InterpretError (..), ProgramStreams, interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram)
+import Aihc.Grin (GrinProgram (..), InterpretError (..), ProgramStreams (..), interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Testing.EvalFixture qualified as EvalFixture
 import Control.Exception (evaluate)
@@ -12,6 +12,7 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GrinGolden qualified
+import System.IO (stderr, stdin)
 import Test.Grin.Anf qualified as Anf
 import Test.Grin.Arbitrary (prop_grinPrettyRoundTrip)
 import Test.Grin.Lint qualified as Lint
@@ -25,9 +26,8 @@ data GrinEvalEnvironment = GrinEvalEnvironment
     grinEvalCore :: !GrinProgram
   }
 
--- | The streams are the ones the interpreted fixtures use.
-tests :: ProgramStreams -> IO TestTree
-tests streams = do
+tests :: IO TestTree
+tests = do
   fixtures <- GrinGolden.loadGrinCases
   evalFixtures <- filter (("grin" `elem`) . EvalFixture.evalCaseEvaluators) <$> EvalFixture.loadEvalCases
   pure
@@ -39,7 +39,7 @@ tests streams = do
           Srt.tests,
           testGroup "GRIN golden tests" (map fixtureTest fixtures),
           withResource loadGrinEvalEnvironment (const (pure ())) $ \getEnvironment ->
-            testGroup "shared evaluation fixtures via GRIN" (map (evalFixtureTest streams getEnvironment) evalFixtures)
+            testGroup "shared evaluation fixtures via GRIN" (map (evalFixtureTest getEnvironment) evalFixtures)
         ]
     )
 
@@ -70,13 +70,13 @@ fixtureTest fixture = testCase (GrinGolden.caseId fixture) $
     (GrinGolden.OutcomeXPass, details) -> assertFailure ("unexpected pass: " <> details)
     (GrinGolden.OutcomeFail, details) -> assertFailure details
 
-evalFixtureTest :: ProgramStreams -> IO GrinEvalEnvironment -> EvalFixture.EvalCase -> TestTree
-evalFixtureTest streams getEnvironment fixture = testCase (EvalFixture.evalCaseId fixture) $ do
+evalFixtureTest :: IO GrinEvalEnvironment -> EvalFixture.EvalCase -> TestTree
+evalFixtureTest getEnvironment fixture = testCase (EvalFixture.evalCaseId fixture) $ do
   environment <- getEnvironment
   (outcome, details) <-
     EvalFixture.evaluateEvalCase
       (grinEvalFrontend environment)
-      (evaluateGrin streams (grinEvalCore environment))
+      (evaluateGrin (grinEvalCore environment))
       fixture
   case outcome of
     EvalFixture.OutcomePass -> pure ()
@@ -84,8 +84,9 @@ evalFixtureTest streams getEnvironment fixture = testCase (EvalFixture.evalCaseI
     EvalFixture.OutcomeXPass -> assertFailure ("unexpected pass: " <> details)
     EvalFixture.OutcomeFail -> assertFailure details
 
-evaluateGrin :: ProgramStreams -> GrinProgram -> EvalFixture.ProgramEvaluator
-evaluateGrin streams coreProgram name program =
+-- | The program writes its standard output to the given handle.
+evaluateGrin :: GrinProgram -> EvalFixture.ProgramEvaluator
+evaluateGrin coreProgram output name program =
   case prepareEvalProgram name program of
     Left problem -> pure (Left (EvalFixture.EvaluationError problem))
     Right (prepared, unwrapResult) -> evaluatePrepared prepared unwrapResult
@@ -99,6 +100,7 @@ evaluateGrin streams coreProgram name program =
               fmap unwrapResult . classifyResult
                 <$> interpreter streams (bindingName name fixtureProgram) (appendGrinProgram coreProgram fixtureProgram)
             problems -> pure (Left (EvalFixture.EvaluationError ("GRIN lint error: " <> show problems)))
+    streams = ProgramStreams {programStdin = stdin, programStdout = output, programStderr = stderr}
     interpreter
       | evalBindingIsIo name program = interpretProgramIoBinding
       | otherwise = interpretProgramBinding
