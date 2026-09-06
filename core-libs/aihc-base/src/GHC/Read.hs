@@ -33,6 +33,7 @@ import GHC.Read.Lex
     readLitChar,
     stringEqual,
   )
+import Text.ParserCombinators.ReadPrec (ReadPrec, minPrec, pfail, prec, readPrec_to_S, readS_to_Prec, reset, step, (+++))
 import Prelude hiding (lex)
 
 readListDefault :: (Read a) => ReadS [a]
@@ -129,7 +130,7 @@ readSymField name parser = do
 
 readIntegralPrec :: (Num a) => ReadPrec a
 readIntegralPrec =
-  ReadPrec (\_ input -> convertIntegralResults (parseSignedInteger input))
+  readS_to_Prec (\_ input -> convertIntegralResults (parseSignedInteger input))
 
 convertIntegralResults :: (Num a) => [(Integer, String)] -> [(a, String)]
 convertIntegralResults [] = []

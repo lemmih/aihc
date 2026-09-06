@@ -9,8 +9,9 @@ module GHC.Err
 where
 
 import GHC.Base (String)
+import GHC.Internal.Stack (appendCallStack)
 import GHC.Prim (raise#)
-import GHC.Stack.Types (HasCallStack, appendCallStack)
+import GHC.Stack.Types (HasCallStack)
 import GHC.Types (RuntimeRep, TYPE)
 
 -- | Stop the program with a message and the call stack of the call site.

@@ -3460,8 +3460,16 @@ desugarCallStackPush (packageName, moduleName') function site parent = do
   fileText <- desugarStringValue (Ev.callSiteFile site)
   intRepresentation <- convertRuntimeRep IntRep
   intConstructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
+  charName <- primitiveName "GHC.Types" "Char" SortTypeConstructor
+  listName <- primitiveName "GHC.Types" "[]" SortTypeConstructor
+  pairConstructor <- primitiveName "GHC.Tuple" "(,)" SortDataConstructor
   let libraryName name sort = Name name sort (OriginTop (PackageId packageName) moduleName')
       boxedInt value = ExApp (ExVar intConstructor) (ExLit (LitInt intRepresentation (toInteger value)))
+      stringType = TyApp (TyCon listName) (TyCon charName)
+      locationType = TyCon (libraryName "SrcLoc" SortTypeConstructor)
+      -- GHC's pushCallStack takes the call site as a pair.
+      callSite srcLoc =
+        foldl ExApp (ExTyApp (ExTyApp (ExVar pairConstructor) stringType) locationType) [functionText, srcLoc]
       location =
         foldl
           ExApp
@@ -3474,7 +3482,7 @@ desugarCallStackPush (packageName, moduleName') function site parent = do
             boxedInt (Ev.callSiteEndLine site),
             boxedInt (Ev.callSiteEndColumn site)
           ]
-  pure (foldl ExApp (ExVar (libraryName "pushCallSite" SortValue)) [functionText, location, parent'])
+  pure (foldl ExApp (ExVar (libraryName "pushCallStack" SortValue)) [callSite location, parent'])
 
 -- | The call stack of an occurrence that starts a new stack.
 desugarCallStackEmpty :: (Text, Text) -> ValueM Expr

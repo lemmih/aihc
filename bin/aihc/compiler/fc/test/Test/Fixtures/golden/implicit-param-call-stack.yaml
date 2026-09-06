@@ -14,8 +14,8 @@ modules:
   emptyCallStack :: CallStack
   emptyCallStack = EmptyCallStack
 
-  pushCallSite :: [Char] -> SrcLoc -> CallStack -> CallStack
-  pushCallSite name location stack = PushCallStack name location stack
+  pushCallStack :: ([Char], SrcLoc) -> CallStack -> CallStack
+  pushCallStack (name, location) stack = PushCallStack name location stack
 
   failure :: HasCallStack => Bool -> Bool
   failure x = x
@@ -25,61 +25,66 @@ modules:
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Prim
-  scope 3 = "aihc-prim" GHC.Types
+  scope 3 = "aihc-prim" GHC.Tuple
+  scope 4 = "aihc-prim" GHC.Types
 
   import headers
-    3.tChar :: 3.tType;
-    2.tChar# :: 3.tTYPE 3.vWordRep;
-    3.tInt :: 3.tType;
-    2.tInt# :: 3.tTYPE 3.vIntRep;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tType :: 3.tType;
-    3.t[] :: ∀(a : 3.tType). 3.tType;
-    3.v: :: ∀(a : 3.tType). a 3.→ 3.t[] a 3.→ 3.t[] a;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vC# :: FUN @3.vWordRep @3.tLiftedRep 2.tChar# 3.tChar;
-    3.vI# :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 3.tInt;
-    3.vIntRep :: 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity;
-    3.vWordRep :: 3.tRuntimeRep;
-    3.v[] :: ∀(a : 3.tType). 3.t[] a
+    4.tChar :: 4.tType;
+    2.tChar# :: 4.tTYPE 4.vWordRep;
+    4.tInt :: 4.tType;
+    2.tInt# :: 4.tTYPE 4.vIntRep;
+    4.tLevity :: 4.tType;
+    4.tLiftedRep :: 4.tRuntimeRep;
+    4.tRuntimeRep :: 4.tType;
+    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType;
+    3.tTuple2 :: ∀(a1 : 4.tType) (a2 : 4.tType). 4.tType;
+    4.tType :: 4.tType;
+    4.t[] :: ∀(a : 4.tType). 4.tType;
+    3.v(,) :: ∀(a1 : 4.tType) (a2 : 4.tType). a1 4.→ a2 4.→ 3.tTuple2 a1 a2;
+    4.v: :: ∀(a : 4.tType). a 4.→ 4.t[] a 4.→ 4.t[] a;
+    4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
+    4.vC# :: FUN @4.vWordRep @4.tLiftedRep 2.tChar# 4.tChar;
+    4.vI# :: FUN @4.vIntRep @4.tLiftedRep 2.tInt# 4.tInt;
+    4.vIntRep :: 4.tRuntimeRep;
+    4.vLifted :: 4.tLevity;
+    4.vWordRep :: 4.tRuntimeRep;
+    4.v[] :: ∀(a : 4.tType). 4.t[] a
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    4.tLiftedRep = 4.vBoxedRep 4.vLifted;
+    4.tType = 4.tTYPE 4.tLiftedRep
 
-  pub type 1.tBool :: 3.tType {
+  pub type 1.tBool :: 4.tType {
       pub 1.vTrue :: 1.tBool;
       pub 1.vFalse :: 1.tBool
   }
 
-  pub type 1.tSrcLoc :: 3.tType {
-      pub 1.vSrcLoc :: 3.t[] 3.tChar 3.→ 3.t[] 3.tChar 3.→ 3.t[] 3.tChar 3.→ 3.tInt 3.→ 3.tInt 3.→ 3.tInt 3.→ 3.tInt 3.→ 1.tSrcLoc
+  pub type 1.tSrcLoc :: 4.tType {
+      pub 1.vSrcLoc :: 4.t[] 4.tChar 4.→ 4.t[] 4.tChar 4.→ 4.t[] 4.tChar 4.→ 4.tInt 4.→ 4.tInt 4.→ 4.tInt 4.→ 4.tInt 4.→ 1.tSrcLoc
   }
 
-  pub type 1.tCallStack :: 3.tType {
+  pub type 1.tCallStack :: 4.tType {
       pub 1.vEmptyCallStack :: 1.tCallStack;
-      pub 1.vPushCallStack :: 3.t[] 3.tChar 3.→ 1.tSrcLoc 3.→ 1.tCallStack 3.→ 1.tCallStack
+      pub 1.vPushCallStack :: 4.t[] 4.tChar 4.→ 1.tSrcLoc 4.→ 1.tCallStack 4.→ 1.tCallStack
   }
 
   pub val 1.vemptyCallStack :: 1.tCallStack
    = 1.vEmptyCallStack
 
-  pub val 1.vpushCallSite :: 3.t[] 3.tChar 3.→ 1.tSrcLoc 3.→ 1.tCallStack 3.→ 1.tCallStack
-   = λ(x : 3.t[] 3.tChar).
-    λ(y : 1.tSrcLoc).
-      λ(z : 1.tCallStack).
-        1.vPushCallStack x y z
+  pub val 1.vpushCallStack :: 3.tTuple2 (4.t[] 4.tChar) 1.tSrcLoc 4.→ 1.tCallStack 4.→ 1.tCallStack
+   = λ(x : 3.tTuple2 (4.t[] 4.tChar) 1.tSrcLoc).
+    λ(y : 1.tCallStack).
+      case x as (_scrut : 3.tTuple2 (4.t[] 4.tChar) 1.tSrcLoc) return (1.tCallStack) of {
+          3.v(,) (name : 4.t[] 4.tChar) (location : 1.tSrcLoc) →
+              1.vPushCallStack name location y
+      }
 
-  pub val 1.vfailure :: 1.tCallStack 3.→ 1.tBool 3.→ 1.tBool
+  pub val 1.vfailure :: 1.tCallStack 4.→ 1.tBool 4.→ 1.tBool
    = λ($d0 : 1.tCallStack).
     λ(x : 1.tBool).
       x
 
   pub val 1.vnoStack :: 1.tBool
-   = 1.vfailure (1.vpushCallSite (3.v: @3.tChar (3.vC# 'f'#3.vWordRep) (3.v: @3.tChar (3.vC# 'a'#3.vWordRep) (3.v: @3.tChar (3.vC# 'i'#3.vWordRep) (3.v: @3.tChar (3.vC# 'l'#3.vWordRep) (3.v: @3.tChar (3.vC# 'u'#3.vWordRep) (3.v: @3.tChar (3.vC# 'r'#3.vWordRep) (3.v: @3.tChar (3.vC# 'e'#3.vWordRep) (3.v[] @3.tChar)))))))) (1.vSrcLoc (3.v[] @3.tChar) (3.v: @3.tChar (3.vC# 'T'#3.vWordRep) (3.v: @3.tChar (3.vC# 'e'#3.vWordRep) (3.v: @3.tChar (3.vC# 's'#3.vWordRep) (3.v: @3.tChar (3.vC# 't'#3.vWordRep) (3.v[] @3.tChar))))) (3.v: @3.tChar (3.vC# 'm'#3.vWordRep) (3.v: @3.tChar (3.vC# 'o'#3.vWordRep) (3.v: @3.tChar (3.vC# 'd'#3.vWordRep) (3.v: @3.tChar (3.vC# 'u'#3.vWordRep) (3.v: @3.tChar (3.vC# 'l'#3.vWordRep) (3.v: @3.tChar (3.vC# 'e'#3.vWordRep) (3.v: @3.tChar (3.vC# ' '#3.vWordRep) (3.v: @3.tChar (3.vC# 'T'#3.vWordRep) (3.v: @3.tChar (3.vC# 'e'#3.vWordRep) (3.v: @3.tChar (3.vC# 's'#3.vWordRep) (3.v: @3.tChar (3.vC# 't'#3.vWordRep) (3.v: @3.tChar (3.vC# ' '#3.vWordRep) (3.v: @3.tChar (3.vC# 'w'#3.vWordRep) (3.v: @3.tChar (3.vC# 'h'#3.vWordRep) (3.v: @3.tChar (3.vC# 'e'#3.vWordRep) (3.v: @3.tChar (3.vC# 'r'#3.vWordRep) (3.v: @3.tChar (3.vC# 'e'#3.vWordRep) (3.v[] @3.tChar)))))))))))))))))) (3.vI# 18#3.vIntRep) (3.vI# 11#3.vIntRep) (3.vI# 18#3.vIntRep) (3.vI# 18#3.vIntRep)) 1.vemptyCallStack) 1.vTrue
+   = 1.vfailure (1.vpushCallStack (3.v(,) @(4.t[] 4.tChar) @1.tSrcLoc (4.v: @4.tChar (4.vC# 'f'#4.vWordRep) (4.v: @4.tChar (4.vC# 'a'#4.vWordRep) (4.v: @4.tChar (4.vC# 'i'#4.vWordRep) (4.v: @4.tChar (4.vC# 'l'#4.vWordRep) (4.v: @4.tChar (4.vC# 'u'#4.vWordRep) (4.v: @4.tChar (4.vC# 'r'#4.vWordRep) (4.v: @4.tChar (4.vC# 'e'#4.vWordRep) (4.v[] @4.tChar)))))))) (1.vSrcLoc (4.v[] @4.tChar) (4.v: @4.tChar (4.vC# 'T'#4.vWordRep) (4.v: @4.tChar (4.vC# 'e'#4.vWordRep) (4.v: @4.tChar (4.vC# 's'#4.vWordRep) (4.v: @4.tChar (4.vC# 't'#4.vWordRep) (4.v[] @4.tChar))))) (4.v: @4.tChar (4.vC# 'm'#4.vWordRep) (4.v: @4.tChar (4.vC# 'o'#4.vWordRep) (4.v: @4.tChar (4.vC# 'd'#4.vWordRep) (4.v: @4.tChar (4.vC# 'u'#4.vWordRep) (4.v: @4.tChar (4.vC# 'l'#4.vWordRep) (4.v: @4.tChar (4.vC# 'e'#4.vWordRep) (4.v: @4.tChar (4.vC# ' '#4.vWordRep) (4.v: @4.tChar (4.vC# 'T'#4.vWordRep) (4.v: @4.tChar (4.vC# 'e'#4.vWordRep) (4.v: @4.tChar (4.vC# 's'#4.vWordRep) (4.v: @4.tChar (4.vC# 't'#4.vWordRep) (4.v: @4.tChar (4.vC# ' '#4.vWordRep) (4.v: @4.tChar (4.vC# 'w'#4.vWordRep) (4.v: @4.tChar (4.vC# 'h'#4.vWordRep) (4.v: @4.tChar (4.vC# 'e'#4.vWordRep) (4.v: @4.tChar (4.vC# 'r'#4.vWordRep) (4.v: @4.tChar (4.vC# 'e'#4.vWordRep) (4.v[] @4.tChar)))))))))))))))))) (4.vI# 18#4.vIntRep) (4.vI# 11#4.vIntRep) (4.vI# 18#4.vIntRep) (4.vI# 18#4.vIntRep))) 1.vemptyCallStack) 1.vTrue
 status: pass
 reason: an occurrence of a function with a HasCallStack constraint pushes its call site onto the empty call stack

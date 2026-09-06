@@ -1,5 +1,4 @@
 {-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
 
 {- HLINT ignore "Use camelCase" -}
 
@@ -14,20 +13,6 @@ module GHC.IO.FD
     release,
     readRawBufferPtr,
     writeRawBufferPtr,
-    dEFAULT_BUFFER_SIZE,
-
-    -- * Runtime resources
-    IOHandle,
-    stdinHandle,
-    stdoutHandle,
-    stderrHandle,
-    closeIOHandle,
-    writeMemoryByte,
-    copyAddrToByteArray,
-    readIntoBuffer,
-    writeFromBuffer,
-    readIntoPtr,
-    writeFromPtr,
   )
 where
 
@@ -36,15 +21,14 @@ import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Foreign.C.Error (Errno (..), eIO, errnoToIOError)
 import GHC.Base (Monad (..), String)
-import GHC.Event (awaitIO)
-import GHC.Foreign (openIOHandle, openUtf8FilePath)
 import GHC.IO (FilePath, IO (..))
 import GHC.IO.Buffer (newByteBuffer)
 import GHC.IO.BufferedIO (readBuf, readBufNonBlocking, writeBuf, writeBufNonBlocking)
-import GHC.IO.IOMode (IOMode, ioModeNumber)
+import GHC.IO.IOMode (IOMode (..))
 import GHC.IO.Runtime
   ( IOHandle,
     IORequest,
+    awaitIO,
     closeIOHandle,
     stderrHandle,
     stdinHandle,
@@ -52,14 +36,14 @@ import GHC.IO.Runtime
     submitRead,
     submitWrite,
     takeResult,
-    writeMemoryByte,
   )
+import GHC.IO.Runtime.Open (openUtf8FilePath)
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Int (Int (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.IO.Types (BufferedIO (..), IODevice (..), IODeviceType (..), RawIO (..), ioError)
 import GHC.Num (Num (..))
-import GHC.Prim (Addr#, Int#, MutableByteArray#, RealWorld, copyAddrToByteArray#, mutableByteArrayContents#)
+import GHC.Prim (Addr#)
 import GHC.Ptr (Ptr (..), plusPtr)
 import GHC.Real (fromIntegral)
 import GHC.Show (Show (..), showString)
@@ -87,6 +71,15 @@ stdout = FD (unsafePerformIO stdoutHandle) 0
 
 stderr :: FD
 stderr = FD (unsafePerformIO stderrHandle) 0
+
+-- | The mode number of the runtime open request.
+ioModeNumber :: IOMode -> Int
+ioModeNumber mode =
+  case mode of
+    ReadMode -> 0
+    WriteMode -> 1
+    AppendMode -> 2
+    ReadWriteMode -> 3
 
 -- | Open a file. The runtime opens every file as a byte stream.
 openFile :: FilePath -> IOMode -> Bool -> IO (FD, IODeviceType)
@@ -155,22 +148,6 @@ writeAll location fd buffer offset count =
 -- | The runtime encodes an error number @e@ as @-(e + 1)@.
 decodeError :: Int -> Int
 decodeError result = negate result - 1
-
-copyAddrToByteArray :: Addr# -> MutableByteArray# RealWorld -> Int# -> Int# -> IO ()
-copyAddrToByteArray source buffer offset length =
-  IO
-    ( \state ->
-        case copyAddrToByteArray# source buffer offset length state of
-          copiedState -> (# copiedState, () #)
-    )
-
-readIntoBuffer :: Ptr IOHandle -> MutableByteArray# RealWorld -> Int -> Int -> IO Int
-readIntoBuffer handle buffer =
-  readIntoAddress handle (mutableByteArrayContents# buffer)
-
-writeFromBuffer :: Ptr IOHandle -> MutableByteArray# RealWorld -> Int -> Int -> IO Int
-writeFromBuffer handle buffer =
-  writeFromAddress handle (mutableByteArrayContents# buffer)
 
 readIntoPtr :: Ptr IOHandle -> Ptr a -> Int -> Int -> IO Int
 readIntoPtr handle (Ptr address) = readIntoAddress handle address

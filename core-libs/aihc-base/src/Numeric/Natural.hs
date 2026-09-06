@@ -7,6 +7,7 @@ where
 import Data.Bits (Bits (..))
 import GHC.Exception (ArithException (..), throw)
 import GHC.Read ()
+import Text.ParserCombinators.ReadPrec (ReadPrec, pfail, step)
 import Prelude
 
 newtype Natural = Natural Integer

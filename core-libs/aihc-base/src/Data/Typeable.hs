@@ -18,16 +18,16 @@ import Data.Maybe (Maybe (..))
 import Data.Proxy (Proxy (..))
 import GHC.Types (Bool (..))
 import Type.Reflection
-  ( SomeTypeRep,
+  ( SomeTypeRep (..),
     TyCon,
     Typeable (..),
     eqTypeRep,
     rnfSomeTypeRep,
     rnfTyCon,
+    splitApps,
     tyConName,
     typeOf,
     typeRep,
-    typeRepArgs,
     typeRepTyCon,
   )
 import Unsafe.Coerce (unsafeCoerce)
@@ -36,6 +36,12 @@ type TypeRep = SomeTypeRep
 
 rnfTypeRep :: TypeRep -> ()
 rnfTypeRep = rnfSomeTypeRep
+
+-- | The arguments of a type.
+typeRepArgs :: TypeRep -> [TypeRep]
+typeRepArgs (SomeTypeRep rep) =
+  case splitApps rep of
+    (_, arguments) -> arguments
 
 cast :: (Typeable a, Typeable b) => a -> Maybe b
 cast value = castWith value Proxy

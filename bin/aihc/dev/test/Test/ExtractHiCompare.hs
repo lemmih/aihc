@@ -268,56 +268,7 @@ test_apiDivergenceSkipsEmptyOracleModules =
 -- provide. Every entry is an incompatibility that should be fixed; remove it
 -- from this list once the export is gone. New entries must not be added.
 knownCoreLibApiDivergences :: [T.Text]
-knownCoreLibApiDivergences =
-  [ "Foreign.Marshal.unsafeLocalState",
-    "GHC.Char.ord",
-    "GHC.Char.unsafeChr",
-    "GHC.Environment.setFullArgs",
-    "GHC.Event.awaitIO",
-    "GHC.Foreign.openIOHandle",
-    "GHC.Foreign.openUtf8FilePath",
-    "GHC.Generics.P",
-    "GHC.Generics.Rep",
-    "GHC.Generics.Rep1",
-    "GHC.IO.FD.copyAddrToByteArray",
-    "GHC.IO.FD.dEFAULT_BUFFER_SIZE",
-    "GHC.IO.FD.readIntoBuffer",
-    "GHC.IO.FD.readIntoPtr",
-    "GHC.IO.FD.writeFromBuffer",
-    "GHC.IO.FD.writeFromPtr",
-    "GHC.IO.Handle.Text.hLookAhead",
-    "GHC.IO.IOMode.ioModeNumber",
-    "GHC.IO.IOMode.isReadableMode",
-    "GHC.IO.IOMode.isWritableMode",
-    "GHC.Show.showListWith",
-    "GHC.Stack.Types.appendCallStack",
-    "GHC.Stack.Types.popCallStack",
-    "GHC.Stack.Types.prettyCallStack",
-    "GHC.Stack.Types.prettyCallStackLines",
-    "GHC.Stack.Types.prettySrcLoc",
-    "GHC.Stack.Types.pushCallSite",
-    "GHC.Unicode.isLetter",
-    "GHC.Unicode.isMark",
-    "GHC.Unicode.isNumber",
-    "GHC.Unicode.isSeparator",
-    "Prelude.+++",
-    "Prelude.<++",
-    "Prelude.choice",
-    "Prelude.get",
-    "Prelude.look",
-    "Prelude.minPrec",
-    "Prelude.pfail",
-    "Prelude.prec",
-    "Prelude.readPrec_to_S",
-    "Prelude.readS_to_Prec",
-    "Prelude.reset",
-    "Prelude.step",
-    "Prelude.Prec",
-    "Prelude.ReadPrec",
-    "Prelude.fixity:+++",
-    "Prelude.fixity:<++",
-    "Type.Reflection.typeRepArgs"
-  ]
+knownCoreLibApiDivergences = []
 
 test_coreLibsHaveOnlyKnownDivergences :: Assertion
 test_coreLibsHaveOnlyKnownDivergences = do
