@@ -1,7 +1,9 @@
 module Main (main) where
 
 import Aihc.Hackage.Cabal qualified as HC
+import Aihc.Hackage.Cpp (builtinCppMacros, injectSyntheticCppMacros)
 import Aihc.Hackage.Index (parseHackageIndex, parseHackageIndexUpdatedSince)
+import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc, showVersionBranch)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.VersionResolver (parsePreferredVersions)
 import Codec.Archive.Tar qualified as Tar
@@ -12,6 +14,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy qualified as LBS
 import Data.List (isInfixOf, isSuffixOf, sort)
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
@@ -53,6 +56,7 @@ main =
       testCase "generates Cabal Paths module as a normal source file" test_generatesPathsModule,
       testCase "collects exposed modules from active conditional library branches" test_collectsConditionalExposedModules,
       testCase "evaluates impl(ghc) conditions against the emulated compiler" test_evaluatesImplConditions,
+      testCase "defines MIN_VERSION macros from resolved dependency versions" test_minVersionMacros,
       testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
       testCase "detects packages that default to Haskell98" test_detectsHaskell98DefaultLanguage,
       testCase "ignores inactive Haskell98 default-language branches" test_ignoresInactiveHaskell98DefaultLanguage,
@@ -145,13 +149,42 @@ test_collectsConditionalExposedModules =
     let paths = map HC.fileInfoPath files
     assertBool "expected conditionally exposed module to be selected" (any ("src/Control/Category/Unicode.hs" `isSuffixOf`) paths)
 
--- The CPP macros claim GHC 9.6, so a package that guards a @build-depends@
--- on @impl(ghc >= 9.12)@ must take the same branch as its @#if@ does,
--- whatever compiler built aihc itself.
+-- A package that guards a @build-depends@ on @impl(ghc >= X)@ must take the
+-- same branch as its @#if __GLASGOW_HASKELL__@ does, whatever compiler built
+-- aihc itself. Both read the emulated release.
 test_evaluatesImplConditions :: Assertion
 test_evaluatesImplConditions = do
-  gpd <- parseTestCabal implConditionalCabal
-  assertEqual "exposed modules" ["Old.Branch"] (map T.unpack (HC.collectLibraryExposedModules gpd))
+  let compilerVersion = releaseCompilerVersion emulatedGhc
+      major = take 2 compilerVersion
+      next = init major ++ [last major + 2]
+      cabalSource = implConditionalCabal (showVersionBranch major) (showVersionBranch next)
+  gpd <- parseTestCabal cabalSource
+  assertEqual "exposed modules" ["Current.Branch"] (map T.unpack (HC.collectLibraryExposedModules gpd))
+  let macro name = T.unpack <$> Map.lookup (T.pack name) builtinCppMacros
+  assertEqual "__GLASGOW_HASKELL__" (Just (show (head major * 100 + major !! 1))) (macro "__GLASGOW_HASKELL__")
+  assertEqual "__GLASGOW_HASKELL_FULL_VERSION__" (Just (show (showVersionBranch compilerVersion))) (macro "__GLASGOW_HASKELL_FULL_VERSION__")
+
+-- The synthetic @MIN_VERSION_*@ macros compare against the resolved
+-- dependency versions the way Cabal's @cabal_macros.h@ does.
+test_minVersionMacros :: Assertion
+test_minVersionMacros = do
+  let versions = Map.fromList [(T.pack "base", [4, 21, 2, 0])]
+      injected = injectSyntheticCppMacros [] versions (map T.pack ["base", "unknown-pkg"]) (T.pack "body\n")
+      macroLines = T.lines injected
+      hasLine expected = assertBool expected (T.pack expected `elem` macroLines)
+  hasLine "#define VERSION_base \"4.21.2.0\""
+  hasLine "#define MIN_VERSION_base(major1,major2,minor) ((major1) < 4 || (major1) == 4 && (major2) < 21 || (major1) == 4 && (major2) == 21 && (minor) <= 2)"
+  hasLine "#define MIN_VERSION_unknown_pkg(major1,major2,minor) 1"
+  let compilerVersion = releaseCompilerVersion emulatedGhc
+  hasLine ("#define MIN_VERSION_ghc(major1,major2,minor) " <> atLeastThree compilerVersion)
+  assertBool "MIN_VERSION_GLASGOW_HASKELL is a comparison" (any (T.pack "#define MIN_VERSION_GLASGOW_HASKELL(ma,mi,pl1,pl2) (" `T.isPrefixOf`) macroLines)
+  assertEqual "source follows the macros" (Just (T.pack "body")) (Just (last macroLines))
+  where
+    atLeastThree version =
+      let (a, b, c) = case take 3 (version ++ repeat 0) of
+            [x, y, z] -> (show x, show y, show z)
+            _ -> error "unreachable"
+       in "((major1) < " <> a <> " || (major1) == " <> a <> " && (major2) < " <> b <> " || (major1) == " <> a <> " && (major2) == " <> b <> " && (minor) <= " <> c <> ")"
 
 test_extractsBuildToolDependencyNames :: Assertion
 test_extractsBuildToolDependencyNames = do
@@ -234,8 +267,8 @@ pathsUserSource =
       "pathsDataFileName = getDataFileName"
     ]
 
-implConditionalCabal :: String
-implConditionalCabal =
+implConditionalCabal :: String -> String -> String
+implConditionalCabal current next =
   unlines
     [ "cabal-version: 3.0",
       "name: impl-conditional",
@@ -244,8 +277,10 @@ implConditionalCabal =
       "library",
       "  hs-source-dirs: src",
       "  default-language: Haskell2010",
-      "  if impl(ghc >= 9.12)",
-      "    exposed-modules: New.Branch",
+      "  if impl(ghc >= " <> next <> ")",
+      "    exposed-modules: Future.Branch",
+      "  elif impl(ghc >= " <> current <> ")",
+      "    exposed-modules: Current.Branch",
       "  else",
       "    exposed-modules: Old.Branch"
     ]
