@@ -70,6 +70,13 @@ aihc build-exe Main.hs \
   --output program-bundle
 ```
 
+On Linux, compiling for `apple-arm64` needs the macOS SDK headers for the C
+runtime and for package C sources. `AIHC_APPLE_SDK` names the SDK root, which
+the compiler passes as `-isysroot`, and `AIHC_APPLE_CLANG` selects the Clang
+executable, which under Nix should be the unwrapped one because the wrapper
+adds Linux-only arguments. The Nix package `cross-examples-apple-arm64` sets
+both, fetching the SDK the way nixpkgs does for its Darwin toolchain.
+
 `aihc link-exe` finishes the bundle on a host that has the linker for the
 target, such as a Mac for `apple-arm64` objects compiled on Linux:
 
