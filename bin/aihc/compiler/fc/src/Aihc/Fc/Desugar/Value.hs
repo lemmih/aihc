@@ -1411,6 +1411,7 @@ countUses name = go 0
             ExRec bindings inner -> go (foldl' go total (map bindRhs bindings)) inner
             ExCase scrutinee _ _ alternatives -> foldl' go (go total scrutinee) (map altRhs alternatives)
             ExCast inner _ -> go total inner
+            ExForeignCall _ _ arguments -> foldl' go total arguments
 
 -- | Replace every use of a variable with an expression. The name is fresh, so
 -- no binder in the body shadows it.
@@ -1430,6 +1431,7 @@ substituteVar name value = go
         ExCase scrutinee binder ty alternatives ->
           ExCase (go scrutinee) binder ty [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
         ExCast inner coercion -> ExCast (go inner) coercion
+        ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)
 
 patternView :: Syn.Pattern -> Maybe (Syn.Expr, Syn.Pattern)
 patternView pattern' =
