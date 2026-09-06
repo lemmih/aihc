@@ -1,0 +1,38 @@
+expected: |-
+  scope 1 = "" Test
+
+  constructor 1.Unit []
+
+  constructor 1.Ptr [AddrRep]
+
+  foreign identityAddr = "identity_addr" :: (addr) -> addr ! real-world
+
+  global 1.Unit = (C1.Unit)
+
+  global 1.Ptr = (C1.Ptr/1)
+
+  global 1.run = (P$run/[[AddrRep]])
+
+  $run_identityAddr_foreign (foreign_argument_0 :: AddrRep) -> TupleRep [TupleRep [],BoxedRep Lifted] =
+    foreign_result :: AddrRep <-
+      foreign-call identityAddr = "identity_addr" :: (addr) -> addr ! real-world with (foreign_argument_0 :: AddrRep)
+    store (C1.Ptr (foreign_result :: AddrRep))
+
+  $run (x :: AddrRep) -> BoxedRep Lifted =
+    store (P$run_identityAddr_foreign/[[]] (x :: AddrRep))
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+- UnboxedTuples
+source: |
+  module Test where
+  import GHC.Prim (Addr#, Int#, RealWorld, State#)
+  data Unit = Unit
+  data Ptr a = Ptr Addr#
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+  foreign import ccall unsafe "identity_addr" identityAddr :: Addr# -> IO (Ptr a)
+
+  run :: Addr# -> IO (Ptr Unit)
+  run p = identityAddr p
+reason: a use instantiates the result type of the import, and the adapter still finds the constructor of the result
+status: pass

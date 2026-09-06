@@ -29,6 +29,6 @@ expected: |-
    = Λ(a : 2.tType).
     Λ(b : 2.tType).
       λ(_foreign_argument : a).
-        foreign {prim 1.vraise# :: ∀(a : 2.tType) (b : 2.tType). a 2.→ b} @a @b _foreign_argument
+        foreign {prim 1.vraise# :: ∀(a{1} : 2.tType) (b{1} : 2.tType). a{1} 2.→ b{1}} @a @b _foreign_argument
 status: pass
 reason: A use of a foreign import prim without arguments is a lambda around a foreign call.

@@ -29,6 +29,6 @@ expected: |-
    = Λ(a : 2.tType).
     Λ(b : 2.tType).
       λ(_foreign_argument : a).
-        foreign {prim 1.vunsafeCoerce# :: ∀(a : 2.tType) (b : 2.tType). a 2.→ b} @a @b _foreign_argument
+        foreign {prim 1.vunsafeCoerce# :: ∀(a{1} : 2.tType) (b{1} : 2.tType). a{1} 2.→ b{1}} @a @b _foreign_argument
 status: pass
 reason: A signed polymorphic alias uses its type lambda binders in the right-hand side.

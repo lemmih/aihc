@@ -190,23 +190,35 @@ functionArity expression =
 -- token of an @IO@ result.
 lowerForeignCallExpr :: LowerEnv -> Fc.ForeignCall -> [Fc.Type] -> [Fc.Expr] -> LowerM GrinExpr
 lowerForeignCallExpr env call types arguments = do
+  -- The foreign type is closed. The type arguments go into it directly,
+  -- not into the environment: a binder of the foreign type can have the
+  -- name of a binder in a constructor header, and a substitution in the
+  -- environment would rewrite that header too.
   let name = Fc.foreignCallName call
-      sourceType = applySubstitution env (Fc.foreignCallType call)
-      (typeBinders, monotype) = splitForAlls sourceType
+      (typeBinders, monotype) = splitForAlls (Fc.foreignCallType call)
   when (length types > length typeBinders) $
     throwLower ("GRIN foreign call has too many type arguments: " <> T.unpack (Fc.nameText name))
   let (instantiated, remaining) = splitAt (length types) typeBinders
-      substituted = foldl (\current (binder, argument) -> substituteTypeBinder current binder argument) env (zip instantiated types)
-      foreignEnv = defaultRuntimeReps (foldl extendTypeBinder substituted remaining) remaining
+      substitution = Map.fromList [(Fc.binderName binder, applySubstitution env argument) | (binder, argument) <- zip instantiated types]
+      instantiatedType = TypeOf.substTypes substitution monotype
+      foreignEnv = defaultRuntimeReps (foldl extendTypeBinder env remaining) remaining
       declaredEnv = defaultRuntimeReps (foldl extendTypeBinder env typeBinders) typeBinders
   axioms <- foreignAxiomDeclarations foreignEnv (Fc.foreignCallDependencies call)
   let constructors = foreignConstructorNames (Fc.foreignCallDependencies call)
   -- The declared type gives the arity. A type argument can be a function
   -- type, and the call does not take the arguments of that function.
   (declaredArguments, _) <- splitOperationalFunctionType declaredEnv axioms monotype
-  (argumentTypes, resultType) <- splitOperationalArrows foreignEnv axioms (length declaredArguments) monotype
+  (argumentTypes, resultType) <- splitOperationalArrows foreignEnv axioms (length declaredArguments) instantiatedType
   case compare (length arguments) (length argumentTypes) of
-    GT -> throwLower ("GRIN foreign call has too many arguments: " <> T.unpack (Fc.nameText name))
+    -- The result of the call is a function of the remaining arguments, for
+    -- example when @unsafeCoerce#@ gives a state transformer.
+    GT -> do
+      let (callArguments, extraArguments) = splitAt (length argumentTypes) arguments
+      resultRep <- expressionRuntimeRep env (Fc.ExForeignCall call types arguments)
+      evaluated <- freshVar "function_whnf" liftedGrinRep
+      functionExpression <- lowerForeignCallExpr env call types callArguments
+      rest <- lowerDynamicApplication env resultRep (GrinVarValue evaluated) extraArguments
+      pure (GrinBind [evaluated] functionExpression rest)
     EQ
       | Fc.Prim <- Fc.foreignCallConvention call,
         Map.member (Fc.nameText name) specialPrimitiveArities -> do
@@ -439,7 +451,7 @@ findUnaryConstructor :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> Gr
 findUnaryConstructor env axioms constructors resultType expectedRep =
   case listToMaybe (mapMaybe matchConstructor (foreignConstructorEntries env constructors)) of
     Just result -> pure result
-    Nothing -> throwLower ("GRIN cannot find a unary constructor adapter for type: " <> show resultType)
+    Nothing -> throwLower ("GRIN cannot find a unary constructor adapter for type: " <> show resultType <> " among the constructors " <> show constructors)
   where
     matchConstructor (name, constructorType)
       | Fc.nameSort name /= Fc.SortDataConstructor = Nothing
@@ -1126,12 +1138,14 @@ expressionType env expression =
     Fc.ExLet binding body -> expressionType (extendTermBinder (Fc.bindBinder binding) env) body
     Fc.ExRec bindings body -> expressionType (foldl (flip (extendTermBinder . Fc.bindBinder)) env bindings) body
     Fc.ExCase _ _ resultType _ -> pure (applySubstitution env resultType)
+    -- The foreign type is closed, so the environment substitution does not
+    -- apply to it. The type arguments go into it directly.
     Fc.ExForeignCall call types arguments -> do
-      instantiated <- foldM instantiate (applySubstitution env (Fc.foreignCallType call)) types
+      instantiated <- foldM instantiate (Fc.foreignCallType call) types
       foldM apply instantiated arguments
       where
         instantiate functionType argument =
-          case reduce env functionType of
+          case functionType of
             Fc.TyForAll binder body -> pure (TypeOf.substType (Fc.binderName binder) (applySubstitution env argument) body)
             other -> throwLower ("GRIN foreign call type application has a non-forall type: " <> show other)
         apply functionType _ =

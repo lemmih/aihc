@@ -45,7 +45,7 @@ expected: |-
    = Λ(r : 3.tRuntimeRep).
     Λ(a : 3.tTYPE r).
       λ($d0 : 1.tMessage).
-        foreign {prim 2.vraise# :: ∀(r : 3.tRuntimeRep) (a : 3.tType) (b : 3.tTYPE r). FUN @3.tLiftedRep @r a b} @r @1.tMessage @a $d0
+        foreign {prim 2.vraise# :: ∀(r{1} : 3.tRuntimeRep) (a{1} : 3.tType) (b : 3.tTYPE r{1}). FUN @3.tLiftedRep @r{1} a{1} b} @r @1.tMessage @a $d0
   scope 1 = "" Failure
   scope 2 = "" Test
   scope 3 = "aihc-prim" GHC.Types

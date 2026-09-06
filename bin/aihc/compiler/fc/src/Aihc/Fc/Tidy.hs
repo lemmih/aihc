@@ -116,7 +116,9 @@ tidyExpr env expr =
     ExTyApp function argument -> ExTyApp (tidyExpr env function) (tidyType env argument)
     ExForeignCall call types arguments ->
       ExForeignCall
-        call {foreignCallType = tidyType emptyTidyEnv (foreignCallType call)}
+        -- The foreign type is closed, but its binders take names that no
+        -- enclosing binder has, so that no binder of the declaration repeats.
+        call {foreignCallType = tidyType env (foreignCallType call)}
         (map (tidyType env) types)
         (map (tidyExpr env) arguments)
     ExLam binder body ->

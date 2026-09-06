@@ -1,0 +1,18 @@
+expected: |-
+  scope 1 = "" Test
+
+  global 1.apply = (P$apply/[[BoxedRep Lifted], []])
+
+  $apply (x :: BoxedRep Lifted) -> TupleRep [TupleRep [],IntRep] =
+    apply @(TupleRep [TupleRep [],IntRep]) (x :: BoxedRep Lifted) ()
+extensions:
+- MagicHash
+- UnboxedTuples
+source: |
+  module Test where
+  import GHC.Prim (Int#, RealWorld, State#, unsafeCoerce#)
+
+  apply :: (State# RealWorld -> (# State# RealWorld, Int# #)) -> State# RealWorld -> (# State# RealWorld, Int# #)
+  apply m s = unsafeCoerce# m s
+reason: a primitive whose result is a function takes the extra arguments after the call
+status: pass

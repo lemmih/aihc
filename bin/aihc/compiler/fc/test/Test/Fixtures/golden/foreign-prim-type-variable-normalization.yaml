@@ -53,6 +53,6 @@ expected: |-
     Λ(b : 3.tType).
       λ(x : a).
         λ(y : 2.tState# b).
-          foreign {prim 1.vnewMutVar# :: ∀(a : 3.tType) (d : 3.tType). a 3.→ FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tUnliftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# d) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tUnliftedRep (2.tState# d) (1.tMutVar# d a))} @a @b x y
+          foreign {prim 1.vnewMutVar# :: ∀(a{1} : 3.tType) (d : 3.tType). a{1} 3.→ FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tUnliftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# d) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tUnliftedRep (2.tState# d) (1.tMutVar# d a{1}))} @a @b x y
 status: pass
 reason:
