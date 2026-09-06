@@ -2,16 +2,26 @@
 
 -- | Compile Lir modules to AArch64 Mach-O objects for Darwin.
 --
--- This backend is a proof of concept. Every value lives in a frame slot.
--- Instruction selection loads the operands into scratch registers, computes
--- the result, and stores it back. The @aihc@ calling convention passes the
--- first eight arguments in @x0@ to @x7@ and the rest in a 16-byte aligned
--- block on the stack. The callee pops that block, so a tail call restores the
--- stack of the caller before it pushes its own block and the stack does not
--- grow. Results come back in @x0@ to @x7@.
+-- Every value lives where the register allocator put it: in a register, or
+-- in a frame slot when the registers ran out or the value lives across a
+-- call that clobbers them all. Instruction selection reads a register
+-- operand in place, loads a slot or a literal into a scratch register, and
+-- writes the result straight into its home. A convention boundary is a
+-- parallel move: the arguments of a call, the values of a return, and the
+-- arguments of a jump are moved to their destinations at once, so a value
+-- the allocator already placed where the convention wants it costs nothing.
 --
--- Narrow integers are canonical: an @iN@ value is zero-extended to 64 bits in
--- its slot. A float is its IEEE bit pattern.
+-- The @aihc@ calling convention passes the first eight arguments in @x0@ to
+-- @x7@ and the rest in a 16-byte aligned block on the stack. The callee pops
+-- that block, so a tail call restores the stack of the caller before it
+-- pushes its own block and the stack does not grow. Results come back in
+-- @x0@ to @x7@. An aihc function preserves no register: every call clobbers
+-- them all, so an aihc function that makes no call and spills nothing needs
+-- no frame at all. A C function preserves @x19@ to @x28@ and saves the ones
+-- it touches, and it saves all of them when it calls into aihc code.
+--
+-- Narrow integers are canonical: an @iN@ value is zero-extended to 64 bits
+-- wherever it lives. A float is its IEEE bit pattern.
 module Aihc.Arm64.Lir
   ( Arm64LirError (..),
     compileLirObject,
@@ -23,7 +33,7 @@ where
 
 import Aihc.Arm64.Assemble
 import Aihc.Lir.Lint (LintError, lintModule)
-import Aihc.Lir.RegAlloc (Allocation (..), allocateRegisters)
+import Aihc.Lir.RegAlloc (Allocation (..), Registers (..), allocateRegistersFor, readCounts)
 import Aihc.Lir.Syntax
 import Aihc.Native.Object (SectionRole (..))
 import Control.Monad (forM, when, zipWithM)
@@ -144,10 +154,9 @@ renderTraps = do
           | (message, index) <- traps
           ]
   pure
-    ( [arm64Section TextSection]
-        <> stubs
-        <> reporter
-        <> (if null traps then [] else arm64Section ReadOnlySection : messages)
+    ( if null traps
+        then []
+        else [arm64Section TextSection] <> stubs <> reporter <> [arm64Section ReadOnlySection] <> messages
     )
 
 -- Data
@@ -200,13 +209,24 @@ data Layout = Layout
     layoutRegisters :: !(Map Var Arm64Register),
     -- | The frame slot of every value the allocator spilled.
     layoutSlots :: !(Map Var Int),
-    -- | The callee-saved registers the allocator handed out, with the frame
-    -- slot the prologue saves each one in.
+    -- | The preserved registers the function saves, with the frame slot the
+    -- prologue saves each one in.
     layoutSaved :: ![(Arm64Register, Int)],
-    layoutTemps :: ![Int],
     layoutAllocs :: !(Map Var (Int, Int)),
-    layoutSize :: !Int
+    -- | The bytes below the saved frame pointer pair.
+    layoutSize :: !Int,
+    -- | Whether the function saves the frame pointer pair and reserves the
+    -- frame at all. A function without a frame leaves the stack pointer
+    -- where it found it.
+    layoutFramed :: !Bool
   }
+
+-- | The bytes between the stack pointer after the prologue and the stack
+-- pointer at entry.
+frameBytes :: Layout -> Int
+frameBytes layout
+  | layoutFramed layout = layoutSize layout + 16
+  | otherwise = 0
 
 data Ctx = Ctx
   { ctxFunction :: !Function,
@@ -216,11 +236,19 @@ data Ctx = Ctx
     -- | The signatures of the functions the module defines or declares.
     ctxSignatures :: !(Map Symbol Signature),
     -- | The size of the incoming overflow block that the epilogue pops.
-    ctxIncomingOverflow :: !Int
+    ctxIncomingOverflow :: !Int,
+    -- | How many times the function reads each value.
+    ctxReads :: !(Map Var Int)
   }
 
 argumentRegisters :: [Arm64Register]
 argumentRegisters = [X0, X1, X2, X3, X4, X5, X6, X7]
+
+-- | The registers every call clobbers, in the order the allocator prefers
+-- them. The argument registers come last so that a value without a hint
+-- leaves them for the values the conventions want there.
+volatileRegisters :: [Arm64Register]
+volatileRegisters = [X8, X9, X10, X11, X12, X13] <> argumentRegisters
 
 -- | The procedure call standard passes the first eight floating point
 -- arguments in v0 to v7.
@@ -237,27 +265,45 @@ classify types =
     [(index, ty) | (index, ty) <- zip [0 ..] types, isFloatType ty]
   )
 
--- | The registers that hold block arguments during a jump.
-moveRegisters :: [Arm64Register]
-moveRegisters = [X9, X10, X11, X12, X13, X14, X15]
+-- | The registers a C call preserves. An aihc call clobbers them too.
+preservedRegisters :: [Arm64Register]
+preservedRegisters = [X19, X20, X21, X22, X23, X24, X25, X26, X27, X28]
 
--- | The registers the allocator hands out.
---
--- They are the callee-saved general registers, and nothing else. The callee
--- owns them across a call, so a value that lives in one survives every call
--- of the function and the allocator never has to split an interval. They are
--- also disjoint from the argument registers, from 'moveRegisters', and from
--- the scratch registers of instruction selection, so an allocated value is
--- never in the way of a convention.
-allocatableRegisters :: [Arm64Register]
-allocatableRegisters = [X19, X20, X21, X22, X23, X24, X25, X26, X27, X28]
+-- | The scratch registers of instruction selection. The left and the right
+-- operand of an instruction land in the first two when they are not in a
+-- register already, a result without a register is computed in the first
+-- two, and the third is free for anything else an instruction needs. The
+-- fourth holds the target of an indirect call, and the parallel moves break
+-- a cycle through the third.
+scratchLeft, scratchRight, scratchExtra, scratchTarget :: Arm64Register
+scratchLeft = X16
+scratchRight = X17
+scratchExtra = X15
+scratchTarget = X14
+
+-- | What the allocator may hand out under one convention. A preserved
+-- register costs a C function a save and a restore; an aihc function
+-- preserves nothing and pays nothing.
+registersFor :: CallingConvention -> Registers Arm64Register
+registersFor convention =
+  Registers
+    { registersVolatile = volatileRegisters,
+      registersPreserved = preservedRegisters,
+      registersPreservedCost = convention == CConvention,
+      registersArgument = argument,
+      registersResult = argument
+    }
+  where
+    argument index
+      | index < length argumentRegisters = Just (argumentRegisters !! index)
+      | otherwise = Nothing
 
 overflowBytes :: Int -> Int
 overflowBytes count = ((max 0 (count - length argumentRegisters) * 8 + 15) `div` 16) * 16
 
 compileFunction :: Map Symbol Signature -> Int -> Function -> M [Arm64Statement]
 compileFunction signatures index function = do
-  layout <- functionLayout function
+  layout <- functionLayout signatures function
   let blocks = functionBlocks function
       labels = Map.fromList [(blockLabel block, ".Llir_" <> tshow index <> "_" <> tshow position) | (position, block) <- zip [0 :: Int ..] blocks]
       ctx =
@@ -269,7 +315,8 @@ compileFunction signatures index function = do
             ctxSignatures = signatures,
             ctxIncomingOverflow = case functionConvention function of
               AihcConvention -> overflowBytes (length (functionParameters function))
-              CConvention -> 0
+              CConvention -> 0,
+            ctxReads = readCounts function
           }
   when (functionConvention function == CConvention) $ do
     let (integers, floats) = classify (map snd (functionParameters function))
@@ -278,7 +325,7 @@ compileFunction signatures index function = do
     when (length floats > floatArgumentCount) $
       unsupported ("function " <> unSymbol (functionName function) <> " has more than eight float C parameters")
   prologue <- functionPrologue ctx
-  body <- concat <$> mapM (compileBlock ctx) (zip blocks (map Just (drop 1 blocks) <> [Nothing]))
+  body <- concat <$> mapM (compileBlock ctx) (zip3 (True : repeat False) blocks (map Just (drop 1 blocks) <> [Nothing]))
   pure
     ( [arm64Section TextSection, arm64Align 2]
         <> [arm64Global symbol | functionLinkage function == Export]
@@ -288,20 +335,22 @@ compileFunction signatures index function = do
   where
     symbol = lirSymbol (functionName function)
 
--- | Drop a read that the destination register already holds. Instruction
--- selection loads its operands into scratch registers, so the same value
--- reaches the same scratch register several times in a row while nothing has
--- touched it in between.
+-- | Drop a read that the destination register already holds, and a store
+-- of what the slot already holds. Instruction selection loads slots and
+-- literals into scratch registers, so the same value reaches the same
+-- scratch register several times in a row while nothing has touched it in
+-- between, and a tail call that keeps its overflow block in place stores
+-- back words it loaded from the same slots.
 --
 -- The pass tracks, for each general register, where its contents last came
 -- from: a stack pointer offset, or another register. A read whose destination
--- already holds that source is dropped. A write to a register invalidates
--- both what that register held and every register that copied it. Anything
--- that moves the stack pointer, calls, or reaches a label forgets
--- everything. Tracking a slot is sound because the only frame addresses that
--- escape into a register come from @stack.alloc@, which 'functionLayout'
--- places above every value slot, so a store through a register base never
--- writes a tracked slot.
+-- already holds that source is dropped, and so is a store whose register
+-- came from the slot. A write to a register invalidates both what that
+-- register held and every register that copied it. Anything that moves the
+-- stack pointer, calls, or reaches a label forgets everything. Tracking a
+-- slot is sound because the only frame addresses that escape into a register
+-- come from @stack.alloc@, which 'functionLayout' places above every value
+-- slot, so a store through a register base never writes a tracked slot.
 elideSlotReloads :: [Arm64Statement] -> [Arm64Statement]
 elideSlotReloads = go IntMap.empty
   where
@@ -320,9 +369,12 @@ elideSlotReloads = go IntMap.empty
                   | IntMap.lookup source held == Just (FromRegister destination) -> go held rest
                   | otherwise -> reads' statement rest held destination (FromRegister source)
                 -- The stored register holds the slot, and any register that
-                -- held the previous contents of the slot is stale.
-                StoresSlot register offset ->
-                  statement : go (IntMap.insert register (FromSlot offset) (IntMap.filter (/= FromSlot offset) held)) rest
+                -- held the previous contents of the slot is stale. A store
+                -- of what the slot already holds changes nothing.
+                StoresSlot register offset
+                  | IntMap.lookup register held == Just (FromSlot offset) -> go held rest
+                  | otherwise ->
+                      statement : go (IntMap.insert register (FromSlot offset) (IntMap.filter (/= FromSlot offset) held)) rest
                 Writes registers -> statement : go (foldr invalidate held registers) rest
                 Forgets -> statement : go IntMap.empty rest
             _ -> statement : go IntMap.empty rest
@@ -459,23 +511,31 @@ generalRegister register
   | otherwise = fromEnum register
 
 -- | Place the frame of one function. The allocator decides which values need
--- a slot at all; the rest of the frame holds the saved callee-saved
--- registers, the block-argument temporaries, and the stack allocations, in
--- that order. The stack allocations stay last so that no address that escapes
--- into a register can reach a slot, which is what 'elideSlotReloads' relies
--- on.
-functionLayout :: Function -> M Layout
-functionLayout function = do
+-- a slot at all; the rest of the frame holds the saved preserved registers
+-- and the stack allocations, in that order. The stack allocations stay last
+-- so that no address that escapes into a register can reach a slot, which
+-- is what 'elideSlotReloads' relies on.
+--
+-- A function has a frame when it has anything to put in one or when it
+-- calls: a call overwrites the link register, which the frame pointer pair
+-- keeps. An aihc function that spills nothing and calls nothing has none.
+functionLayout :: Map Symbol Signature -> Function -> M Layout
+functionLayout signatures function = do
   let blocks = functionBlocks function
-      allocation = allocateRegisters allocatableRegisters function
+      convention = functionConvention function
+      allocation = allocateRegistersFor (registersFor convention) signatures function
+      calls = [operation | block <- blocks, Instruction _ operation <- blockInstructions block, isCall operation]
+      callsAihc = any ((== AihcConvention) . callConvention signatures) calls
+      savedRegisters =
+        case convention of
+          AihcConvention -> []
+          CConvention
+            | callsAihc -> preservedRegisters
+            | otherwise -> [register | register <- allocationUsed allocation, register `elem` preservedRegisters]
       slots = Map.fromList (zip (allocationSpills allocation) [0, 8 ..])
       slotsEnd = 8 * Map.size slots
-      saved = zip (allocationUsed allocation) [slotsEnd, slotsEnd + 8 ..]
-      savedEnd = slotsEnd + 8 * length saved
-      maxJumpArguments = maximum (0 : [length (targetArguments target) | block <- blocks, target <- terminatorTargets (blockTerminator block)])
-      tempCount = if maxJumpArguments > length moveRegisters then maxJumpArguments else 0
-      temps = take tempCount [savedEnd, savedEnd + 8 ..]
-      allocsStart = savedEnd + 8 * tempCount
+      saved = zip savedRegisters [slotsEnd, slotsEnd + 8 ..]
+      allocsStart = slotsEnd + 8 * length saved
       allocations = [(var, size, alignment) | block <- take 1 blocks, Instruction [var] (StackAlloc size alignment) <- blockInstructions block]
   allocs <- placeAllocations allocsStart allocations
   let end = case Map.elems allocs of
@@ -488,10 +548,26 @@ functionLayout function = do
       { layoutRegisters = allocationRegisters allocation,
         layoutSlots = slots,
         layoutSaved = saved,
-        layoutTemps = temps,
         layoutAllocs = allocs,
-        layoutSize = size
+        layoutSize = size,
+        layoutFramed = size > 0 || not (null calls)
       }
+
+isCall :: Operation -> Bool
+isCall operation =
+  case operation of
+    Call _ _ -> True
+    CallIndirect {} -> True
+    _ -> False
+
+-- | The convention of the callee of a call operation. A direct call to a
+-- symbol the module does not declare is an aihc call.
+callConvention :: Map Symbol Signature -> Operation -> CallingConvention
+callConvention signatures operation =
+  case operation of
+    Call symbol _ -> maybe AihcConvention signatureConvention (Map.lookup symbol signatures)
+    CallIndirect _ _ signature -> signatureConvention signature
+    _ -> AihcConvention
 
 placeAllocations :: Int -> [(Var, Integer, Integer)] -> M (Map Var (Int, Int))
 placeAllocations = go Map.empty
@@ -503,53 +579,56 @@ placeAllocations = go Map.empty
       go (Map.insert var (start, fromInteger size) placed) (start + fromInteger size) rest
     roundUp alignment value = ((value + alignment - 1) `div` alignment) * alignment
 
--- | Save the frame pointer and the link register, reserve the frame, zero
--- the stack allocations, and copy the parameters into their slots.
+-- | Save the frame pointer pair, reserve the frame, save the preserved
+-- registers, zero the stack allocations, and move the parameters into their
+-- homes. A parameter the allocator left in its argument register costs
+-- nothing.
 functionPrologue :: Ctx -> M [Arm64Statement]
 functionPrologue ctx = do
-  parameterStores <- concat <$> mapM storeParameter (zip [0 ..] (functionParameters function))
+  let parameters = functionParameters function
+      moves =
+        case functionConvention function of
+          AihcConvention ->
+            parallelMove
+              [ (home ctx var, SourceLocation (parameterLocation index))
+              | (index, (var, _)) <- zip [0 ..] parameters
+              ]
+          -- The C convention counts the integer and the float class
+          -- separately, so a parameter takes the register at its position
+          -- within its own class. A float moves through a scratch register
+          -- rather than the argument register of the same number, which may
+          -- hold an integer parameter of its own.
+          CConvention ->
+            let (integers, floats) = classify (map snd parameters)
+                names = map fst parameters
+             in concat [canonicalizeRegister ty register | ((_, ty), register) <- zip integers argumentRegisters]
+                  <> parallelMove [(home ctx (names !! index), SourceLocation (LocRegister register)) | ((index, _), register) <- zip integers argumentRegisters]
+                  <> concat
+                    [ [arm64Instruction (ArmFmovFromFloat (ty == F64) scratchLeft slot)]
+                        <> canonicalizeRegister ty scratchLeft
+                        <> parallelMove [(home ctx (names !! index), SourceLocation (LocRegister scratchLeft))]
+                    | ((index, ty), slot) <- zip floats [0 ..]
+                    ]
   pure
-    ( [ arm64Instruction (ArmStp X29 X30 (Arm64PreIndex SP (-16))),
-        arm64Instruction (ArmMov X29 (Arm64RegisterValue SP))
-      ]
-        <> adjustStack ArmSub (layoutSize layout)
+    ( frame
         <> saveRegisters ctx
         <> concatMap zeroAllocation (Map.elems (layoutAllocs layout))
-        <> parameterStores
+        <> moves
     )
   where
     function = ctxFunction ctx
     layout = ctxLayout ctx
-    -- The C convention counts the integer and the float class separately, so
-    -- a parameter takes the register at its position within its own class.
-    -- The aihc convention numbers every parameter together and passes none
-    -- of them in a float register.
-    (integerParameters, floatParameters) =
-      case functionConvention function of
-        CConvention -> classify (map snd (functionParameters function))
-        AihcConvention -> (zip [0 ..] (map snd (functionParameters function)), [])
-    integerSlots = Map.fromList [(index, slot) | (slot, (index, _)) <- zip [0 :: Int ..] integerParameters]
-    floatSlots = Map.fromList [(index, slot) | (slot, (index, _)) <- zip [0 :: Int ..] floatParameters]
-    storeParameter (index, (var, ty))
-      | Just slot <- Map.lookup index floatSlots =
-          -- The value arrives in a float register. It moves through a scratch
-          -- register rather than the argument register of the same number,
-          -- which may hold an integer parameter of its own.
-          pure ([arm64Instruction (ArmFmovFromFloat (ty == F64) X9 slot)] <> canonicalize ty X9 <> [writeValue ctx 0 X9 var])
-      | Just slot <- Map.lookup index integerSlots,
-        slot < length argumentRegisters =
-          let register = argumentRegisters !! slot
-           in pure (canonicalize ty register <> [writeValue ctx 0 register var])
-      | otherwise =
-          -- The overflow block sits above the saved frame pointer pair.
-          pure
-            [ arm64Instruction (ArmLdr X9 (Arm64Offset X29 (fromIntegral (16 + 8 * (index - length argumentRegisters))))),
-              writeValue ctx 0 X9 var
-            ]
-    canonicalize ty register =
-      case functionConvention function of
-        CConvention -> canonicalizeRegister ty register
-        AihcConvention -> []
+    frame
+      | layoutFramed layout =
+          [ arm64Instruction (ArmStp X29 X30 (Arm64PreIndex SP (-16))),
+            arm64Instruction (ArmMov X29 (Arm64RegisterValue SP))
+          ]
+            <> adjustStack ArmSub (layoutSize layout)
+      | otherwise = []
+    parameterLocation index
+      | index < length argumentRegisters = LocRegister (argumentRegisters !! index)
+      -- The overflow block sits above the frame.
+      | otherwise = LocSlot (frameBytes layout + 8 * (index - length argumentRegisters))
     zeroAllocation (offset, size) =
       [ arm64Instruction (ArmStr XZR (Arm64Offset SP (fromIntegral (offset + position))))
       | position <- [0, 8 .. size - 1]
@@ -570,46 +649,26 @@ adjustStack :: (Arm64Register -> Arm64Register -> Arm64Value -> Arm64Instruction
 adjustStack operation bytes
   | bytes == 0 = []
   | bytes < 4096 = [arm64Instruction (operation SP SP (Arm64ImmediateValue (fromIntegral bytes)))]
-  | otherwise = [immediate X9 bytes, arm64Instruction (operation SP SP (Arm64RegisterValue X9))]
+  | otherwise = [immediate scratchExtra bytes, arm64Instruction (operation SP SP (Arm64RegisterValue scratchExtra))]
 
--- | Restore the stack of the caller: the frame, the saved pair, and the
--- incoming overflow block.
-functionEpilogue :: Ctx -> [Arm64Statement]
-functionEpilogue ctx =
-  [ arm64Instruction (ArmMov SP (Arm64RegisterValue X29)),
-    arm64Instruction (ArmLdp X29 X30 (Arm64PostIndex SP 16))
-  ]
-    <> adjustStack ArmAdd (ctxIncomingOverflow ctx)
+-- | Give back the frame: restore the preserved registers, then the saved
+-- pair. The stack pointer ends where it was at entry. The displacement is
+-- the number of bytes the stack pointer currently sits below the frame.
+leaveFrame :: Ctx -> Int -> [Arm64Statement]
+leaveFrame ctx displacement =
+  restoreRegisters ctx displacement
+    <> ( if layoutFramed layout
+           then
+             [ arm64Instruction (ArmMov SP (Arm64RegisterValue X29)),
+               arm64Instruction (ArmLdp X29 X30 (Arm64PostIndex SP 16))
+             ]
+           else adjustStack ArmAdd displacement
+       )
+  where
+    layout = ctxLayout ctx
 
-slotOffset :: Ctx -> Int -> Var -> Int64
-slotOffset ctx displacement var =
-  case Map.lookup var (layoutSlots (ctxLayout ctx)) of
-    Just offset -> fromIntegral (offset + displacement)
-    Nothing -> error ("Aihc.Arm64.Lir: unknown value " <> T.unpack (unVar var))
-
--- | The register the allocator gave a value, if it gave it one.
-valueRegister :: Ctx -> Var -> Maybe Arm64Register
-valueRegister ctx var = Map.lookup var (layoutRegisters (ctxLayout ctx))
-
--- | Read a value into a register. A value the allocator placed is already in
--- a register, so the read is a move; a spilled value comes from its frame
--- slot. The displacement is the number of bytes the stack pointer currently
--- sits below the frame base, and it reaches only the slot form.
-readValue :: Ctx -> Int -> Arm64Register -> Var -> Arm64Statement
-readValue ctx displacement register var =
-  case valueRegister ctx var of
-    Just held -> arm64Instruction (ArmMov register (Arm64RegisterValue held))
-    Nothing -> arm64Instruction (ArmLdr register (Arm64Offset SP (slotOffset ctx displacement var)))
-
--- | Write a register into a value: the mirror of 'readValue'.
-writeValue :: Ctx -> Int -> Arm64Register -> Var -> Arm64Statement
-writeValue ctx displacement register var =
-  case valueRegister ctx var of
-    Just held -> arm64Instruction (ArmMov held (Arm64RegisterValue register))
-    Nothing -> arm64Instruction (ArmStr register (Arm64Offset SP (slotOffset ctx displacement var)))
-
--- | Save the allocated callee-saved registers into the frame. The prologue
--- runs this before it moves any parameter into a register.
+-- | Save the preserved registers the function uses into the frame. The
+-- prologue runs this before it moves any parameter into a register.
 saveRegisters :: Ctx -> [Arm64Statement]
 saveRegisters ctx =
   [ arm64Instruction (ArmStr register (Arm64Offset SP (fromIntegral offset)))
@@ -624,29 +683,89 @@ restoreRegisters ctx displacement =
   | (register, offset) <- layoutSaved (ctxLayout ctx)
   ]
 
--- | Load an operand into a register. The displacement is the number of bytes
--- the stack pointer currently sits below the frame base.
-loadOperand :: Ctx -> Int -> Arm64Register -> Operand -> [Arm64Statement]
-loadOperand ctx displacement register operand =
+-- Values
+
+-- | Where a value lives: a register, or a frame slot at a byte offset above
+-- the stack pointer after the prologue.
+data Location
+  = LocRegister !Arm64Register
+  | LocSlot !Int
+  deriving (Eq, Ord, Show)
+
+-- | The source of a move: a location, or a literal of a type.
+data MoveSource
+  = SourceLocation !Location
+  | SourceLiteral !Type !Literal
+  deriving (Eq, Show)
+
+home :: Ctx -> Var -> Location
+home ctx var =
+  case Map.lookup var (layoutRegisters (ctxLayout ctx)) of
+    Just register -> LocRegister register
+    Nothing ->
+      case Map.lookup var (layoutSlots (ctxLayout ctx)) of
+        Just offset -> LocSlot offset
+        Nothing -> error ("Aihc.Arm64.Lir: unknown value " <> T.unpack (unVar var))
+
+-- | The source of a move that reads an operand of a type.
+operandSource :: Ctx -> Type -> Operand -> MoveSource
+operandSource ctx ty operand =
   case operand of
-    OperandVar var -> [readValue ctx displacement register var]
-    OperandLiteral literal ->
-      case literal of
-        LitInt value -> [immediate register value]
-        LitFloat value -> [immediate register (toInteger (castDoubleToWord64 value))]
-        LitNull -> [arm64Instruction (ArmMov register (Arm64RegisterValue XZR))]
-        LitSymbol symbol -> address register (lirSymbol symbol)
+    OperandVar var -> SourceLocation (home ctx var)
+    OperandLiteral literal -> SourceLiteral ty literal
+
+-- | Read an operand for an instruction: the register that holds it, or the
+-- scratch register it was loaded into. The displacement is the number of
+-- bytes the stack pointer currently sits below the frame.
+operandIn :: Ctx -> Int -> Type -> Arm64Register -> Operand -> ([Arm64Statement], Arm64Register)
+operandIn ctx displacement ty scratch operand =
+  case operand of
+    OperandVar var ->
+      case home ctx var of
+        LocRegister register -> ([], register)
+        LocSlot offset -> ([loadSlot scratch (offset + displacement)], scratch)
+    OperandLiteral literal -> (literalInto ty scratch literal, scratch)
+
+-- | The register an instruction computes a result in, and the store that
+-- puts it in its home afterwards when the home is a slot.
+resultIn :: Ctx -> Arm64Register -> Var -> (Arm64Register, [Arm64Statement])
+resultIn ctx scratch var =
+  case home ctx var of
+    LocRegister register -> (register, [])
+    LocSlot offset -> (scratch, [storeSlot scratch offset])
+
+loadSlot :: Arm64Register -> Int -> Arm64Statement
+loadSlot register offset = arm64Instruction (ArmLdr register (Arm64Offset SP (fromIntegral offset)))
+
+storeSlot :: Arm64Register -> Int -> Arm64Statement
+storeSlot register offset = arm64Instruction (ArmStr register (Arm64Offset SP (fromIntegral offset)))
 
 -- | Load a literal with the encoding of its type. Float literals need the
 -- width of the type, and integer literals are canonical for the type.
-loadTyped :: Ctx -> Int -> Type -> Arm64Register -> Operand -> [Arm64Statement]
-loadTyped ctx displacement ty register operand =
-  case (ty, operand) of
-    (F32, OperandLiteral (LitFloat value)) -> [immediate register (toInteger (castFloatToWord32 (double2Float value)))]
-    (F32, OperandLiteral (LitInt value)) -> [immediate register (toInteger (castFloatToWord32 (fromInteger value)))]
-    (F64, OperandLiteral (LitInt value)) -> [immediate register (toInteger (castDoubleToWord64 (fromInteger value)))]
-    (_, OperandLiteral (LitInt value)) -> [immediate register (canonicalInteger ty value)]
-    _ -> loadOperand ctx displacement register operand
+literalInto :: Type -> Arm64Register -> Literal -> [Arm64Statement]
+literalInto ty register literal =
+  case (ty, literal) of
+    (F32, LitFloat value) -> [immediate register (toInteger (castFloatToWord32 (double2Float value)))]
+    (F32, LitInt value) -> [immediate register (toInteger (castFloatToWord32 (fromInteger value)))]
+    (F64, LitInt value) -> [immediate register (toInteger (castDoubleToWord64 (fromInteger value)))]
+    (_, LitFloat value) -> [immediate register (toInteger (castDoubleToWord64 value))]
+    (_, LitInt value)
+      | typeBits ty < 64 -> [immediate register (canonicalInteger ty value)]
+      | otherwise -> [immediate register value]
+    (_, LitNull) -> [arm64Instruction (ArmMov register (Arm64RegisterValue XZR))]
+    (_, LitSymbol symbol) -> address register (lirSymbol symbol)
+
+-- | A literal integer operand that fits the immediate of an arithmetic
+-- instruction.
+smallImmediate :: Type -> Operand -> Maybe Integer
+smallImmediate ty operand =
+  case operand of
+    OperandLiteral (LitInt value)
+      | not (isFloatType ty),
+        let canonical = if typeBits ty < 64 then canonicalInteger ty value else value,
+        canonical >= 0 && canonical < 4096 ->
+          Just canonical
+    _ -> Nothing
 
 canonicalInteger :: Type -> Integer -> Integer
 canonicalInteger ty value
@@ -666,151 +785,327 @@ immediate register value
   where
     integer = toInteger value
 
+-- | A copy between registers, unless it would copy a register to itself.
+move :: Arm64Register -> Arm64Register -> [Arm64Statement]
+move destination source
+  | destination == source = []
+  | otherwise = [arm64Instruction (ArmMov destination (Arm64RegisterValue source))]
+
 tshow :: (Show value) => value -> Text
 tshow = T.pack . show
 
+-- Parallel moves
+
+-- | Perform a set of moves as if all at once: every source is read before
+-- the destination it lives in is written. A move whose destination nothing
+-- else reads goes first; when only cycles remain, the contents of one
+-- destination are parked in 'scratchExtra' and the readers of that
+-- destination read the parking place instead. A slot-to-slot move goes
+-- through 'scratchLeft'.
+--
+-- The destinations are distinct. A move to the location a source is already
+-- in is dropped.
+parallelMove :: [(Location, MoveSource)] -> [Arm64Statement]
+parallelMove = go . filter (not . identity)
+  where
+    identity (destination, source) = source == SourceLocation destination
+    go [] = []
+    go pending =
+      case partitionReady pending of
+        ([], blocked) ->
+          -- Every destination is still read by another move, so the moves
+          -- form cycles. Park the destination of the first one.
+          case blocked of
+            (destination, _) : _ ->
+              let park = LocRegister scratchExtra
+                  redirect (target, source)
+                    | source == SourceLocation destination = (target, SourceLocation park)
+                    | otherwise = (target, source)
+               in emit (park, SourceLocation destination) <> go (map redirect blocked)
+            [] -> []
+        (ready, blocked) -> concatMap emit ready <> go blocked
+    partitionReady pending =
+      let readLocations = [location | (_, SourceLocation location) <- pending]
+       in ( [pair | pair@(destination, _) <- pending, destination `notElem` readLocations],
+            [pair | pair@(destination, _) <- pending, destination `elem` readLocations]
+          )
+    emit (destination, source) =
+      case (destination, source) of
+        (LocRegister target, SourceLocation (LocRegister register)) -> move target register
+        (LocRegister target, SourceLocation (LocSlot offset)) -> [loadSlot target offset]
+        (LocRegister target, SourceLiteral ty literal) -> literalInto ty target literal
+        (LocSlot offset, SourceLocation (LocRegister register)) -> [storeSlot register offset]
+        (LocSlot offset, SourceLocation (LocSlot from)) -> [loadSlot scratchLeft from, storeSlot scratchLeft offset]
+        (LocSlot offset, SourceLiteral ty literal) -> literalInto ty scratchLeft literal <> [storeSlot scratchLeft offset]
+
+-- | A location displaced by the bytes the stack pointer currently sits
+-- below the frame. Only a slot moves.
+displace :: Int -> Location -> Location
+displace displacement location =
+  case location of
+    LocSlot offset -> LocSlot (offset + displacement)
+    LocRegister _ -> location
+
+displaceSource :: Int -> MoveSource -> MoveSource
+displaceSource displacement source =
+  case source of
+    SourceLocation location -> SourceLocation (displace displacement location)
+    SourceLiteral _ _ -> source
+
 -- Blocks
 
-compileBlock :: Ctx -> (Block, Maybe Block) -> M [Arm64Statement]
-compileBlock ctx (block, next) = do
-  instructions <- concat <$> mapM (compileInstruction ctx) (blockInstructions block)
-  terminator <- compileTerminator ctx (blockLabel <$> next) (blockTerminator block)
-  pure (arm64Label (ctxLabels ctx Map.! blockLabel block) : instructions <> terminator)
+-- | A comparison that the branch of the block consumes directly, so that
+-- the block compares and branches on the flags instead of materializing a
+-- boolean.
+data Fused = Fused !CompareOp !Type !Operand !Operand
 
-compileTerminator :: Ctx -> Maybe Label -> Terminator -> M [Arm64Statement]
-compileTerminator ctx next terminator =
+-- | Compile one block. The entry block has no label: nothing may jump to
+-- it, and without a label the reload pass sees through the prologue into
+-- the first instructions.
+compileBlock :: Ctx -> (Bool, Block, Maybe Block) -> M [Arm64Statement]
+compileBlock ctx (entry, block, next) = do
+  let (instructions, fused) = fuseCompare ctx (blockInstructions block) (blockTerminator block)
+  lines' <- concat <$> mapM (compileInstruction ctx) instructions
+  terminator <- compileTerminator ctx (blockLabel <$> next) fused (blockTerminator block)
+  pure ([arm64Label (ctxLabels ctx Map.! blockLabel block) | not entry] <> lines' <> terminator)
+
+-- | Split off a comparison that only the branch of the block reads and that
+-- sits right before it. Nothing else reads the boolean, so it is never
+-- written.
+fuseCompare :: Ctx -> [Instruction] -> Terminator -> ([Instruction], Maybe Fused)
+fuseCompare ctx instructions terminator =
+  case (reverse instructions, terminator) of
+    (Instruction [var] (Compare op ty left right) : before, Branch (OperandVar condition) _ _)
+      | condition == var,
+        Map.lookup var (ctxReads ctx) == Just 1 ->
+          (reverse before, Just (Fused op ty left right))
+    _ -> (instructions, Nothing)
+
+-- | The test a block branches on: a register that holds the condition when
+-- it is not zero, a register that holds it when it is zero, or the flags.
+data Test
+  = TestNonZero !Arm64Register
+  | TestZero !Arm64Register
+  | TestFlags !Arm64Condition
+
+-- | Set up the test of a branch condition: the fused comparison when there
+-- is one, otherwise the boolean itself.
+conditionTest :: Ctx -> Maybe Fused -> Operand -> ([Arm64Statement], Test)
+conditionTest ctx fused condition =
+  case fused of
+    Just (Fused op ty left right)
+      | op `elem` [Eq, Ne],
+        not (isFloatType ty),
+        isZero right ->
+          let (loads, register) = operandIn ctx 0 ty scratchLeft left
+           in (loads, if op == Eq then TestZero register else TestNonZero register)
+      | isFloatType ty ->
+          let (leftLoads, leftRegister) = operandIn ctx 0 ty scratchLeft left
+              (rightLoads, rightRegister) = operandIn ctx 0 ty scratchRight right
+           in ( leftLoads
+                  <> rightLoads
+                  <> [toFloat ty 16 leftRegister, toFloat ty 17 rightRegister, arm64Instruction (ArmFcmp (ty == F64) 16 17)],
+                TestFlags (floatCondition op)
+              )
+      | otherwise ->
+          let (loads, register) = operandIn ctx 0 ty scratchLeft left
+              signed = op `elem` [LtS, LeS, GtS, GeS]
+              (extendLeft, leftRegister) = if signed then signExtendInto ty scratchLeft register else ([], register)
+           in (loads <> extendLeft <> compareWith ctx ty signed leftRegister right, TestFlags (integerCondition op))
+    Nothing ->
+      let (loads, register) = operandIn ctx 0 I1 scratchLeft condition
+       in (loads, TestNonZero register)
+  where
+    isZero operand = operand == OperandLiteral (LitInt 0)
+
+-- | Compare a register with an operand: against an immediate when the
+-- operand is a small literal, otherwise against a register. The right
+-- operand is sign-extended into the right scratch register when asked.
+compareWith :: Ctx -> Type -> Bool -> Arm64Register -> Operand -> [Arm64Statement]
+compareWith ctx ty signed left right =
+  case smallImmediate ty right of
+    Just value
+      | not signed || typeBits ty >= 64 || value < 2 ^ (typeBits ty - 1) ->
+          [arm64Instruction (ArmCmp left (Arm64ImmediateValue value))]
+    _ ->
+      let (loads, register) = operandIn ctx 0 ty scratchRight right
+          (extend, rightRegister) = if signed then signExtendInto ty scratchRight register else ([], register)
+       in loads <> extend <> [arm64Instruction (ArmCmp left (Arm64RegisterValue rightRegister))]
+
+-- | Branch to a label when the test fails, or when it holds.
+branchUnless, branchWhen :: Test -> Text -> Arm64Statement
+branchUnless test label =
+  case test of
+    TestNonZero register -> arm64Instruction (ArmCbz register label)
+    TestZero register -> arm64Instruction (ArmCbnz register label)
+    TestFlags condition -> arm64Instruction (ArmBCond (inverseCondition condition) label)
+branchWhen test label =
+  case test of
+    TestNonZero register -> arm64Instruction (ArmCbnz register label)
+    TestZero register -> arm64Instruction (ArmCbz register label)
+    TestFlags condition -> arm64Instruction (ArmBCond condition label)
+
+compileTerminator :: Ctx -> Maybe Label -> Maybe Fused -> Terminator -> M [Arm64Statement]
+compileTerminator ctx next fused terminator =
   case terminator of
-    Jump target -> jumpTo target
+    Jump target -> do
+      moves <- blockArgumentMoves ctx target
+      pure (moves <> branchTo target)
     Branch condition whenTrue whenFalse -> do
-      falseLabel <- freshLabel "else"
-      trueLines <- jumpTo whenTrue
-      falseLines <- jumpTo whenFalse
-      pure
-        ( loadOperand ctx 0 X9 condition
-            <> [arm64Instruction (ArmCbz X9 falseLabel)]
-            <> trueLines
-            <> [arm64Label falseLabel]
-            <> falseLines
-        )
+      let (setup, test) = conditionTest ctx fused condition
+      trueMoves <- blockArgumentMoves ctx whenTrue
+      falseMoves <- blockArgumentMoves ctx whenFalse
+      if null trueMoves && null falseMoves && isNext whenFalse
+        then pure (setup <> [branchWhen test (labelOf whenTrue)])
+        else do
+          falseLabel <- if null falseMoves then pure (labelOf whenFalse) else freshLabel "else"
+          pure
+            ( setup
+                <> [branchUnless test falseLabel]
+                <> trueMoves
+                <> [arm64Instruction (ArmB (labelOf whenTrue)) | not (null falseMoves) || not (isNext whenTrue)]
+                <> (if null falseMoves then [] else arm64Label falseLabel : falseMoves <> branchTo whenFalse)
+            )
     Switch ty scrutinee cases fallback -> do
+      let (loads, register) = operandIn ctx 0 ty scratchLeft scrutinee
       edges <- forM cases $ \switchCase -> do
-        label <- freshLabel "case"
-        lines' <- jumpTo (switchCaseTarget switchCase)
-        pure (switchCase, label, lines')
+        moves <- blockArgumentMoves ctx (switchCaseTarget switchCase)
+        label <-
+          if null moves
+            then pure (labelOf (switchCaseTarget switchCase))
+            else freshLabel "case"
+        pure (switchCase, label, moves)
       fallbackLines <-
         case fallback of
-          Just target -> jumpTo target
+          Just target -> do
+            moves <- blockArgumentMoves ctx target
+            pure (moves <> branchTo target)
           Nothing -> do
             stub <- trapLabel "switch without a matching case"
             pure [arm64Instruction (ArmB stub)]
       let checks =
             concat
-              [ [immediate X10 (canonicalInteger ty (switchCaseValue switchCase)), arm64Instruction (ArmCmp X9 (Arm64RegisterValue X10)), arm64Instruction (ArmBCond ArmEq label)]
+              [ compareWith ctx ty False register (OperandLiteral (LitInt (switchCaseValue switchCase))) <> [arm64Instruction (ArmBCond ArmEq label)]
               | (switchCase, label, _) <- edges
               ]
-          bodies = concat [arm64Label label : lines' | (_, label, lines') <- edges]
-      pure (loadOperand ctx 0 X9 scrutinee <> checks <> fallbackLines <> bodies)
+          bodies =
+            concat
+              [ arm64Label label : moves <> [arm64Instruction (ArmB (labelOf (switchCaseTarget switchCase)))]
+              | (switchCase, label, moves) <- edges,
+                not (null moves)
+              ]
+      pure (loads <> checks <> fallbackLines <> bodies)
     Return values -> do
       when (length values > length argumentRegisters) $ unsupported "return of more than eight values"
-      let loads = concat [loadTyped ctx 0 ty register value | (ty, register, value) <- zip3 (functionResults function) argumentRegisters values]
+      let moves =
+            parallelMove
+              [ (LocRegister register, operandSource ctx ty value)
+              | (ty, register, value) <- zip3 (functionResults function) argumentRegisters values
+              ]
           floatMoves =
             case (functionConvention function, functionResults function) of
               (CConvention, [ty]) | isFloatType ty -> [arm64Instruction (ArmFmovToFloat (ty == F64) 0 X0)]
               _ -> []
-      pure (loads <> floatMoves <> restoreRegisters ctx 0 <> functionEpilogue ctx <> [arm64Instruction ArmRet])
-    TailCall symbol arguments -> tailCall (Left (lirSymbol symbol)) arguments
-    TailCallIndirect target arguments _ -> tailCall (Right target) arguments
+      pure (moves <> floatMoves <> leaveFrame ctx 0 <> adjustStack ArmAdd (ctxIncomingOverflow ctx) <> [arm64Instruction ArmRet])
+    TailCall symbol arguments ->
+      tailCall (Left (lirSymbol symbol)) (maybe [] signatureParameters (Map.lookup symbol (ctxSignatures ctx))) arguments
+    TailCallIndirect target arguments signature -> tailCall (Right target) (signatureParameters signature) arguments
     Trap message -> do
       stub <- trapLabel message
       pure [arm64Instruction (ArmB stub)]
   where
     function = ctxFunction ctx
-    -- Only an unconditional jump falls through to the next block.
-    jumpTo target = do
-      moves <- blockArgumentMoves ctx target
-      let label = ctxLabels ctx Map.! targetLabel target
-          fallsThrough = case terminator of
-            Jump _ -> Just (targetLabel target) == next
-            _ -> False
-      pure (moves <> [arm64Instruction (ArmB label) | not fallsThrough])
-    tailCall callee arguments = do
+    layout = ctxLayout ctx
+    labelOf target = ctxLabels ctx Map.! targetLabel target
+    isNext target = Just (targetLabel target) == next
+    branchTo target = [arm64Instruction (ArmB (labelOf target)) | not (isNext target)]
+    -- The outgoing block replaces the incoming one. When it is no larger,
+    -- it is written in place above the frame; when it is larger and the
+    -- function has no frame, the stack pointer just moves down to make
+    -- room; when it is larger and the function has a frame, it is built
+    -- below the frame and copied up once the frame is gone.
+    tailCall callee parameterTypes arguments = do
       let outgoing = overflowBytes (length arguments)
           incoming = ctxIncomingOverflow ctx
-          overflow = drop (length argumentRegisters) arguments
-          targetLoad = case callee of
-            Left _ -> []
-            Right operand -> loadOperand ctx outgoing X8 operand
-          overflowStores =
-            concat
-              [ loadOperand ctx outgoing X9 argument <> [arm64Instruction (ArmStr X9 (Arm64Offset SP (fromIntegral (8 * position))))]
-              | (position, argument) <- zip [0 :: Int ..] overflow
+          types = parameterTypes <> repeat I64
+          overflow = drop (length argumentRegisters) (zip types arguments)
+          registerMoves displacement =
+            parallelMove
+              [ (LocRegister register, displaceSource displacement (operandSource ctx ty argument))
+              | (register, (ty, argument)) <- zip argumentRegisters (zip types arguments)
               ]
-          registerLoads = concat [loadOperand ctx outgoing register argument | (register, argument) <- zip argumentRegisters arguments]
-          -- Restore the saved pair first, then copy the outgoing block to its
-          -- final place just below the stack of the caller, highest word first
-          -- because the destination lies above the source.
-          relocation
-            | outgoing == 0 = functionEpilogue ctx
-            | otherwise =
-                [ arm64Instruction (ArmMov X10 (Arm64RegisterValue X29)),
-                  arm64Instruction (ArmLdp X29 X30 (Arm64Offset X10 0))
-                ]
+          overflowStores displacement base =
+            concat
+              [ loads <> [storeSlot register (base + 8 * position)]
+              | (position, (ty, argument)) <- zip [0 :: Int ..] overflow,
+                let (loads, register) = operandIn ctx displacement ty scratchLeft argument
+              ]
+          branch = case callee of
+            Left label -> arm64Instruction (ArmB label)
+            Right _ -> arm64Instruction (ArmBr scratchTarget)
+      stub <-
+        case callee of
+          Left _ -> pure Nothing
+          Right _ -> Just <$> trapLabel "indirect call to a non-function"
+      let targetLoad displacement =
+            case (callee, stub) of
+              (Right operand, Just label) ->
+                let (loads, register) = operandIn ctx displacement Code scratchTarget operand
+                 in loads <> move scratchTarget register <> [arm64Instruction (ArmCbz scratchTarget label)]
+              _ -> []
+      pure $
+        if outgoing <= incoming
+          then
+            overflowStores 0 (frameBytes layout + incoming - outgoing)
+              <> targetLoad 0
+              <> registerMoves 0
+              <> leaveFrame ctx 0
+              <> adjustStack ArmAdd (incoming - outgoing)
+              <> [branch]
+          else
+            if not (layoutFramed layout)
+              then
+                adjustStack ArmSub (outgoing - incoming)
+                  <> overflowStores 0 0
+                  <> targetLoad 0
+                  <> registerMoves 0
+                  <> [branch]
+              else
+                adjustStack ArmSub outgoing
+                  <> overflowStores outgoing 0
+                  <> targetLoad outgoing
+                  <> registerMoves outgoing
+                  <> restoreRegisters ctx outgoing
+                  -- Restore the saved pair, then copy the outgoing block to
+                  -- its final place just below the stack of the caller,
+                  -- highest word first because the destination lies above
+                  -- the source.
+                  <> [ arm64Instruction (ArmMov scratchExtra (Arm64RegisterValue X29)),
+                       arm64Instruction (ArmLdp X29 X30 (Arm64Offset scratchExtra 0))
+                     ]
                   <> destination (16 + incoming - outgoing)
                   <> concat
-                    [ [ arm64Instruction (ArmLdr X9 (Arm64Offset SP (fromIntegral (8 * position)))),
-                        arm64Instruction (ArmStr X9 (Arm64Offset X11 (fromIntegral (8 * position))))
+                    [ [ loadSlot scratchRight (8 * position),
+                        arm64Instruction (ArmStr scratchRight (Arm64Offset scratchLeft (fromIntegral (8 * position))))
                       ]
                     | position <- reverse [0 .. length overflow - 1]
                     ]
-                  <> [arm64Instruction (ArmMov SP (Arm64RegisterValue X11))]
-          destination delta
-            | delta >= 0 = [arm64Instruction (ArmAdd X11 X10 (Arm64ImmediateValue (fromIntegral delta)))]
-            | otherwise = [arm64Instruction (ArmSub X11 X10 (Arm64ImmediateValue (fromIntegral (negate delta))))]
-          branch = case callee of
-            Left label -> arm64Instruction (ArmB label)
-            Right _ -> arm64Instruction (ArmBr X8)
-      nullCheck <-
-        case callee of
-          Left _ -> pure []
-          Right _ -> do
-            stub <- trapLabel "indirect call to a non-function"
-            pure [arm64Instruction (ArmCbz X8 stub)]
-      pure
-        ( adjustStack ArmSub outgoing
-            <> targetLoad
-            <> nullCheck
-            <> overflowStores
-            <> registerLoads
-            -- Every allocated value has been read by now, so the saved
-            -- registers go back before the frame does.
-            <> restoreRegisters ctx outgoing
-            <> relocation
-            <> [branch]
-        )
+                  <> [arm64Instruction (ArmMov SP (Arm64RegisterValue scratchLeft)), branch]
+    destination delta
+      | delta >= 0 = [arm64Instruction (ArmAdd scratchLeft scratchExtra (Arm64ImmediateValue (fromIntegral delta)))]
+      | otherwise = [arm64Instruction (ArmSub scratchLeft scratchExtra (Arm64ImmediateValue (fromIntegral (negate delta))))]
 
--- | Move the arguments of a jump into the parameter slots of the target. All
--- arguments are read before any parameter is written.
+-- | Move the arguments of a jump into the parameters of the target, all at
+-- once.
 blockArgumentMoves :: Ctx -> Target -> M [Arm64Statement]
 blockArgumentMoves ctx (Target label arguments) = do
   let parameters = Map.findWithDefault [] label (ctxBlockParameters ctx)
-  if length arguments <= length moveRegisters
-    then
-      pure
-        ( concat [loadTyped ctx 0 ty register argument | ((_, ty), register, argument) <- zip3 parameters moveRegisters arguments]
-            <> [writeValue ctx 0 register var | ((var, _), register) <- zip parameters moveRegisters]
-        )
-    else do
-      let temps = layoutTemps (ctxLayout ctx)
-      pure
-        ( concat
-            [ loadTyped ctx 0 ty X9 argument <> [arm64Instruction (ArmStr X9 (Arm64Offset SP (fromIntegral temp)))]
-            | ((_, ty), temp, argument) <- zip3 parameters temps arguments
-            ]
-            <> concat
-              [ [arm64Instruction (ArmLdr X9 (Arm64Offset SP (fromIntegral temp))), writeValue ctx 0 X9 var]
-              | ((var, _), temp) <- zip parameters temps
-              ]
-        )
+  pure
+    ( parallelMove
+        [ (home ctx var, operandSource ctx ty argument)
+        | ((var, ty), argument) <- zip parameters arguments
+        ]
+    )
 
 -- Instructions
 
@@ -818,66 +1113,99 @@ compileInstruction :: Ctx -> Instruction -> M [Arm64Statement]
 compileInstruction ctx (Instruction results operation) =
   case operation of
     Binary op ty left right -> do
-      body <- binary op ty
-      single (loadTyped ctx 0 ty X9 left <> loadTyped ctx 0 ty X10 right <> body)
-    Unary op ty value -> single (loadTyped ctx 0 ty X9 value <> bitCount op ty)
+      let (loads, a) = operandIn ctx 0 ty scratchLeft left
+      single $ \dst -> do
+        body <- binary op ty dst a right
+        pure (loads <> body)
+    Unary op ty value -> do
+      let (loads, a) = operandIn ctx 0 ty scratchLeft value
+      single $ \dst -> pure (loads <> bitCount op ty dst a)
     Wide op ty left right -> do
-      body <- wide op ty
-      pair (loadTyped ctx 0 ty X9 left <> loadTyped ctx 0 ty X10 right <> body)
+      let (loads, a) = operandIn ctx 0 ty scratchLeft left
+          (loads', b) = operandIn ctx 0 ty scratchRight right
+      pair $ \low high -> pure (loads <> loads' <> wide op ty low high a b)
     Compare op ty left right ->
-      single (loadTyped ctx 0 ty X9 left <> loadTyped ctx 0 ty X10 right <> compare' op ty)
-    FloatBinary op ty left right ->
-      single
-        ( loadTyped ctx 0 ty X9 left
-            <> loadTyped ctx 0 ty X10 right
-            <> [toFloat ty 16 X9, toFloat ty 17 X10, arm64Instruction (ArmFloat (floatOp op) (ty == F64) 16 16 17), fromFloat ty X9 16]
-        )
-    FloatUnary op ty value ->
-      single (loadTyped ctx 0 ty X9 value <> [toFloat ty 16 X9, arm64Instruction (ArmFloat (floatUnaryOp op) (ty == F64) 16 16 16), fromFloat ty X9 16])
+      single $ \dst -> pure (compare' op ty dst left right)
+    FloatBinary op ty left right -> do
+      let (loads, a) = operandIn ctx 0 ty scratchLeft left
+          (loads', b) = operandIn ctx 0 ty scratchRight right
+      single $ \dst ->
+        pure (loads <> loads' <> [toFloat ty 16 a, toFloat ty 17 b, arm64Instruction (ArmFloat (floatOp op) (ty == F64) 16 16 17), fromFloat ty dst 16])
+    FloatUnary op ty value -> do
+      let (loads, a) = operandIn ctx 0 ty scratchLeft value
+      single $ \dst -> pure (loads <> [toFloat ty 16 a, arm64Instruction (ArmFloat (floatUnaryOp op) (ty == F64) 16 16 16), fromFloat ty dst 16])
     Convert op from value to -> do
-      body <- convert op from to
-      single (loadTyped ctx 0 from X9 value <> body)
-    PtrToInt value -> single (loadOperand ctx 0 X9 value)
-    PtrFromInt value -> single (loadOperand ctx 0 X9 value)
-    Select ty condition left right ->
-      single
-        ( loadOperand ctx 0 X11 condition
-            <> loadTyped ctx 0 ty X9 left
-            <> loadTyped ctx 0 ty X10 right
-            <> [arm64Instruction (ArmCmp X11 (Arm64ImmediateValue 0)), arm64Instruction (ArmCsel X9 X9 X10 ArmNe)]
-        )
+      let (loads, a) = operandIn ctx 0 from scratchLeft value
+      single $ \dst -> do
+        body <- convert op from to dst a
+        pure (loads <> body)
+    PtrToInt value -> copy value
+    PtrFromInt value -> copy value
+    Select ty condition left right -> do
+      let (conditionLoads, c) = operandIn ctx 0 I1 scratchExtra condition
+          (loads, a) = operandIn ctx 0 ty scratchLeft left
+          (loads', b) = operandIn ctx 0 ty scratchRight right
+      single $ \dst ->
+        pure (conditionLoads <> loads <> loads' <> [arm64Instruction (ArmCmp c (Arm64ImmediateValue 0)), arm64Instruction (ArmCsel dst a b ArmNe)])
     Load ty (Address base offset) _ -> do
-      addressLines <- effectiveAddress base offset ty
-      single (addressLines <> [loadMemory ty X9 X10 (memoryOffset offset ty)])
+      let (addressLines, baseRegister) = effectiveAddress base offset ty
+      single $ \dst -> pure (addressLines <> [loadMemory ty dst baseRegister (memoryOffset offset ty)])
     Store ty value (Address base offset) _ -> do
-      addressLines <- effectiveAddress base offset ty
-      pure (loadTyped ctx 0 ty X9 value <> addressLines <> [storeMemory ty X9 X10 (memoryOffset offset ty)])
-    PtrAdd base offset ->
-      single (loadOperand ctx 0 X9 base <> loadOperand ctx 0 X10 offset <> [arm64Instruction (ArmAdd X9 X9 (Arm64RegisterValue X10))])
+      let (loads, a) = operandIn ctx 0 ty scratchLeft value
+          (addressLines, baseRegister) = effectiveAddress base offset ty
+      pure (loads <> addressLines <> [storeMemory ty a baseRegister (memoryOffset offset ty)])
+    PtrAdd base offset -> do
+      let (loads, a) = operandIn ctx 0 Ptr scratchLeft base
+      single $ \dst ->
+        pure
+          ( loads
+              <> case smallImmediate I64 offset of
+                Just value -> [arm64Instruction (ArmAdd dst a (Arm64ImmediateValue value))]
+                Nothing ->
+                  let (loads', b) = operandIn ctx 0 I64 scratchRight offset
+                   in loads' <> [arm64Instruction (ArmAdd dst a (Arm64RegisterValue b))]
+          )
     StackAlloc _ _ ->
       case results of
         [var]
           | Just (offset, _) <- Map.lookup var (layoutAllocs (ctxLayout ctx)) ->
-              single
-                ( if offset < 4096
-                    then [arm64Instruction (ArmAdd X9 SP (Arm64ImmediateValue (fromIntegral offset)))]
-                    else [immediate X9 offset, arm64Instruction (ArmAdd X9 SP (Arm64RegisterValue X9))]
-                )
+              single $ \dst ->
+                pure
+                  ( if offset < 4096
+                      then [arm64Instruction (ArmAdd dst SP (Arm64ImmediateValue (fromIntegral offset)))]
+                      else [immediate scratchExtra offset, arm64Instruction (ArmAdd dst SP (Arm64RegisterValue scratchExtra))]
+                  )
         _ -> unsupported "stack.alloc without a placed result"
-    GlobalGet symbol -> single (address X10 (lirSymbol symbol) <> [arm64Instruction (ArmLdr X9 (Arm64Offset X10 0))])
-    GlobalSet symbol value ->
-      pure (loadOperand ctx 0 X9 value <> address X10 (lirSymbol symbol) <> [arm64Instruction (ArmStr X9 (Arm64Offset X10 0))])
+    GlobalGet symbol ->
+      single $ \dst -> pure (address scratchRight (lirSymbol symbol) <> [arm64Instruction (ArmLdr dst (Arm64Offset scratchRight 0))])
+    GlobalSet symbol value -> do
+      let (loads, a) = operandIn ctx 0 I64 scratchLeft value
+      pure (loads <> address scratchRight (lirSymbol symbol) <> [arm64Instruction (ArmStr a (Arm64Offset scratchRight 0))])
     Call symbol arguments -> call (Left symbol) arguments
     CallIndirect target arguments signature -> callIndirect target arguments signature
   where
+    -- The result register of an instruction with one result, and the store
+    -- that follows when the result lives in a slot. A result never aliases
+    -- an operand of its own instruction unless the instruction reads every
+    -- operand before it writes, which every body below does.
     single body =
       case results of
-        [var] -> pure (body <> [writeValue ctx 0 X9 var])
+        [var] -> do
+          let (dst, store) = resultIn ctx scratchLeft var
+          lines' <- body dst
+          pure (lines' <> store)
         _ -> unsupported "instruction result count"
     pair body =
       case results of
-        [first, second] -> pure (body <> [writeValue ctx 0 X9 first, writeValue ctx 0 X10 second])
+        [first, second] -> do
+          let (low, storeLow) = resultIn ctx scratchLeft first
+              (high, storeHigh) = resultIn ctx scratchRight second
+          lines' <- body low high
+          pure (lines' <> storeLow <> storeHigh)
         _ -> unsupported "instruction result count"
+    copy value = do
+      let (loads, a) = operandIn ctx 0 Ptr scratchLeft value
+      single $ \dst -> pure (loads <> move dst a)
 
     -- The offset of a load or a store: folded into the instruction when the
     -- scaled immediate form permits it, otherwise added to the base.
@@ -887,217 +1215,267 @@ compileInstruction ctx (Instruction results operation) =
     fitsScaled offset ty =
       let size = toInteger (typeBytes ty)
        in offset >= 0 && offset `mod` size == 0 && offset `div` size < 4096
-    effectiveAddress base offset ty
-      | fitsScaled offset ty = pure (loadOperand ctx 0 X10 base)
-      | otherwise = pure (loadOperand ctx 0 X10 base <> [immediate X11 offset, arm64Instruction (ArmAdd X10 X10 (Arm64RegisterValue X11))])
+    effectiveAddress base offset ty =
+      let (loads, register) = operandIn ctx 0 Ptr scratchRight base
+       in if fitsScaled offset ty
+            then (loads, register)
+            else (loads <> [immediate scratchExtra offset, arm64Instruction (ArmAdd scratchRight register (Arm64RegisterValue scratchExtra))], scratchRight)
 
-    -- A narrow value is zero-extended in its slot, so a leading-zero count
-    -- includes the bits above the type and a trailing-zero count of zero
-    -- would reach the top of the register. Setting the first bit above the
-    -- type keeps the trailing count at the width of the type.
-    bitCount op ty =
+    -- A narrow value is zero-extended in its register, so a leading-zero
+    -- count includes the bits above the type and a trailing-zero count of
+    -- zero would reach the top of the register. Setting the first bit above
+    -- the type keeps the trailing count at the width of the type.
+    bitCount op ty dst a =
       let bits = typeBits ty
        in case op of
             Popcount ->
-              [ toFloat F64 16 X9,
+              [ toFloat F64 16 a,
                 arm64Instruction (ArmCnt 16 16),
                 arm64Instruction (ArmAddv 16 16),
-                fromFloat F64 X9 16
+                fromFloat F64 dst 16
               ]
             Clz ->
-              arm64Instruction (ArmClz X9 X9)
-                : [arm64Instruction (ArmSub X9 X9 (Arm64ImmediateValue (toInteger (64 - bits)))) | bits < 64]
-            Ctz ->
-              concat [[immediate X10 (2 ^ bits :: Integer), arm64Instruction (ArmOrr X9 X9 (Arm64RegisterValue X10))] | bits < 64]
-                <> [arm64Instruction (ArmRbit X9 X9), arm64Instruction (ArmClz X9 X9)]
+              arm64Instruction (ArmClz dst a)
+                : [arm64Instruction (ArmSub dst dst (Arm64ImmediateValue (toInteger (64 - bits)))) | bits < 64]
+            Ctz
+              | bits < 64 ->
+                  [ immediate scratchExtra (2 ^ bits :: Integer),
+                    arm64Instruction (ArmOrr dst a (Arm64RegisterValue scratchExtra)),
+                    arm64Instruction (ArmRbit dst dst),
+                    arm64Instruction (ArmClz dst dst)
+                  ]
+              | otherwise -> [arm64Instruction (ArmRbit dst a), arm64Instruction (ArmClz dst dst)]
 
-    binary op ty =
+    -- The right operand of a binary instruction: an immediate when the
+    -- literal fits, otherwise a register.
+    rightValue ty right =
+      case smallImmediate ty right of
+        Just value -> ([], Arm64ImmediateValue value)
+        Nothing ->
+          let (loads, b) = operandIn ctx 0 ty scratchRight right
+           in (loads, Arm64RegisterValue b)
+    rightRegister ty = operandIn ctx 0 ty scratchRight
+
+    binary op ty dst a right =
       case op of
-        Add -> pure (narrow ty [arm64Instruction (ArmAdd X9 X9 (Arm64RegisterValue X10))])
-        Sub -> pure (narrow ty [arm64Instruction (ArmSub X9 X9 (Arm64RegisterValue X10))])
-        Mul -> pure (narrow ty [arm64Instruction (ArmMul X9 X9 X10)])
+        Add ->
+          let (loads, b) = rightValue ty right
+           in pure (loads <> narrow ty dst [arm64Instruction (ArmAdd dst a b)])
+        Sub ->
+          let (loads, b) = rightValue ty right
+           in pure (loads <> narrow ty dst [arm64Instruction (ArmSub dst a b)])
+        Mul ->
+          let (loads, b) = rightRegister ty right
+           in pure (loads <> narrow ty dst [arm64Instruction (ArmMul dst a b)])
         DivS -> do
           zero <- trapLabel "integer division by zero"
           overflow <- trapLabel "integer overflow"
           skip <- freshLabel "div"
+          let (loads, b) = rightRegister ty right
+              (extendLeft, a') = signExtendInto ty scratchLeft a
+              (extendRight, b') = signExtendInto ty scratchRight b
           pure
-            ( signExtend ty X9
-                <> signExtend ty X10
-                <> [ arm64Instruction (ArmCbz X10 zero),
-                     immediate X11 (-1 :: Integer),
-                     arm64Instruction (ArmCmp X10 (Arm64RegisterValue X11)),
+            ( loads
+                <> extendLeft
+                <> extendRight
+                <> [ arm64Instruction (ArmCbz b' zero),
+                     immediate scratchExtra (-1 :: Integer),
+                     arm64Instruction (ArmCmp b' (Arm64RegisterValue scratchExtra)),
                      arm64Instruction (ArmBCond ArmNe skip),
-                     immediate X11 (minimumSigned ty),
-                     arm64Instruction (ArmCmp X9 (Arm64RegisterValue X11)),
+                     immediate scratchExtra (minimumSigned ty),
+                     arm64Instruction (ArmCmp a' (Arm64RegisterValue scratchExtra)),
                      arm64Instruction (ArmBCond ArmEq overflow),
                      arm64Label skip
                    ]
-                <> narrow ty [arm64Instruction (ArmSdiv X9 X9 X10)]
+                <> narrow ty dst [arm64Instruction (ArmSdiv dst a' b')]
             )
         DivU -> do
           zero <- trapLabel "integer division by zero"
-          pure [arm64Instruction (ArmCbz X10 zero), arm64Instruction (ArmUdiv X9 X9 X10)]
+          let (loads, b) = rightRegister ty right
+          pure (loads <> [arm64Instruction (ArmCbz b zero), arm64Instruction (ArmUdiv dst a b)])
         RemS -> do
           zero <- trapLabel "integer division by zero"
+          let (loads, b) = rightRegister ty right
+              (extendLeft, a') = signExtendInto ty scratchLeft a
+              (extendRight, b') = signExtendInto ty scratchRight b
           pure
-            ( signExtend ty X9
-                <> signExtend ty X10
-                <> [arm64Instruction (ArmCbz X10 zero), arm64Instruction (ArmSdiv X11 X9 X10)]
-                <> narrow ty [arm64Instruction (ArmMsub X9 X11 X10 X9)]
+            ( loads
+                <> extendLeft
+                <> extendRight
+                <> [arm64Instruction (ArmCbz b' zero), arm64Instruction (ArmSdiv scratchExtra a' b')]
+                <> narrow ty dst [arm64Instruction (ArmMsub dst scratchExtra b' a')]
             )
         RemU -> do
           zero <- trapLabel "integer division by zero"
-          pure [arm64Instruction (ArmCbz X10 zero), arm64Instruction (ArmUdiv X11 X9 X10), arm64Instruction (ArmMsub X9 X11 X10 X9)]
-        And -> pure [arm64Instruction (ArmAnd X9 X9 X10)]
-        Or -> pure [arm64Instruction (ArmOrr X9 X9 (Arm64RegisterValue X10))]
-        Xor -> pure [arm64Instruction (ArmEor X9 X9 X10)]
-        Shl -> pure (shiftCount ty <> narrow ty [arm64Instruction (ArmLsl X9 X9 (Arm64RegisterShift X10))])
-        ShrS -> pure (signExtend ty X9 <> shiftCount ty <> narrow ty [arm64Instruction (ArmAsr X9 X9 (Arm64RegisterShift X10))])
-        ShrU -> pure (shiftCount ty <> [arm64Instruction (ArmLsr X9 X9 (Arm64RegisterShift X10))])
+          let (loads, b) = rightRegister ty right
+          pure (loads <> [arm64Instruction (ArmCbz b zero), arm64Instruction (ArmUdiv scratchExtra a b), arm64Instruction (ArmMsub dst scratchExtra b a)])
+        And ->
+          let (loads, b) = rightRegister ty right
+           in pure (loads <> [arm64Instruction (ArmAnd dst a b)])
+        Or ->
+          let (loads, b) = rightRegister ty right
+           in pure (loads <> [arm64Instruction (ArmOrr dst a (Arm64RegisterValue b))])
+        Xor ->
+          let (loads, b) = rightRegister ty right
+           in pure (loads <> [arm64Instruction (ArmEor dst a b)])
+        Shl ->
+          let (loads, b) = rightRegister ty right
+              (mask, b') = shiftCount ty b
+           in pure (loads <> mask <> narrow ty dst [arm64Instruction (ArmLsl dst a (Arm64RegisterShift b'))])
+        ShrS ->
+          let (loads, b) = rightRegister ty right
+              (extendLeft, a') = signExtendInto ty scratchLeft a
+              (mask, b') = shiftCount ty b
+           in pure (loads <> extendLeft <> mask <> narrow ty dst [arm64Instruction (ArmAsr dst a' (Arm64RegisterShift b'))])
+        ShrU ->
+          let (loads, b) = rightRegister ty right
+              (mask, b') = shiftCount ty b
+           in pure (loads <> mask <> [arm64Instruction (ArmLsr dst a (Arm64RegisterShift b'))])
 
-    wide op ty =
+    -- Every body reads both operands before it writes either result, and
+    -- computes through 'scratchExtra' when it needs a third register.
+    wide op ty low high a b =
       case op of
         MulWideU
-          | typeBits ty == 64 -> pure [arm64Instruction (ArmUmulh X11 X9 X10), arm64Instruction (ArmMul X9 X9 X10), arm64Instruction (ArmMov X10 (Arm64RegisterValue X11))]
+          | typeBits ty == 64 ->
+              [arm64Instruction (ArmUmulh scratchExtra a b), arm64Instruction (ArmMul low a b)] <> move high scratchExtra
           | otherwise ->
-              pure
-                ( [arm64Instruction (ArmMul X11 X9 X10)]
-                    <> [arm64Instruction (ArmLsr X10 X11 (Arm64ImmediateShift (fromIntegral (typeBits ty))))]
-                    <> narrowRegister ty X10
-                    <> [arm64Instruction (ArmMov X9 (Arm64RegisterValue X11))]
-                    <> narrowRegister ty X9
-                )
+              [arm64Instruction (ArmMul scratchExtra a b), arm64Instruction (ArmLsr high scratchExtra (Arm64ImmediateShift (fromIntegral (typeBits ty))))]
+                <> narrowRegister ty high
+                <> move low scratchExtra
+                <> narrowRegister ty low
         MulWideS
-          | typeBits ty == 64 -> pure [arm64Instruction (ArmSmulh X11 X9 X10), arm64Instruction (ArmMul X9 X9 X10), arm64Instruction (ArmMov X10 (Arm64RegisterValue X11))]
+          | typeBits ty == 64 ->
+              [arm64Instruction (ArmSmulh scratchExtra a b), arm64Instruction (ArmMul low a b)] <> move high scratchExtra
           | otherwise ->
-              pure
-                ( signExtend ty X9
-                    <> signExtend ty X10
-                    <> [arm64Instruction (ArmMul X11 X9 X10)]
-                    <> [arm64Instruction (ArmAsr X10 X11 (Arm64ImmediateShift (fromIntegral (typeBits ty))))]
-                    <> narrowRegister ty X10
-                    <> [arm64Instruction (ArmMov X9 (Arm64RegisterValue X11))]
-                    <> narrowRegister ty X9
-                )
+              let (extendLeft, a') = signExtendInto ty scratchLeft a
+                  (extendRight, b') = signExtendInto ty scratchRight b
+               in extendLeft
+                    <> extendRight
+                    <> [arm64Instruction (ArmMul scratchExtra a' b'), arm64Instruction (ArmAsr high scratchExtra (Arm64ImmediateShift (fromIntegral (typeBits ty))))]
+                    <> narrowRegister ty high
+                    <> move low scratchExtra
+                    <> narrowRegister ty low
         AddCarry
-          | typeBits ty == 64 -> pure [arm64Instruction (ArmAdds X9 X9 (Arm64RegisterValue X10)), arm64Instruction (ArmCset X10 ArmCs)]
+          | typeBits ty == 64 -> [arm64Instruction (ArmAdds low a (Arm64RegisterValue b)), arm64Instruction (ArmCset high ArmCs)]
           | otherwise ->
-              pure
-                ( [arm64Instruction (ArmAdd X9 X9 (Arm64RegisterValue X10)), arm64Instruction (ArmLsr X10 X9 (Arm64ImmediateShift (fromIntegral (typeBits ty))))]
-                    <> narrowRegister ty X9
-                )
+              [arm64Instruction (ArmAdd low a (Arm64RegisterValue b)), arm64Instruction (ArmLsr high low (Arm64ImmediateShift (fromIntegral (typeBits ty))))]
+                <> narrowRegister ty low
         SubBorrow
-          | typeBits ty == 64 -> pure [arm64Instruction (ArmSubs X9 X9 (Arm64RegisterValue X10)), arm64Instruction (ArmCset X10 ArmCc)]
+          | typeBits ty == 64 -> [arm64Instruction (ArmSubs low a (Arm64RegisterValue b)), arm64Instruction (ArmCset high ArmCc)]
           | otherwise ->
-              pure
-                ( [ arm64Instruction (ArmCmp X9 (Arm64RegisterValue X10)),
-                    arm64Instruction (ArmCset X11 ArmCc),
-                    arm64Instruction (ArmSub X9 X9 (Arm64RegisterValue X10))
-                  ]
-                    <> narrowRegister ty X9
-                    <> [arm64Instruction (ArmMov X10 (Arm64RegisterValue X11))]
-                )
+              [ arm64Instruction (ArmCmp a (Arm64RegisterValue b)),
+                arm64Instruction (ArmCset scratchExtra ArmCc),
+                arm64Instruction (ArmSub low a (Arm64RegisterValue b))
+              ]
+                <> narrowRegister ty low
+                <> move high scratchExtra
 
-    compare' op ty
+    compare' op ty dst left right
       | isFloatType ty =
-          [toFloat ty 16 X9, toFloat ty 17 X10, arm64Instruction (ArmFcmp (ty == F64) 16 17), arm64Instruction (ArmCset X9 (floatCondition op))]
-      | op `elem` [LtS, LeS, GtS, GeS] =
-          signExtend ty X9 <> signExtend ty X10 <> [arm64Instruction (ArmCmp X9 (Arm64RegisterValue X10)), arm64Instruction (ArmCset X9 (integerCondition op))]
-      | otherwise = [arm64Instruction (ArmCmp X9 (Arm64RegisterValue X10)), arm64Instruction (ArmCset X9 (integerCondition op))]
+          let (loads, a) = operandIn ctx 0 ty scratchLeft left
+              (loads', b) = operandIn ctx 0 ty scratchRight right
+           in loads <> loads' <> [toFloat ty 16 a, toFloat ty 17 b, arm64Instruction (ArmFcmp (ty == F64) 16 17), arm64Instruction (ArmCset dst (floatCondition op))]
+      | otherwise =
+          let signed = op `elem` [LtS, LeS, GtS, GeS]
+              (loads, a) = operandIn ctx 0 ty scratchLeft left
+              (extendLeft, a') = if signed then signExtendInto ty scratchLeft a else ([], a)
+           in loads <> extendLeft <> compareWith ctx ty signed a' right <> [arm64Instruction (ArmCset dst (integerCondition op))]
 
-    convert op from to =
+    convert op from to dst a =
       case op of
-        SExt -> pure (signExtend from X9 <> narrowRegister to X9)
-        ZExt -> pure []
-        Trunc -> pure (narrowRegister to X9)
-        IToFS -> pure (signExtend from X9 <> [arm64Instruction (ArmScvtf (to == F64) 16 X9), fromFloat to X9 16])
-        IToFU -> pure [arm64Instruction (ArmUcvtf (to == F64) 16 X9), fromFloat to X9 16]
-        FToIS -> floatToInteger True from to
-        FToIU -> floatToInteger False from to
-        FpExt -> pure [arm64Instruction (ArmFmovToFloat False 16 W9), arm64Instruction (ArmFcvt True 16 16), arm64Instruction (ArmFmovFromFloat True X9 16)]
-        FpTrunc -> pure [arm64Instruction (ArmFmovToFloat True 16 X9), arm64Instruction (ArmFcvt False 16 16), arm64Instruction (ArmFmovFromFloat False W9 16)]
-        Bitcast -> pure []
+        SExt -> pure (signExtendTo dst from a <> narrowRegister to dst)
+        ZExt -> pure (move dst a)
+        Trunc -> pure (truncateTo dst to a)
+        IToFS ->
+          let (extend, a') = signExtendInto from scratchLeft a
+           in pure (extend <> [arm64Instruction (ArmScvtf (to == F64) 16 a'), fromFloat to dst 16])
+        IToFU -> pure [arm64Instruction (ArmUcvtf (to == F64) 16 a), fromFloat to dst 16]
+        FToIS -> floatToInteger True from to dst a
+        FToIU -> floatToInteger False from to dst a
+        FpExt -> pure [arm64Instruction (ArmFmovToFloat False 16 (wordRegister a)), arm64Instruction (ArmFcvt True 16 16), arm64Instruction (ArmFmovFromFloat True dst 16)]
+        FpTrunc -> pure [arm64Instruction (ArmFmovToFloat True 16 a), arm64Instruction (ArmFcvt False 16 16), arm64Instruction (ArmFmovFromFloat False (wordRegister dst) 16)]
+        Bitcast -> pure (move dst a)
 
     -- Widen the source to double, reject NaN and values outside the target
     -- range, then convert with rounding toward zero.
-    floatToInteger signed from to = do
+    floatToInteger signed from to dst a = do
       invalid <- trapLabel "invalid float to integer conversion"
-      let widen = if from == F64 then [arm64Instruction (ArmFmovToFloat True 16 X9)] else [arm64Instruction (ArmFmovToFloat False 16 W9), arm64Instruction (ArmFcvt True 16 16)]
+      let widen = if from == F64 then [arm64Instruction (ArmFmovToFloat True 16 a)] else [arm64Instruction (ArmFmovToFloat False 16 (wordRegister a)), arm64Instruction (ArmFcvt True 16 16)]
           bits = typeBits to
           lower = if signed then negate (2 ^^ (bits - 1)) else -1 :: Double
           upper = if signed then 2 ^^ (bits - 1) else 2 ^^ bits :: Double
           lowerCondition = if signed then ArmMi else ArmLe
-          convertOp = if signed then ArmFcvtzs True X9 16 else ArmFcvtzu True X9 16
+          convertOp = if signed then ArmFcvtzs True dst 16 else ArmFcvtzu True dst 16
       pure
         ( widen
             <> [ arm64Instruction (ArmFcmp True 16 16),
                  arm64Instruction (ArmBCond ArmVs invalid),
-                 immediate X10 (toInteger (castDoubleToWord64 lower)),
-                 arm64Instruction (ArmFmovToFloat True 17 X10),
+                 immediate scratchExtra (toInteger (castDoubleToWord64 lower)),
+                 arm64Instruction (ArmFmovToFloat True 17 scratchExtra),
                  arm64Instruction (ArmFcmp True 16 17),
                  arm64Instruction (ArmBCond lowerCondition invalid),
-                 immediate X10 (toInteger (castDoubleToWord64 upper)),
-                 arm64Instruction (ArmFmovToFloat True 17 X10),
+                 immediate scratchExtra (toInteger (castDoubleToWord64 upper)),
+                 arm64Instruction (ArmFmovToFloat True 17 scratchExtra),
                  arm64Instruction (ArmFcmp True 16 17),
                  arm64Instruction (ArmBCond ArmGe invalid),
                  arm64Instruction convertOp
                ]
-            <> narrowRegister to X9
+            <> narrowRegister to dst
         )
 
-    shiftCount ty
-      | typeBits ty == 64 = []
-      | otherwise = [arm64Instruction (ArmAndMask X10 X10 (log2 (toInteger (typeBits ty))))]
-    narrow ty body = body <> narrowRegister ty X9
+    -- A shift count of a narrow type wraps at the width of the type.
+    shiftCount ty b
+      | typeBits ty == 64 = ([], b)
+      | otherwise = ([arm64Instruction (ArmAndMask scratchRight b (log2 (toInteger (typeBits ty))))], scratchRight)
+    narrow ty dst body = body <> narrowRegister ty dst
 
     call callee arguments = do
       let (convention, resultTypes, parameterTypes) = calleeSignature callee
       let outgoing = case convention of
             CConvention -> 0
             AihcConvention -> overflowBytes (length arguments)
-      argumentLoads <-
+          types = parameterTypes <> repeat I64
+          branch = case callee of
+            Left symbol -> [arm64Instruction (ArmBl (lirSymbol symbol))]
+            Right _ -> [arm64Instruction (ArmBlr scratchTarget)]
+          resultMoves =
+            concat [floatResult convention ty register <> canonicalResult convention ty register | (ty, register) <- zip resultTypes argumentRegisters]
+              <> parallelMove [(home ctx var, SourceLocation (LocRegister register)) | (var, register) <- zip results argumentRegisters]
+      argumentMoves <-
         case convention of
           AihcConvention ->
             pure
               ( concat
-                  [ loadTyped ctx outgoing ty X9 argument <> [arm64Instruction (ArmStr X9 (Arm64Offset SP (fromIntegral (8 * position))))]
-                  | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length argumentRegisters) (zip parameterTypes arguments))
+                  [ loads <> [storeSlot register (8 * position)]
+                  | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length argumentRegisters) (zip types arguments)),
+                    let (loads, register) = operandIn ctx outgoing ty scratchLeft argument
                   ]
-                  <> concat
-                    [ loadTyped ctx outgoing ty register argument
-                    | (register, (ty, argument)) <- zip argumentRegisters (zip parameterTypes arguments)
+                  <> parallelMove
+                    [ (LocRegister register, displaceSource outgoing (operandSource ctx ty argument))
+                    | (register, (ty, argument)) <- zip argumentRegisters (zip types arguments)
                     ]
               )
           CConvention -> do
-            let (integers, floats) = classify parameterTypes
+            let (integers, floats) = classify (take (length arguments) types)
             when (length integers > length argumentRegisters) $ unsupported "C call with more than eight integer arguments"
             when (length floats > floatArgumentCount) $ unsupported "C call with more than eight float arguments"
-            -- The float arguments move through a scratch register first, so
-            -- loading them cannot disturb an argument register that already
-            -- holds one of the integers.
+            -- The floats go first: a float register is never a home, while
+            -- the integer moves may overwrite one.
             pure
               ( concat
-                  [ loadTyped ctx 0 ty X9 (arguments !! index) <> [arm64Instruction (ArmFmovToFloat (ty == F64) slot X9)]
-                  | ((index, ty), slot) <- zip floats [0 ..]
+                  [ loads <> [arm64Instruction (ArmFmovToFloat (ty == F64) slot register)]
+                  | ((index, ty), slot) <- zip floats [0 ..],
+                    let (loads, register) = operandIn ctx 0 ty scratchLeft (arguments !! index)
                   ]
-                  <> concat
-                    [ loadTyped ctx 0 ty register (arguments !! index)
-                    | ((index, ty), register) <- zip integers argumentRegisters
-                    ]
+                  <> parallelMove [(LocRegister register, operandSource ctx ty (arguments !! index)) | ((index, ty), register) <- zip integers argumentRegisters]
               )
-      let branch = case callee of
-            Left symbol -> [arm64Instruction (ArmBl (lirSymbol symbol))]
-            Right _ -> [arm64Instruction (ArmBlr X8)]
-          resultStores =
-            concat
-              [ floatResult convention ty register <> canonicalResult convention ty register <> [writeValue ctx 0 register var]
-              | (var, ty, register) <- zip3 results resultTypes argumentRegisters
-              ]
-      pure (adjustStack ArmSub outgoing <> argumentLoads <> branch <> resultStores)
+      pure (adjustStack ArmSub outgoing <> argumentMoves <> branch <> resultMoves)
     callIndirect target arguments signature = do
       stub <- trapLabel "indirect call to a non-function"
       body <- call (Right signature) arguments
-      pure (loadOperand ctx 0 X8 target <> [arm64Instruction (ArmCbz X8 stub)] <> body)
+      let (loads, register) = operandIn ctx 0 Code scratchTarget target
+      pure (loads <> move scratchTarget register <> [arm64Instruction (ArmCbz scratchTarget stub)] <> body)
     calleeSignature callee =
       case callee of
         Left symbol ->
@@ -1123,15 +1501,31 @@ narrowRegister ty register
   | typeBits ty >= 64 = []
   | otherwise = [arm64Instruction (ArmAndMask register register (typeBits ty))]
 
--- | Sign-extend a canonical narrow value to 64 bits.
-signExtend :: Type -> Arm64Register -> [Arm64Statement]
-signExtend ty register =
+-- | Sign-extend a canonical narrow value into a register. A 64-bit value is
+-- copied.
+signExtendTo :: Arm64Register -> Type -> Arm64Register -> [Arm64Statement]
+signExtendTo destination ty source =
   case ty of
-    I1 -> [arm64Instruction (ArmSub register XZR (Arm64RegisterValue register))]
-    I8 -> [arm64Instruction (ArmSxtb register register)]
-    I16 -> [arm64Instruction (ArmSxth register register)]
-    I32 -> [arm64Instruction (ArmSxtw register register)]
-    _ -> []
+    I1 -> [arm64Instruction (ArmSub destination XZR (Arm64RegisterValue source))]
+    I8 -> [arm64Instruction (ArmSxtb destination source)]
+    I16 -> [arm64Instruction (ArmSxth destination source)]
+    I32 -> [arm64Instruction (ArmSxtw destination source)]
+    _ -> move destination source
+
+-- | Sign-extend a canonical narrow value into the scratch register, and say
+-- which register now holds the extended value. A 64-bit value stays where
+-- it is.
+signExtendInto :: Type -> Arm64Register -> Arm64Register -> ([Arm64Statement], Arm64Register)
+signExtendInto ty scratch source
+  | typeBits ty >= 64 = ([], source)
+  | otherwise = (signExtendTo scratch ty source, scratch)
+
+-- | Mask a value to the width of a narrow type into a register. A 64-bit
+-- value is copied.
+truncateTo :: Arm64Register -> Type -> Arm64Register -> [Arm64Statement]
+truncateTo destination ty source
+  | typeBits ty >= 64 = move destination source
+  | otherwise = [arm64Instruction (ArmAndMask destination source (typeBits ty))]
 
 toFloat :: Type -> Int -> Arm64Register -> Arm64Statement
 toFloat ty float general = arm64Instruction (ArmFmovToFloat (ty == F64) float (if ty == F64 then general else wordRegister general))
@@ -1174,6 +1568,27 @@ integerCondition op =
     FLe -> ArmLs
     FGt -> ArmGt
     FGe -> ArmGe
+
+-- | The condition that holds exactly when the given one does not. The
+-- unordered case flips with it, so a fused float branch falls the same way
+-- as the boolean it replaces.
+inverseCondition :: Arm64Condition -> Arm64Condition
+inverseCondition condition =
+  case condition of
+    ArmEq -> ArmNe
+    ArmNe -> ArmEq
+    ArmCs -> ArmCc
+    ArmCc -> ArmCs
+    ArmMi -> ArmPl
+    ArmPl -> ArmMi
+    ArmVs -> ArmVc
+    ArmVc -> ArmVs
+    ArmHi -> ArmLs
+    ArmLs -> ArmHi
+    ArmGe -> ArmLt
+    ArmLt -> ArmGe
+    ArmGt -> ArmLe
+    ArmLe -> ArmGt
 
 -- | Ordered float conditions: every unordered comparison is false except
 -- @ne@.
