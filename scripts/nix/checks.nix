@@ -2,11 +2,13 @@
   projectHsPackages,
   sources,
   mkHsPkgsForChecks,
+  mkWasiSysroot,
 }: pkgs: let
   hsPkgs = mkHsPkgsForChecks pkgs;
   wasmLd = pkgs.writeShellScriptBin "wasm-ld" ''
     exec ${pkgs.lld}/bin/wasm-ld "$@"
   '';
+  wasmSysroot = mkWasiSysroot pkgs;
   examplesSource = sources.examplesSrc pkgs;
   exampleEntries = builtins.readDir "${examplesSource}/examples";
   allExampleNames = builtins.filter (
@@ -370,9 +372,9 @@
     while IFS= read -r -d "" file; do
       if [[ "$file" == *bin/aihc/compiler/wasm/runtime/*.c || "$file" == *aihc_host_wasip3.c ]]; then
         clang-tidy-unwrapped --quiet "$file" -- \
-          --target=wasm32-unknown-unknown \
-          -std=c11 -ffreestanding -Wall -Wextra -Wpedantic \
-          -Ibin/aihc/compiler/wasm/runtime/include \
+          --target=wasm32-wasip1 \
+          --sysroot=${wasmSysroot} \
+          -std=c11 -Wall -Wextra -Wpedantic \
           -Ibin/aihc/compiler/wasm/runtime \
           -Ibin/aihc/compiler/native/runtime \
           -isystem "$bindings_directory"
@@ -455,6 +457,7 @@
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+      export AIHC_WASM_SYSROOT=${wasmSysroot}
       mkdir -p "$out/prim"
 
       ${pkgs.lib.concatMapStringsSep "\n" (target: ''
@@ -494,6 +497,7 @@
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+      export AIHC_WASM_SYSROOT=${wasmSysroot}
       mkdir -p "$out"
 
       ${aihcExe} prepare-runtime --target ${target} --gc semispace --store "$out"
@@ -755,6 +759,7 @@
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+      export AIHC_WASM_SYSROOT=${wasmSysroot}
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
 

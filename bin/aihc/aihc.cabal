@@ -17,6 +17,8 @@ extra-source-files:
   compiler/fc/test/Test/Fixtures/golden/*.yaml
   compiler/grin/test/Test/Fixtures/grin-snapshot/*.yaml
   compiler/grin/test/Test/Fixtures/grin/*.yaml
+  compiler/lir/test/Test/Fixtures/lir/asm/*.lir
+  compiler/lir/test/Test/Fixtures/lir/asm/*.s
   compiler/lir/test/Test/Fixtures/lir/eval/*.lir
   compiler/lir/test/Test/Fixtures/lir/lint/*.lir
   compiler/native/test/Test/Runtime/aihc_snapshot.c
@@ -55,9 +57,6 @@ data-files:
   compiler/native/runtime/aihc_stable_name.lir
   compiler/wasm/runtime/aihc_wasip3.c
   compiler/wasm/runtime/aihc_wasm_internal.h
-  compiler/wasm/runtime/aihc_wasm_libc.c
-  compiler/wasm/runtime/include/stdlib.h
-  compiler/wasm/runtime/include/string.h
   compiler/wasm/runtime/wit/command.wit
   compiler/wasm/runtime/wit/deps/cli.wit
   compiler/wasm/runtime/wit/deps/filesystem.wit
@@ -67,8 +66,10 @@ library compiler
   exposed-modules:
     Aihc.Amd64.Assemble
     Aihc.Amd64.Lir
+    Aihc.Amd64.Text
     Aihc.Arm64.Assemble
     Aihc.Arm64.Lir
+    Aihc.Arm64.Text
     Aihc.Cli
     Aihc.Cli.Backend
     Aihc.Cli.BuildExe
@@ -114,6 +115,7 @@ library compiler
     Aihc.Lir.Lower
     Aihc.Lir.Parser
     Aihc.Lir.Pretty
+    Aihc.Lir.RegAlloc
     Aihc.Lir.Syntax
     Aihc.Llvm.Lir
     Aihc.Native
@@ -292,8 +294,10 @@ test-suite spec
     Test.Grin.Spec
     Test.Grin.Srt
     Test.Lir.Arbitrary
+    Test.Lir.AsmSuite
     Test.Lir.NativeSuite
     Test.Lir.Observed
+    Test.Lir.RegAllocSpec
     Test.Lir.Spec
     Test.Llvm.Spec
     Test.Native.Compiler

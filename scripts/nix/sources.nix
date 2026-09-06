@@ -142,6 +142,8 @@ in rec {
       ".yml"
       ".fc"
       ".lir"
+      # The golden assembly of the native backends.
+      ".s"
       "expected.txt"
     ];
 

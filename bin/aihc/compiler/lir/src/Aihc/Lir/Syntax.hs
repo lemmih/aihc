@@ -35,6 +35,7 @@ module Aihc.Lir.Syntax
     ConvertOp (..),
     Address (..),
     Terminator (..),
+    terminatorTargets,
     Target (..),
     SwitchCase (..),
     Operand (..),
@@ -289,6 +290,15 @@ data Terminator
   | TailCallIndirect !Operand ![Operand] !Signature
   | Trap !Text
   deriving (Eq, Show)
+
+-- | The blocks a terminator can continue at, in the order it names them.
+terminatorTargets :: Terminator -> [Target]
+terminatorTargets terminator =
+  case terminator of
+    Jump target -> [target]
+    Branch _ whenTrue whenFalse -> [whenTrue, whenFalse]
+    Switch _ _ cases fallback -> map switchCaseTarget cases <> maybe [] pure fallback
+    _ -> []
 
 data Target = Target
   { targetLabel :: !Label,

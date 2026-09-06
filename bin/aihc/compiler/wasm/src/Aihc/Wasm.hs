@@ -16,9 +16,7 @@ wasip3RuntimeSourcePaths :: IO [FilePath]
 wasip3RuntimeSourcePaths =
   mapM
     getDataFileName
-    [ "compiler/wasm/runtime/aihc_wasm_libc.c",
-      "compiler/wasm/runtime/aihc_wasip3.c"
-    ]
+    ["compiler/wasm/runtime/aihc_wasip3.c"]
 
 wasip3WorldPath :: IO FilePath
 wasip3WorldPath = getDataFileName "compiler/wasm/runtime/wit"

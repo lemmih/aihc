@@ -1,4 +1,7 @@
-{mkHsPkgs}: pkgs: let
+{
+  mkHsPkgs,
+  mkWasiSysroot,
+}: pkgs: let
   hsPkgs = mkHsPkgs pkgs;
 in {
   default = pkgs.mkShell {
@@ -20,5 +23,6 @@ in {
       pkgs.python3Packages.mkdocs-material
     ];
     AIHC_WASM_CLANG = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
+    AIHC_WASM_SYSROOT = mkWasiSysroot pkgs;
   };
 }

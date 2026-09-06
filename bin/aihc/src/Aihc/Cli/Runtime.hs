@@ -25,10 +25,12 @@ import Aihc.Native
   ( NativeTarget (..),
     RuntimeGarbageCollector (..),
     RuntimePlan (..),
+    WasmSysroot (..),
     backendArchiver,
     backendCompiler,
     nativeTargetTriple,
     runtimePlan,
+    wasmSysroot,
   )
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
@@ -166,21 +168,24 @@ buildWasip3RuntimeObjects garbageCollector directory = do
   driver <- Wasm.wasip3RuntimeSourcePath
   world <- Wasm.wasip3WorldPath
   clangOverride <- lookupEnv "AIHC_WASM_CLANG"
+  sysroot <- wasmSysroot
   let bindingsSource = directory </> "command.c"
       bindingsObject = directory </> "bindings.o"
       componentTypeObject = directory </> "command_component_type.o"
       (clang, clangTargetArguments) = wasmClangCommand clangOverride
       includeArguments =
-        [ "-I" <> (takeDirectory driver </> "include"),
+        [ "-isystem" <> wasmSysrootInclude sysroot,
           "-I" <> takeDirectory driver,
           "-I" <> directory
         ]
           <> ["-I" <> includeDirectory | includeDirectory <- runtimeIncludeDirectories]
+      -- The sysroot supplies libc, so the runtime keeps the declarations of
+      -- the host toolchain rather than freestanding ones of its own. The
+      -- build stays -nostdlib: wasm-ld takes the libc archive explicitly and
+      -- the driver never adds a startup object.
       cArguments =
         [ "-O2",
           "-std=c11",
-          "-ffreestanding",
-          "-fno-builtin",
           "-nostdlib",
           "-Wall",
           "-Wextra",
@@ -204,6 +209,8 @@ runtimeGarbageCollector garbageCollector =
 
 -- | Select the ordinary Clang driver used for WebAssembly objects. Nix can
 -- override only the executable to bypass its host-target compiler wrapper.
+-- The sysroot is not part of this: an assembly input needs no headers, and
+-- the C compilations add it themselves.
 wasmClangCommand :: Maybe FilePath -> (FilePath, [String])
 wasmClangCommand override =
   (fromMaybe "clang" override, ["--target=" <> nativeTargetTriple Wasm32Wasip3])

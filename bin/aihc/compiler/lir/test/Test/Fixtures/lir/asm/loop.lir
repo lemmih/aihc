@@ -1,0 +1,19 @@
+; A counted loop. The induction variable and the accumulator travel through
+; block parameters, so both live across every iteration and the allocator
+; keeps each of them in one register for the whole function.
+func @sum(%n: i64) -> i64 cc c {
+entry:
+  jump loop(%n, 0)
+
+loop(%i: i64, %acc: i64):
+  %done = eq i64 %i, 0
+  br %done, exit(%acc), step(%i, %acc)
+
+step(%j: i64, %total: i64):
+  %next = sub i64 %j, 1
+  %sum = add i64 %total, %j
+  jump loop(%next, %sum)
+
+exit(%result: i64):
+  return %result
+}
