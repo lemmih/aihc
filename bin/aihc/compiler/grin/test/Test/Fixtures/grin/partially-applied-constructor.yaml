@@ -8,8 +8,6 @@ expected: |-
 
   constructor 1.Pair [BoxedRep Lifted, BoxedRep Lifted]
 
-  global 1.Pair = (C1.Pair/2)
-
   global 1.pairWith = (P$pairWith/1)
 
   $pairWith (x :: BoxedRep Lifted) -> BoxedRep Lifted =

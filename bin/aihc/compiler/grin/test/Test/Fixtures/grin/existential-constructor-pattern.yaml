@@ -12,8 +12,6 @@ expected: |-
 
   constructor 1.Box [BoxedRep Lifted]
 
-  global 1.Box = (C1.Box/1)
-
   global 1.copyBox = (P$copyBox/1)
 
   $copyBox (x :: BoxedRep Lifted) -> BoxedRep Lifted =

@@ -7,10 +7,6 @@ expected: |-
 
   foreign identityAddr = "identity_addr" :: (addr) -> addr ! real-world
 
-  global 1.Unit = (C1.Unit)
-
-  global 1.Ptr = (C1.Ptr/1)
-
   global 1.run = (P$run/[[AddrRep]])
 
   $run_identityAddr_foreign (foreign_argument_0 :: AddrRep) -> TupleRep [TupleRep [],BoxedRep Lifted] =
