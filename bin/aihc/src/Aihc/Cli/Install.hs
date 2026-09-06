@@ -122,6 +122,7 @@ import Control.Monad (filterM, forM, unless, when, zipWithM)
 import Data.Aeson (Value)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
@@ -1534,9 +1535,18 @@ buildLibraryArchive target verbose archive moduleObjects = do
   when archiveExists (removeFile archive)
   archiver <- backendArchiver target
   nonemptyObjects <- filterM (fmap (> 0) . getFileSize) moduleObjects
-  withDeterministicArchiveEnvironment $
-    runTool archiver (["rcs", archive] <> nonemptyObjects)
+  -- BSD ar refuses to create an archive with no members, and a package whose
+  -- modules are all empty standins (aihc-internal) has none. Every archive
+  -- format begins with the same global header, and an archive that stops
+  -- there is a valid empty archive for ld64, GNU ld, lld and wasm-ld alike.
+  if null nonemptyObjects
+    then BS.writeFile archive emptyArchive
+    else
+      withDeterministicArchiveEnvironment $
+        runTool archiver (["rcs", archive] <> nonemptyObjects)
   verbose ("Write archive: " <> archive)
+  where
+    emptyArchive = BS8.pack "!<arch>\n"
 
 withDeterministicArchiveEnvironment :: IO value -> IO value
 withDeterministicArchiveEnvironment action =
