@@ -74,7 +74,7 @@ import Aihc.Native
   )
 import Control.Monad (foldM, forM, forM_, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
+import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
 import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Foldable (for_)
@@ -263,6 +263,8 @@ data LowerState = LowerState
     stateExterns :: !(Map Symbol Signature),
     stateExternData :: !(Set Symbol),
     stateHelpers :: !(Set Helper),
+    -- | The pointer-bitmap array emitted for each distinct bitmap so far.
+    stateBitmaps :: !(Map BS.ByteString Symbol),
     stateItemsRev :: ![Item],
     stateBlocksRev :: ![Block],
     stateOpen :: !(Maybe OpenBlock)
@@ -285,6 +287,7 @@ runLower options gcProgram action = do
             stateExterns = Map.empty,
             stateExternData = Set.empty,
             stateHelpers = Set.empty,
+            stateBitmaps = Map.empty,
             stateItemsRev = [],
             stateBlocksRev = [],
             stateOpen = Nothing
@@ -653,15 +656,39 @@ validateRuntimeRep runtimeRep =
     SumRep reps -> mapM_ validateRuntimeRep reps
     _ -> pure ()
 
+-- | The pointer bitmap one info table describes.
+infoBitmap :: RuntimeInfo -> BS.ByteString
+infoBitmap info = BS.pack [if isPointerRuntimeRep field then 1 else 0 | field <- infoFields info]
+
+-- | The array holding one pointer bitmap, emitted once per distinct bitmap.
+--
+-- Info tables share an array whenever their bitmaps agree, which is often:
+-- the application stages of an arity-n constructor ask between them for every
+-- prefix of one layout, and those prefixes repeat across every constructor
+-- built the same way. Naming the arrays after the info tables that wanted
+-- them would keep one array per stage, and each such name spells out the
+-- mangled constructor name -- hundreds of bytes for a wide tuple, where the
+-- symbol costs far more than the handful of bytes it points at.
+internBitmap :: BS.ByteString -> LowerM (Maybe Symbol)
+internBitmap bytes
+  | BS.null bytes = pure Nothing
+  | otherwise = do
+      known <- gets stateBitmaps
+      case Map.lookup bytes known of
+        Just symbol -> pure (Just symbol)
+        Nothing -> do
+          let symbol = Symbol ("aihc_lir_bitmap_" <> T.pack (show (Map.size known)))
+          modify' (\state -> state {stateBitmaps = Map.insert bytes symbol (stateBitmaps state)})
+          emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes bytes]))
+          pure (Just symbol)
+
 lowerInfo :: RuntimeInfo -> LowerM ()
 lowerInfo info = do
   target <- targetM
-  let bitmap = Symbol (unSymbol (infoSymbol info) <> "_bitmap")
-      stub = Symbol (unSymbol (infoSymbol info) <> "_enter")
+  let stub = Symbol (unSymbol (infoSymbol info) <> "_enter")
       fields = infoFields info
       word = wordField target
-  unless (null fields) $
-    emitItem (ItemData (DataItem bitmap Internal False 1 [DataBytes (BS.pack [if isPointerRuntimeRep field then 1 else 0 | field <- fields])]))
+  bitmap <- internBitmap (infoBitmap info)
   forM_ (infoEnter info) (lowerEnterStub stub)
   emitItem
     ( ItemData
@@ -675,7 +702,7 @@ lowerInfo info = do
                 DataCode Nothing,
                 word (toInteger (length fields)),
                 word (toInteger (infoRemainingArity info)),
-                if null fields then DataNull else DataSymbol bitmap 0,
+                maybe DataNull (`DataSymbol` 0) bitmap,
                 maybe DataNull (`DataSymbol` 0) (infoNext info),
                 DataCode (stub <$ infoEnter info),
                 word (toInteger (continuationFrameKindCode (infoFrameKind info))),
