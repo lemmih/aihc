@@ -20,8 +20,8 @@ foreign import ccall unsafe "pow" c_pow :: CDouble -> CDouble -> CDouble
 -- float register and its int in the first integer one.
 foreign import ccall unsafe "ldexp" c_ldexp :: CDouble -> CInt -> CDouble
 
--- A fractional literal does not compile yet, so the values are built from
--- integers.
+-- The values are whole numbers, so every result here is exact and the checks
+-- need no tolerance.
 double :: Int# -> CDouble
 double value = CDouble (D# (int2Double# value))
 
