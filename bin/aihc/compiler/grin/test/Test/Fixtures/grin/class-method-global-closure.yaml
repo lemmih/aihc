@@ -11,10 +11,6 @@ expected: |-
 
   constructor 1.$Dict$Read [BoxedRep Lifted]
 
-  global 1.Result = (C1.Result)
-
-  global 1.$Dict$Read = (C1.$Dict$Read/1)
-
   global 1.reads = (P$reads/1)
 
   $reads ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =

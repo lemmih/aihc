@@ -5,10 +5,6 @@ expected: |-
 
   constructor 1.Second []
 
-  global 1.First = (C1.First)
-
-  global 1.Second = (C1.Second)
-
   global 1.value = (F$value_thunk)
 
   $value_closure (seq_first :: BoxedRep Lifted) (seq_second :: BoxedRep Lifted) -> BoxedRep Lifted =

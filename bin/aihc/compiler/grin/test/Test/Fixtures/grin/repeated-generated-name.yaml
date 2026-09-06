@@ -9,8 +9,6 @@ expected: |-
 
   constructor 1.Box [BoxedRep Lifted, BoxedRep Lifted]
 
-  global 1.Box = (C1.Box/2)
-
   global 1.boxes = (F$boxes_thunk)
 
   $boxes_closure (x :: BoxedRep Lifted) -> BoxedRep Lifted =

@@ -5,10 +5,6 @@ expected: |-
 
   constructor 1.$Dict$Ap [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
 
-  global 1.$Dict$Fun = (C1.$Dict$Fun/1)
-
-  global 1.$Dict$Ap = (C1.$Dict$Ap/4)
-
   global 1.fmap' = (P$fmap'/1)
 
   global 1.unit = (P$unit/1)

@@ -9,14 +9,6 @@ expected: |-
 
   constructor 1.$Dict$Arrow [BoxedRep Lifted]
 
-  global 1.Z = (C1.Z)
-
-  global 1.S = (C1.S/1)
-
-  global 1.Pair = (C1.Pair/2)
-
-  global 1.$Dict$Arrow = (C1.$Dict$Arrow/1)
-
   global 1.second = (P$second/1)
 
   global 1."$fArrow(->)" = (F"$$fArrow(->)_thunk")

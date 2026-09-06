@@ -351,11 +351,17 @@ lowerEnvironment options gcProgram =
         | (index, name) <- zip [0 :: Int ..] (Map.keys (staticReferenceTables staticReferences))
         ]
     constructorLayouts = grinConstructors program
+    -- The program that declares a constructor defines its info tables even
+    -- when it builds no node of its own: another module that builds one has
+    -- only this program to link its node against.
     requiredConstructorInfos =
       Set.fromList
-        ( [ConstructorRuntimeInfo name SaturatedConstructor | (name, layouts) <- constructorLayouts, null layouts]
+        ( concatMap declaredConstructorInfos constructorLayouts
             <> concatMap requiredNodeConstructorInfos (programNodes program)
         )
+    declaredConstructorInfos (name, layouts)
+      | null layouts = [ConstructorRuntimeInfo name SaturatedConstructor]
+      | otherwise = [ConstructorRuntimeInfo name SaturatedConstructor, ConstructorRuntimeInfo name PartialConstructor]
     -- One constructor needs at most two info tables: the saturated object,
     -- and one shared by every stage that still wants arguments. The partial
     -- table carries the saturated one as its next stage, which is where the

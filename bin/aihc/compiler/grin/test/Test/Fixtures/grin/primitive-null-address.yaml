@@ -5,8 +5,6 @@ expected: |-
 
   primitive nullAddr# :: AddrRep/0
 
-  global 1.Address = (C1.Address/1)
-
   global 1.value = (F$value_thunk)
 
   $value_thunk -> BoxedRep Lifted =

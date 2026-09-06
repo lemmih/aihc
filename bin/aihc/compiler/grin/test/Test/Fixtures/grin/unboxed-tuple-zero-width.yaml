@@ -3,8 +3,6 @@ expected: |-
 
   constructor 1.Box [IntRep]
 
-  global 1.Box = (C1.Box/1)
-
   global 1.value = (F$value_thunk)
 
   $value_thunk -> BoxedRep Lifted =
