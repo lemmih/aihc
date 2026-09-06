@@ -3,6 +3,7 @@
 module Test.Lir.Spec (tests) where
 
 import Aihc.Lir
+import Control.Monad (unless)
 import Data.List (sort)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
@@ -14,7 +15,7 @@ import System.FilePath (takeExtension, (</>))
 import Test.Lir.Arbitrary (prop_lirPrettyRoundTrip)
 import Test.Lir.RegAllocSpec qualified as RegAllocSpec
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
+import Test.Tasty.HUnit (Assertion, assertEqual, assertFailure, testCase)
 import Test.Tasty.Hedgehog (testProperty)
 
 tests :: IO TestTree
@@ -27,7 +28,7 @@ tests = do
     ( testGroup
         "aihc-lir"
         [ testProperty "generated Lir pretty-printer round-trip" prop_lirPrettyRoundTrip,
-          testGroup "evaluation fixtures" (map evalTest (filter (not . callsExternFunction) evalCases)),
+          testGroup "evaluation fixtures" (map evalTest evalCases),
           testGroup "lint error fixtures" (map lintTest lintCases),
           regAlloc
         ]
@@ -64,12 +65,16 @@ parseFixture fixture =
         Right reparsed -> assertEqual "pretty-printer round-trip" lirModule reparsed
       pure lirModule
 
--- | A fixture that calls a C function runs on the backends, which link it,
--- and not here: this interpreter has no foreign call of its own. The
--- fixture still round-trips through the parser and the linter in the other
--- groups.
-callsExternFunction :: Fixture -> Bool
-callsExternFunction fixture = "extern func" `T.isInfixOf` fixtureSource fixture
+-- | A module that declares an extern function, which the backends link and
+-- this interpreter cannot call (see @docs/lir.md@). Such a fixture is still
+-- parsed and linted here, and the backend groups run it.
+declaresExternFunction :: Module -> Bool
+declaresExternFunction lirModule = any isExtern (moduleItems lirModule)
+  where
+    isExtern item =
+      case item of
+        ItemExternFunction _ -> True
+        _ -> False
 
 evalTest :: Fixture -> TestTree
 evalTest fixture = testCase (fixtureName fixture) $ do
@@ -77,6 +82,10 @@ evalTest fixture = testCase (fixtureName fixture) $ do
   case lintModule lirModule of
     [] -> pure ()
     errors -> assertFailure ("lint errors:\n" <> T.unpack (T.unlines (map renderLintError errors)))
+  unless (declaresExternFunction lirModule) (runEvalFixture fixture lirModule)
+
+runEvalFixture :: Fixture -> Module -> Assertion
+runEvalFixture fixture lirModule = do
   let entry = Symbol "main"
       resultTypes = concat [functionResults function | ItemFunction function <- moduleItems lirModule, functionName function == entry]
       expected = headerValues "expect" (fixtureSource fixture)
