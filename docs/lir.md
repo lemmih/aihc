@@ -200,10 +200,10 @@ or `0`. The fields are, in order:
 | --- | --- | --- |
 | `identity` | `ptr` | The saturated constructor table of a constructor. Case code compares this field. A closure or a thunk stores the `code` of its function here, and the heap snapshot tool maps that address to a name. |
 | `entry` | `code` | The portable entry. Reserved: the lowering stores null until the runtime moves to Lir. |
-| `field_count` | integer | The number of payload words. |
+| `field_count` | integer | The number of payload words. A partial constructor is the exception: every stage of one constructor shares a single table, so this field names the saturated width and the object stores what it holds in its own first payload word. |
 | `remaining_arity` | integer | The number of arguments the object still requires. |
 | `field_is_pointer` | `ptr` | A `bytes` data object with one byte per payload word: `1` for a managed pointer, `0` otherwise. Null when `field_count` is `0`. |
-| `next` | `ptr` | The table of the next application stage. Null for the last stage. |
+| `next` | `ptr` | The table of the next application stage, or, for a partial constructor, the saturated table of that constructor. Null for the last stage. |
 | `backend_entry` | `code` | The direct entry. Null when the object cannot be entered. |
 | `frame_kind` | integer | The continuation frame kind for stack unwinding. |
 | `object_kind` | integer | Node, closure, thunk, partial constructor, or a runtime object kind. |

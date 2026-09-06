@@ -144,8 +144,11 @@ static void discover_object(SnapshotState *state, AihcValue *object) {
     }
     uint64_t count = kind == AIHC_OBJECT_NODE ? constructor->field_count
                                               : aihc_value_count(object);
-    discover_fields(state, aihc_value_fields_const(object), count,
-                    constructor->field_count, constructor->field_reps);
+    const AihcSlot *fields = kind == AIHC_OBJECT_NODE
+                                 ? aihc_value_fields_const(object)
+                                 : aihc_partial_fields_const(object);
+    discover_fields(state, fields, count, constructor->field_count,
+                    constructor->field_reps);
     return;
   }
   case AIHC_OBJECT_CLOSURE:
@@ -224,14 +227,20 @@ static void print_object(SnapshotState *state, const AihcValue *object) {
     fputs("C", stdout);
     fputs(constructor->name, stdout);
     uint64_t count;
+    const AihcSlot *fields;
     if (kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR) {
-      printf("/%" PRIu64, aihc_value_arity(object));
+      /* The shared info table names the saturated width, so the slots still
+         outstanding are what it has yet to be given. */
+      printf("/%" PRIu64,
+             aihc_partial_total(object) - aihc_partial_applied(object));
       count = aihc_value_count(object);
+      fields = aihc_partial_fields_const(object);
     } else {
       count = constructor->field_count;
+      fields = aihc_value_fields_const(object);
     }
-    print_fields(state, aihc_value_fields_const(object), count,
-                 constructor->field_count, constructor->field_reps);
+    print_fields(state, fields, count, constructor->field_count,
+                 constructor->field_reps);
     return;
   }
   case AIHC_OBJECT_CLOSURE:

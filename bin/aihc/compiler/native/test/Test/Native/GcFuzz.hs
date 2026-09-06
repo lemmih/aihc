@@ -229,6 +229,9 @@ emptyModel =
 objectWords :: Object -> Int
 objectWords (Object kind _ fields _ _)
   | kind == KThunk = 1 + max 1 (length fields)
+  -- An unsaturated constructor spends one payload word on the count of the
+  -- fields it holds.
+  | kind == KPartial = 2 + length fields
   | otherwise = 1 + length fields
 objectWords (Array elements _) = 2 + length elements
 objectWords (Ind _) = 2
@@ -754,6 +757,7 @@ data Shape = ShapeObject Kind [Bool] | ShapeArray Int
 shapeWords :: Shape -> Int
 shapeWords (ShapeObject kind pointers)
   | kind == KThunk = 1 + max 1 (length pointers)
+  | kind == KPartial = 2 + length pointers
   | otherwise = 1 + length pointers
 shapeWords (ShapeArray count) = 2 + count
 
