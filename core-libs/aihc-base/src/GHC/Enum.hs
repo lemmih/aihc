@@ -13,7 +13,6 @@ module GHC.Enum
 where
 
 import Data.Bool (Bool (..))
-import GHC.Classes (Enum (..))
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Char (Char)
 import GHC.Internal.Classes (Eq (..), Ord (..))
@@ -45,6 +44,7 @@ import GHC.Prim
     (-#),
     (<#),
   )
+import GHC.Prim.Enum (Enum (..))
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 class Bounded a where
