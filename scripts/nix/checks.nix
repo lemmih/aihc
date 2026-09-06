@@ -105,6 +105,7 @@
                   ln -sfn ${sources.primSrc pkgs} "$coreLibsRoot/core-libs/aihc-prim"
                   ln -sfn ${sources.internalSrc pkgs} "$coreLibsRoot/core-libs/aihc-internal"
                   ln -sfn ${sources.templateHaskellSrc pkgs} "$coreLibsRoot/core-libs/aihc-template-haskell"
+                  ln -sfn ${sources.systemCxxStdLibSrc pkgs} "$coreLibsRoot/core-libs/system-cxx-std-lib"
                   export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
                   export AIHC_BASE_SRC="$coreLibsRoot/core-libs/aihc-base"
                   export AIHC_PRIM_SRC="$coreLibsRoot/core-libs/aihc-prim"
@@ -418,7 +419,7 @@
       store="$TMPDIR/store"
       mkdir -p "$store"
 
-      ${aihcExe} install core-libs/aihc-prim --store "$store" --keep-grin --lint --target apple-arm64
+      ${aihcExe} install core-libs/aihc-prim --store "$store" --keep-core --keep-grin --lint --target apple-arm64
 
       test -n "$(find "$store" -path '*/GHC/Prim/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
@@ -426,7 +427,7 @@
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
 
-      ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --lint --target apple-arm64
+      ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --keep-core --lint --target apple-arm64
 
       test -n "$(find "$store" -path '*/Language/Haskell/TH/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Internal/TH/Syntax/GHC.Internal.TH.Syntax.o' -print -quit)"
@@ -854,22 +855,92 @@
   # intentionally recompiles the merged dependency bodies.
   wasip3ExampleTest = assert exampleNames != [];
     pkgs.linkFarm "aihc-wasip3-example-test" wasip3ExampleCases;
+  # Compile every example for one target without linking. Each example gets a
+  # relocatable bundle that `aihc link-exe`, or the C driver for the target,
+  # turns into the executable on a host that has the linker but not the
+  # compiler. The weekly cross-compilation workflow builds this on Linux and
+  # links the bundles on macOS. A failing example records its status and log
+  # instead of failing the derivation, so the consumer reports every example.
+  crossExampleBundlesFor = target: let
+    toolchain = exampleToolchainFor target;
+    renderExample = exampleName: let
+      extraNames = exampleExtraHackagePackages.${exampleName} or [];
+      packageFlags =
+        pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames;
+    in ''
+      example_name=${pkgs.lib.escapeShellArg exampleName}
+      bundle="$out/$example_name"
+      mkdir -p "$bundle"
+      cp -R --no-preserve=mode "examples/$example_name" "$bundle/example"
+      if (
+        set -euo pipefail
+        package_flags=(${packageFlags})
+        ${mkExampleExtraInstall {
+          inherit toolchain;
+          targets = [target];
+        }
+        exampleName}
+        timeout --foreground --kill-after=5s 300s ${aihcExe} build-exe "examples/$example_name/Main.hs" \
+          --target ${target} \
+          --gc semispace \
+          --store "$store" \
+          --build-root "$TMPDIR/.aihc-cache-$example_name" \
+          "''${package_flags[@]}" \
+          --no-link \
+          --output "$bundle/link"
+      ) > "$bundle/compile.log" 2>&1; then
+        echo ok > "$bundle/status"
+      else
+        echo compile-failed > "$bundle/status"
+        echo "Compiler failed for $example_name/${target}" >&2
+      fi
+    '';
+  in
+    pkgs.runCommand "aihc-cross-examples-${target}" {
+      src = examplesSource;
+      nativeBuildInputs = exampleTestInputs;
+    } ''
+      cd "$src"
+      export GHCRTS=-N1
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      mkdir -p "$out"
+      echo ${target} > "$out/target"
+      ${pkgs.lib.concatMapStrings renderExample exampleNames}
+      # Every bundle carries its own copy of the library, entry, and runtime
+      # archives. Hard-link identical inputs so an archive of the output
+      # stays close to the size of one bundle.
+      declare -A seen=()
+      while IFS= read -r -d "" input; do
+        digest=$(sha256sum "$input" | cut -d ' ' -f 1)
+        if [[ -n "''${seen[$digest]:-}" ]]; then
+          ln -f "''${seen[$digest]}" "$input"
+        else
+          seen[$digest]="$input"
+        fi
+      done < <(find "$out" -path '*/link/inputs/*' -type f -print0 | sort -z)
+    '';
 in {
-  resolve-tests = resolveTests;
-  tc-tests = tcTests;
-  testing-tests = testingTests;
-  aihc-tests = aihcTests;
-  fmt-tests = fmtTests;
-  unicode-generated = unicodeGenerated;
-  nix-lint = nixLint;
-  nix-format = nixFormat;
-  haskell-lint = haskellLint;
-  haskell-format = haskellFormat;
-  c-lint = cLint;
-  c-format = cFormat;
-  cabal-format = cabalFormat;
-  core-libraries-install = coreLibrariesInstall;
-  hackage-install-tests = hackageInstallTests;
-  examples-tests = examplesTests;
-  wasip3-example-test = wasip3ExampleTest;
+  checks = {
+    resolve-tests = resolveTests;
+    tc-tests = tcTests;
+    testing-tests = testingTests;
+    aihc-tests = aihcTests;
+    fmt-tests = fmtTests;
+    unicode-generated = unicodeGenerated;
+    nix-lint = nixLint;
+    nix-format = nixFormat;
+    haskell-lint = haskellLint;
+    haskell-format = haskellFormat;
+    c-lint = cLint;
+    c-format = cFormat;
+    cabal-format = cabalFormat;
+    core-libraries-install = coreLibrariesInstall;
+    hackage-install-tests = hackageInstallTests;
+    examples-tests = examplesTests;
+    wasip3-example-test = wasip3ExampleTest;
+  };
+  packages = {
+    cross-examples-apple-arm64 = crossExampleBundlesFor "apple-arm64";
+  };
 }

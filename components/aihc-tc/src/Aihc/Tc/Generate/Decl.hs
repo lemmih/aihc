@@ -124,7 +124,7 @@ import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
@@ -2529,6 +2529,7 @@ matcherPattern match =
       case expr of
         EAnn _ inner -> go inner
         EParen inner -> go inner
+        EPragma _ inner -> go inner
         ECase _ (alt : _) -> Just (caseAltPattern alt)
         _ -> Nothing
 
@@ -3605,19 +3606,6 @@ dataDeclParamInfos :: Maybe TypeScheme -> DataDecl -> TcM ([ParamInfo], [ParamIn
 dataDeclParamInfos maybeKindScheme declaration =
   typeDeclParamInfos maybeKindScheme (binderHeadParams (dataDeclHead declaration))
 
-quantifiedKindScheme :: TyConInfo -> Maybe TypeScheme
-quantifiedKindScheme info =
-  case tciKindScheme info of
-    ForAll [] _ _ -> Nothing
-    scheme -> Just scheme
-
-takeVisibleArgumentKinds :: Int -> TcType -> [TcType]
-takeVisibleArgumentKinds = go
-  where
-    go remaining (KFun argument result)
-      | remaining > 0 = argument : go (remaining - 1) result
-    go _ _ = []
-
 registerDataDeclHeader :: Maybe TypeScheme -> DataDecl -> TcM [TcBindingResult]
 registerDataDeclHeader maybeKindScheme dd = do
   let tyBinder = binderHeadName (dataDeclHead dd)
@@ -3638,12 +3626,9 @@ registerDataDeclHeader maybeKindScheme dd = do
         tciFlavor = DataTyCon,
         tciTypeSynonym = Nothing
       }
-  -- The constructor fields and the type synonym bodies still refine the
-  -- parameter kinds. The remaining kind metas default after the structural
-  -- declarations.
-  zonkedKind <- zonkType declaredKind
-  let tyConResult = TcBindingResult tyName tyName zonkedKind
-  pure [tyConResult]
+  -- The parameter kinds stay open until the constructor fields of the whole
+  -- declaration group are checked; 'defaultGlobalKindMetas' closes them.
+  pure [TcBindingResult tyName tyName declaredKind]
 
 registerDataConstructors :: (Text, Text) -> DataDecl -> TcM [TcBindingResult]
 registerDataConstructors origin dataDecl = do
@@ -3653,7 +3638,7 @@ registerDataConstructors origin dataDecl = do
   case maybeInfo of
     Nothing -> missingTypeInfo ("data type " <> T.unpack tyName)
     Just info -> do
-      (kindParams, paramInfos) <- dataDeclParamInfos (quantifiedKindScheme info) dataDecl
+      (kindParams, paramInfos) <- dataDeclParamInfos (Just (tciKindScheme info)) dataDecl
       bindings <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (dataDeclConstructors dataDecl)
       constructors <- concat <$> mapM (checkedDataConInfos (tciTyCon info)) (dataDeclConstructors dataDecl)
       mapM_ registerTypeLevelDataCon constructors
@@ -3693,9 +3678,9 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
         tciFlavor = NewtypeTyCon,
         tciTypeSynonym = Nothing
       }
-  zonkedKind <- zonkType declaredKind
-  let tyConResult = TcBindingResult tyName tyName zonkedKind
-  pure [tyConResult]
+  -- The parameter kinds stay open until the constructor fields of the whole
+  -- declaration group are checked; 'defaultGlobalKindMetas' closes them.
+  pure [TcBindingResult tyName tyName declaredKind]
 
 registerNewtypeConstructor :: (Text, Text) -> NewtypeDecl -> TcM [TcBindingResult]
 registerNewtypeConstructor origin newtypeDecl = do
@@ -3705,7 +3690,7 @@ registerNewtypeConstructor origin newtypeDecl = do
   case maybeInfo of
     Nothing -> missingTypeInfo ("newtype " <> T.unpack tyName)
     Just info -> do
-      (kindParams, paramInfos) <- typeDeclParamInfos (quantifiedKindScheme info) (binderHeadParams (newtypeDeclHead newtypeDecl))
+      (kindParams, paramInfos) <- typeDeclParamInfos (Just (tciKindScheme info)) (binderHeadParams (newtypeDeclHead newtypeDecl))
       constructor <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (newtypeDeclConstructor newtypeDecl)
       constructors <- maybe (pure []) (checkedDataConInfos (tciTyCon info)) (newtypeDeclConstructor newtypeDecl)
       mapM_ registerTypeLevelDataCon constructors
@@ -4166,6 +4151,7 @@ exprSpan expr =
     EAnn ann inner ->
       fromMaybe (exprSpan inner) (fromAnnotation @SourceSpan ann)
     EParen inner -> exprSpan inner
+    EPragma _ inner -> exprSpan inner
     ETypeSig inner _ -> exprSpan inner
     _ -> NoSourceSpan
 

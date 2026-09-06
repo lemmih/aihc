@@ -32,7 +32,6 @@ module Prelude
     RealFrac (..),
     RealFloat (..),
     Read (..),
-    ReadPrec (..),
     ReadS,
     Show (..),
     ShowS,
@@ -46,7 +45,7 @@ module Prelude
     (.),
     (++),
     Foldable (elem, foldMap, foldl, foldl1, foldr, foldr1, length, maximum, minimum, null, product, sum),
-    Traversable (mapM, sequence, sequenceA, traverse),
+    Traversable (traverse, sequenceA, mapM, sequence),
     map,
     sequence_,
     zip,
@@ -74,6 +73,7 @@ module Prelude
     drop,
     takeWhile,
     maybe,
+    either,
     mapM_,
     flip,
     error,
@@ -102,20 +102,7 @@ module Prelude
     reads,
     readParen,
     lex,
-    Prec,
-    minPrec,
-    prec,
-    step,
-    reset,
     seq,
-    get,
-    look,
-    (+++),
-    (<++),
-    pfail,
-    choice,
-    readPrec_to_S,
-    readS_to_Prec,
     realToFrac,
     (%),
     (^),
@@ -157,7 +144,7 @@ module Prelude
 where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
-import Data.Either (Either (..))
+import Data.Either (Either (..), either)
 import Data.Maybe (maybe)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, const, flip, id, ($), (++), (.))
@@ -173,8 +160,8 @@ import GHC.Integer (Integer)
 import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Foldable (Foldable (..), all, and, any, concat, concatMap, mapM_, notElem, or, sequence_)
-import GHC.Internal.Traversable (Traversable (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
+import GHC.Internal.Traversable (Traversable (..))
 import GHC.Num (Num (..))
 import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#))
 import GHC.Real
@@ -196,17 +183,13 @@ import GHC.Real
     (^),
     (^^),
   )
-import GHC.Show (Show (..), ShowS, showChar, showListWith, showParen, showString, shows)
+import GHC.Show (Show (..), ShowS, showChar, showParen, showString, shows)
 import GHC.Tuple ()
 import GHC.Types (RuntimeRep, TYPE, Type)
 import GHC.Word (Word (..), Word8 (..))
+import Text.ParserCombinators.ReadPrec (Prec, ReadPrec, minPrec, readPrec_to_S, readS_to_Prec)
 
 type ReadS a = String -> [(a, String)]
-
-type Prec = Int
-
-minPrec :: Prec
-minPrec = 0
 
 -- | Function application. The result type can have any runtime
 -- representation, as in GHC. The definition returns the function itself, so
@@ -338,114 +321,6 @@ takeWhile predicate (value : values) =
   if predicate value
     then value : takeWhile predicate values
     else []
-
-newtype ReadPrec a = ReadPrec (Prec -> ReadS a)
-
-instance Functor ReadPrec where
-  fmap f (ReadPrec parser) =
-    ReadPrec (\precedence input -> mapReadResults f (parser precedence input))
-
-instance Applicative ReadPrec where
-  pure value = ReadPrec (\_ input -> [(value, input)])
-
-  ReadPrec functionParser <*> ReadPrec valueParser =
-    ReadPrec
-      ( \precedence input ->
-          applyReadResults precedence valueParser (functionParser precedence input)
-      )
-
-instance Monad ReadPrec where
-  ReadPrec parser >>= next =
-    ReadPrec
-      ( \precedence input ->
-          bindReadResults precedence next (parser precedence input)
-      )
-
-  ReadPrec first >> ReadPrec second =
-    ReadPrec
-      ( \precedence input ->
-          thenReadResults precedence second (first precedence input)
-      )
-
-  return = pure
-
-mapReadResults :: (a -> b) -> [(a, String)] -> [(b, String)]
-mapReadResults _ [] = []
-mapReadResults f ((value, rest) : results) = (f value, rest) : mapReadResults f results
-
-applyReadResults :: Prec -> (Prec -> ReadS a) -> [(a -> b, String)] -> [(b, String)]
-applyReadResults _ _ [] = []
-applyReadResults precedence parser ((f, rest) : results) =
-  mapReadResults f (parser precedence rest) ++ applyReadResults precedence parser results
-
-bindReadResults :: Prec -> (a -> ReadPrec b) -> [(a, String)] -> [(b, String)]
-bindReadResults _ _ [] = []
-bindReadResults precedence next ((value, rest) : results) =
-  runReadPrec (next value) precedence rest ++ bindReadResults precedence next results
-
-thenReadResults :: Prec -> (Prec -> ReadS b) -> [(a, String)] -> [(b, String)]
-thenReadResults _ _ [] = []
-thenReadResults precedence parser ((_, rest) : results) =
-  parser precedence rest ++ thenReadResults precedence parser results
-
-runReadPrec :: ReadPrec a -> Prec -> ReadS a
-runReadPrec (ReadPrec parser) = parser
-
-readPrec_to_S :: ReadPrec a -> Prec -> ReadS a
-readPrec_to_S = runReadPrec
-
-readS_to_Prec :: (Prec -> ReadS a) -> ReadPrec a
-readS_to_Prec = ReadPrec
-
-prec :: Prec -> ReadPrec a -> ReadPrec a
-prec required parser =
-  ReadPrec
-    ( \context input ->
-        case context <= required of
-          True -> runReadPrec parser required input
-          False -> []
-    )
-
-step :: ReadPrec a -> ReadPrec a
-step parser = ReadPrec (\context -> runReadPrec parser (context + 1))
-
-reset :: ReadPrec a -> ReadPrec a
-reset parser = ReadPrec (\_ -> runReadPrec parser minPrec)
-
-get :: ReadPrec Char
-get =
-  ReadPrec
-    ( \_ input ->
-        case input of
-          [] -> []
-          char : rest -> [(char, rest)]
-    )
-
-look :: ReadPrec String
-look = ReadPrec (\_ input -> [(input, input)])
-
-(+++) :: ReadPrec a -> ReadPrec a -> ReadPrec a
-ReadPrec left +++ ReadPrec right =
-  ReadPrec (\precedence input -> left precedence input ++ right precedence input)
-
-infixr 5 +++
-
-(<++) :: ReadPrec a -> ReadPrec a -> ReadPrec a
-ReadPrec left <++ ReadPrec right =
-  ReadPrec
-    ( \precedence input ->
-        case left precedence input of
-          [] -> right precedence input
-          results -> results
-    )
-
-infixr 5 <++
-
-pfail :: ReadPrec a
-pfail = ReadPrec (\_ _ -> [])
-
-choice :: [ReadPrec a] -> ReadPrec a
-choice = foldr (+++) pfail
 
 class Read a where
   readsPrec :: Int -> ReadS a
@@ -816,21 +691,6 @@ print value = putStrLn (show value)
 instance Functor List where
   fmap = fmapList
 
-instance Traversable Maybe where
-  traverse _ Nothing = pure Nothing
-  traverse f (Just value) = fmap Just (f value)
-
-instance Traversable [] where
-  traverse _ [] = pure []
-  traverse f (value : values) = liftA2 (:) (f value) (traverse f values)
-
-instance Traversable (Either e) where
-  traverse _ (Left value) = pure (Left value)
-  traverse f (Right value) = fmap Right (f value)
-
-instance Traversable ((,) e) where
-  traverse f (label, value) = fmap (\result -> (label, result)) (f value)
-
 instance Functor Maybe where
   fmap f mx =
     case mx of
@@ -845,6 +705,18 @@ instance Functor (Either e) where
 
 instance Functor ((,) a) where
   fmap f (first, second) = (first, f second)
+
+instance Traversable List where
+  traverse _ [] = pure []
+  traverse f (value : values) = fmap (:) (f value) <*> traverse f values
+
+instance Traversable Maybe where
+  traverse _ Nothing = pure Nothing
+  traverse f (Just value) = fmap Just (f value)
+
+instance Traversable (Either e) where
+  traverse _ (Left value) = pure (Left value)
+  traverse f (Right value) = fmap Right (f value)
 
 instance Functor ((->) r) where
   fmap f g x = f (g x)

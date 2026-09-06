@@ -1,0 +1,44 @@
+annotated:
+- |-
+  {-# LANGUAGE StandaloneKindSignatures, KindSignatures #-}
+  module Test where
+
+  import GHC.Types (Type, TYPE, Int)
+
+  type Tagged :: TYPE r -> Type
+  newtype Tagged a = Tagged Int
+          │          └─ type: ∀ r a. GHC.Types.Int → Tagged a
+          └─ type: GHC.Types.TYPE r → Type
+
+  untag :: Tagged a -> Int
+  untag (Tagged n) = n
+  │      │      └─ type: GHC.Types.Int
+  │      └─ type: GHC.Types.Int → Tagged a; type-args: r, a
+  └─ type: ∀ a. Tagged a → GHC.Types.Int
+
+  retag :: Tagged a -> Tagged b
+  retag (Tagged n) = Tagged n
+  │      │      │    └─ type: GHC.Types.Int → Tagged b; type-args: 'BoxedRep 'Lifted, b
+  │      │      └─ type: GHC.Types.Int
+  │      └─ type: GHC.Types.Int → Tagged a; type-args: r, a
+  └─ type: ∀ a b. Tagged a → Tagged b
+
+status: pass
+extensions:
+- StandaloneKindSignatures
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE StandaloneKindSignatures, KindSignatures #-}
+  module Test where
+
+  import GHC.Types (Type, TYPE, Int)
+
+  type Tagged :: TYPE r -> Type
+  newtype Tagged a = Tagged Int
+
+  untag :: Tagged a -> Int
+  untag (Tagged n) = n
+
+  retag :: Tagged a -> Tagged b
+  retag (Tagged n) = Tagged n

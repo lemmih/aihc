@@ -9,6 +9,7 @@ module GHC.Exception
     ratioZeroDenomException,
     underflowException,
     throw,
+    prettyCallStackLines,
   )
 where
 
@@ -21,6 +22,7 @@ import GHC.Exception.Type
     ratioZeroDenomException,
     underflowException,
   )
+import GHC.Internal.Stack (prettyCallStackLines)
 import GHC.Prim (raise#)
 
 throw :: (Exception e) => e -> a

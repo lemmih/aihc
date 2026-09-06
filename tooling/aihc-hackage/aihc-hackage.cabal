@@ -7,7 +7,7 @@ license-file: LICENSE
 author: David Himmelstrup
 maintainer: lemmih@gmail.com
 category: Development
-synopsis: Shared Hackage/Stackage download and cabal-file utilities
+synopsis: Shared Hackage download and cabal-file utilities
 
 library
   exposed-modules:
@@ -16,7 +16,7 @@ library
     Aihc.Hackage.Cpp
     Aihc.Hackage.Download
     Aihc.Hackage.Index
-    Aihc.Hackage.Stackage
+    Aihc.Hackage.Release
     Aihc.Hackage.Types
     Aihc.Hackage.Util
     Aihc.Hackage.VersionResolver
@@ -49,6 +49,7 @@ test-suite spec
     aihc-hackage,
     base >=4.16 && <5,
     bytestring,
+    containers,
     directory,
     filepath,
     hedgehog,

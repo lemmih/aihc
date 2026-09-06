@@ -54,14 +54,16 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Kind (explicitForallNames, scopedSigTyVars, sigToScheme)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
+import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
+import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (foldM, forM_)
 import Data.Data (Data)
 import Data.Graph qualified as Graph
-import Data.List (mapAccumL)
+import Data.List (mapAccumL, partition)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe, maybeToList)
@@ -609,39 +611,46 @@ inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do
           withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
             mapM (tcMatchEquation inferExpr argTys resTy) matches
         let matches' = map fst results
-        matchCts <- solveLocalSignatureBody scheme (concatMap snd results)
-        pure (matches', sigTy, matchCts)
+            matchCts = concatMap snd results
+        residualCts <- solveWithSigGivens scheme matchCts
+        pure (matches', sigTy, residualCts)
       Nothing ->
         tcMatches inferExpr matches
   cts' <- tiePlaceholder placeholders key ty cts
   pure (matches', ty, cts')
 
--- | Solve the constraints of a local binding body under the context of its
--- signature. The context predicates are givens, and the signature type
--- variables are skolems. The wanteds that the givens do not solve continue
--- to the enclosing scope.
-solveLocalSignatureBody :: TypeScheme -> [Ct] -> TcM [Ct]
-solveLocalSignatureBody (ForAll tyVars predicates _) bodyCts
-  | null predicates = pure bodyCts
+-- | Solve the constraints of a local binding under the context of its
+-- signature. The desugarer turns the context into dictionary parameters of
+-- the binding, so a constraint that the context entails is evidence for a
+-- given. Equalities go first so that a dictionary constraint sees the
+-- solved meta variables. Whatever stays stuck goes to the enclosing scope,
+-- like the constraints of a binding without a signature.
+solveWithSigGivens :: TypeScheme -> [Ct] -> TcM [Ct]
+solveWithSigGivens (ForAll _ predicates _) cts
+  | null predicates = pure cts
   | otherwise = do
-      givens <- mapM givenConstraint predicates
-      level <- getTcLevel
-      let implication =
-            Implication
-              { implSkols = tyVars,
-                implGivenEvs = map ctEvVar givens,
-                implGivenCts = givens,
-                implWantedCts = bodyCts,
-                implTcLevel = level,
-                implInfo = LetOrigin NoSourceSpan
-              }
-      result <- solveWithImpls [] [implication]
-      pure (inertDicts (srInerts result))
+      let (equalityCts, dictionaryCts) = partition isEqualityCt cts
+      residualEqualities <- concat <$> mapM solveEqualityCt equalityCts
+      residualDictionaries <- concat <$> mapM solveDictionaryCt dictionaryCts
+      pure (residualEqualities <> residualDictionaries)
   where
-    givenConstraint predicate = do
-      evidence <- freshEvVar
-      bindEvidence evidence (EvGiven predicate)
-      pure ((mkWantedCt predicate evidence (LetOrigin NoSourceSpan) NoSourceSpan) {ctFlavor = Given})
+    isEqualityCt ct =
+      case ctPred ct of
+        EqPred {} -> True
+        _ -> False
+
+    solveEqualityCt ct = do
+      result <- solveEquality ct
+      pure $ case result of
+        EqSolved -> []
+        EqStuck stuck -> [stuck]
+        EqError err -> [err]
+
+    solveDictionaryCt ct = do
+      result <- solveDictWithGivens predicates ct
+      pure $ case result of
+        DictSolved -> []
+        DictStuck stuck -> [stuck]
 
 inferLocalPatternBind :: InferExpr -> Map TcTermKey TypeScheme -> ScopedSigs -> Map TcTermKey TcType -> UnqualifiedName -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
 inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
@@ -649,17 +658,17 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
   (rhs', rhsTy, rhsCts) <-
     withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
       inferRhsWithLocals inferExpr rhs
-  (ty, bodyCts) <-
+  (ty, bindCts) <-
     case Map.lookup key sigs of
       Just scheme -> do
         sigTy <- maybe (skolemize scheme) pure (Map.lookup key placeholders)
         -- The right-hand side must have the signature type.
         ev <- freshEvVar
         let sigCt = mkWantedCt (EqPred sigTy rhsTy) ev (LetOrigin NoSourceSpan) NoSourceSpan
-        solved <- solveLocalSignatureBody scheme (rhsCts <> [sigCt])
-        pure (sigTy, solved)
+        residualCts <- solveWithSigGivens scheme (sigCt : rhsCts)
+        pure (sigTy, residualCts)
       Nothing -> pure (rhsTy, rhsCts)
-  cts <- tiePlaceholder placeholders key ty bodyCts
+  cts <- tiePlaceholder placeholders key ty bindCts
   pure (rhs', ty, cts)
 
 tiePlaceholder :: Map TcTermKey TcType -> TcTermKey -> TcType -> [Ct] -> TcM [Ct]
@@ -1017,6 +1026,7 @@ freeVarsExpr expr =
       pure (scrutVars <> altVars)
     ETypeSig inner _ -> freeVarsExpr inner
     EParen inner -> freeVarsExpr inner
+    EPragma _ inner -> freeVarsExpr inner
     EList items -> Set.unions <$> mapM freeVarsExpr items
     EArithSeq arithSeq -> freeVarsArithSeq arithSeq
     ETuple _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items

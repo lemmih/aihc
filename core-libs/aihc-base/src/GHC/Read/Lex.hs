@@ -17,6 +17,7 @@ where
 import GHC.Int (Int (..))
 import GHC.Internal.Integer (eqInteger#)
 import GHC.Prim (chr#, ord#, (<#), (==#))
+import Text.ParserCombinators.ReadPrec (ReadPrec, pfail, readS_to_Prec)
 import Prelude
 
 newtype NumberToken = NumberToken Integer
@@ -50,7 +51,7 @@ readLitChar input =
 
 lexP :: ReadPrec Lexeme
 lexP =
-  ReadPrec
+  readS_to_Prec
     ( \_ input ->
         case lexLexeme input of
           [] -> []

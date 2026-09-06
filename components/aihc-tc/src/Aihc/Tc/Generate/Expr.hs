@@ -150,6 +150,11 @@ inferExprAt ambient expr = case expr of
   EParen inner -> do
     (inner', ty, cts) <- inferExprAt (exprSpan expr `orSourceSpan` ambient) inner
     pure (EParen inner', ty, cts)
+  -- An expression pragma such as SCC does not change the type. The
+  -- compiler ignores pragmas and keeps the wrapped expression.
+  EPragma pragma inner -> do
+    (inner', ty, cts) <- inferExprAt ambient inner
+    pure (EPragma pragma inner', ty, cts)
   ETypeSig inner tyAnn -> do
     inferTypeSig (exprSpan expr `orSourceSpan` ambient) inner tyAnn
   ENegate inner -> do
@@ -764,6 +769,7 @@ visibleTypeApplicationCount expr =
   case expr of
     ETypeApp fun _ -> 1 + visibleTypeApplicationCount fun
     EParen inner -> visibleTypeApplicationCount inner
+    EPragma _ inner -> visibleTypeApplicationCount inner
     EAnn _ inner -> visibleTypeApplicationCount inner
     _ -> 0
 
@@ -776,6 +782,7 @@ pendingTypeArgs expr =
         Nothing -> pendingTypeArgs inner
     ETypeApp fun _ -> pendingTypeArgs fun
     EParen inner -> pendingTypeArgs inner
+    EPragma _ inner -> pendingTypeArgs inner
     _ -> []
 
 inferInfix :: SourceSpan -> Expr -> Name -> Expr -> TcM (Expr, TcType, [Ct])

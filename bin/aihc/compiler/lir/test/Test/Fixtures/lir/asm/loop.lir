@@ -1,6 +1,10 @@
 ; A counted loop. The induction variable and the accumulator travel through
 ; block parameters, so both live across every iteration and the allocator
-; keeps each of them in one register for the whole function.
+; keeps each of them in one register around the loop: a jump argument and
+; the parameter it reaches prefer each other's register, and a value that an
+; instruction consumes hands its register to the value it defines. The
+; function calls nothing and spills nothing, so it has no frame, and the
+; comparison at the head of the loop branches on the register directly.
 func @sum(%n: i64) -> i64 cc c {
 entry:
   jump loop(%n, 0)

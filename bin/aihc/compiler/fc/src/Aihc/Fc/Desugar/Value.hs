@@ -2217,6 +2217,8 @@ desugarExpr expression =
           operator' <- desugarInfixOperator operator
           (ExApp . ExApp operator' <$> desugarExpr left) <*> desugarExpr right
     Syn.EParen inner -> desugarExpr inner
+    -- The compiler ignores expression pragmas such as SCC.
+    Syn.EPragma _ inner -> desugarExpr inner
     Syn.ETypeSig inner _ -> desugarExpr inner
     Syn.ETypeApp function _ -> desugarExpr function
     Syn.ELambdaPats patterns body -> desugarLambda Nothing patterns body
@@ -2357,6 +2359,7 @@ annotatedVariable expression =
   case expression of
     Syn.EAnn _ inner -> annotatedVariable inner
     Syn.EParen inner -> annotatedVariable inner
+    Syn.EPragma _ inner -> annotatedVariable inner
     Syn.EVar name -> Just name
     _ -> Nothing
 
@@ -3521,8 +3524,16 @@ desugarCallStackPush (packageName, moduleName') function site parent = do
   fileText <- desugarStringValue (Ev.callSiteFile site)
   intRepresentation <- convertRuntimeRep IntRep
   intConstructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
+  charName <- primitiveName "GHC.Types" "Char" SortTypeConstructor
+  listName <- primitiveName "GHC.Types" "[]" SortTypeConstructor
+  pairConstructor <- primitiveName "GHC.Tuple" "(,)" SortDataConstructor
   let libraryName name sort = Name name sort (OriginTop (PackageId packageName) moduleName')
       boxedInt value = ExApp (ExVar intConstructor) (ExLit (LitInt intRepresentation (toInteger value)))
+      stringType = TyApp (TyCon listName) (TyCon charName)
+      locationType = TyCon (libraryName "SrcLoc" SortTypeConstructor)
+      -- GHC's pushCallStack takes the call site as a pair.
+      callSite srcLoc =
+        foldl ExApp (ExTyApp (ExTyApp (ExVar pairConstructor) stringType) locationType) [functionText, srcLoc]
       location =
         foldl
           ExApp
@@ -3535,7 +3546,7 @@ desugarCallStackPush (packageName, moduleName') function site parent = do
             boxedInt (Ev.callSiteEndLine site),
             boxedInt (Ev.callSiteEndColumn site)
           ]
-  pure (foldl ExApp (ExVar (libraryName "pushCallSite" SortValue)) [functionText, location, parent'])
+  pure (foldl ExApp (ExVar (libraryName "pushCallStack" SortValue)) [callSite location, parent'])
 
 -- | The call stack of an occurrence that starts a new stack.
 desugarCallStackEmpty :: (Text, Text) -> ValueM Expr
@@ -3809,6 +3820,7 @@ isApplicationExpression expression =
   case expression of
     Syn.EAnn _ inner -> isApplicationExpression inner
     Syn.EParen inner -> isApplicationExpression inner
+    Syn.EPragma _ inner -> isApplicationExpression inner
     Syn.EApp {} -> True
     Syn.EInfix {} -> True
     _ -> False
@@ -3911,6 +3923,7 @@ inferExprType expression =
         Just result -> pure result
         Nothing -> failValue ("infix operator is not a checked binary function: " <> show operatorType)
     Syn.EParen inner -> inferExprType inner
+    Syn.EPragma _ inner -> inferExprType inner
     Syn.ETypeSig inner _ -> inferExprType inner
     Syn.ETypeApp inner _ -> inferExprType inner
     -- A let expression and an if expression have the type of their body.
@@ -3928,6 +3941,7 @@ exprType expression =
     Syn.EInfix function operator _
       | isApplicationOperator operator -> exprType function >>= applicationResultType
     Syn.EParen inner -> exprType inner
+    Syn.EPragma _ inner -> exprType inner
     Syn.ELetDecls _ body -> exprType body
     Syn.EIf _ thenExpression _ -> exprType thenExpression
     Syn.ETypeSig inner _ -> exprType inner

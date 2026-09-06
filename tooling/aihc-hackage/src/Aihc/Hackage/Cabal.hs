@@ -32,12 +32,12 @@ module Aihc.Hackage.Cabal
   )
 where
 
+import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc)
 import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, sourceDirs)
 import Data.List (isPrefixOf, nub)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Version qualified as DV
 import Distribution.Compat.Graph qualified as Graph
 import Distribution.Compiler (CompilerFlavor (..), CompilerId (..))
 import Distribution.Compiler qualified as Compiler
@@ -120,7 +120,6 @@ import Distribution.Utils.Path (getSymbolicPath)
 import Distribution.Version (mkVersion, withinRange)
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath (takeDirectory, (<.>), (</>))
-import System.Info (compilerName, compilerVersion)
 
 -- | Information about a Haskell source file discovered via a @.cabal@ file.
 data FileInfo = FileInfo
@@ -386,9 +385,9 @@ syntheticLocalBuildInfo pkgDescr = do
   dirs <- defaultInstallDirs GHC False False
   let comp =
         Compiler
-          (CompilerId GHC (mkVersion (DV.versionBranch compilerVersion)))
+          (CompilerId GHC (mkVersion (releaseCompilerVersion emulatedGhc)))
           NoAbiTag
-          [CompilerId GHC (mkVersion (DV.versionBranch compilerVersion))]
+          [CompilerId GHC (mkVersion (releaseCompilerVersion emulatedGhc))]
           []
           []
           Map.empty
@@ -503,7 +502,7 @@ componentSuffix componentName =
     CLibName (LSubLibName name) -> "-lib-" <> prettyShow name
     CNotLibName _ -> "-exe-" <> maybe "unnamed" prettyShow (componentNameString componentName)
 
--- | Evaluate cabal conditions using the host compiler and default flag values.
+-- | Evaluate cabal conditions using the emulated compiler and default flag values.
 conditionEvaluator :: GenericPackageDescription -> Condition ConfVar -> Bool
 conditionEvaluator gpd = conditionEvaluatorFor gpd buildOS buildArch
 
@@ -515,21 +514,16 @@ conditionEvaluatorFor gpd os arch = eval
     defaultFlags =
       Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd]
 
-    compilerFlavor :: CompilerFlavor
-    compilerFlavor =
-      case compilerName of
-        "ghc" -> GHC
-        "ghcjs" -> GHCJS
-        other -> OtherCompiler other
-
-    compilerVer = mkVersion (DV.versionBranch compilerVersion)
+    -- aihc presents itself as the GHC release in "Aihc.Hackage.Release", the
+    -- same one the CPP macros describe; the host compiler is irrelevant.
+    compilerVer = mkVersion (releaseCompilerVersion emulatedGhc)
 
     eval (Var confVar) =
       case confVar of
         OS wanted -> wanted == os
         Arch wanted -> wanted == arch
         PackageFlag flag -> Map.findWithDefault False flag defaultFlags
-        Impl flavor range -> flavor == compilerFlavor && withinRange compilerVer range
+        Impl flavor range -> flavor == GHC && withinRange compilerVer range
     eval (Lit b) = b
     eval (CNot c) = not (eval c)
     eval (COr a b) = eval a || eval b

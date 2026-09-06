@@ -24,16 +24,16 @@ liftA = fmap
 liftA3 :: (Applicative f) => (a -> b -> c -> d) -> f a -> f b -> f c -> f d
 liftA3 function first second third = liftA2 function first second <*> third
 
-(<**>) :: (Applicative f) => f a -> f (a -> b) -> f b
-(<**>) = liftA2 (\value function -> function value)
-
-infixl 4 <**>
-
 optional :: (Alternative f) => f a -> f (Maybe a)
 optional value = fmap Just value <|> pure Nothing
 
 asum :: (Alternative f) => [f a] -> f a
 asum = foldr (<|>) empty
+
+(<**>) :: (Applicative f) => f a -> f (a -> b) -> f b
+(<**>) = liftA2 (\value function -> function value)
+
+infixl 4 <**>
 
 newtype Const a b = Const {getConst :: a}
 

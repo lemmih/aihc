@@ -1,0 +1,39 @@
+annotated:
+- |-
+  module Test where
+
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+
+  add :: Nat -> Nat -> Nat
+  add Z m = m
+  │   │ └─ type: Nat
+  │   └─ type: Nat
+  └─ type: Nat → Nat → Nat
+  add (S n) m = {-# SCC "add/step" #-} S (add n m)
+  │    │ │  └─ type: Nat
+  │    │ └─ type: Nat
+  │    └─ type: Nat
+  └─ type: Nat → Nat → Nat
+
+  double :: Nat -> Nat
+  double n = {-# SCC "double" #-} add n n
+  │      └─ type: Nat
+  └─ type: Nat → Nat
+extensions: []
+modules:
+- |
+  module Test where
+
+  data Nat = Z | S Nat
+
+  add :: Nat -> Nat -> Nat
+  add Z m = m
+  add (S n) m = {-# SCC "add/step" #-} S (add n m)
+
+  double :: Nat -> Nat
+  double n = {-# SCC "double" #-} add n n
+reason: an SCC pragma on an expression has the type of the wrapped expression
+status: pass

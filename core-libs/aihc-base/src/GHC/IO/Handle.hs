@@ -73,7 +73,7 @@ import GHC.IO (IO, throwIO)
 import GHC.IO.Buffer (Buffer (..), BufferState (..), isEmptyBuffer, newCharBuffer)
 import GHC.IO.Encoding.Types (TextEncoding)
 import GHC.IO.Handle.Internals
-import GHC.IO.Handle.Text (hGetBuf, hGetBufNonBlocking, hGetBufSome, hGetChar, hGetContents, hGetContents', hGetLine, hLookAhead, hPutBuf, hPutBufNonBlocking, hPutChar, hPutStr, hPutStrLn, hWaitForInput)
+import GHC.IO.Handle.Text (hGetBuf, hGetBufNonBlocking, hGetBufSome, hGetChar, hGetContents, hGetContents', hGetLine, hPutBuf, hPutBufNonBlocking, hPutChar, hPutStr, hPutStrLn, hWaitForInput)
 import GHC.IO.Handle.Types
 import GHC.IO.StdHandles (stdin)
 import GHC.IORef (readIORef, writeIORef)
@@ -86,6 +86,7 @@ import GHC.MVar (MVar)
 import GHC.Num (Num (..))
 import GHC.Real (fromIntegral)
 import GHC.Show (Show (..), showString, shows)
+import GHC.Types (Char)
 
 -- ---------------------------------------------------------------------
 -- Closing
@@ -372,3 +373,7 @@ showHandle' path duplex handle state =
           ++ show (bufR buffer - bufL buffer)
           ++ "}"
       )
+
+-- | The next character of a handle without consuming it.
+hLookAhead :: Handle -> IO Char
+hLookAhead handle = wantReadableHandle_ "hLookAhead" handle hLookAhead_

@@ -11,12 +11,7 @@ where
 
 import Data.Monoid (Monoid (..))
 import GHC.Internal.Traversable (Traversable (..))
-import Prelude
-  ( Applicative (..),
-    Functor (..),
-    Monad,
-    (.),
-  )
+import Prelude (Applicative (..), Functor (..), Monad, (.))
 
 for :: (Traversable t, Applicative f) => t a -> (a -> f b) -> f (t b)
 for structure f = traverse f structure

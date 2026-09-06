@@ -21,9 +21,9 @@ import Data.Either (Either (..))
 import Data.Kind (Type)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Base (Maybe (..), Monad (..), id, (++), (.))
-import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Int (Int)
 import GHC.Internal.Classes (Eq (..), Ord (..))
+import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Num (Num (..))
 
 class Foldable (t :: Type -> Type) where
@@ -149,11 +149,10 @@ instance Foldable ((,) e) where
   null _ = False
 
 instance Foldable NonEmpty where
-  foldMap f (value :| values) = f value <> foldMap f values
   foldr f initial (value :| values) = f value (foldr f initial values)
+  foldl f initial (value :| values) = foldl f (f initial value) values
   toList (value :| values) = value : values
   null _ = False
-  length (_ :| values) = 1 + length values
 
 and :: (Foldable t) => t Bool -> Bool
 and = foldr (&&) True

@@ -1,6 +1,9 @@
-; A value live across a call. The pool holds only callee-saved registers, so
-; %x survives both calls where it is without a reload and without the
-; allocator splitting its interval.
+; Values live across C calls. %x and %a each live across a call, so the
+; allocator gives them preserved registers, which the C callee keeps, and
+; they survive where they are without a reload and without the allocator
+; splitting an interval. The function is a C function, so it saves the
+; preserved registers it uses. The result of each call is consumed from the
+; result register it arrives in.
 extern func @helper(i64) -> i64 cc c
 
 func @twice(%x: i64) -> i64 cc c {

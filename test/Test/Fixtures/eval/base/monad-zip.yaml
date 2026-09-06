@@ -1,0 +1,53 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Monad.Zip
+    import Data.Functor.Identity (Identity (..))
+    import Data.List.NonEmpty (NonEmpty (..))
+    import Prelude
+
+    newtype Box a = Box a
+
+    instance Functor Box where
+      fmap f (Box a) = Box (f a)
+
+    instance Applicative Box where
+      pure = Box
+      Box f <*> Box a = Box (f a)
+
+    instance Monad Box where
+      Box a >>= k = k a
+      Box _ >> next = next
+      return = Box
+
+    instance MonadZip Box where
+      mzip (Box a) (Box b) = Box (a, b)
+
+    unBox :: Box a -> a
+    unBox (Box a) = a
+
+    checks :: [Bool]
+    checks =
+      [ mzip [1 :: Int, 2, 3] "ab" == [(1, 'a'), (2, 'b')],
+        mzipWith (+) [1 :: Int, 2] [10, 20] == [11, 22],
+        munzip [(1 :: Int, 'a'), (2, 'b')] == ([1, 2], "ab"),
+        mzip (Just 'x') (Just True) == Just ('x', True),
+        mzip (Just 'x') (Nothing :: Maybe Bool) == Nothing,
+        mzipWith (+) (Identity (1 :: Int)) (Identity 2) == Identity 3,
+        munzip (Identity ('a', 'b')) == (Identity 'a', Identity 'b'),
+        mzip (1 :| [2 :: Int]) ('a' :| "bc") == (1, 'a') :| [(2, 'b')],
+        mzipWith (+) (1 :| [2 :: Int]) (10 :| [20, 30]) == 11 :| [22],
+        munzip ((1 :: Int, 'a') :| [(2, 'b')]) == (1 :| [2], 'a' :| "b"),
+        unBox (mzipWith (+) (Box (1 :: Int)) (Box 2)) == 3,
+        unBox (fst (munzip (Box ('p', 'q')))) == 'p'
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: pass
+reason: Control.Monad.Zip zips lists, Maybe, Identity, NonEmpty, and a user monad with defaulted methods

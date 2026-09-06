@@ -30,6 +30,11 @@ let
       hash = "sha256-YGP+ZsyP6onvdd7QbEGQJLPFH2kSubQnVfO/YgpjcwY=";
     }
     {
+      name = "split";
+      version = "0.2.5.1";
+      hash = "sha256-cgX0dtppA/mKggnrVXQ/gpjCgnRlBQVEWFoaEPMRwrU=";
+    }
+    {
       name = "containers";
       version = "0.8";
       hash = "sha256-zCP93Ma5w+FZO/OyqHgISrQXzHKipfxzeTAQ6ST1tRo=";
@@ -51,6 +56,23 @@ let
       version = "0.12.2.0";
       hash = "sha256-bBKEw1dWp24YUf+wrQYNqQ/eDqnM3m1ZtyFy6g1ZFq0=";
       dependencies = [
+        {
+          name = "deepseq";
+          version = "1.5.2.0";
+          hash = "sha256-vNcooswfE2geBWNtB08cATNIhQlJRRF587lcjfD3XyM=";
+        }
+      ];
+    }
+    {
+      name = "base64-bytestring";
+      version = "1.2.1.0";
+      hash = "sha256-Oe2u9XbsjSFi10dsUqlZbjoz+Bl5jn+s3xTTCono/oE=";
+      dependencies = [
+        {
+          name = "bytestring";
+          version = "0.12.2.0";
+          hash = "sha256-bBKEw1dWp24YUf+wrQYNqQ/eDqnM3m1ZtyFy6g1ZFq0=";
+        }
         {
           name = "deepseq";
           version = "1.5.2.0";

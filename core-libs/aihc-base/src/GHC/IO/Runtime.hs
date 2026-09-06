@@ -1,5 +1,6 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 -- | Dependency-free bindings to the runtime IO ABI. Higher layers share these
 -- declarations so each foreign wrapper has exactly one compiled definition.
@@ -19,15 +20,25 @@ module GHC.IO.Runtime
     takeResult,
     takeOpenResult,
     raiseIOErrorRaw,
+    awaitIO,
   )
 where
 
-import GHC.IO (IO)
+import GHC.IO (IO (..))
 import GHC.Int (Int)
-import GHC.Prim (Addr#)
-import GHC.Ptr (Ptr)
+import GHC.Prim (Addr#, awaitIO#)
+import GHC.Ptr (Ptr (..))
 
 data IOHandle
+
+-- | Suspend the current green thread until an opaque runtime request is ready.
+awaitIO :: Ptr request -> IO ()
+awaitIO (Ptr request) =
+  IO
+    ( \state ->
+        case awaitIO# request state of
+          nextState -> (# nextState, () #)
+    )
 
 data IORequest
 

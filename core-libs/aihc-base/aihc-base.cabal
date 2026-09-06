@@ -253,13 +253,17 @@ library
     Foreign.C.Types.Repr
     GHC.IO.Console
     GHC.IO.Runtime
+    GHC.IO.Runtime.Open
     GHC.Internal.Char
     GHC.Internal.Classes
     GHC.Internal.Data.NonEmpty
+    GHC.Internal.Environment
     GHC.Internal.Foldable
-    GHC.Internal.Traversable
+    GHC.Internal.IO.Handle.Read
     GHC.Internal.IO.Types
     GHC.Internal.Integer
+    GHC.Internal.Stack
+    GHC.Internal.Traversable
     GHC.Read.Lex
 
   if arch(wasm32)
