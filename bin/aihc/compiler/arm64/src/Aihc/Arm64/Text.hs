@@ -75,7 +75,7 @@ instruction code =
     ArmAdrp register target -> "adrp " <> reg register <> ", " <> T.unpack target <> "@PAGE"
     ArmAddPageOffset destination source target ->
       "add " <> reg destination <> ", " <> reg source <> ", " <> T.unpack target <> "@PAGEOFF"
-    ArmMov destination source -> "mov " <> reg destination <> ", " <> value source
+    ArmMov destination source -> "mov " <> reg destination <> ", " <> valueText source
     ArmLdr register target -> "ldr " <> reg register <> ", " <> address target
     ArmLdrImmediate register literal -> "ldr " <> reg register <> ", =" <> hex literal
     ArmStr register target -> "str " <> reg register <> ", " <> address target
@@ -85,7 +85,7 @@ instruction code =
     ArmAdds destination source operand -> arithmetic "adds" destination source operand
     ArmSub destination source operand -> arithmetic "sub" destination source operand
     ArmSubs destination source operand -> arithmetic "subs" destination source operand
-    ArmCmp register operand -> "cmp " <> reg register <> ", " <> value operand
+    ArmCmp register operand -> "cmp " <> reg register <> ", " <> valueText operand
     ArmAnd destination source operand -> three "and" destination source operand
     ArmOrr destination source operand -> arithmetic "orr" destination source operand
     ArmEor destination source operand -> three "eor" destination source operand
@@ -138,7 +138,7 @@ instruction code =
     ArmStrh source base offset -> narrow "strh" source base offset
   where
     arithmetic name destination source operand =
-      name <> " " <> reg destination <> ", " <> reg source <> ", " <> value operand
+      name <> " " <> reg destination <> ", " <> reg source <> ", " <> valueText operand
     three name destination left right =
       name <> " " <> reg destination <> ", " <> reg left <> ", " <> reg right
     shifted name destination source count =
@@ -164,8 +164,8 @@ reg = map toLower . show
 float' :: Bool -> Int -> String
 float' wide index = (if wide then "d" else "s") <> show index
 
-value :: Arm64Value -> String
-value operand =
+valueText :: Arm64Value -> String
+valueText operand =
   case operand of
     Arm64RegisterValue register -> reg register
     Arm64ImmediateValue literal -> "#" <> show literal
