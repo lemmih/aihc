@@ -153,6 +153,32 @@ renderSignature :: Signature -> Text
 renderSignature signature =
   "(" <> T.intercalate ", " (map wasmType (signatureParameters signature)) <> ") -> (" <> T.intercalate ", " (map wasmType (signatureResults signature)) <> ")"
 
+-- | wasm32 C uses ILP32. Runtime helpers keep 64-bit slots. Package C files
+-- use the C ABI, so an i64 Lir integer becomes i32 at the call.
+wasmCAbiSignature :: Symbol -> Signature -> Signature
+wasmCAbiSignature symbol signature
+  | isRuntimeExtern symbol = signature
+  | otherwise =
+      signature
+        { signatureParameters = map wasmCAbiType (signatureParameters signature),
+          signatureResults = map wasmCAbiType (signatureResults signature)
+        }
+
+wasmCAbiType :: Type -> Type
+wasmCAbiType ty =
+  case ty of
+    I64 -> I32
+    _ -> ty
+
+isRuntimeExtern :: Symbol -> Bool
+isRuntimeExtern symbol = "aihc_" `T.isPrefixOf` unSymbol symbol
+
+adaptInteger :: Type -> Type -> M ()
+adaptInteger fromTy toTy
+  | fromTy == I64 && toTy == I32 = emit "i32.wrap_i64"
+  | fromTy == I32 && toTy == I64 = emit "i64.extend_i32_u"
+  | otherwise = pure ()
+
 -- Module header
 
 header :: Ctx -> [Item] -> Bool -> [Text]
@@ -161,7 +187,7 @@ header ctx items usesStack =
     "\t.text",
     "\t.functype\t" <> trapSymbol <> " (i32, i64) -> ()"
   ]
-    <> ["\t.functype\t" <> symbolText ctx (externFunctionName external) <> " " <> renderSignature (externFunctionSignature external) | ItemExternFunction external <- items]
+    <> ["\t.functype\t" <> symbolText ctx (externFunctionName external) <> " " <> renderSignature (wasmCAbiSignature (externFunctionName external) (externFunctionSignature external)) | ItemExternFunction external <- items]
     <> ["\t.functype\t" <> symbolText ctx (functionName function) <> " " <> renderSignature (functionSignature function) | ItemFunction function <- items]
     <> ["\t.globaltype\t" <> stackPointer <> ", i32" | usesStack]
     <> ["\t.globaltype\t" <> symbolText ctx (globalName global) <> ", " <> wasmType (globalType global) | ItemGlobal global <- items]
@@ -730,9 +756,14 @@ compileInstruction fn (Instruction results operation) =
       push fn (Map.findWithDefault I64 symbol (ctxGlobals (fnCtx fn))) value
       emit ("global.set\t" <> symbolText (fnCtx fn) symbol)
     Call symbol arguments -> do
-      let signature = Map.findWithDefault (Signature [] [] AihcConvention) symbol (ctxSignatures (fnCtx fn))
-      forM_ (zip (signatureParameters signature) arguments) (uncurry (push fn))
+      let original = Map.findWithDefault (Signature [] [] AihcConvention) symbol (ctxSignatures (fnCtx fn))
+          abi = wasmCAbiSignature symbol original
+      forM_ (zip3 (signatureParameters original) (signatureParameters abi) arguments) $ \(fromTy, toTy, argument) -> do
+        push fn fromTy argument
+        adaptInteger fromTy toTy
       emit ("call\t" <> symbolText (fnCtx fn) symbol)
+      forM_ (reverse (zip (signatureResults original) (signatureResults abi))) $ \(fromTy, toTy) ->
+        adaptInteger toTy fromTy
       storeResults
     CallIndirect target arguments signature -> do
       guardCallee fn target

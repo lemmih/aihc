@@ -306,6 +306,10 @@
     elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
       if [[ "$actual_exit" -ne "$expected_exit" ]]; then
         echo "Expected $example_name/wasm32-wasip3-${compilation.name} to exit with $expected_exit, got $actual_exit" >&2
+        echo "stdout:" >&2
+        cat "$actual_stdout" >&2 || true
+        echo "stderr:" >&2
+        cat "$actual_stderr" >&2 || true
         exit 1
       fi
     else
