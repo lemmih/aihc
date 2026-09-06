@@ -47,6 +47,7 @@ data PrepareRuntimeOptions = PrepareRuntimeOptions
 data InstallOptions = InstallOptions
   { installPackageTarget :: !String,
     installStoreRoot :: !(Maybe FilePath),
+    installKeepCore :: !Bool,
     installKeepGrin :: !Bool,
     installKeepNative :: !Bool,
     installLint :: !Bool,
@@ -215,6 +216,10 @@ installOptionsParser =
           <> OA.help "Local Cabal package directory, or a Hackage package name with an optional version (NAME[-VERSION])"
       )
     <*> storeRootOption "Override the aihc store root"
+    <*> OA.switch
+      ( OA.long "keep-core"
+          <> OA.help "Retain Core (System FC) files"
+      )
     <*> OA.switch
       ( OA.long "keep-grin"
           <> OA.help "Retain GRIN files"

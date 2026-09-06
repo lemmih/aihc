@@ -210,9 +210,8 @@ data NativeModule = NativeModule
     nativeObject :: !(Maybe BL.ByteString)
   }
 
-data PendingCompile = PendingCompile
-  { pendingWriteFc :: !Bool,
-    pendingModules :: ![Module]
+newtype PendingCompile = PendingCompile
+  { pendingModules :: [Module]
   }
 
 newtype UnitId = UnitId Int
@@ -253,7 +252,8 @@ data UnitRuntime = UnitRuntime
   }
 
 data ModuleCompileConfig = ModuleCompileConfig
-  { compileKeepGrin :: !Bool,
+  { compileKeepCore :: !Bool,
+    compileKeepGrin :: !Bool,
     compileKeepNative :: !Bool,
     compileLint :: !Bool,
     compileNoCode :: !Bool,
@@ -348,7 +348,8 @@ installWith output options = do
       resolver = localDependencyResolverWithFallback fallbackResolver root
       config =
         ModuleCompileConfig
-          { compileKeepGrin = installKeepGrin options,
+          { compileKeepCore = installKeepCore options,
+            compileKeepGrin = installKeepGrin options,
             compileKeepNative = installKeepNative options,
             compileLint = installLint options,
             compileNoCode = installNoCode options,
@@ -1184,7 +1185,7 @@ runTypeUnit context runtimes runtime = do
       then pure Nothing
       else do
         let (checkedModules, _) = initialChecked
-        pure (Just (PendingCompile True checkedModules))
+        pure (Just (PendingCompile checkedModules))
   let unitSet = Set.fromList unitNames
   -- Force the type result before this type-check task ends.
   typeResult <-
@@ -1217,7 +1218,6 @@ runBackendUnit context runtime = do
       phaseTimings <-
         compileCheckedModules
           config
-          (pendingWriteFc pending)
           (compileVerbose config)
           (taskPrimIdentity context)
           (typeUnitDesugarInterface result)
@@ -1310,8 +1310,8 @@ renderBackendPhaseTotals timings =
       "other total: " <> renderDuration (backendOtherNs timings)
     ]
 
-compileCheckedModules :: ModuleCompileConfig -> Bool -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [Module] -> IO BackendPhaseTimings
-compileCheckedModules config writeFc verbose primIdentity interface outputPaths checkedModules = do
+compileCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [Module] -> IO BackendPhaseTimings
+compileCheckedModules config verbose primIdentity interface outputPaths checkedModules = do
   (splitModules, desugarNs) <- measureTime $ do
     let bindings = concatMap tcModuleBindings checkedModules
         desugarResults = map (Fc.desugarModuleFc (DesugarConfig primIdentity) bindings interface) checkedModules
@@ -1330,7 +1330,7 @@ compileCheckedModules config writeFc verbose primIdentity interface outputPaths 
                   )
               )
           )
-    when writeFc (mapM_ writeFcModule fcModules)
+    when keepCore (mapM_ writeFcModule fcModules)
     pure (spanEmptyModules fcModules)
   let (emptyFcModules, nonemptyFcModules) = splitModules
   (grinModules, grinNs) <- measureTime $ do
@@ -1351,6 +1351,7 @@ compileCheckedModules config writeFc verbose primIdentity interface outputPaths 
         backendOtherNs = 0
       }
   where
+    keepCore = compileKeepCore config
     keepGrin = compileKeepGrin config
     keepNative = compileKeepNative config
     lint = compileLint config
