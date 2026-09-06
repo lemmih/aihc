@@ -487,17 +487,30 @@
   # aihc-base takes minutes and runs single-threaded, so a combined derivation
   # serialised work that has no dependency between targets. Everything a target
   # writes is under a path named after it, so the outputs never overlap.
-  exampleToolchainFor = target:
+  exampleToolchainFor = exampleToolchainWith [];
+
+  # The nixpkgs clang wrapper adds Linux-only arguments such as
+  # -fstack-clash-protection and --gcc-toolchain, and clang rejects unused
+  # arguments as errors under -Werror when the target is Darwin. This shim
+  # keeps the wrapper, and with it the libc headers, but drops that check.
+  # Only the cross-compilation derivations put it on PATH.
+  crossClang = pkgs.writeShellScriptBin "clang" ''
+    exec ${pkgs.llvmPackages.clang}/bin/clang -Wno-unused-command-line-argument "$@"
+  '';
+
+  exampleToolchainWith = extraInputs: target:
     pkgs.runCommand "aihc-example-toolchain-${target}" {
       src = sources.coreLibrariesSrc pkgs;
-      nativeBuildInputs = [
-        pkgs.llvmPackages.bintools
-        pkgs.llvmPackages.clang
-        pkgs.llvmPackages.clang-unwrapped
-        pkgs.wasm-tools
-        pkgs.wit-bindgen
-        wasmLd
-      ];
+      nativeBuildInputs =
+        extraInputs
+        ++ [
+          pkgs.llvmPackages.bintools
+          pkgs.llvmPackages.clang
+          pkgs.llvmPackages.clang-unwrapped
+          pkgs.wasm-tools
+          pkgs.wit-bindgen
+          wasmLd
+        ];
     } ''
       cd "$src"
       export GHCRTS=-N1
@@ -863,7 +876,7 @@
   # links the bundles on macOS. A failing example records its status and log
   # instead of failing the derivation, so the consumer reports every example.
   crossExampleBundlesFor = target: let
-    toolchain = exampleToolchainFor target;
+    toolchain = exampleToolchainWith [crossClang] target;
     renderExample = exampleName: let
       extraNames = exampleExtraHackagePackages.${exampleName} or [];
       packageFlags =
@@ -899,7 +912,7 @@
   in
     pkgs.runCommand "aihc-cross-examples-${target}" {
       src = examplesSource;
-      nativeBuildInputs = exampleTestInputs;
+      nativeBuildInputs = [crossClang] ++ exampleTestInputs;
     } ''
       cd "$src"
       export GHCRTS=-N1
