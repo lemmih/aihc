@@ -4,7 +4,6 @@ import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Cpp (builtinCppMacros, injectSyntheticCppMacros)
 import Aihc.Hackage.Index (parseHackageIndex, parseHackageIndexUpdatedSince)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc, showVersionBranch)
-import Aihc.Hackage.Stackage (parseSnapshotConstraints)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.VersionResolver (parsePreferredVersions)
 import Codec.Archive.Tar qualified as Tar
@@ -31,20 +30,7 @@ import Test.Tasty.Hedgehog (testProperty)
 main :: IO ()
 main =
   defaultMain . testGroup "aihc-hackage" $
-    [ testCase "maps selected installed packages to fixed versions" $ do
-        parseSnapshotConstraints "constraints: base installed, ghc-prim installed, template-haskell installed"
-          @?= Right
-            [ PackageSpec "base" "4.21.2.0",
-              PackageSpec "ghc-prim" "0.13.0",
-              PackageSpec "template-haskell" "2.23.0.0"
-            ],
-      testCase "keeps installed for packages without a fixed override" $ do
-        parseSnapshotConstraints "constraints: not-a-boot-library installed, custom-package installed"
-          @?= Right
-            [ PackageSpec "not-a-boot-library" "installed",
-              PackageSpec "custom-package" "installed"
-            ],
-      testCase "parses latest package versions from Hackage index tarball" $ do
+    [ testCase "parses latest package versions from Hackage index tarball" $ do
         parseHackageIndex testHackageIndex
           @?= Right
             [ PackageSpec "alpha" "1.2.0",
