@@ -38,6 +38,7 @@ import Aihc.Parser.Syntax
     ForeignDecl (..),
     ForeignDirection (..),
     ForeignEntitySpec (..),
+    ForeignSafety (..),
     GadtBody (..),
     IEBundledMember (..),
     InstanceDecl (..),
@@ -101,7 +102,9 @@ import Aihc.Tc.Annotations
     TcForeignAbiType (..),
     TcForeignEffect (..),
     TcForeignImportAnnotation (..),
+    TcForeignImportInfo (..),
     TcForeignMarshal (..),
+    TcForeignSafety (..),
     TcForeignTarget (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
@@ -1061,6 +1064,7 @@ dataConBindingType name = do
 annotateForeignDeclTc :: ForeignDecl -> TcM Decl
 annotateForeignDeclTc foreignDecl = do
   ty <- bindingType (unqualifiedNameText (foreignName foreignDecl))
+  key <- resolvedUnqualifiedTermKey (foreignName foreignDecl)
   let sourceSpan = unqualifiedNameSpan (foreignName foreignDecl)
       annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] [] []) (DeclForeign foreignDecl)
   case foreignCallConv foreignDecl of
@@ -1069,8 +1073,27 @@ annotateForeignDeclTc foreignDecl = do
       (target, symbol) <- checkForeignEntity sourceSpan declaredName (foreignEntity foreignDecl)
       plan <- checkForeignImportType sourceSpan target symbol ty
       checkedPlan <- checkForeignTarget sourceSpan plan
+      registerForeignImport key (TcForeignCCallImport (foreignSafetyMark (foreignSafety foreignDecl)) checkedPlan)
       pure (DeclAnn (mkAnnotation checkedPlan) annotated)
+    CPrim -> do
+      registerForeignImport key TcForeignPrimImport
+      pure annotated
     _ -> pure annotated
+
+-- | Record the checked calling convention of a foreign import, so that the
+-- interface of the module carries it.
+registerForeignImport :: TcTermKey -> TcForeignImportInfo -> TcM ()
+registerForeignImport key info =
+  lift $ modify' $ \state -> state {tcsForeignImports = Map.insert key info (tcsForeignImports state)}
+
+-- | The safety mark of a foreign import. A missing mark is safe.
+foreignSafetyMark :: Maybe ForeignSafety -> TcForeignSafety
+foreignSafetyMark safety =
+  case safety of
+    Nothing -> TcForeignSafe
+    Just Safe -> TcForeignSafe
+    Just Unsafe -> TcForeignUnsafe
+    Just Interruptible -> TcForeignInterruptible
 
 -- | Read the C entity of a foreign import and report a bad entity.
 checkForeignEntity :: SourceSpan -> Text -> ForeignEntitySpec -> TcM (TcForeignTarget, Text)

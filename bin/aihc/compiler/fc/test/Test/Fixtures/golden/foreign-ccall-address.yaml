@@ -12,6 +12,9 @@ modules:
   data Ptr a = Ptr Addr#
 
   foreign import ccall "&puts" putsAddress :: Ptr Unit
+
+  address :: Ptr Unit
+  address = putsAddress
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Prim
@@ -40,6 +43,7 @@ expected: |-
       pub 1.vPtr :: ∀(a : 3.tType). FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# (1.tPtr a)
   }
 
-  pub foreign import ccall address safe "puts" [ → Addr; pure] using [constructor 1.vPtr] 1.vputsAddress :: 1.tPtr 1.tUnit
+  pub val 1.vaddress :: 1.tPtr 1.tUnit
+   = foreign {ccall address safe "puts" [ → Addr; pure] using [constructor 1.vPtr] 1.vputsAddress :: 1.tPtr 1.tUnit}
 status: pass
-reason: an address entity keeps the symbol but marks the import as taking its address
+reason: an address entity keeps the symbol and marks the call as taking its address

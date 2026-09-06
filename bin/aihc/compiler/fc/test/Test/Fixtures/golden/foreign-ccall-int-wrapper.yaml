@@ -13,6 +13,9 @@ modules:
   newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
 
   foreign import ccall unsafe "identity_int" identityInt :: Int -> IO Int
+
+  run :: Int -> IO Int
+  run x = identityInt x
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Prim
@@ -48,6 +51,8 @@ expected: |-
 
   axiom 1.$ax$IO (a : 3.tType) : 1.tIO a ~R FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tLiftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# 2.tRealWorld) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tLiftedRep (2.tState# 2.tRealWorld) a)
 
-  pub foreign import ccall unsafe "identity_int" [Int → Int; real-world] using [axiom 1.$ax$IO, constructor 1.vI#] 1.videntityInt :: 1.tInt 3.→ 1.tIO 1.tInt
+  pub val 1.vrun :: 1.tInt 3.→ 1.tIO 1.tInt
+   = λ(x : 1.tInt).
+    foreign {ccall unsafe "identity_int" [Int → Int; real-world] using [axiom 1.$ax$IO, constructor 1.vI#] 1.videntityInt :: 1.tInt 3.→ 1.tIO 1.tInt} x
 status: pass
 reason: The real primitive modules provide Tuple2# for lint.

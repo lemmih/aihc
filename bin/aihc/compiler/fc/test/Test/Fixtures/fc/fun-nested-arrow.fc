@@ -7,4 +7,7 @@ pub type 1.tFlag :: 2.tType {
     pub 1.vOff :: 1.tFlag
 }
 
-foreign import prim 1.vput :: FUN @2.tUnliftedRep @2.tLiftedRep 1.tBox (1.tFlag 2.→ 1.tBox)
+pub val 1.vput :: FUN @2.tUnliftedRep @2.tLiftedRep 1.tBox (1.tFlag 2.→ 1.tBox)
+ = λ(box : 1.tBox).
+  λ(flag : 1.tFlag).
+    foreign {prim 1.vput# :: FUN @2.tUnliftedRep @2.tLiftedRep 1.tBox (1.tFlag 2.→ 1.tBox)} box flag

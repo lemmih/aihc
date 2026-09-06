@@ -111,8 +111,6 @@ addDecl env decl =
         }
     DeclVal declaration ->
       env {teHeaders = Map.insert (valName declaration) (valType declaration) (teHeaders env)}
-    DeclForeignImport declaration ->
-      env {teHeaders = Map.insert (foreignImportName declaration) (foreignImportType declaration) (teHeaders env)}
 
 headerType :: [Binder] -> Type -> Type
 headerType binders result = foldr TyForAll result binders

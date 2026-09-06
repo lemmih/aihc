@@ -14,6 +14,7 @@ where
 import Aihc.Fc.Convert
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
+import Aihc.Fc.TypeOf qualified as TypeOf
 import Aihc.Parser.Syntax qualified as Syn
 import Aihc.Resolve
   ( Identifier (..),
@@ -39,6 +40,7 @@ import Aihc.Tc
     patSynKey,
     tcInterfaceDataFamilyInstances,
     tcInterfaceDataTypes,
+    tcInterfaceForeignImports,
     tcInterfaceInstances,
     tcInterfacePatSyns,
     tcInterfaceTerms,
@@ -51,7 +53,9 @@ import Aihc.Tc.Annotations
     TcForeignAbiType (..),
     TcForeignEffect (..),
     TcForeignImportAnnotation (..),
+    TcForeignImportInfo (..),
     TcForeignMarshal (..),
+    TcForeignSafety (..),
     TcForeignTarget (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
@@ -122,7 +126,9 @@ data ValueState = ValueState
     vsNewtypeConstructors :: !(Map TcTermKey DataTypeInfo),
     vsFamilyConstructors :: !(Map TcTermKey DataFamilyInstanceInfo),
     vsStrictConstructors :: !(Map TcTermKey [Bool]),
-    vsPatSyns :: !(Map TcTermKey PatSynInfo)
+    vsPatSyns :: !(Map TcTermKey PatSynInfo),
+    -- | The checked calling convention of each foreign import in scope.
+    vsForeignImports :: !(Map TcTermKey TcForeignImportInfo)
   }
 
 data PreparedValueInterface = PreparedValueInterface
@@ -134,7 +140,8 @@ data PreparedValueInterface = PreparedValueInterface
     -- | Strict field flags of each data constructor that has one strict
     -- field or more. The list gives one flag for each source field.
     preparedStrictConstructors :: !(Map TcTermKey [Bool]),
-    preparedPatSyns :: !(Map TcTermKey PatSynInfo)
+    preparedPatSyns :: !(Map TcTermKey PatSynInfo),
+    preparedForeignImports :: !(Map TcTermKey TcForeignImportInfo)
   }
 
 type ValueM = StateT ValueState (Either String)
@@ -192,7 +199,8 @@ emptyPreparedValueInterface =
       preparedNewtypeConstructors = Map.empty,
       preparedFamilyConstructors = Map.empty,
       preparedStrictConstructors = Map.empty,
-      preparedPatSyns = Map.empty
+      preparedPatSyns = Map.empty,
+      preparedForeignImports = Map.empty
     }
 
 prepareValueInterface :: TcInterface -> PreparedValueInterface
@@ -204,7 +212,8 @@ prepareValueInterface interface =
       preparedNewtypeConstructors = newtypes,
       preparedFamilyConstructors = familyConstructors,
       preparedStrictConstructors = strictConstructors,
-      preparedPatSyns = Map.fromList [(patSynKey info, info) | info <- tcInterfacePatSyns interface]
+      preparedPatSyns = Map.fromList [(patSynKey info, info) | info <- tcInterfacePatSyns interface],
+      preparedForeignImports = Map.fromList (tcInterfaceForeignImports interface)
     }
   where
     termTypes =
@@ -272,7 +281,8 @@ mergePreparedValueInterfaces interfaces =
       preparedNewtypeConstructors = Map.unions (map preparedNewtypeConstructors interfaces),
       preparedFamilyConstructors = Map.unions (map preparedFamilyConstructors interfaces),
       preparedStrictConstructors = Map.unions (map preparedStrictConstructors interfaces),
-      preparedPatSyns = Map.unions (map preparedPatSyns interfaces)
+      preparedPatSyns = Map.unions (map preparedPatSyns interfaces),
+      preparedForeignImports = Map.unions (map preparedForeignImports interfaces)
     }
   where
     mergeCandidates left right = List.nub (left <> right)
@@ -299,7 +309,8 @@ desugarValues convertEnv bindings interface moduleOrigin checked = do
             vsNewtypeConstructors = preparedNewtypeConstructors interface,
             vsFamilyConstructors = preparedFamilyConstructors interface,
             vsStrictConstructors = preparedStrictConstructors interface,
-            vsPatSyns = preparedPatSyns interface
+            vsPatSyns = preparedPatSyns interface,
+            vsForeignImports = preparedForeignImports interface
           }
   fst <$> runStateT (desugarModuleValues checked) initialState
 
@@ -485,7 +496,7 @@ desugarPatSynCall info annotation resultType scrutinee pattern' failureExpressio
 desugarEarlyDecl :: Syn.Decl -> ValueM [Decl]
 desugarEarlyDecl declaration =
   case annotatedForeignDecl declaration of
-    Just (annotation, foreignPlan, foreignDecl) -> desugarForeign annotation foreignPlan foreignDecl
+    Just (_, foreignPlan, foreignDecl) -> desugarForeign foreignPlan foreignDecl
     Nothing ->
       case declaration of
         Syn.DeclAnn annotation inner
@@ -622,45 +633,96 @@ annotatedForeignDecl = go Nothing Nothing
         Syn.DeclForeign foreignDecl -> (,,foreignDecl) <$> maybeType <*> pure maybePlan
         _ -> Nothing
 
-desugarForeign :: TcAnnotation -> Maybe TcForeignImportAnnotation -> Syn.ForeignDecl -> ValueM [Decl]
-desugarForeign annotation foreignPlan foreignDecl =
+-- | A foreign import declares no System FC value. Each use of the import
+-- desugars to a foreign call, so this only validates the declaration.
+desugarForeign :: Maybe TcForeignImportAnnotation -> Syn.ForeignDecl -> ValueM [Decl]
+desugarForeign foreignPlan foreignDecl =
   case Syn.foreignCallConv foreignDecl of
     Syn.CPrim -> do
-      primitiveSeq <- validatePrimitiveSeqOrigin foreignDecl
-      if primitiveSeq then pure [] else (: []) <$> makeForeignImport Prim []
+      _ <- validatePrimitiveSeqOrigin foreignDecl
+      pure []
     Syn.CCall -> do
       unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC does not accept foreign exports")
-      plan <- maybe (failValue "missing checked foreign import plan") pure foreignPlan
-      safety <- convertForeignSafety (Syn.foreignSafety foreignDecl)
-      dependencies <- foreignImportPlanDependencies annotation plan
+      unless (isJust foreignPlan) (failValue "missing checked foreign import plan")
+      _ <- convertForeignSafety (Syn.foreignSafety foreignDecl)
+      pure []
+    callConv -> failValue ("unsupported System FC foreign calling convention: " <> show callConv)
+
+-- | The System FC facts of a foreign import: its calling convention and the
+-- axioms and constructors that its marshalling needs.
+foreignCallFacts :: TcType -> TcForeignImportInfo -> ValueM (CallingConvention, [ForeignImportDependency])
+foreignCallFacts ty info =
+  case info of
+    TcForeignPrimImport -> pure (Prim, [])
+    TcForeignCCallImport safety plan -> do
+      convertedSafety <- convertForeignSafetyMark safety
+      dependencies <- foreignImportPlanDependencies ty plan
       let convention =
             CCall
               CCallSpec
                 { ccallSymbol = tcForeignSymbol plan,
                   ccallTarget = convertForeignTarget (tcForeignTarget plan),
-                  ccallSafety = safety,
+                  ccallSafety = convertedSafety,
                   ccallArgumentTypes = map (convertCAbiType . tcForeignAbiType) (tcForeignArguments plan),
                   ccallResultType = convertCAbiType (tcForeignAbiType (tcForeignResult plan)),
                   ccallEffect = convertForeignEffect (tcForeignEffect plan)
                 }
-      (: []) <$> makeForeignImport convention dependencies
-    callConv -> failValue ("unsupported System FC foreign calling convention: " <> show callConv)
+      pure (convention, dependencies)
+
+-- | Desugar a use of a foreign import. The use becomes a saturated foreign
+-- call under one lambda for each argument, so a partial use is a function
+-- and a full application reduces to the call.
+desugarForeignReference :: Name -> TcTermKey -> TcForeignImportInfo -> [Type] -> [Expr] -> ValueM Expr
+desugarForeignReference variable key info types evidence = do
+  unless (null evidence) (failValue ("foreign import " <> T.unpack (nameText variable) <> " has unexpected evidence arguments"))
+  ty <- lookupBindingType key
+  foreignType <- convertCheckedType ty
+  (convention, dependencies) <- foreignCallFacts ty info
+  let call =
+        ForeignCall
+          { foreignCallName = variable,
+            foreignCallConvention = convention,
+            foreignCallDependencies = dependencies,
+            foreignCallType = foreignType
+          }
+  instantiated <- instantiateForeignType variable foreignType types
+  -- The declared type gives the arity. A type argument can be a function
+  -- type, and the call must not take the arguments of that function.
+  let arity = length (foreignArgumentTypes (foreignTypeBody foreignType))
+  binders <- mapM (freshBinderFromType "_foreign_argument") (take arity (foreignArgumentTypes instantiated))
+  pure (foldr ExLam (ExForeignCall call types (map (ExVar . binderName) binders)) binders)
+
+-- | Substitute the type arguments of a use for the leading binders of the
+-- foreign type.
+instantiateForeignType :: Name -> Type -> [Type] -> ValueM Type
+instantiateForeignType variable = go
   where
-    makeForeignImport convention dependencies = do
-      _ <- freshUnique
-      moduleOrigin <- gets vsModuleOrigin
-      ty <- convertCheckedType (tcAnnType annotation)
-      let valueName = Syn.unqualifiedNameText (Syn.foreignName foreignDecl)
-      pure
-        ( DeclForeignImport
-            ForeignImportDecl
-              { foreignImportVis = Pub,
-                foreignImportName = topName moduleOrigin valueName,
-                foreignImportCallingConvention = convention,
-                foreignImportDependencies = dependencies,
-                foreignImportType = ty
-              }
-        )
+    go ty [] = pure ty
+    go ty (argument : rest) =
+      case ty of
+        TyForAll binder body -> go (TypeOf.substType (binderName binder) argument body) rest
+        _ -> failValue ("foreign import " <> T.unpack (nameText variable) <> " has too many type arguments")
+
+-- | The type after the leading binders of a foreign type.
+foreignTypeBody :: Type -> Type
+foreignTypeBody ty =
+  case ty of
+    TyForAll _ body -> foreignTypeBody body
+    _ -> ty
+
+-- | The argument types of an instantiated foreign type, one for each arrow.
+foreignArgumentTypes :: Type -> [Type]
+foreignArgumentTypes ty =
+  case ty of
+    TyFun _ _ argument result -> argument : foreignArgumentTypes result
+    _ -> []
+
+convertForeignSafetyMark :: TcForeignSafety -> ValueM ForeignSafety
+convertForeignSafetyMark safety =
+  case safety of
+    TcForeignUnsafe -> pure ForeignUnsafe
+    TcForeignSafe -> pure ForeignSafe
+    TcForeignInterruptible -> failValue "System FC does not accept interruptible foreign imports"
 
 validatePrimitiveSeqOrigin :: Syn.ForeignDecl -> ValueM Bool
 validatePrimitiveSeqOrigin foreignDecl =
@@ -673,9 +735,9 @@ validatePrimitiveSeqOrigin foreignDecl =
       pure True
     else pure False
 
-foreignImportPlanDependencies :: TcAnnotation -> TcForeignImportAnnotation -> ValueM [ForeignImportDependency]
-foreignImportPlanDependencies annotation plan = do
-  typeDependencies <- foreignTypeNewtypeDependencies (tcAnnType annotation)
+foreignImportPlanDependencies :: TcType -> TcForeignImportAnnotation -> ValueM [ForeignImportDependency]
+foreignImportPlanDependencies ty plan = do
+  typeDependencies <- foreignTypeNewtypeDependencies ty
   marshalDependencies <- concat <$> mapM foreignMarshalDependencies (tcForeignArguments plan <> [tcForeignResult plan])
   pure (List.nub (typeDependencies <> marshalDependencies))
 
@@ -1349,6 +1411,7 @@ countUses name = go 0
             ExRec bindings inner -> go (foldl' go total (map bindRhs bindings)) inner
             ExCase scrutinee _ _ alternatives -> foldl' go (go total scrutinee) (map altRhs alternatives)
             ExCast inner _ -> go total inner
+            ExForeignCall _ _ arguments -> foldl' go total arguments
 
 -- | Replace every use of a variable with an expression. The name is fresh, so
 -- no binder in the body shadows it.
@@ -1368,6 +1431,7 @@ substituteVar name value = go
         ExCase scrutinee binder ty alternatives ->
           ExCase (go scrutinee) binder ty [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
         ExCast inner coercion -> ExCast (go inner) coercion
+        ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)
 
 patternView :: Syn.Pattern -> Maybe (Syn.Expr, Syn.Pattern)
 patternView pattern' =
@@ -2329,7 +2393,13 @@ patSynBuilderName variable =
 
 desugarTermReference :: Name -> [Type] -> [Expr] -> [TcType] -> ValueM Expr
 desugarTermReference variable types evidence termArgumentTypes
-  | nameText variable /= "seq" = pure ordinaryReference
+  | nameText variable /= "seq" = do
+      foreignImports <- gets vsForeignImports
+      case nameOrigin variable of
+        OriginTop package moduleName'
+          | Just info <- Map.lookup (TcTermGlobal package moduleName' (nameText variable)) foreignImports ->
+              desugarForeignReference variable (TcTermGlobal package moduleName' (nameText variable)) info types evidence
+        _ -> pure ordinaryReference
   | OriginLocal {} <- nameOrigin variable = pure ordinaryReference
   | OriginTop package moduleName' <- nameOrigin variable = do
       moduleOrigin <- gets vsModuleOrigin
@@ -3259,6 +3329,7 @@ expressionFreeNames expression =
       expressionFreeNames scrutinee
         <> Set.delete (binderName binder) (foldMap alternativeFreeNames alternatives)
     ExCast inner _ -> expressionFreeNames inner
+    ExForeignCall _ _ arguments -> foldMap expressionFreeNames arguments
   where
     alternativeFreeNames alternative =
       expressionFreeNames (altRhs alternative)

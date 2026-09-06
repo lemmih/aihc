@@ -38,11 +38,9 @@ expected: |-
     3.tLiftedRep = 3.vBoxedRep 3.vLifted;
     3.tType = 3.tTYPE 3.tLiftedRep
 
-  pub foreign import prim 1.vawaitIO# :: FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# (FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v[] 3.tRuntimeRep)) (2.tState# 2.tRealWorld) (2.tState# 2.tRealWorld))
-
   pub val 1.vawait :: FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# (FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v[] 3.tRuntimeRep)) (2.tState# 2.tRealWorld) (2.tState# 2.tRealWorld))
    = λ(x : 2.tAddr#).
     λ(y : 2.tState# 2.tRealWorld).
-      1.vawaitIO# x y
+      foreign {prim 1.vawaitIO# :: FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# (FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v[] 3.tRuntimeRep)) (2.tState# 2.tRealWorld) (2.tState# 2.tRealWorld))} x y
 status: pass
 reason: A primitive occurrence uses the identity of its foreign import declaration.

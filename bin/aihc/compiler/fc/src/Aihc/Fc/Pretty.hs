@@ -84,7 +84,6 @@ prettyDecl scopes decl =
     DeclSynonym declaration -> prettySynonymDecl scopes declaration
     DeclAxiom declaration -> prettyAxiomDecl scopes declaration
     DeclVal declaration -> prettyValDecl scopes declaration
-    DeclForeignImport declaration -> prettyForeignImportDecl scopes declaration
 
 prettyVis :: Vis -> Doc ann
 prettyVis Pub = "pub "
@@ -175,15 +174,16 @@ prettyValDecl scopes declaration =
     <> " = "
     <> prettyExprWith scopes (valBody declaration)
 
-prettyForeignImportDecl :: ScopeTable -> ForeignImportDecl -> Doc ann
-prettyForeignImportDecl scopes declaration =
-  prettyVis (foreignImportVis declaration)
-    <> "foreign import "
-    <> prettyCallingConvention (foreignImportCallingConvention declaration)
-    <> prettyForeignImportDependencies scopes (foreignImportDependencies declaration)
-    <> prettyTopName scopes (foreignImportName declaration)
+-- | The head of a foreign call: @foreign {prim 1.vf :: type}@.
+prettyForeignCall :: ScopeTable -> ForeignCall -> Doc ann
+prettyForeignCall scopes call =
+  "foreign {"
+    <> prettyCallingConvention (foreignCallConvention call)
+    <> prettyForeignImportDependencies scopes (foreignCallDependencies call)
+    <> prettyTopName scopes (foreignCallName call)
     <> " :: "
-    <> prettyTypeWith scopes PrecForAll (foreignImportType declaration)
+    <> prettyTypeWith scopes PrecForAll (foreignCallType call)
+    <> "}"
 
 prettyForeignImportDependencies :: ScopeTable -> [ForeignImportDependency] -> Doc ann
 prettyForeignImportDependencies _ [] = mempty
@@ -359,6 +359,12 @@ prettyExprWith scopes expr =
         <> "}"
     ExCast body coercion ->
       prettyExprAtom scopes body <+> "▷" <+> prettyCoercion scopes coercion
+    ExForeignCall call types arguments ->
+      hsep
+        ( prettyForeignCall scopes call
+            : map (\ty -> "@" <> prettyTypeWith scopes PrecAtom ty) types
+              <> map (prettyExprAtom scopes) arguments
+        )
 
 prettyApp :: ScopeTable -> Expr -> Doc ann
 prettyApp scopes expr =

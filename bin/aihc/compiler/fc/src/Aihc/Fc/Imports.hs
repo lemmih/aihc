@@ -170,9 +170,6 @@ declReferences decl =
         <> typeReferences (synBody declaration)
     DeclAxiom declaration -> axiomReferences declaration
     DeclVal declaration -> typeReferences (valType declaration) <> exprReferences (valBody declaration)
-    DeclForeignImport declaration ->
-      typeReferences (foreignImportType declaration)
-        <> foldMap foreignImportDependencyReferences (foreignImportDependencies declaration)
 
 foreignImportDependencyReferences :: ForeignImportDependency -> References
 foreignImportDependencyReferences dependency =
@@ -216,6 +213,17 @@ exprReferences expr =
         <> typeReferences result
         <> foldMap altReferences alts
     ExCast body coercion -> exprReferences body <> coercionReferences coercion
+    ExForeignCall call types arguments ->
+      foreignCallReferences call
+        <> foldMap typeReferences types
+        <> foldMap exprReferences arguments
+
+-- | A foreign call carries its own type, so the imported name of the foreign
+-- import is not a reference. Its type and its dependencies are.
+foreignCallReferences :: ForeignCall -> References
+foreignCallReferences call =
+  typeReferences (foreignCallType call)
+    <> foldMap foreignImportDependencyReferences (foreignCallDependencies call)
 
 bindReferences :: Bind -> References
 bindReferences binding = binderReferences (bindBinder binding) <> exprReferences (bindRhs binding)

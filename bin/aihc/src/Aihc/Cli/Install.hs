@@ -99,6 +99,7 @@ import Aihc.Tc
     tcInterfaceClasses,
     tcInterfaceDataFamilyInstances,
     tcInterfaceDataTypes,
+    tcInterfaceForeignImports,
     tcInterfaceInstances,
     tcInterfaceTerms,
     tcInterfaceTyCons,
@@ -109,6 +110,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
     unionTcInterfaces,
   )
+import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..))
 import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types (tvKind, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
@@ -1509,7 +1511,8 @@ moduleTypeInterface exports package interface source =
         tcInterfaceInstanceMap = Map.filter visibleInstance (tcInterfaceInstanceMap interface),
         tcInterfaceDataFamilyInstanceMap = Map.filter visibleDataFamilyInstance (tcInterfaceDataFamilyInstanceMap interface),
         tcInterfaceTypeFamilyInstanceMap = Map.filter visibleTypeFamilyInstance (tcInterfaceTypeFamilyInstanceMap interface),
-        tcInterfacePatSynMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfacePatSynMap interface)
+        tcInterfacePatSynMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfacePatSynMap interface),
+        tcInterfaceForeignImportMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfaceForeignImportMap interface)
       }
   where
     name = fromMaybe "Main" (moduleName (sourceModuleAst source))
@@ -1600,6 +1603,7 @@ addReferencedFacts complete interface =
             <> concatMap instanceInfoTyCons (tcInterfaceInstances interface)
             <> concatMap dataFamilyInstanceInfoTyCons (tcInterfaceDataFamilyInstances interface)
             <> concatMap typeFamilyInstanceInfoTyCons (tcInterfaceTypeFamilyInstances interface)
+            <> concatMap (foreignImportInfoTyCons . snd) (tcInterfaceForeignImports interface)
         )
     reachable = closeTyCons Set.empty referenced
     reachableKeys = Set.map tyConKey reachable
@@ -1619,6 +1623,16 @@ addReferencedFacts complete interface =
                   )
               found' = Set.insert tyCon found
            in closeTyCons found' (pending' <> (dependencies `Set.difference` found'))
+
+-- | The type constructors that a foreign call marshals through.
+foreignImportInfoTyCons :: TcForeignImportInfo -> [TyCon]
+foreignImportInfoTyCons info =
+  case info of
+    TcForeignPrimImport -> []
+    TcForeignCCallImport _ plan ->
+      concatMap marshalTyCons (tcForeignArguments plan <> [tcForeignResult plan])
+  where
+    marshalTyCons marshal = typeTyCons (tcForeignSourceType marshal) <> typeTyCons (tcForeignPrimitiveType marshal)
 
 tyConInfoTyCons :: TyConInfo -> [TyCon]
 tyConInfoTyCons info =

@@ -21,7 +21,7 @@ import Control.Monad (foldM, unless, when)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -99,9 +99,6 @@ lintDeclHeaders env decl =
     DeclSynonym declaration -> lintSynonymDecl env declaration
     DeclAxiom declaration -> lintAxiomDecl env declaration
     DeclVal declaration -> eitherToList (lintType env (valType declaration))
-    DeclForeignImport declaration ->
-      eitherToList (lintType env (foreignImportType declaration))
-        <> concatMap (lintForeignImportDependency env) (foreignImportDependencies declaration)
 
 lintForeignImportDependency :: TypeEnv -> ForeignImportDependency -> [LintError]
 lintForeignImportDependency env dependency =
@@ -419,6 +416,53 @@ lintExpr env expr =
       (source, target) <- coercionEndpoints env coercion
       checkExpr env "cast source" source body
       Right target
+    ExForeignCall call types arguments -> lintForeignCall env call types arguments
+
+-- | A foreign call instantiates every leading binder of the foreign type and
+-- fills every arrow of the foreign type. Its result is the type after the
+-- arrows.
+lintForeignCall :: TypeEnv -> ForeignCall -> [Type] -> [Expr] -> Either LintError Type
+lintForeignCall env call types arguments = do
+  -- The foreign type is closed, so its binders cannot shadow a local binder.
+  _ <- lintType env {teBinders = Map.empty} (foreignCallType call)
+  case concatMap (lintForeignImportDependency env) (foreignCallDependencies call) of
+    [] -> Right ()
+    problem : _ -> Left problem
+  instantiated <- foldM applyTypeArgument (foreignCallType call) types
+  when (isJust (viewForAll env instantiated)) (Left (LintFailure ("foreign call has too few type arguments: " <> show (foreignCallName call))))
+  -- The declared type gives the arity. A type argument can be a function
+  -- type, and the call does not take the arguments of that function.
+  let arity = foreignCallArity env (foreignTypeBody env (foreignCallType call))
+  unless (length arguments == arity) (Left (LintFailure ("foreign call has " <> show (length arguments) <> " arguments for an arity of " <> show arity <> ": " <> show (foreignCallName call))))
+  foldM applyValueArgument instantiated arguments
+  where
+    applyTypeArgument functionType argument = do
+      argumentKind <- lintType env argument
+      case viewForAll env functionType of
+        Just (binder, body) -> do
+          unless (kindsCompatible env argument (binderType binder) argumentKind) (Left (KindMismatch "foreign call type argument" (binderType binder) argumentKind))
+          Right (substType (binderName binder) argument body)
+        Nothing -> Left (LintFailure ("foreign call has too many type arguments: " <> show (foreignCallName call)))
+    applyValueArgument functionType argument =
+      case viewFun env functionType of
+        Just (_, _, expected, result) -> do
+          checkExpr env "foreign call argument" expected argument
+          Right result
+        Nothing -> Left (LintFailure ("foreign call has too many arguments: " <> show (foreignCallName call)))
+
+-- | The type after the leading binders of a foreign type.
+foreignTypeBody :: TypeEnv -> Type -> Type
+foreignTypeBody env ty =
+  case viewForAll env ty of
+    Just (_, body) -> foreignTypeBody env body
+    Nothing -> ty
+
+-- | The number of arrows of a foreign type after its binders.
+foreignCallArity :: TypeEnv -> Type -> Int
+foreignCallArity env ty =
+  case viewFun env ty of
+    Just (_, _, _, result) -> 1 + foreignCallArity env result
+    Nothing -> 0
 
 lookupTerm :: TypeEnv -> Name -> Either LintError Type
 lookupTerm env name =

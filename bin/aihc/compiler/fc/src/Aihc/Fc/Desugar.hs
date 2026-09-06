@@ -963,10 +963,6 @@ declOrigins decl =
       nameOriginPair (valName valDecl)
         <> typeOrigins (valType valDecl)
         <> exprOrigins (valBody valDecl)
-    DeclForeignImport foreignImportDecl ->
-      nameOriginPair (foreignImportName foreignImportDecl)
-        <> concatMap foreignImportDependencyOrigins (foreignImportDependencies foreignImportDecl)
-        <> typeOrigins (foreignImportType foreignImportDecl)
 
 foreignImportDependencyOrigins :: ForeignImportDependency -> [(PackageId, Text)]
 foreignImportDependencyOrigins dependency =
@@ -995,6 +991,12 @@ exprOrigins expr =
     ExCase scrutinee binder resultType alts ->
       exprOrigins scrutinee <> binderOrigins binder <> typeOrigins resultType <> concatMap altOrigins alts
     ExCast inner coercion -> exprOrigins inner <> coercionOrigins coercion
+    ExForeignCall call types arguments ->
+      nameOriginPair (foreignCallName call)
+        <> concatMap foreignImportDependencyOrigins (foreignCallDependencies call)
+        <> typeOrigins (foreignCallType call)
+        <> concatMap typeOrigins types
+        <> concatMap exprOrigins arguments
 
 bindOrigins :: Bind -> [(PackageId, Text)]
 bindOrigins bind = binderOrigins (bindBinder bind) <> exprOrigins (bindRhs bind)

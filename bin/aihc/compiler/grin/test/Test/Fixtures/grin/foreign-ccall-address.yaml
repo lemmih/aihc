@@ -7,9 +7,9 @@ expected: |-
 
   global 1.Ptr = (C1.Ptr/1)
 
-  global 1.putsAddress = (F$putsAddress_foreign)
+  global 1.address = (F$address_thunk)
 
-  $putsAddress_foreign -> BoxedRep Lifted =
+  $address_thunk -> BoxedRep Lifted =
     foreign_result :: AddrRep <-
       foreign-call putsAddress = address "puts" :: () -> addr ! pure with
     store (C1.Ptr (foreign_result :: AddrRep))
@@ -21,5 +21,8 @@ source: |
   import GHC.Prim
   data Ptr a = Ptr Addr#
   foreign import ccall "&puts" putsAddress :: Ptr ()
-reason: takes the address of a static C symbol instead of calling it, and suspends it as a value
+
+  address :: Ptr ()
+  address = putsAddress
+reason: takes the address of a static C symbol instead of calling it
 status: pass

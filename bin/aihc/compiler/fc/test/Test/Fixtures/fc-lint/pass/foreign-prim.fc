@@ -14,10 +14,8 @@ import synonyms
   2.tLiftedRep = 2.vBoxedRep 2.vLifted;
   2.tType = 2.tTYPE 2.tLiftedRep
 
-foreign import prim 1.vraise# :: ∀(a : 2.tType) (b : 2.tType). a 2.→ b
-
 val 1.vboom :: ∀(a : 2.tType) (b : 2.tType). a 2.→ b
  = Λ(a : 2.tType).
   Λ(b : 2.tType).
     λ(x : a).
-      1.vraise# @a @b x
+      foreign {prim 1.vraise# :: ∀(a : 2.tType) (b : 2.tType). a 2.→ b} @a @b x

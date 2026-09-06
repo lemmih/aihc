@@ -3,10 +3,10 @@ expected: |-
 
   foreign labs = "labs" :: (int) -> int ! pure
 
-  global 1.labs = (P$labs_foreign/[[IntRep]])
+  global 1.run = (P$run/[[IntRep]])
 
-  $labs_foreign (foreign_argument_0 :: IntRep) -> IntRep =
-    foreign-call labs = "labs" :: (int) -> int ! pure with (foreign_argument_0 :: IntRep)
+  $run (x :: IntRep) -> IntRep =
+    foreign-call labs = "labs" :: (int) -> int ! pure with (x :: IntRep)
 extensions:
 - ForeignFunctionInterface
 - MagicHash
@@ -14,5 +14,8 @@ source: |
   module Test where
   import GHC.Prim
   foreign import ccall safe "labs" labs :: Int# -> Int#
+
+  run :: Int# -> Int#
+  run x = labs x
 reason: a safe C call lowers like an unsafe C call
 status: pass

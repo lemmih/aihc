@@ -3,16 +3,9 @@ expected: |-
 
   constructor 1.Box [IntRep]
 
-  primitive realWorld# :: TupleRep []/0
-
   global 1.Box = (C1.Box/1)
 
-  global 1.realWorld# = (P$realWorld#_foreign/0)
-
   global 1.value = (F$value_thunk)
-
-  $realWorld#_foreign -> TupleRep [] =
-    primitive-call @(TupleRep []) realWorld#
 
   $value_thunk -> BoxedRep Lifted =
     store (C1.Box (42 :: IntRep))

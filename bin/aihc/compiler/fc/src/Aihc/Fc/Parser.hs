@@ -17,6 +17,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import Data.ByteString qualified as BS
 import Data.Char (chr, digitToInt, isAlpha, isAlphaNum, isHexDigit, ord)
+import Data.Either (isLeft, lefts, partitionEithers)
 import Data.Functor (($>))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -121,7 +122,6 @@ declaration =
   MP.choice
     [ MP.try typeOrSynonym,
       MP.try axiomDeclaration,
-      MP.try foreignImportDeclaration,
       valDeclaration
     ]
 
@@ -162,16 +162,25 @@ axiomDeclaration = do
   role <- parseAxiomRole
   DeclAxiom . AxiomDecl vis name binders role left <$> fcType
 
-foreignImportDeclaration :: Parser Decl
-foreignImportDeclaration = do
-  vis <- optionalPub
+-- | A foreign call: @foreign {convention deps name :: type} @ty... arg...@.
+-- Every type argument comes before the value arguments.
+foreignCallExpr :: Parser Expr
+foreignCallExpr = do
   _ <- keyword "foreign"
-  _ <- keyword "import"
+  call <- MP.between (symbol "{") (symbol "}") foreignCall
+  arguments <- MP.many appArgument
+  let (types, rest) = span isLeft arguments
+  case partitionEithers rest of
+    ([], values) -> pure (ExForeignCall call (lefts types) values)
+    _ -> fail "a foreign call takes its type arguments before its value arguments"
+
+foreignCall :: Parser ForeignCall
+foreignCall = do
   convention <- callingConvention
   dependencies <- MP.option [] parseForeignImportDependencies
   name <- topName SortValue
   _ <- symbol "::"
-  DeclForeignImport . ForeignImportDecl vis name convention dependencies <$> fcType
+  ForeignCall name convention dependencies <$> fcType
 
 parseForeignImportDependencies :: Parser [ForeignImportDependency]
 parseForeignImportDependencies =
@@ -424,7 +433,7 @@ castOrApp = do
     ExCast function <$> coercion
 
 appExpr :: Parser Expr
-appExpr = foldl applyArg <$> exprAtom <*> MP.many appArgument
+appExpr = foreignCallExpr <|> (foldl applyArg <$> exprAtom <*> MP.many appArgument)
   where
     applyArg function argument =
       case argument of

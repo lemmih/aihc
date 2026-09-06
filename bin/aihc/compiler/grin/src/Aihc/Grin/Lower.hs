@@ -16,9 +16,9 @@ import Aihc.Grin.Tidy (tidyGrinProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
-import Control.Monad (zipWithM)
+import Control.Monad (foldM, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, get, mapStateT, modify', runStateT)
+import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', runStateT)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe, mapMaybe)
@@ -56,15 +56,20 @@ data LowerState = LowerState
     -- value needs takes its name from this name.
     lowerCurrentValue :: !Text,
     lowerUsedFunctions :: !(Set FunctionName),
-    lowerFunctionsRev :: ![GrinFunction]
+    lowerFunctionsRev :: ![GrinFunction],
+    -- | The primitives that the module calls, by name.
+    lowerPrimitives :: !(Map Text (GrinVar, Int)),
+    -- | The C functions that the module calls, by the name of their import.
+    lowerForeignCalls :: !(Map Text GrinForeignCall),
+    -- | The function of each foreign import that the module applies to too
+    -- few arguments. The function takes every argument of the import.
+    lowerForeignFunctions :: !(Map Text FunctionName)
   }
 
 type LowerM = StateT LowerState (Either String)
 
 data TopParts = TopParts
   { topConstructors :: ![(Text, [[GrinRep]])],
-    topPrimitives :: ![(GrinVar, Int)],
-    topForeignCalls :: ![GrinForeignCall],
     topGlobals :: ![(Text, GrinNode)]
   }
 
@@ -72,13 +77,11 @@ instance Semigroup TopParts where
   left <> right =
     TopParts
       { topConstructors = topConstructors left <> topConstructors right,
-        topPrimitives = topPrimitives left <> topPrimitives right,
-        topForeignCalls = topForeignCalls left <> topForeignCalls right,
         topGlobals = topGlobals left <> topGlobals right
       }
 
 instance Monoid TopParts where
-  mempty = TopParts [] [] [] []
+  mempty = TopParts [] []
 
 lowerProgram :: Fc.Program -> Either String GrinProgram
 lowerProgram program = do
@@ -87,7 +90,7 @@ lowerProgram program = do
       globals = globalNameTable types
       constructorArities = constructorArityTable types
       baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty
-      initialState = LowerState (-1000000000) "" Set.empty []
+      initialState = LowerState (-1000000000) "" Set.empty [] Map.empty Map.empty Map.empty
   (parts, finalState) <- flip runStateT initialState $ do
     localFunctions <- localFunctionTable baseEnv program
     let env = baseEnv {lowerLocalFunctions = localFunctions}
@@ -97,8 +100,8 @@ lowerProgram program = do
         ( normalizeGrinProgram
             GrinProgram
               { grinConstructors = topConstructors parts,
-                grinPrimitives = topPrimitives parts,
-                grinForeignCalls = topForeignCalls parts,
+                grinPrimitives = Map.elems (lowerPrimitives finalState),
+                grinForeignCalls = Map.elems (lowerForeignCalls finalState),
                 grinGlobals = topGlobals parts,
                 grinFunctions = reverse (lowerFunctionsRev finalState)
               }
@@ -112,8 +115,6 @@ lowerDecl env declaration =
     Fc.DeclVal value ->
       withLowerContext ("value " <> show (Fc.valName value)) $
         withCurrentValue (Fc.valName value) (lowerValueDecl env value)
-    Fc.DeclForeignImport value ->
-      withCurrentValue (Fc.foreignImportName value) (lowerForeignDecl env value)
     Fc.DeclSynonym {} -> pure mempty
     Fc.DeclAxiom {} -> pure mempty
 
@@ -182,89 +183,148 @@ functionArity expression =
     Fc.ExTyLam _ body -> functionArity body
     _ -> 0
 
-lowerForeignDecl :: LowerEnv -> Fc.ForeignImportDecl -> LowerM TopParts
-lowerForeignDecl env declaration = do
-  let name = Fc.foreignImportName declaration
-      sourceType = applySubstitution env (Fc.foreignImportType declaration)
-      (typeBinders, monotype) = splitForAlls sourceType
-      foreignEnv = defaultRuntimeReps (foldl extendTypeBinder env typeBinders) typeBinders
-  axioms <- foreignAxiomDeclarations foreignEnv declaration
-  let constructors = foreignConstructorNames declaration
-  (argumentTypes, resultType) <- splitOperationalFunctionType foreignEnv axioms monotype
-  argumentGroups <-
-    mapM
-      (\(index, argumentType) -> freshVarsForType foreignEnv ("foreign_argument_" <> T.pack (show index), argumentType))
-      (zip [0 :: Int ..] argumentTypes)
-  resultRep <- liftEither (runtimeRep foreignEnv resultType)
-  functionName <- freshFunction (Fc.nameText name <> "_foreign")
-  globalName <- lookupGlobalName env name
-  let parameters = concat argumentGroups
-      layouts = map (map grinVarRuntimeRep) argumentGroups
-      valueGroups = map (map GrinVarValue) argumentGroups
-      arity = length argumentTypes
-  (body, primitives, foreignCalls) <-
-    case Fc.foreignImportCallingConvention declaration of
-      Fc.Prim -> do
-        expression <- lowerPrimitiveBody resultRep (Fc.nameText name) valueGroups
-        let primitive =
-              [ (GrinVar (Fc.nameText name) (-2000000000 + arity) resultRep, arity)
-              | Fc.nameText name `notElem` compilerPrimitives
-              ]
-        pure (expression, primitive, [])
-      Fc.CCall specification -> do
-        let foreignCall = lowerForeignCall name specification
-        (expression, adapterPrimitives) <- lowerForeignBody foreignEnv axioms constructors foreignCall argumentTypes valueGroups resultType
-        pure (expression, adapterPrimitives, [foreignCall])
-  emitFunction
-    GrinFunction
-      { grinFunctionName = functionName,
-        grinFunctionParameters = parameters,
-        grinFunctionResultRep = resultRep,
-        grinFunctionBody = body
-      }
-  -- A foreign call that takes no arguments is a value, not a function, so its
-  -- global suspends the call instead of holding an empty closure.
-  node <-
-    case Fc.foreignImportCallingConvention declaration of
-      Fc.CCall {}
-        | arity == 0 ->
-            if resultRep == liftedGrinRep
-              then pure (GrinNode (GrinThunk functionName) [])
-              else throwLower ("GRIN cannot suspend an unlifted foreign import: " <> T.unpack (Fc.nameText name))
-      _ -> pure (GrinNode (GrinClosure functionName layouts) [])
-  pure
-    mempty
-      { topPrimitives = primitives,
-        topForeignCalls = foreignCalls,
-        topGlobals = [(globalName, node)]
-      }
+-- | Lower a foreign call. A call that gives every argument of the import
+-- lowers to the primitive or C call in place. A call that gives fewer
+-- arguments stores a closure of a function that takes every argument. This
+-- happens when the source type hides an argument, for example the state
+-- token of an @IO@ result.
+lowerForeignCallExpr :: LowerEnv -> Fc.ForeignCall -> [Fc.Type] -> [Fc.Expr] -> LowerM GrinExpr
+lowerForeignCallExpr env call types arguments = do
+  -- The foreign type is closed. The type arguments go into it directly,
+  -- not into the environment: a binder of the foreign type can have the
+  -- name of a binder in a constructor header, and a substitution in the
+  -- environment would rewrite that header too.
+  let name = Fc.foreignCallName call
+      (typeBinders, monotype) = splitForAlls (Fc.foreignCallType call)
+  when (length types > length typeBinders) $
+    throwLower ("GRIN foreign call has too many type arguments: " <> T.unpack (Fc.nameText name))
+  let (instantiated, remaining) = splitAt (length types) typeBinders
+      substitution = Map.fromList [(Fc.binderName binder, applySubstitution env argument) | (binder, argument) <- zip instantiated types]
+      instantiatedType = TypeOf.substTypes substitution monotype
+      foreignEnv = defaultRuntimeReps (foldl extendTypeBinder env remaining) remaining
+      declaredEnv = defaultRuntimeReps (foldl extendTypeBinder env typeBinders) typeBinders
+  axioms <- foreignAxiomDeclarations foreignEnv (Fc.foreignCallDependencies call)
+  let constructors = foreignConstructorNames (Fc.foreignCallDependencies call)
+  -- The declared type gives the arity. A type argument can be a function
+  -- type, and the call does not take the arguments of that function.
+  (declaredArguments, _) <- splitOperationalFunctionType declaredEnv axioms monotype
+  (argumentTypes, resultType) <- splitOperationalArrows foreignEnv axioms (length declaredArguments) instantiatedType
+  case compare (length arguments) (length argumentTypes) of
+    -- The result of the call is a function of the remaining arguments, for
+    -- example when @unsafeCoerce#@ gives a state transformer.
+    GT -> do
+      let (callArguments, extraArguments) = splitAt (length argumentTypes) arguments
+      resultRep <- expressionRuntimeRep env (Fc.ExForeignCall call types arguments)
+      evaluated <- freshVar "function_whnf" liftedGrinRep
+      functionExpression <- lowerForeignCallExpr env call types callArguments
+      rest <- lowerDynamicApplication env resultRep (GrinVarValue evaluated) extraArguments
+      pure (GrinBind [evaluated] functionExpression rest)
+    EQ
+      | Fc.Prim <- Fc.foreignCallConvention call,
+        Map.member (Fc.nameText name) specialPrimitiveArities -> do
+          -- A call that never returns keeps a polymorphic representation.
+          resultRep <- expressionRuntimeRep env (Fc.ExForeignCall call types arguments)
+          lowerSpecialApplication env resultRep (Fc.nameText name) arguments
+      | otherwise -> do
+          resultRep <- liftEither (runtimeRep foreignEnv resultType)
+          lowerArgumentGroups env arguments $ \valueGroups ->
+            lowerForeignCallBody foreignEnv call axioms constructors argumentTypes valueGroups resultType resultRep
+    LT -> do
+      resultRep <- liftEither (runtimeRep foreignEnv resultType)
+      functionName <- foreignFunction foreignEnv call axioms constructors argumentTypes resultType resultRep
+      layouts <- mapM (liftEither . runtimeComponents foreignEnv) argumentTypes
+      lowerArguments env arguments $ \values ->
+        pure (GrinStore (GrinNode (GrinClosure functionName (drop (length arguments) layouts)) values))
 
-foreignAxiomDeclarations :: LowerEnv -> Fc.ForeignImportDecl -> LowerM [Fc.AxiomDecl]
-foreignAxiomDeclarations env declaration =
-  mapM lookupAxiom [name | Fc.ForeignAxiom name <- Fc.foreignImportDependencies declaration]
+-- | Lower the arguments of a foreign call, one group of values for each
+-- argument.
+lowerArgumentGroups :: LowerEnv -> [Fc.Expr] -> ([[GrinValue]] -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerArgumentGroups env = go []
+  where
+    go groups [] continuation = continuation (reverse groups)
+    go groups (argument : arguments) continuation =
+      lowerArgument env argument (\values -> go (values : groups) arguments continuation)
+
+-- | The body of a foreign call with the values of every argument.
+lowerForeignCallBody :: LowerEnv -> Fc.ForeignCall -> [Fc.AxiomDecl] -> [Fc.Name] -> [Fc.Type] -> [[GrinValue]] -> Fc.Type -> GrinRep -> LowerM GrinExpr
+lowerForeignCallBody env call axioms constructors argumentTypes valueGroups resultType resultRep = do
+  let name = Fc.foreignCallName call
+      arity = length argumentTypes
+  case Fc.foreignCallConvention call of
+    Fc.Prim -> do
+      unless (Fc.nameText name `elem` compilerPrimitives) $
+        declarePrimitive (GrinVar (Fc.nameText name) (-2000000000 + arity) resultRep, arity)
+      lowerPrimitiveBody resultRep (Fc.nameText name) valueGroups
+    Fc.CCall specification -> do
+      let foreignCall = lowerForeignCall name specification
+      declareForeignCall foreignCall
+      (expression, adapterPrimitives) <- lowerForeignBody env axioms constructors foreignCall argumentTypes valueGroups resultType
+      mapM_ declarePrimitive adapterPrimitives
+      pure expression
+
+-- | The function of a foreign import that takes every argument of the
+-- import. The module has one such function for each import that it applies
+-- to too few arguments.
+foreignFunction :: LowerEnv -> Fc.ForeignCall -> [Fc.AxiomDecl] -> [Fc.Name] -> [Fc.Type] -> Fc.Type -> GrinRep -> LowerM FunctionName
+foreignFunction env call axioms constructors argumentTypes resultType resultRep = do
+  let name = Fc.foreignCallName call
+      key = stableGlobalName name
+  known <- gets (Map.lookup key . lowerForeignFunctions)
+  case known of
+    Just functionName -> pure functionName
+    Nothing -> do
+      functionName <- freshFunction (Fc.nameText name <> "_foreign")
+      modify' (\state -> state {lowerForeignFunctions = Map.insert key functionName (lowerForeignFunctions state)})
+      argumentGroups <-
+        mapM
+          (\(index, argumentType) -> freshVarsForType env ("foreign_argument_" <> T.pack (show index), argumentType))
+          (zip [0 :: Int ..] argumentTypes)
+      body <- lowerForeignCallBody env call axioms constructors argumentTypes (map (map GrinVarValue) argumentGroups) resultType resultRep
+      emitFunction
+        GrinFunction
+          { grinFunctionName = functionName,
+            grinFunctionParameters = concat argumentGroups,
+            grinFunctionResultRep = resultRep,
+            grinFunctionBody = body
+          }
+      pure functionName
+
+declarePrimitive :: (GrinVar, Int) -> LowerM ()
+declarePrimitive primitive@(var, _) =
+  modify' (\state -> state {lowerPrimitives = Map.insert (grinVarName var) primitive (lowerPrimitives state)})
+
+declareForeignCall :: GrinForeignCall -> LowerM ()
+declareForeignCall foreignCall = do
+  known <- gets (Map.lookup (grinForeignCallName foreignCall) . lowerForeignCalls)
+  case known of
+    Just existing
+      | existing /= foreignCall ->
+          throwLower ("GRIN module calls two different C functions under one name: " <> T.unpack (grinForeignCallName foreignCall))
+    _ -> modify' (\state -> state {lowerForeignCalls = Map.insert (grinForeignCallName foreignCall) foreignCall (lowerForeignCalls state)})
+
+foreignAxiomDeclarations :: LowerEnv -> [Fc.ForeignImportDependency] -> LowerM [Fc.AxiomDecl]
+foreignAxiomDeclarations env dependencies =
+  mapM lookupAxiom [name | Fc.ForeignAxiom name <- dependencies]
   where
     lookupAxiom name =
       case Map.lookup name (TypeOf.teAxioms (lowerTypes env)) of
         Just axiom -> pure axiom
         Nothing -> throwLower ("GRIN cannot find an explicit foreign axiom: " <> show name)
 
-foreignConstructorNames :: Fc.ForeignImportDecl -> [Fc.Name]
-foreignConstructorNames declaration =
-  [name | Fc.ForeignConstructor name <- Fc.foreignImportDependencies declaration]
+foreignConstructorNames :: [Fc.ForeignImportDependency] -> [Fc.Name]
+foreignConstructorNames dependencies =
+  [name | Fc.ForeignConstructor name <- dependencies]
 
 compilerPrimitives :: [Text]
 compilerPrimitives = ["aihcExit#", "unsafeCoerce#", "raise#", "catch#", "runRW#"]
 
+-- | A primitive call with the values of every argument. A compiler primitive
+-- never comes here: its call is always saturated, so 'lowerSpecialApplication'
+-- lowers it from its argument expressions.
 lowerPrimitiveBody :: GrinRep -> Text -> [[GrinValue]] -> LowerM GrinExpr
-lowerPrimitiveBody resultRep name valueGroups =
-  case (name, valueGroups) of
-    ("aihcExit#", (status : _) : _) -> pure (GrinExit status)
-    ("unsafeCoerce#", values : _) -> pure (GrinConstant values)
-    ("raise#", (exception : _) : _) -> pure (GrinThrow exception)
-    ("catch#", (action : _) : (handler : _) : state) ->
-      lowerCatch resultRep action handler (concat state)
-    ("runRW#", (action : _) : _) -> lowerRunRW resultRep action
-    _ -> pure (GrinPrimitiveCall resultRep name (concat valueGroups))
+lowerPrimitiveBody resultRep name valueGroups
+  | name `elem` compilerPrimitives = throwLower ("GRIN cannot lower a compiler primitive from values: " <> T.unpack name)
+  | otherwise = pure (GrinPrimitiveCall resultRep name (concat valueGroups))
 
 -- | Apply a state transformer to the real world token. The token has no
 -- runtime value, so the transformer gets no argument.
@@ -391,7 +451,7 @@ findUnaryConstructor :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> Gr
 findUnaryConstructor env axioms constructors resultType expectedRep =
   case listToMaybe (mapMaybe matchConstructor (foreignConstructorEntries env constructors)) of
     Just result -> pure result
-    Nothing -> throwLower ("GRIN cannot find a unary constructor adapter for type: " <> show resultType)
+    Nothing -> throwLower ("GRIN cannot find a unary constructor adapter for type: " <> show resultType <> " among the constructors " <> show constructors)
   where
     matchConstructor (name, constructorType)
       | Fc.nameSort name /= Fc.SortDataConstructor = Nothing
@@ -484,6 +544,7 @@ lowerExpr env expression =
     Fc.ExRec bindings body -> lowerRec env bindings body
     Fc.ExCase scrutinee binder _ alternatives -> lowerCase env scrutinee binder alternatives
     Fc.ExCast inner _ -> lowerExpr env inner
+    Fc.ExForeignCall call types arguments -> lowerForeignCallExpr env call types arguments
 
 lowerVariable :: LowerEnv -> Fc.Name -> LowerM GrinExpr
 lowerVariable env name = do
@@ -523,6 +584,10 @@ lowerApplication env function argument = do
     (_, (Fc.ExVar name, arguments))
       | Just localFunction <- Map.lookup name (lowerLocalFunctions env) ->
           lowerLocalFunctionApplication env resultRep name localFunction arguments
+    -- A foreign call whose result is a function of more arguments, such as
+    -- an @IO@ action applied to the state token, takes them in one call.
+    (_, (Fc.ExForeignCall call types callArguments, arguments)) ->
+      lowerForeignCallExpr env call types (callArguments <> arguments)
     _ -> do
       -- The function is needed in weak head normal form right away, so it is
       -- computed directly rather than suspended and then evaluated.
@@ -995,6 +1060,7 @@ divergingExpression expression =
         Fc.ExApp function _ -> applicationHead function
         Fc.ExTyApp function _ -> applicationHead function
         Fc.ExVar name -> Just name
+        Fc.ExForeignCall call _ _ -> Just (Fc.foreignCallName call)
         _ -> Nothing
 
 collectLambdas :: LowerEnv -> Fc.Expr -> (LowerEnv, [Fc.Binder], Fc.Expr)
@@ -1031,6 +1097,7 @@ freeVariables expression =
       freeVariables scrutinee
         <> Set.delete (Fc.binderName binder) (foldMap freeAltVariables alternatives)
     Fc.ExCast inner _ -> freeVariables inner
+    Fc.ExForeignCall _ _ arguments -> foldMap freeVariables arguments
 
 freeAltVariables :: Fc.Alt -> Set Fc.Name
 freeAltVariables alternative =
@@ -1071,6 +1138,20 @@ expressionType env expression =
     Fc.ExLet binding body -> expressionType (extendTermBinder (Fc.bindBinder binding) env) body
     Fc.ExRec bindings body -> expressionType (foldl (flip (extendTermBinder . Fc.bindBinder)) env bindings) body
     Fc.ExCase _ _ resultType _ -> pure (applySubstitution env resultType)
+    -- The foreign type is closed, so the environment substitution does not
+    -- apply to it. The type arguments go into it directly.
+    Fc.ExForeignCall call types arguments -> do
+      instantiated <- foldM instantiate (Fc.foreignCallType call) types
+      foldM apply instantiated arguments
+      where
+        instantiate functionType argument =
+          case functionType of
+            Fc.TyForAll binder body -> pure (TypeOf.substType (Fc.binderName binder) (applySubstitution env argument) body)
+            other -> throwLower ("GRIN foreign call type application has a non-forall type: " <> show other)
+        apply functionType _ =
+          case reduce env functionType of
+            Fc.TyFun _ _ _ result -> pure result
+            other -> throwLower ("GRIN foreign call has a non-function type: " <> show other)
     Fc.ExCast _ coercion ->
       case TypeOf.coercionEndpoints (lowerTypes env) coercion of
         Just (_, target) -> pure (applySubstitution env target)
@@ -1229,6 +1310,22 @@ splitOperationalFunctionType env axioms sourceType =
        in if TypeOf.typesEqual (lowerTypes env) other unwrapped
             then pure ([], other)
             else splitOperationalFunctionType env axioms unwrapped
+
+-- | Split a fixed number of arrows off an instantiated type. A newtype
+-- around a function, such as @IO@, unwraps through its axiom.
+splitOperationalArrows :: LowerEnv -> [Fc.AxiomDecl] -> Int -> Fc.Type -> LowerM ([Fc.Type], Fc.Type)
+splitOperationalArrows env axioms count sourceType
+  | count <= 0 = pure ([], sourceType)
+  | otherwise =
+      case reduce env sourceType of
+        Fc.TyFun _ _ argument result -> do
+          (arguments, finalResult) <- splitOperationalArrows env axioms (count - 1) result
+          pure (argument : arguments, finalResult)
+        other ->
+          let unwrapped = applyForeignAxioms env axioms other
+           in if TypeOf.typesEqual (lowerTypes env) other unwrapped
+                then throwLower ("GRIN foreign call type has too few arrows: " <> show sourceType)
+                else splitOperationalArrows env axioms count unwrapped
 
 applyForeignAxioms :: LowerEnv -> [Fc.AxiomDecl] -> Fc.Type -> Fc.Type
 applyForeignAxioms env axioms = go Set.empty

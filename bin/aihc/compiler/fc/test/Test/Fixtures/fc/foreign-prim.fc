@@ -1,4 +1,8 @@
 scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
-foreign import prim 1.vraise# :: ∀(a : 2.tType) (b : 2.tType). a 2.→ b
+pub val 1.vboom :: ∀(a : 2.tType) (b : 2.tType). a 2.→ b
+ = Λ(a : 2.tType).
+  Λ(b : 2.tType).
+    λ(x : a).
+      foreign {prim 1.vraise# :: ∀(a : 2.tType) (b : 2.tType). a 2.→ b} @a @b x
