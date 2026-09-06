@@ -11,6 +11,5 @@ modules:
   cast :: (F a ~ b) => a -> b -> F a
   cast _ x = x
   result = cast On On
-status: xfail
-reason: A closed type family equation solves an equality constraint. AIHC cannot resolve the equality
-  class. AIHC still lacks complete equality support.
+status: pass
+reason: A closed type family equation solves an equality constraint.

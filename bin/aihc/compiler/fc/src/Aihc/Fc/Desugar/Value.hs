@@ -47,6 +47,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
+    TcCastAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDictBinderAnnotation (..),
@@ -94,7 +95,7 @@ import Aihc.Tc.Types
     pattern WordRep,
   )
 import Control.Applicative ((<|>))
-import Control.Monad (unless, zipWithM)
+import Control.Monad (foldM, unless, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.Bifunctor qualified as Bifunctor
@@ -1409,6 +1410,7 @@ countUses name = go 0
       | otherwise =
           case expression of
             ExVar other -> if other == name then total + 1 else total
+            ExCoercion _ -> total
             ExLit _ -> total
             ExApp function argument -> go (go total function) argument
             ExTyApp function _ -> go total function
@@ -1428,6 +1430,7 @@ substituteVar name value = go
     go expression =
       case expression of
         ExVar other -> if other == name then value else expression
+        ExCoercion _ -> expression
         ExLit _ -> expression
         ExApp function argument -> ExApp (go function) (go argument)
         ExTyApp function ty -> ExTyApp (go function) ty
@@ -2062,7 +2065,16 @@ nameTcType name =
 -- Without a failure expression, a failed guard ends in an empty case on its
 -- own test value.
 desugarRhsWithFailure :: TcType -> Maybe Expr -> Syn.Rhs Syn.Expr -> ValueM Expr
-desugarRhsWithFailure resultType failure rhs =
+desugarRhsWithFailure resultType failure rhs = do
+  body <- desugarRhsBodyWithFailure resultType failure rhs
+  let annotations = case rhs of
+        Syn.UnguardedRhs anns _ _ -> anns
+        Syn.GuardedRhss anns _ _ -> anns
+      proofs = [proof | TcCastAnnotation proof <- mapMaybe Syn.fromAnnotation annotations]
+  foldM (\expression proof -> ExCast expression <$> convertCoercion proof) body proofs
+
+desugarRhsBodyWithFailure :: TcType -> Maybe Expr -> Syn.Rhs Syn.Expr -> ValueM Expr
+desugarRhsBodyWithFailure resultType failure rhs =
   case rhs of
     Syn.UnguardedRhs _ expression Nothing -> desugarExpr expression
     Syn.UnguardedRhs _ expression (Just declarations) ->
@@ -3384,6 +3396,7 @@ expressionFreeNames expression =
     ExCase scrutinee binder _ alternatives ->
       expressionFreeNames scrutinee
         <> Set.delete (binderName binder) (foldMap alternativeFreeNames alternatives)
+    ExCoercion _ -> Set.empty
     ExCast inner _ -> expressionFreeNames inner
     ExForeignCall _ _ arguments -> foldMap expressionFreeNames arguments
   where
@@ -3433,7 +3446,7 @@ desugarEvidence evidence =
           package = PackageId packageName
           name = Name dictionaryName SortValue (OriginTop package moduleName')
       pure (foldl ExApp (foldl ExTyApp (ExVar name) convertedTypes) evidenceArguments)
-    Ev.EvCoercion coercion -> ExCast (ExVar (Name "coercion" SortValue (OriginLocal (Unique 0)))) <$> convertCoercion coercion
+    Ev.EvCoercion coercion -> ExCoercion <$> convertCoercion coercion
     Ev.EvSuperClass _ _ _ fieldTypes fieldIndex -> do
       resultPredicateType <-
         case drop fieldIndex fieldTypes of
@@ -3688,6 +3701,11 @@ desugarIntegerLiteral value = do
 convertCoercion :: Ev.Coercion -> ValueM Coercion
 convertCoercion coercion =
   case coercion of
+    Ev.GivenCo predicate -> do
+      dictionaries <- gets vsDictionaries
+      case Map.lookup (predicateKey predicate) dictionaries of
+        Just binder -> pure (CoVar (binderName binder))
+        Nothing -> failValue ("missing given equality for " <> show predicate)
     Ev.CoVar (Ev.EvVar unique) -> pure (CoVar (Name "c" SortValue (OriginLocal unique)))
     Ev.Refl ty -> CoRefl <$> convertCheckedType ty
     Ev.Sym inner -> CoSym <$> convertCoercion inner

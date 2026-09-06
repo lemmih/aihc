@@ -9,6 +9,9 @@
 module Aihc.Tc.Annotations
   ( -- * Annotation type
     TcAnnotation (..),
+    TcCastAnnotation (..),
+    PendingTcCastAnnotation (..),
+    annotateRhsCast,
     TcForeignImportAnnotation (..),
     TcForeignImportInfo (..),
     TcForeignSafety (..),
@@ -53,6 +56,7 @@ import Aihc.Parser.Syntax
     Expr (..),
     Match,
     Pattern (..),
+    Rhs (..),
     SourceSpan,
     Type (..),
     fromAnnotation,
@@ -60,10 +64,25 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (ResolutionNamespace (..))
 import Aihc.Tc.Env (AssociatedTypeInfo, DataTypeInfo, TypeFamilyInstanceInfo)
-import Aihc.Tc.Evidence (EvTerm, EvVar)
+import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, tyConModuleName, tyConNamespace, pattern KType)
 import Data.Text (Text)
 import Data.Text qualified as T
+
+-- | A checked cast on the result of a right-hand side.
+newtype TcCastAnnotation = TcCastAnnotation Coercion
+  deriving (Eq, Show)
+
+-- | The solver must supply the proof before FC desugaring.
+data PendingTcCastAnnotation = PendingTcCastAnnotation TcType EvVar
+  deriving (Eq, Show)
+
+annotateRhsCast :: TcType -> EvVar -> Rhs body -> Rhs body
+annotateRhsCast ty evidence rhs =
+  let annotation = mkAnnotation (PendingTcCastAnnotation ty evidence)
+   in case rhs of
+        UnguardedRhs annotations body locals -> UnguardedRhs (annotation : annotations) body locals
+        GuardedRhss annotations bodies locals -> GuardedRhss (annotation : annotations) bodies locals
 
 -- | Annotation attached to AST nodes by the type checker.
 --

@@ -212,6 +212,8 @@ convertTypeWithExpectedKind env expectedKind ty =
     -- The constraint type of an implicit parameter is the type of its value.
     TcTyCon tyCon [payload]
       | Tc.isImplicitParamTyConName (Tc.tyConName tyCon) -> convertType env payload
+    TcTyCon tyCon [left, right]
+      | Tc.isEqualityTyCon tyCon -> convertPred env (EqPred left right)
     TcTyCon tyCon arguments -> do
       kindArgs <- invisibleKindArgs env tyCon arguments expectedKind
       argumentKinds <- visibleArgumentKinds env tyCon arguments expectedKind
@@ -288,11 +290,15 @@ evidenceArrows env body convertedPredicates convertedBody = go convertedPredicat
   where
     bodyRep = fromRight (liftedRepType env) (typeRep env body)
     go [] = convertedBody
-    go [predicate] = TyFun (liftedRepType env) bodyRep predicate convertedBody
+    go [predicate] = TyFun (evidenceRep env predicate) bodyRep predicate convertedBody
     go (predicate : rest) = funType env predicate (go rest)
 
 funType :: ConvertEnv -> Type -> Type -> Type
-funType env = TyFun (liftedRepType env) (liftedRepType env)
+funType env argument result = TyFun (evidenceRep env argument) (evidenceRep env result) argument result
+
+evidenceRep :: ConvertEnv -> Type -> Type
+evidenceRep env TyEq {} = equalityRep (cePrimPackage env)
+evidenceRep env _ = liftedRepType env
 
 liftedRepType :: ConvertEnv -> Type
 liftedRepType env = TyCon (liftedRepName (cePrimPackage env))

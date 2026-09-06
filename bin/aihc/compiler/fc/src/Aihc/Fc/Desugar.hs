@@ -1008,6 +1008,7 @@ exprOrigins expr =
     ExRec binds body -> concatMap bindOrigins binds <> exprOrigins body
     ExCase scrutinee binder resultType alts ->
       exprOrigins scrutinee <> binderOrigins binder <> typeOrigins resultType <> concatMap altOrigins alts
+    ExCoercion proof -> coercionOrigins proof
     ExCast inner coercion -> exprOrigins inner <> coercionOrigins coercion
     ExForeignCall call types arguments ->
       nameOriginPair (foreignCallName call)

@@ -14,7 +14,8 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: A given equality rewrites a type family application. AIHC cannot resolve the equality class.
+status: pass
+reason: A given equality rewrites a type family application.
+
 evaluators:
 - grin

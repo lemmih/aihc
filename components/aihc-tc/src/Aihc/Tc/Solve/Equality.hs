@@ -6,6 +6,7 @@
 -- constructor equalities, and building coercion evidence.
 module Aihc.Tc.Solve.Equality
   ( solveEquality,
+    solveGivenEquality,
     EqResult (..),
   )
 where
@@ -18,6 +19,38 @@ import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies, unsatu
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe, mapMaybe)
+
+-- | Preserve a proof from the current signature or pattern scope.
+solveGivenEquality :: [Pred] -> Ct -> TcM Bool
+solveGivenEquality givens ct = case ctPred ct of
+  EqPred left right -> do
+    left' <- zonkType left
+    right' <- zonkType right
+    predicates <- mapM zonkGiven givens
+    case prove predicates [] left' right' of
+      Just proof -> do
+        bindEvidence (ctEvVar ct) (EvCoercion proof)
+        pure True
+      Nothing -> pure False
+  _ -> pure False
+  where
+    zonkGiven (EqPred left right) = EqPred <$> zonkType left <*> zonkType right
+    zonkGiven predicate = pure predicate
+
+    prove predicates visited left right
+      | left == right = Just (Refl left)
+      | left `elem` visited = Nothing
+      | otherwise = listToMaybe (mapMaybe follow (edges predicates left))
+      where
+        follow (next, proof) = Trans proof <$> prove predicates (left : visited) next right
+
+    edges predicates source = concatMap edge predicates
+      where
+        edge predicate@(EqPred left right) =
+          [(right, GivenCo predicate) | left == source]
+            <> [(left, Sym (GivenCo predicate)) | right == source]
+        edge _ = []
 
 -- | Result of attempting to solve an equality constraint.
 data EqResult

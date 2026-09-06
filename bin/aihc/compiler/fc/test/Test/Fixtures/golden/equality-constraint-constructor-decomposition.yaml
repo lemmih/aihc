@@ -9,4 +9,4 @@ modules:
   cast x = x
   result = cast On :: Flag
 status: xfail
-reason: List equality gives equality of the element types. AIHC cannot resolve the equality class.
+reason: List equality gives equality of the element types. AIHC still lacks complete equality support.

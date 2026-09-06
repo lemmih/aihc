@@ -11,7 +11,8 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: A given equality permits a nominal cast. AIHC cannot resolve the equality class.
+status: pass
+reason: A given equality permits a nominal cast.
+
 evaluators:
 - grin

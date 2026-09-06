@@ -13,5 +13,4 @@ modules:
       local y = y
   result = cast On :: Flag
 status: xfail
-reason: A local signature can use the outer equality constraint. AIHC cannot resolve the equality
-  class. AIHC still lacks complete equality support.
+reason: A local signature can use the outer equality constraint. AIHC still lacks complete equality support.

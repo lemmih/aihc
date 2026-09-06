@@ -11,7 +11,8 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: Two given equalities form a transitive proof. AIHC cannot resolve the equality class.
+status: pass
+reason: Two given equalities form a transitive proof.
+
 evaluators:
 - grin

@@ -359,6 +359,7 @@ prettyExprWith scopes expr =
         <> prettyIndentedItems 4 (map (prettyAlt scopes) alts)
         <> hardline
         <> "}"
+    ExCoercion proof -> "coercion " <> parens (prettyCoercion scopes proof)
     ExCast body coercion ->
       prettyExprAtom scopes body <+> "▷" <+> prettyCoercion scopes coercion
     ExForeignCall call types arguments ->

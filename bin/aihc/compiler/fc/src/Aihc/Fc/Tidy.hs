@@ -142,6 +142,7 @@ tidyExpr env expr =
             binder'
             (tidyType env resultType)
             (map (tidyAlt caseEnv) alternatives)
+    ExCoercion proof -> ExCoercion (tidyCoercion env proof)
     ExCast body coercion -> ExCast (tidyExpr env body) (tidyCoercion env coercion)
 
 tidyRecBind :: TidyEnv -> Binder -> Bind -> Bind

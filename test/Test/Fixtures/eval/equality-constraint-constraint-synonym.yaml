@@ -13,7 +13,8 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: A constraint synonym preserves equality evidence. AIHC cannot resolve the equality class.
+status: pass
+reason: A constraint synonym preserves equality evidence.
+
 evaluators:
 - grin

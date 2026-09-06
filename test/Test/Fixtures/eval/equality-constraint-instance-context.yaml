@@ -16,8 +16,8 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: An instance context supplies equality evidence to its method. AIHC cannot resolve the equality
-  class.
+status: pass
+reason: An instance context supplies equality evidence to its method.
+
 evaluators:
 - grin
