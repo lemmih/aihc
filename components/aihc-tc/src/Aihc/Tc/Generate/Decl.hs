@@ -86,6 +86,7 @@ import Aihc.Parser.Syntax
     nameText,
     peelClassDeclItemAnn,
     peelDeclAnn,
+    peelInstanceDeclItemAnn,
     peelTypeHead,
     qualifyName,
     tyVarBinderKind,
@@ -1347,10 +1348,19 @@ annotateInstanceDeclTc origin instanceDecl =
           defaults = ciDefaultMethods info
       superClasses <- mapM constraintTypePred superClassTypes
       superClassEvidence <- mapM (solveInstanceSuperClass classNameText context) superClasses
+      -- Only a method the instance leaves to its class default needs the
+      -- evidence of the default signature.
+      let definedMethods =
+            [ name
+            | item <- instanceDeclItems instanceDecl,
+              InstanceItemBind valueDecl <- [peelInstanceDeclItemAnn item],
+              name <- valueDeclBinderNames valueDecl
+            ]
       defaultMethodEvidence <-
         sequence
           [ (methodName,) <$> mapM (solveInstanceSuperClass classNameText context) predicates
           | methodName <- defaults,
+            methodName `notElem` definedMethods,
             Just (ForAll _ signaturePredicates _) <- [lookup methodName (ciDefaultSignatures info)],
             let predicates = filter (not . isPredicateOfClass (ciTyCon info)) (map (applySubstPred classSubstitution) signaturePredicates)
           ]
