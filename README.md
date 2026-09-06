@@ -16,11 +16,11 @@ Find more information here:
 
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `61/3425` (`1.78%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
-| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `596/10057` (`5.93%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
+| aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `63/3425` (`1.84%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
+| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `1046/10057` (`10.40%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
-| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `56/57` (`98.24%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
+| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `83/83` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END resolve-progress -->                      |
 
 ## Lines of code
 
@@ -28,9 +28,9 @@ Find more information here:
 ```
 | Component    |   Code |   Tests |   Total |
 |--------------|--------|---------|---------|
-| aihc-resolve |   2632 |    2091 |    4723 |
-| aihc-tc      |  10128 |    3022 |   13150 |
-| **Total**    |  12760 |    5113 |   17873 |
+| aihc-resolve |   3474 |    3213 |    6687 |
+| aihc-tc      |  13463 |    6286 |   19749 |
+| **Total**    |  16937 |    9499 |   26436 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
