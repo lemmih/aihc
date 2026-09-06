@@ -44,10 +44,9 @@ module Prelude
     (*>),
     (.),
     (++),
-    Foldable (elem, foldl, foldl1, foldr, foldr1, length, maximum, minimum, null, product, sum),
+    Foldable (elem, foldMap, foldl, foldl1, foldr, foldr1, length, maximum, minimum, null, product, sum),
+    Traversable (traverse, sequenceA, mapM, sequence),
     map,
-    mapM,
-    sequence,
     sequence_,
     zip,
     and,
@@ -74,6 +73,7 @@ module Prelude
     drop,
     takeWhile,
     maybe,
+    either,
     mapM_,
     flip,
     error,
@@ -144,7 +144,7 @@ module Prelude
 where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
-import Data.Either (Either (..))
+import Data.Either (Either (..), either)
 import Data.Maybe (maybe)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, const, flip, id, ($), (++), (.))
@@ -161,6 +161,7 @@ import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Foldable (Foldable (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
+import GHC.Internal.Traversable (Traversable (..))
 import GHC.Num (Num (..))
 import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#))
 import GHC.Real
@@ -340,18 +341,8 @@ mapM_ :: (Monad m) => (a -> m b) -> [a] -> m ()
 mapM_ _ [] = return ()
 mapM_ function (value : values) = function value >> mapM_ function values
 
-sequence :: (Monad m) => [m a] -> m [a]
-sequence [] = return []
-sequence (action : actions) = do
-  value <- action
-  values <- sequence actions
-  return (value : values)
-
 sequence_ :: (Monad m) => [m a] -> m ()
 sequence_ = foldr (>>) (return ())
-
-mapM :: (Monad m) => (a -> m b) -> [a] -> m [b]
-mapM function = sequence . map function
 
 class Read a where
   readsPrec :: Int -> ReadS a
@@ -736,6 +727,18 @@ instance Functor (Either e) where
 
 instance Functor ((,) a) where
   fmap f (first, second) = (first, f second)
+
+instance Traversable List where
+  traverse _ [] = pure []
+  traverse f (value : values) = fmap (:) (f value) <*> traverse f values
+
+instance Traversable Maybe where
+  traverse _ Nothing = pure Nothing
+  traverse f (Just value) = fmap Just (f value)
+
+instance Traversable (Either e) where
+  traverse _ (Left value) = pure (Left value)
+  traverse f (Right value) = fmap Right (f value)
 
 instance Functor ((->) r) where
   fmap f g x = f (g x)

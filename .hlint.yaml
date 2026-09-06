@@ -9,10 +9,10 @@
     within: GHC.Read.Lex
 - ignore:
     name: Use traverse
-    within: Data.Traversable
+    within: GHC.Internal.Traversable
 - ignore:
     name: Use sequenceA
-    within: Data.Traversable
+    within: GHC.Internal.Traversable
 - ignore:
     within: GHC.Boot.TH.Lib.Map
 - ignore:
