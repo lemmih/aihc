@@ -24,7 +24,16 @@ intermediate core module are removed after linking.
 The driver invokes the standard LLVM tools directly: `clang
 --target=wasm32-wasip1`, `wasm-ld`, `wasm-tools`, and `wit-bindgen`. They may
 come from any LLVM/WASI installation on `PATH`; no `wasm32-clang` wrapper is
-required. `AIHC_WASM_CLANG` can select another Clang executable when a host
+required.
+
+The Clang triple names preview 1 while the target produces a preview 3
+component, because the two describe different things. Nothing in the
+compilation is specific to a WASI version: the objects are ordinary wasm32
+code, and the preview 3 interface arrives with the WIT bindings and the
+component `wasm-tools` encodes around the linked module. The triple decides
+which libc the runtime agrees with, and the wasi-libc it links was built as
+`wasm32-wasip1`. Clang offers no preview 3 triple; passing one leaves it
+unable to find the sysroot at all. `AIHC_WASM_CLANG` can select another Clang executable when a host
 toolchain wrapper is not cross-target safe. The Nix development environment
 uses that override to select its unwrapped LLVM Clang.
 

@@ -141,6 +141,17 @@ hostNativeTarget
   | System.os == "linux" && System.arch == "x86_64" = Just LinuxAmd64
   | otherwise = Nothing
 
+-- | The Clang triple of one target. It selects the C ABI and the libc the
+-- objects are compiled against, which is not the same question as the
+-- interface a finished program speaks.
+--
+-- The two differ on WebAssembly, where the triple is one version behind the
+-- target name. Preview 3 is not a property of the compilation: the objects
+-- are ordinary wasm32 code, and the preview 3 interface comes from the WIT
+-- bindings and from the component "wasm-tools" encodes around the linked
+-- module. Clang has no preview 3 triple to offer either, and no use for one.
+-- What the triple does decide is which libc the runtime agrees with, and the
+-- wasi-libc it links was built as @wasm32-wasip1@.
 nativeTargetTriple :: NativeTarget -> String
 nativeTargetTriple target =
   case target of
