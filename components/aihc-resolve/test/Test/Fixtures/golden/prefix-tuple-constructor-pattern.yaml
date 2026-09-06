@@ -1,0 +1,21 @@
+annotated:
+- |-
+  module Main where
+  swap :: (a, b) -> (b, a)
+  │       │         └─ t Builtin (,)
+  │       └─ t Builtin (,)
+  └─ v Main
+  swap ((,) x y) = (y, x)
+  └─ v Main │ │    ││  └─ v 0
+            │ │    │└─ v 1
+            │ │    └─ v Builtin (,)
+            │ └─ v 1
+            └─ v 0
+extensions: []
+modules:
+- |
+  module Main where
+  swap :: (a, b) -> (b, a)
+  swap ((,) x y) = (y, x)
+reason: ''
+status: pass
