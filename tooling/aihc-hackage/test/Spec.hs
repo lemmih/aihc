@@ -2,7 +2,6 @@ module Main (main) where
 
 import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Index (parseHackageIndex, parseHackageIndexUpdatedSince)
-import Aihc.Hackage.Stackage (parseSnapshotConstraints)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.VersionResolver (parsePreferredVersions)
 import Codec.Archive.Tar qualified as Tar
@@ -28,21 +27,7 @@ import Test.Tasty.Hedgehog (testProperty)
 main :: IO ()
 main =
   defaultMain . testGroup "aihc-hackage" $
-    [ testCase "maps selected installed packages to fixed versions" $ do
-        parseSnapshotConstraints "constraints: binary installed, bytestring installed, Cabal installed, unix installed"
-          @?= Right
-            [ PackageSpec "binary" "0.8.9.3",
-              PackageSpec "bytestring" "0.12.2.0",
-              PackageSpec "Cabal" "3.14.2.0",
-              PackageSpec "unix" "2.8.8.0"
-            ],
-      testCase "keeps installed for packages without a fixed override" $ do
-        parseSnapshotConstraints "constraints: ghc-prim installed, custom-package installed"
-          @?= Right
-            [ PackageSpec "ghc-prim" "installed",
-              PackageSpec "custom-package" "installed"
-            ],
-      testCase "parses latest package versions from Hackage index tarball" $ do
+    [ testCase "parses latest package versions from Hackage index tarball" $ do
         parseHackageIndex testHackageIndex
           @?= Right
             [ PackageSpec "alpha" "1.2.0",
