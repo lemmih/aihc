@@ -1,0 +1,12 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  cast :: (a ~ b) => (a -> a) -> b -> b
+  cast f = f
+  result = cast (\x -> x) On
+status: xfail
+reason: Equality lifts through function arguments and results. AIHC cannot resolve the equality class.

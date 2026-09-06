@@ -1,0 +1,16 @@
+extensions:
+- GADTs
+- TypeOperators
+- TypeFamilies
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  type family F a
+  type instance F Flag = Flag
+  cast :: (F a ~ b) => a -> b -> F a
+  cast _ x = x
+  result = cast On On
+status: xfail
+reason: An open type family equation solves an equality constraint. AIHC cannot resolve the equality
+  class.

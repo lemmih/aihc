@@ -1,0 +1,14 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  keep :: (a ~ b) => a -> b -> b
+  keep _ y = y
+  loop :: Flag
+  loop = loop
+  result = keep loop On
+status: xfail
+reason: Equality evidence must not force an unused value. AIHC cannot resolve the equality class.

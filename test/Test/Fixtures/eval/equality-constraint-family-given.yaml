@@ -1,0 +1,20 @@
+extensions:
+- GADTs
+- TypeOperators
+- TypeFamilies
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  type family F a
+  cast :: (F a ~ b) => a -> F a -> b
+  cast _ x = x
+  type instance F Flag = Flag
+  result = cast On On :: Flag
+expression: result
+output: |
+  On
+status: xfail
+reason: A given equality rewrites a type family application. AIHC cannot resolve the equality class.
+evaluators:
+- grin

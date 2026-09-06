@@ -3,8 +3,6 @@ expected: |-
 
   constructor 1.Box [IntRep]
 
-  global 1.Box = (C1.Box/1)
-
   global 1.value = (C1.Box (42 :: IntRep))
 extensions:
 - MagicHash

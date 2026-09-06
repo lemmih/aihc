@@ -69,7 +69,7 @@ data FcCase = FcCase
     casePath :: !FilePath,
     caseExtensions :: ![Extension],
     caseModules :: ![Text],
-    caseExpected :: !String,
+    caseExpected :: !(Maybe String),
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
   }
@@ -149,7 +149,7 @@ parseFcFixture path value = do
       ( withObject "fc fixture" $ \obj -> do
           exts <- obj .: "extensions"
           mods <- obj .: "modules" >>= parseModules
-          expected <- (obj .:? "expected" >>= traverse parseExpectedValue) .!= ""
+          expected <- obj .:? "expected" >>= traverse parseExpectedValue
           status <- obj .: "status"
           reason <- obj .:? "reason" .!= ""
           pure (exts, mods, expected, status, reason)
@@ -158,7 +158,7 @@ parseFcFixture path value = do
   exts <- validateExtensions path extNames
   status <- parseStatus path statusText
   let relPath = dropRootPrefix path
-      expected = trim (T.unpack expectedText)
+      expected = trim . T.unpack <$> expectedText
       reason = trim (T.unpack reasonText)
   pure
     FcCase
@@ -338,18 +338,20 @@ classifySuccess :: FcCase -> String -> (Outcome, String)
 classifySuccess tc actual =
   case caseStatus tc of
     StatusPass
-      | trim actual == trim (caseExpected tc) -> (OutcomePass, "")
+      | outputMatches -> (OutcomePass, "")
       | otherwise ->
           ( OutcomeFail,
-            "output mismatch\nexpected:\n" <> caseExpected tc <> "\nactual:\n" <> trim actual
+            "output mismatch\nexpected:\n" <> fromMaybe "" (caseExpected tc) <> "\nactual:\n" <> trim actual
           )
     StatusFail -> (OutcomeFail, "expected failure but desugaring succeeded")
     StatusXFail
-      | trim actual == trim (caseExpected tc) -> (OutcomeXPass, "")
+      | outputMatches -> (OutcomeXPass, "")
       | otherwise -> (OutcomeXFail, "")
     StatusXPass
-      | trim actual == trim (caseExpected tc) -> (OutcomeXPass, "known bug still passes")
+      | outputMatches -> (OutcomeXPass, "known bug still passes")
       | otherwise -> (OutcomeFail, "expected xpass output match but got: " <> trim actual)
+  where
+    outputMatches = maybe True (== trim actual) (caseExpected tc)
 
 classifyFailure :: FcCase -> String -> (Outcome, String)
 classifyFailure tc errDetails =

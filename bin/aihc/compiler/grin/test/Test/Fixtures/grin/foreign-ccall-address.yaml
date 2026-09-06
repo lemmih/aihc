@@ -5,8 +5,6 @@ expected: |-
 
   foreign putsAddress = address "puts" :: () -> addr ! pure
 
-  global 1.Ptr = (C1.Ptr/1)
-
   global 1.address = (F$address_thunk)
 
   $address_thunk -> BoxedRep Lifted =

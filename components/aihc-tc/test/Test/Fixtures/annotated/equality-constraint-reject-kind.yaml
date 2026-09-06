@@ -1,0 +1,25 @@
+extensions:
+- GADTs
+- TypeOperators
+- DataKinds
+- PolyKinds
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  bad :: (Flag ~ 'On) => Flag
+  bad = On
+status: xfail
+reason: Homogeneous equality requires both arguments to have the same kind. AIHC cannot resolve the
+  equality class.
+annotated:
+- |
+  module Test where
+  └─ error: kind mismatch: expected Type, got Flag
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  bad :: (Flag ~ 'On) => Flag
+  bad = On
+  └─ type: (Flag ~ 'On) ⇒ Flag

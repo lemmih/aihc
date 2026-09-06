@@ -804,4 +804,5 @@ collectPatVarBinders ambient pat =
     PInfix left _ right ->
       collectPatVarBinders ambient left <> collectPatVarBinders ambient right
     PCon _ _ pats -> concatMap (collectPatVarBinders ambient) pats
+    PBuiltinCon _ _ pats -> concatMap (collectPatVarBinders ambient) pats
     _ -> []

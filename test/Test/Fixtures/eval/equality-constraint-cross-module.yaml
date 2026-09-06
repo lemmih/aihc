@@ -1,0 +1,21 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Proof where
+  cast :: (a ~ b) => a -> b
+  cast x = x
+- |
+  module Test where
+  import Proof (cast)
+  data Flag = Off | On
+  result = cast On :: Flag
+expression: result
+output: |
+  On
+status: xfail
+reason: An imported signature preserves its equality constraint. AIHC cannot resolve the equality
+  class.
+evaluators:
+- grin

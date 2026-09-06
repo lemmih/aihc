@@ -1,0 +1,17 @@
+extensions:
+- GADTs
+- TypeOperators
+- ScopedTypeVariables
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  cast :: forall a b. (a ~ b) => a -> b
+  cast x = local x
+    where
+      local :: a -> b
+      local y = y
+  result = cast On :: Flag
+status: xfail
+reason: A local signature can use the outer equality constraint. AIHC cannot resolve the equality
+  class.

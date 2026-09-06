@@ -18,8 +18,6 @@ expected: |-
 
   foreign identityInt = "identity_int" :: (int) -> int ! real-world
 
-  global 1.I# = (C1.I#/1)
-
   global 1.run = (P$run/1)
 
   $run_identityInt_foreign (foreign_argument_0 :: BoxedRep Lifted) -> TupleRep [TupleRep [],BoxedRep Lifted] =
