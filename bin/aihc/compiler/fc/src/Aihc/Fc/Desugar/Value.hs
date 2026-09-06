@@ -326,6 +326,15 @@ desugarModuleValues checked = do
   patternValues <- concat <$> mapM desugarTopPatternGroup patternGroups
   pure (phaseOne <> instances <> patSyns <> map DeclVal (values <> patternValues))
 
+-- | Whether one top-level term of the module is visible to other modules.
+--
+-- Only an exported name needs a symbol that other modules can reach; a
+-- private one is the module's own business. Synthesised names that no
+-- export list can mention decide their visibility at the site that builds
+-- them.
+termVisibility :: Text -> ValueM Vis
+termVisibility name = gets (\state -> exportedVis (vsConvertEnv state) ResolutionNamespaceTerm name)
+
 -- | Make the matcher and the builder of a pattern synonym. The matcher
 -- @$mP@ takes the scrutinee, a success continuation with the argument
 -- values, and a failure value. The builder @$bP@ is an ordinary function
@@ -364,7 +373,10 @@ desugarPatSynHelper moduleOrigin prefix info matches = do
   helperType <- lookupBindingType (patSynHelperKey moduleOrigin prefix info)
   body <- desugarMatches helperType matches
   ty <- convertCheckedType helperType
-  pure (DeclVal (ValDecl Pub (topName moduleOrigin (patSynHelperName prefix info)) ty body))
+  -- No export list mentions a @$m@ or @$b@ name, so the helper follows the
+  -- synonym that it belongs to.
+  vis <- termVisibility (psiName info)
+  pure (DeclVal (ValDecl vis (topName moduleOrigin (patSynHelperName prefix info)) ty body))
 
 -- | The field selector of a record pattern synonym as an ordinary
 -- top-level function. The type checker checks its equation against the
@@ -375,7 +387,8 @@ desugarPatSynSelector moduleOrigin (label, match) = do
   selectorType <- lookupBindingType (TcTermGlobal package moduleName' label)
   body <- desugarMatches selectorType [match]
   ty <- convertCheckedType selectorType
-  pure (DeclVal (ValDecl Pub (topName moduleOrigin label) ty body))
+  vis <- termVisibility label
+  pure (DeclVal (ValDecl vis (topName moduleOrigin label) ty body))
 
 patSynHelperName :: Text -> PatSynInfo -> Text
 patSynHelperName prefix info = prefix <> psiName info
@@ -568,10 +581,11 @@ desugarRecordSelector constructors label = do
     selection <- desugarRecordSelection label scrutineeType fieldType argument constructors
     typeBinders <- convertTypeBinders typeVariables
     selectorType' <- convertCheckedType selectorType
+    vis <- termVisibility label
     pure
       ( DeclVal
           ValDecl
-            { valVis = Pub,
+            { valVis = vis,
               valName = topName moduleOrigin label,
               valType = selectorType',
               valBody = foldr ExTyLam (foldr ExLam selection (dictionaries <> [argument])) typeBinders
@@ -883,7 +897,10 @@ desugarDefaultWorker annotation valueDecl = do
   pure
     ( DeclVal
         ValDecl
-          { valVis = Pub,
+          { -- An instance in another module that leaves the method out calls
+            -- the worker by name, and no export list mentions @$dm@ names,
+            -- so a default worker is always public.
+            valVis = Pub,
             valName = topName moduleOrigin (defaultMethodName methodName),
             valType = convertedType,
             valBody = body
@@ -924,10 +941,11 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
     typeBinders <- convertTypeBinders typeVariables
     methodType' <- convertCheckedType (tcClassMethodType method)
     moduleOrigin <- gets vsModuleOrigin
+    vis <- termVisibility (tcClassMethodName method)
     pure
       ( DeclVal
           ValDecl
-            { valVis = Pub,
+            { valVis = vis,
               valName = topName moduleOrigin (tcClassMethodName method),
               valType = methodType',
               valBody = foldr ExTyLam (foldr ExLam selection dictionaries) typeBinders
@@ -984,7 +1002,9 @@ desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars an
   pure
     ( DeclVal
         ValDecl
-          { valVis = Pub,
+          { -- Instances are global: any module that solves the constraint
+            -- names the dictionary, whatever the export list says.
+            valVis = Pub,
             valName = topName moduleOrigin (tcInstanceDictName annotation),
             valType = dictionaryType,
             valBody = body
@@ -1222,9 +1242,10 @@ desugarTopValue top = do
       FunctionGroup _ _ matches _ -> desugarMatches (topType top) matches
       PatternGroup _ _ rhs _ -> desugarMatches (topType top) [emptyMatch rhs]
   ty <- convertCheckedType (topType top)
+  vis <- termVisibility (nameText (topCoreName top))
   pure
     ValDecl
-      { valVis = Pub,
+      { valVis = vis,
         valName = topCoreName top,
         valType = ty,
         valBody = body
@@ -1244,7 +1265,9 @@ desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
   selectors <- mapM (selector rhsName) specs
   pure
     ( ValDecl
-        { valVis = Pub,
+        { -- The right-hand side of a pattern binding has a made-up name that
+          -- no export list can mention; only its own selectors read it.
+          valVis = Private,
           valName = rhsName,
           valType = convertedRhsType,
           valBody = rhsBody
@@ -1259,9 +1282,10 @@ desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
         (field, _) <- lookupLocal key name
         pure (ExVar (binderName field))
       convertedType <- convertCheckedType ty
+      vis <- termVisibility name
       pure
         ValDecl
-          { valVis = Pub,
+          { valVis = vis,
             valName = topName moduleOrigin name,
             valType = convertedType,
             valBody = ExLet (Bind rhsBinder (ExVar rhsName)) body
@@ -3594,6 +3618,11 @@ desugarFcList elementType elements = do
       cons item = ExApp (ExApp (ExTyApp (ExVar consName) elementType) item)
   pure (foldr cons nil elements)
 
+-- | A name of the Typeable machinery, in the module that the evidence came
+-- from or in the fallback module.
+--
+-- A name reached this way does not go through the export list of the module
+-- that defines it, so 'compilerVisibleTerms' has to keep it public there.
 typeableName :: Maybe (Text, Text) -> Text -> Text -> Sort -> ValueM Name
 typeableName origin fallbackModule name sort =
   case origin of

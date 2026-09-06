@@ -21,7 +21,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', runStateT)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Maybe (isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -34,7 +34,10 @@ data LowerEnv = LowerEnv
     lowerTypeSubstitution :: !(Map Fc.Name Fc.Type),
     lowerGlobalNames :: !(Map Fc.Name Text),
     lowerConstructorArities :: !(Map Fc.Name Int),
-    lowerLocalFunctions :: !(Map Fc.Name LocalFunction)
+    lowerLocalFunctions :: !(Map Fc.Name LocalFunction),
+    -- | The data constructors of this module that no other module can name,
+    -- with the arity of each. See 'privateConstructorTable'.
+    lowerPrivateConstructors :: !(Map Fc.Name Int)
   }
 
 -- | A top-level function of this module. Its entry function is named before
@@ -44,7 +47,10 @@ data LocalFunction = LocalFunction
   { localFunctionEntry :: !FunctionName,
     -- | The runtime layout of every logical parameter.
     localFunctionLayouts :: ![[GrinRep]],
-    localFunctionResultRep :: !GrinRep
+    localFunctionResultRep :: !GrinRep,
+    -- | Whether another module can name this function. Only an exported
+    -- function gets a global; see 'nodeWithoutGlobal'.
+    localFunctionExported :: !Bool
   }
 
 localFunctionArity :: LocalFunction -> Int
@@ -89,11 +95,16 @@ lowerProgram program = do
   let types = TypeOf.typeEnvFromProgram primPackage program
       globals = globalNameTable types
       constructorArities = constructorArityTable types
-      baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty
+      baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty Map.empty
       initialState = LowerState (-1000000000) "" Set.empty [] Map.empty Map.empty Map.empty
   (parts, finalState) <- flip runStateT initialState $ do
     localFunctions <- localFunctionTable baseEnv program
-    let env = baseEnv {lowerLocalFunctions = localFunctions}
+    privateConstructors <- privateConstructorTable baseEnv program
+    let env =
+          baseEnv
+            { lowerLocalFunctions = localFunctions,
+              lowerPrivateConstructors = privateConstructors
+            }
     mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)
   pure
     ( tidyGrinProgram
@@ -143,22 +154,36 @@ lowerTypeDecl env declaration = do
     first (constructors, _) = constructors
     second (_, globals) = globals
     lowerConstructor constructor = do
-      let name = Fc.conName constructor
-          (typeBinders, monotype) = splitForAlls (applySubstitution env (Fc.conType constructor))
-          constructorEnv = foldl extendTypeBinder env typeBinders
-      if "(#" `T.isPrefixOf` Fc.nameText name
-        then pure ([], [])
-        else do
-          fieldTypes <- liftEither (constructorArgumentTypes monotype)
-          fieldLayouts <- mapM (liftEither . runtimeComponents constructorEnv) fieldTypes
-          resultType <- liftEither (constructorResultType monotype)
-          resultRep <- liftEither (runtimeRep constructorEnv resultType)
-          case resultRep of
-            TupleRep {} -> pure ([], [])
-            _ -> do
-              globalName <- lookupGlobalName env name
-              let tag = constructorTag name
-              pure ([(tag, fieldLayouts)], [(globalName, GrinNode (GrinConstructor tag (length fieldTypes)) [])])
+      shape <- constructorNodeShape env constructor
+      case shape of
+        Nothing -> pure ([], [])
+        Just (tag, layouts, arity) -> do
+          globals <-
+            if hasGlobal env (Fc.conName constructor)
+              then do
+                globalName <- lookupGlobalName env (Fc.conName constructor)
+                pure [(globalName, GrinNode (GrinConstructor tag arity) [])]
+              else pure []
+          pure ([(tag, layouts)], globals)
+
+-- | The tag, the field layouts, and the arity of a data constructor that
+-- has a runtime representation, or 'Nothing' for one that has none: an
+-- unboxed tuple or sum has no node of its own.
+constructorNodeShape :: LowerEnv -> Fc.ConDecl -> LowerM (Maybe (Text, [[GrinRep]], Int))
+constructorNodeShape env constructor
+  | "(#" `T.isPrefixOf` Fc.nameText name = pure Nothing
+  | otherwise = do
+      fieldTypes <- liftEither (constructorArgumentTypes monotype)
+      fieldLayouts <- mapM (liftEither . runtimeComponents constructorEnv) fieldTypes
+      resultType <- liftEither (constructorResultType monotype)
+      resultRep <- liftEither (runtimeRep constructorEnv resultType)
+      pure $ case resultRep of
+        TupleRep {} -> Nothing
+        _ -> Just (constructorTag name, fieldLayouts, length fieldTypes)
+  where
+    name = Fc.conName constructor
+    (typeBinders, monotype) = splitForAlls (applySubstitution env (Fc.conType constructor))
+    constructorEnv = foldl extendTypeBinder env typeBinders
 
 lowerValueDecl :: LowerEnv -> Fc.ValDecl -> LowerM TopParts
 lowerValueDecl env declaration = do
@@ -166,12 +191,18 @@ lowerValueDecl env declaration = do
   if representation /= liftedGrinRep
     then throwLower ("GRIN does not support an unlifted top-level value: " <> show (Fc.valName declaration))
     else do
-      globalName <- lookupGlobalName env (Fc.valName declaration)
+      -- The node goes unused for a value that gets no global, but building
+      -- it is what emits the code: 'makeClosure' names and emits the entry
+      -- function of the value, and 'lazyNode' the body of its thunk.
       node <-
         case Map.lookup (Fc.valName declaration) (lowerLocalFunctions env) of
           Just function -> makeClosure env (Just (localFunctionEntry function)) (Fc.valBody declaration)
           Nothing -> lazyNode env (Fc.nameText (Fc.valName declaration)) (Fc.valBody declaration)
-      pure mempty {topGlobals = [(globalName, node)]}
+      if hasGlobal env (Fc.valName declaration)
+        then do
+          globalName <- lookupGlobalName env (Fc.valName declaration)
+          pure mempty {topGlobals = [(globalName, node)]}
+        else pure mempty
 
 isFunctionExpression :: Fc.Expr -> Bool
 isFunctionExpression = (> 0) . functionArity
@@ -560,9 +591,35 @@ lowerVariable env name = do
         else pure (GrinConstant (map GrinVarValue variables))
     Nothing
       | null components -> pure (GrinConstant [])
+      | Just node <- nodeWithoutGlobal env name -> pure (GrinStore node)
       | otherwise -> do
           globalName <- lookupGlobalName env name
           pure (GrinEval representation (GrinGlobalValue globalName))
+
+-- | The node of a top-level name that gets no global, or 'Nothing' for a
+-- name that has a cell to point at instead.
+--
+-- A private function and a private constructor of one field or more are
+-- never symbols, so every use of one as a value — passing it, suspending
+-- it, storing it in a field — builds its node here. This is also the one
+-- answer to whether a name gets a global at all, which is why the two
+-- declaration forms ask it rather than deciding for themselves.
+--
+-- The node has no fields because a top-level binding captures nothing.
+nodeWithoutGlobal :: LowerEnv -> Fc.Name -> Maybe GrinNode
+nodeWithoutGlobal env name =
+  case Map.lookup name (lowerLocalFunctions env) of
+    Just function
+      | not (localFunctionExported function) ->
+          Just (GrinNode (GrinClosure (localFunctionEntry function) (localFunctionLayouts function)) [])
+    _ ->
+      case Map.lookup name (lowerPrivateConstructors env) of
+        Just arity -> Just (GrinNode (GrinConstructor (constructorTag name) arity) [])
+        Nothing -> Nothing
+
+-- | Whether a top-level name of this module gets a global.
+hasGlobal :: LowerEnv -> Fc.Name -> Bool
+hasGlobal env = isNothing . nodeWithoutGlobal env
 
 lowerApplication :: LowerEnv -> Fc.Expr -> Fc.Expr -> LowerM GrinExpr
 lowerApplication env function argument = do
@@ -636,6 +693,10 @@ lowerLocalFunctionApplication env resultRep name function arguments
             applied <- freshVar "function_application" liftedGrinRep
             rest <- lowerDynamicApplication env resultRep (GrinVarValue applied) remainingArguments
             pure (GrinBind [applied] (GrinCall liftedGrinRep entry argumentValues) rest)
+  | Just node <- nodeWithoutGlobal env name = do
+      pointer <- freshVar "function" liftedGrinRep
+      rest <- lowerDynamicApplication env resultRep (GrinVarValue pointer) arguments
+      pure (GrinBind [pointer] (GrinStore node) rest)
   | otherwise = do
       globalName <- lookupGlobalName env name
       lowerDynamicApplication env resultRep (GrinGlobalValue globalName) arguments
@@ -752,7 +813,9 @@ lowerLazy env0 hint expression0 continuation =
       case Map.lookup name (lowerLocals env) of
         Just [variable] -> continuation (GrinVarValue variable)
         Just _ -> throwLower ("GRIN expected one lazy local value: " <> show name)
-        Nothing -> lookupGlobalName env name >>= continuation . GrinGlobalValue
+        Nothing
+          | Just node <- nodeWithoutGlobal env name -> storeNode node
+          | otherwise -> lookupGlobalName env name >>= continuation . GrinGlobalValue
     Fc.ExLam {} -> makeClosure env Nothing expression >>= storeNode
     Fc.ExLet binding body -> do
       representation <- binderRep env (Fc.bindBinder binding)
@@ -858,6 +921,9 @@ classifyOperand env expression = do
       case Map.lookup name (lowerLocals env) of
         Just variables -> pure (Just (SettledOperand (map GrinVarValue variables)))
         Nothing
+          -- A private function has no cell to settle on, so the operand is
+          -- built by 'lowerLazy' where a pointer can be bound.
+          | isJust (nodeWithoutGlobal env name) -> pure (Just (LazyOperand expression))
           | isLiftedRuntimeRep representation -> Just . SettledOperand . pure . GrinGlobalValue <$> lookupGlobalName env name
           | otherwise -> pure Nothing
     Fc.ExLit literal
@@ -1380,9 +1446,32 @@ localFunctionTable env program =
       [ withLowerContext ("value " <> show (Fc.valName declaration)) $ do
           entry <- withCurrentValue (Fc.valName declaration) (freshFunction "")
           shape <- closureShape env (Fc.valBody declaration)
-          pure (Fc.valName declaration, LocalFunction entry (closureLayouts shape) (closureResultRep shape))
+          pure
+            ( Fc.valName declaration,
+              LocalFunction entry (closureLayouts shape) (closureResultRep shape) (Fc.valVis declaration == Fc.Pub)
+            )
       | Fc.DeclVal declaration <- Fc.programDecls program,
         isFunctionExpression (Fc.valBody declaration)
+      ]
+
+-- | The data constructors of this module that get no global: the private
+-- ones that take at least one field.
+--
+-- A nullary constructor is left out on purpose. Its global holds the one
+-- shared value, so dropping the cell would turn every mention of it into an
+-- allocation rather than saving anything.
+privateConstructorTable :: LowerEnv -> Fc.Program -> LowerM (Map Fc.Name Int)
+privateConstructorTable env program =
+  Map.fromList . concat
+    <$> sequence
+      [ withLowerContext ("constructor " <> show (Fc.conName constructor)) $ do
+          shape <- constructorNodeShape env constructor
+          pure $ case shape of
+            Just (_, _, arity) | arity > 0 -> [(Fc.conName constructor, arity)]
+            _ -> []
+      | Fc.DeclType declaration <- Fc.programDecls program,
+        constructor <- Fc.typeCons declaration,
+        Fc.conVis constructor == Fc.Private
       ]
 
 -- | GRIN identifies a top-level name by its package, its module, and its text.

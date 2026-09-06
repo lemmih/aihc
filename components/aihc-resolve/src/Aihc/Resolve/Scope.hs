@@ -8,6 +8,7 @@ module Aihc.Resolve.Scope
     ModuleKey (..),
     collectModuleExports,
     collectModuleExportsWithDeps,
+    exportedLocalNames,
     moduleScope,
     moduleKey,
     matchingModuleScopes,
@@ -83,6 +84,8 @@ import Aihc.Resolve.Types
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, maybeToList)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -136,6 +139,38 @@ collectModuleExportsWithDeps depExports packageModules = Map.restrictKeys (close
               `Map.union` depExports
        in if exports' == exports then exports else closeExports exports'
     exportKey package modu = ModuleKey package (moduleKey modu)
+
+-- | The top-level names that one module makes visible to other modules,
+-- each tagged with the namespace that an export item would have to pick to
+-- name it: its values, data constructors, record selectors and class
+-- methods in the term namespace, its type constructors, classes and
+-- synonyms in the type namespace.
+--
+-- The tag matters because an export item names one namespace and not the
+-- other: in @module M (X) where data X = X@ the item names the type
+-- constructor alone, and @module M (X(X))@ is what also names the data
+-- constructor.
+--
+-- A name counts when the export list of the module resolves it to a
+-- definition in that same module; a module without an export list exports
+-- every top-level name, which 'exportedScope' has already worked out. The
+-- result is 'Nothing' when the map holds no scope for the module, which a
+-- caller must read as \"assume every name is exported\".
+exportedLocalNames :: Package -> Text -> ModuleExports -> Maybe (Set (ResolutionNamespace, Text))
+exportedLocalNames package name exports =
+  localNames <$> Map.lookup (ModuleKey package name) exports
+  where
+    localNames scope =
+      Set.fromList
+        [ (namespace, nameText resolved)
+        | (namespace, entries) <-
+            [ (ResolutionNamespaceTerm, scopeTerms scope),
+              (ResolutionNamespaceType, scopeTypes scope)
+            ],
+          ResolvedTopLevel resolvedPackage resolved <- Map.elems entries,
+          resolvedPackage == packageId package,
+          fromMaybe name (nameQualifier resolved) == name
+        ]
 
 exportedScope :: Package -> ModuleExports -> Module -> Scope
 exportedScope package exports modu =

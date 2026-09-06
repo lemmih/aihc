@@ -1,0 +1,81 @@
+---
+extensions: []
+modules:
+- |
+  module Public (C (..)) where
+  class C a where
+    method :: a -> a
+    method x = x
+- |
+  module Private (run) where
+  import Public (C (..))
+  data T = T
+  instance C T where
+  run :: T -> T
+  run = method
+expected: |-
+  scope 1 = "" Public
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.t$Dict$C (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$C :: ∀(a : 2.tType). (a 2.→ a) 2.→ 1.t$Dict$C a
+  }
+
+  pub val 1.vmethod :: ∀(a : 2.tType). 1.t$Dict$C a 2.→ a 2.→ a
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$C a).
+      case $d0 as ($dict : 1.t$Dict$C a) return (a 2.→ a) of {
+          1.v$Dict$C ($method0 : a 2.→ a) →
+              $method0
+      }
+
+  pub val 1.v$dmmethod :: ∀(a : 2.tType). 1.t$Dict$C a 2.→ a 2.→ a
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$C a).
+      λ(x : a).
+        x
+  scope 1 = "" Private
+  scope 2 = "" Public
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    2.t$Dict$C :: ∀(a : 3.tType). 3.tType;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    2.v$Dict$C :: ∀(a : 3.tType). (a 3.→ a) 3.→ 2.t$Dict$C a;
+    2.v$dmmethod :: ∀(a : 3.tType). 2.t$Dict$C a 3.→ a 3.→ a;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity;
+    2.vmethod :: ∀(a : 3.tType). 2.t$Dict$C a 3.→ a 3.→ a
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  type 1.tT :: 3.tType {
+      1.vT :: 1.tT
+  }
+
+  pub val 1.v$fCT :: 2.t$Dict$C 1.tT
+   = 2.v$Dict$C @1.tT (2.v$dmmethod @1.tT 1.v$fCT)
+
+  pub val 1.vrun :: 1.tT 3.→ 1.tT
+   = 2.vmethod @1.tT 1.v$fCT
+status: pass
+reason: A dictionary type follows its class, while an instance dictionary and a default worker stay public for the importer that names them.

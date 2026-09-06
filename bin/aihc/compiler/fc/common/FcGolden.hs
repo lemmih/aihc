@@ -11,7 +11,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc, lintProgram, parseProgram, renderParseError, renderProgram)
+import Aihc.Fc (DesugarConfig, FcDesugarResult (..), desugarModuleFc, lintProgram, moduleDesugarConfig, parseProgram, renderParseError, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -198,15 +198,20 @@ renderFcCase tc =
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
+          case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (fixtureModules modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               let fixtureAsts = map snd resolvedModules
                   primitiveInterface = supportTcInterface primitiveSupport
-                  (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (primPackageId desugarConfig)) primitiveInterface fixtureAsts
+                  (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (PackageId "aihc-prim")) primitiveInterface fixtureAsts
                in if all tcModuleSuccess fixtureTcResults
                     then do
                       let availableInterface = primitiveInterface <> tcInterface
-                          fixtureResults = map (\checked -> desugarModuleFc desugarConfig (tcModuleBindings checked) availableInterface checked) fixtureTcResults
+                          fixtureExports =
+                            collectModuleExportsWithDeps (supportScopes primitiveSupport) (fixtureModules modules)
+                          fixtureResults =
+                            map
+                              (\checked -> desugarModuleFc (desugarConfig fixturePackage fixtureExports checked) (tcModuleBindings checked) availableInterface checked)
+                              fixtureTcResults
                       if all dsSuccess fixtureResults
                         then lintAndRenderResults fixtureResults
                         else Left (unlines (concatMap dsErrors fixtureResults))
@@ -214,6 +219,7 @@ renderFcCase tc =
             ResolveResult {resolveErrors} ->
               Left ("resolve error: " <> show resolveErrors)
   where
+    fixtureModules = modulesInPackage fixturePackage
     parseFixtureModule input =
       parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
     lintAndRenderResults fixtureResults =
@@ -251,11 +257,14 @@ preparePrimitiveSupport primitiveModules =
        in case resolveWithDeps builtinScope mempty packageModules of
             resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
               let primitiveAsts = map snd resolvedModules
-                  (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface (tcConfig (primPackageId desugarConfig)) emptyTcInterface primitiveAsts
+                  (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface (tcConfig (PackageId "aihc-prim")) emptyTcInterface primitiveAsts
                in if all tcModuleSuccess primitiveTcResults
                     then
                       let primitiveBindings = concatMap tcModuleBindings primitiveTcResults
-                          primitiveResults = map (desugarModuleFc desugarConfig primitiveBindings tcInterface) primitiveTcResults
+                          primitiveResults =
+                            map
+                              (\checked -> desugarModuleFc (desugarConfig primitivePackage exports checked) primitiveBindings tcInterface checked)
+                              primitiveTcResults
                        in if all dsSuccess primitiveResults
                             then
                               Right
@@ -297,8 +306,9 @@ fixtureBuiltinScope modules =
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
     builtinFunctionModules = ["GHC.Prim", "GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real"]
 
-desugarConfig :: DesugarConfig
-desugarConfig = DesugarConfig {primPackageId = PackageId "aihc-prim"}
+desugarConfig :: Package -> ModuleExports -> Module -> DesugarConfig
+desugarConfig package exports modu =
+  moduleDesugarConfig (PackageId "aihc-prim") package (fromMaybe "Main" (moduleName modu)) exports
 
 parsePrimitiveModule :: FilePath -> Text -> Either String Module
 parsePrimitiveModule sourceName input =

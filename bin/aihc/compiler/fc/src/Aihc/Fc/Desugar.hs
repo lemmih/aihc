@@ -5,6 +5,8 @@
 module Aihc.Fc.Desugar
   ( desugarModuleFc,
     DesugarConfig (..),
+    moduleDesugarConfig,
+    allPublicDesugarConfig,
     FcDesugarResult (..),
   )
 where
@@ -34,7 +36,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Parser.Syntax qualified as Syn
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), exportedLocalNames)
 import Aihc.Tc
   ( AssociatedTypeInfo (..),
     ClassInfo (..),
@@ -85,6 +87,7 @@ import Control.Monad (zipWithM)
 import Data.List (nub, sort)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -96,10 +99,48 @@ data FcDesugarResult = FcDesugarResult
   }
   deriving (Show)
 
-newtype DesugarConfig = DesugarConfig
-  { primPackageId :: PackageId
+data DesugarConfig = DesugarConfig
+  { primPackageId :: PackageId,
+    -- | The visible top-level names of the module, as
+    -- 'Aihc.Resolve.exportedLocalNames' gives them. A name outside the set
+    -- is private, so no other module can name it and the backend need not
+    -- give it a symbol.
+    exportedNames :: !(Maybe (Set (ResolutionNamespace, Text)))
   }
   deriving (Eq, Show)
+
+-- | The desugaring configuration of one module, with the visibility of its
+-- top-level names taken from the resolver export scope. A module that the
+-- scope map does not mention keeps every name public.
+moduleDesugarConfig :: PackageId -> Package -> Text -> ModuleExports -> DesugarConfig
+moduleDesugarConfig prim package moduleName' exports =
+  DesugarConfig
+    { primPackageId = prim,
+      exportedNames = Set.union (compilerVisibleNames moduleName') <$> exportedLocalNames package moduleName' exports
+    }
+
+-- | The configuration of a caller that knows of no export list, and so
+-- keeps every top-level name public.
+allPublicDesugarConfig :: PackageId -> DesugarConfig
+allPublicDesugarConfig prim = DesugarConfig {primPackageId = prim, exportedNames = Nothing}
+
+-- | The names of one module that the compiler builds references to on its
+-- own, from whatever module it is desugaring, and that the export list of
+-- the module therefore cannot hide.
+--
+-- @Type.Reflection@ keeps the representation of @TypeRep@ out of its export
+-- list, yet 'Aihc.Fc.Desugar.Value.desugarTypeRepresentation' builds one for
+-- every derived @Typeable@ instance, so the constructor belongs to the
+-- interface of the module whatever the list says. This is the whole of the
+-- set, not an excerpt: every other name that the Typeable and literal
+-- machinery reaches for is one that its own module already exports.
+--
+-- Getting this wrong is quiet. A name that belongs here and is missing
+-- becomes an undefined symbol at link time, not a compiler diagnostic.
+compilerVisibleNames :: Text -> Set (ResolutionNamespace, Text)
+compilerVisibleNames moduleName'
+  | moduleName' == "Type.Reflection" = Set.singleton (ResolutionNamespaceTerm, "TypeRep")
+  | otherwise = Set.empty
 
 data HeaderSource
   = HeaderTerm !(TcTermKey, TypeScheme)
@@ -125,7 +166,10 @@ interfaceConvertEnv :: DesugarConfig -> TcInterface -> ConvertEnv
 interfaceConvertEnv config interface =
   withKindEnv
     (Map.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tcInterfaceTyCons interface])
-    (withClassTyCons (map (tyConKey . ciTyCon) (tcInterfaceClasses interface)) (emptyConvertEnv (primPackageId config)))
+    ( withClassTyCons
+        (map (tyConKey . ciTyCon) (tcInterfaceClasses interface))
+        (withExportedNames (exportedNames config) (emptyConvertEnv (primPackageId config)))
+    )
 
 convertTyConHeader :: ConvertEnv -> TyConInfo -> Either String (Name, Type)
 convertTyConHeader env info = do
@@ -564,15 +608,19 @@ convertClass env info = do
   let dictApp = foldl TyApp (TyCon dictName) (map (TyVar . binderName) binders)
       body = foldr (funType bindersEnv) dictApp (superFields <> methodFields)
       constructorType = foldr TyForAll body binders
+      -- The dictionary type and its constructor carry a made-up name that no
+      -- export list mentions. Any module that can write the class solves its
+      -- constraints, so both follow the class itself.
+      vis = exportedVis env ResolutionNamespaceType (ciName info)
   pure
     ( DeclType
         TypeDecl
-          { typeVis = Pub,
+          { typeVis = vis,
             typeName = dictName,
             typeBinders = binders,
             typeResult = result,
             typeRoles = replicate (length binders) Representational,
-            typeCons = [ConDecl Pub (classDictConName (ciTyCon info)) constructorType]
+            typeCons = [ConDecl vis (classDictConName (ciTyCon info)) constructorType]
           }
     )
 
@@ -619,7 +667,7 @@ convertNewtype env info = do
   pure
     [ DeclType
         TypeDecl
-          { typeVis = Pub,
+          { typeVis = exportedVis env ResolutionNamespaceType (dtiName info),
             typeName = typeName,
             typeBinders = binders,
             typeResult = result,
@@ -651,7 +699,7 @@ convertEmptyFamily env paramNames roles info = do
   pure
     ( DeclType
         TypeDecl
-          { typeVis = Pub,
+          { typeVis = exportedVis env ResolutionNamespaceType (tciName info),
             typeName = tyConNameFc env tyCon,
             typeBinders = binders,
             typeResult = result,
@@ -811,7 +859,7 @@ convertDataType env info = do
   pure
     ( DeclType
         TypeDecl
-          { typeVis = Pub,
+          { typeVis = exportedVis env ResolutionNamespaceType (dtiName info),
             typeName = tyConNameFc env tyCon,
             typeBinders = binders,
             typeResult = result,
@@ -839,7 +887,7 @@ convertConstructor env info = do
       (package, moduleName') = dciOrigin info
   pure
     ConDecl
-      { conVis = Pub,
+      { conVis = exportedVis env ResolutionNamespaceTerm (dciName info),
         conName = Name (dciName info) SortDataConstructor (OriginTop package moduleName'),
         conType = constructorType
       }
@@ -886,7 +934,7 @@ convertSynonym env info =
           pure
             [ DeclSynonym
                 SynonymDecl
-                  { synVis = Pub,
+                  { synVis = exportedVis env ResolutionNamespaceType (tciName info),
                     synName = Name (tciName info) SortSynonym (OriginTop (tyConPackageId (tciTyCon info)) (tyConModuleName (tciTyCon info))),
                     synBinders = binders,
                     synResult = result,

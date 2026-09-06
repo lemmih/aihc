@@ -1,0 +1,31 @@
+expected: |-
+  scope 1 = "" Target
+
+  constructor 1.Box [IntRep]
+
+  primitive *# :: IntRep/2
+
+  global 1.shared = (F$shared_thunk)
+
+  global 1.visible = (F$visible_thunk)
+
+  $shared_thunk -> BoxedRep Lifted =
+    argument :: IntRep <-
+      primitive-call @IntRep *# (6 :: IntRep) (7 :: IntRep)
+    store (C1.Box (argument :: IntRep))
+
+  $visible_thunk -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) global-ref 1.shared
+extensions:
+- MagicHash
+modules:
+- |
+  module Target (visible) where
+  import GHC.Prim
+  data Box = Box Int#
+  shared :: Box
+  shared = Box (6# *# 7#)
+  visible :: Box
+  visible = shared
+reason: an unexported thunk keeps its global, because the cell is what makes one evaluation serve every use
+status: pass
