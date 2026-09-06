@@ -4,6 +4,7 @@ module Aihc.Cli.Options
     GarbageCollector (..),
     InstallErrorFormat (..),
     InstallOptions (..),
+    LinkExeOptions (..),
     PrepareRuntimeOptions (..),
     parseCommandIO,
     parseCommandPure,
@@ -17,6 +18,7 @@ import Options.Applicative qualified as OA
 data Command
   = CmdBuildExe !BuildExeOptions
   | CmdInstall !InstallOptions
+  | CmdLinkExe !LinkExeOptions
   | CmdPrepareRuntime !PrepareRuntimeOptions
   deriving (Eq, Show)
 
@@ -33,7 +35,15 @@ data BuildExeOptions = BuildExeOptions
     buildExeStoreRoot :: !(Maybe FilePath),
     buildExeBuildRoot :: !(Maybe FilePath),
     buildExeLint :: !Bool,
+    buildExeNoLink :: !Bool,
     buildExeOutputFile :: !(Maybe FilePath)
+  }
+  deriving (Eq, Show)
+
+-- | Link an executable from a bundle that @build-exe --no-link@ wrote.
+data LinkExeOptions = LinkExeOptions
+  { linkExeBundle :: !FilePath,
+    linkExeOutputFile :: !FilePath
   }
   deriving (Eq, Show)
 
@@ -99,6 +109,12 @@ commandParser =
               (OA.progDesc "Build and install one Cabal library from a local directory or Hackage")
           )
         <> OA.command
+          "link-exe"
+          ( OA.info
+              (CmdLinkExe <$> linkExeOptionsParser OA.<**> OA.helper)
+              (OA.progDesc "Link one Haskell executable from a bundle written by build-exe --no-link")
+          )
+        <> OA.command
           "prepare-runtime"
           ( OA.info
               (CmdPrepareRuntime <$> prepareRuntimeOptionsParser OA.<**> OA.helper)
@@ -133,13 +149,31 @@ buildExeOptionsParser =
           )
       )
     <*> lintOption
+    <*> OA.switch
+      ( OA.long "no-link"
+          <> OA.help "Compile only: write the objects, archives, and a link.json manifest to the output directory instead of linking"
+      )
     <*> OA.optional
       ( OA.strOption
           ( OA.long "output"
               <> OA.short 'o'
               <> OA.metavar "FILE"
-              <> OA.help "Write the executable to FILE"
+              <> OA.help "Write the executable to FILE, or the link bundle to the directory FILE with --no-link"
           )
+      )
+
+linkExeOptionsParser :: OA.Parser LinkExeOptions
+linkExeOptionsParser =
+  LinkExeOptions
+    <$> OA.strArgument
+      ( OA.metavar "BUNDLE"
+          <> OA.help "Directory holding the link.json manifest written by build-exe --no-link"
+      )
+    <*> OA.strOption
+      ( OA.long "output"
+          <> OA.short 'o'
+          <> OA.metavar "FILE"
+          <> OA.help "Write the executable to FILE"
       )
 
 sourceDirectoryOptions :: OA.Parser [FilePath]
