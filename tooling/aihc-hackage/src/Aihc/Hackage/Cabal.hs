@@ -32,7 +32,7 @@ module Aihc.Hackage.Cabal
   )
 where
 
-import Aihc.Hackage.Cpp (emulatedGhcVersion)
+import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc)
 import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, sourceDirs)
 import Data.List (isPrefixOf, nub)
 import Data.Map.Strict qualified as Map
@@ -385,9 +385,9 @@ syntheticLocalBuildInfo pkgDescr = do
   dirs <- defaultInstallDirs GHC False False
   let comp =
         Compiler
-          (CompilerId GHC (mkVersion emulatedGhcVersion))
+          (CompilerId GHC (mkVersion (releaseCompilerVersion emulatedGhc)))
           NoAbiTag
-          [CompilerId GHC (mkVersion emulatedGhcVersion)]
+          [CompilerId GHC (mkVersion (releaseCompilerVersion emulatedGhc))]
           []
           []
           Map.empty
@@ -514,9 +514,9 @@ conditionEvaluatorFor gpd os arch = eval
     defaultFlags =
       Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd]
 
-    -- aihc presents itself as GHC so that packages take the branch matching
-    -- the CPP macros in "Aihc.Hackage.Cpp"; the host compiler is irrelevant.
-    compilerVer = mkVersion emulatedGhcVersion
+    -- aihc presents itself as the GHC release in "Aihc.Hackage.Release", the
+    -- same one the CPP macros describe; the host compiler is irrelevant.
+    compilerVer = mkVersion (releaseCompilerVersion emulatedGhc)
 
     eval (Var confVar) =
       case confVar of

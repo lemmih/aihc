@@ -105,6 +105,7 @@
                   ln -sfn ${sources.primSrc pkgs} "$coreLibsRoot/core-libs/aihc-prim"
                   ln -sfn ${sources.internalSrc pkgs} "$coreLibsRoot/core-libs/aihc-internal"
                   ln -sfn ${sources.templateHaskellSrc pkgs} "$coreLibsRoot/core-libs/aihc-template-haskell"
+                  ln -sfn ${sources.systemCxxStdLibSrc pkgs} "$coreLibsRoot/core-libs/system-cxx-std-lib"
                   export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
                   export AIHC_BASE_SRC="$coreLibsRoot/core-libs/aihc-base"
                   export AIHC_PRIM_SRC="$coreLibsRoot/core-libs/aihc-prim"
