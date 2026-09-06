@@ -224,14 +224,24 @@ layoutDraft :: Draft -> Either ObjectError Image
 layoutDraft draft = do
   let firstPass = map layoutSection (draftSectionOrder draft)
   definitions <- collectDefinitions firstPass
-  let referenced = Set.fromList [fixupTarget fixup | section <- firstPass, (_, fixup) <- laidFixups section]
-      names = Set.toAscList (Map.keysSet definitions <> referenced <> draftGlobals draft)
+  let globals = draftGlobals draft
+      -- Only a name that the linker needs becomes a symbol: a global one, or
+      -- one that a relocation names. A label that this object resolves on its
+      -- own, such as a branch target inside one function, needs no symbol.
+      -- Generated code has many of these, and each one would otherwise cost a
+      -- symbol table entry and its name.
+      relocated =
+        Set.fromList
+          [ fixupTarget fixup
+          | section <- firstPass,
+            (_, fixup) <- laidFixups section,
+            not (isLocalPatch globals definitions (laidRole section) fixup)
+          ]
+      kept = Map.keysSet (Map.filterWithKey (\name _ -> name `Set.member` globals || name `Set.member` relocated) definitions)
+      names = Set.toAscList (kept <> relocated <> globals)
       symbols = map (makeSymbol definitions) names
-      globals = draftGlobals draft
-      -- One table answers both questions a fixup asks: which symbol it names
-      -- and where that symbol sits, if this object defines it.
-      table = Map.fromDistinctAscList [(name, (index, Map.lookup name definitions)) | (index, name) <- zip [0 ..] names]
-  sections <- mapM (resolveSection globals table) firstPass
+      table = Map.fromDistinctAscList (zip names [0 ..])
+  sections <- mapM (resolveSection globals definitions table) firstPass
   pure Image {imageSections = sections, imageSymbols = symbols}
   where
     layoutSection role =
@@ -268,8 +278,19 @@ collectDefinitions = foldl' addSection (Right Map.empty)
         then Left (ObjectDuplicateSymbol name)
         else pure (Map.insert name (role, offset) definitions)
 
-resolveSection :: Set Text -> Map Text (Int, Maybe (SectionRole, Word64)) -> LaidSection -> Either ObjectError ImageSection
-resolveSection globals table section = do
+-- | Whether this object can fill a fixup in without the linker. The target
+-- must sit in the same section, be private to this object, and have a kind
+-- that 'patchLocal' handles.
+isLocalPatch :: Set Text -> Map Text (SectionRole, Word64) -> SectionRole -> Fixup -> Bool
+isLocalPatch globals definitions role fixup =
+  canResolve (fixupKind fixup)
+    && fixupTarget fixup `Set.notMember` globals
+    && case Map.lookup (fixupTarget fixup) definitions of
+      Just (targetRole, _) -> targetRole == role
+      Nothing -> False
+
+resolveSection :: Set Text -> Map Text (SectionRole, Word64) -> Map Text Int -> LaidSection -> Either ObjectError ImageSection
+resolveSection globals definitions table section = do
   (patches, relocations) <- foldl' resolve (Right ([], [])) (laidFixups section)
   bytes <- applyPatches (laidBytes section) (reverse patches)
   pure
@@ -282,21 +303,19 @@ resolveSection globals table section = do
   where
     resolve result (offset, fixup) = do
       (patches, relocations) <- result
-      case Map.lookup (fixupTarget fixup) table of
-        Nothing -> Left (ObjectMissingSymbol (fixupTarget fixup))
-        Just (index, definition) ->
-          case definition of
-            Just (targetRole, targetOffset)
-              | canResolve (fixupKind fixup)
-                  && targetRole == laidRole section
-                  && fixupTarget fixup `Set.notMember` globals -> do
-                  patched <- patchLocal offset targetOffset fixup
-                  pure ((offset, patched) : patches, relocations)
-            _ ->
-              pure
-                ( patches,
-                  Relocation offset (fixupKind fixup) index (fixupAddend fixup) : relocations
-                )
+      if isLocalPatch globals definitions (laidRole section) fixup
+        then case Map.lookup (fixupTarget fixup) definitions of
+          Nothing -> Left (ObjectMissingSymbol (fixupTarget fixup))
+          Just (_, targetOffset) -> do
+            patched <- patchLocal offset targetOffset fixup
+            pure ((offset, patched) : patches, relocations)
+        else case Map.lookup (fixupTarget fixup) table of
+          Nothing -> Left (ObjectMissingSymbol (fixupTarget fixup))
+          Just index ->
+            pure
+              ( patches,
+                Relocation offset (fixupKind fixup) index (fixupAddend fixup) : relocations
+              )
 
 canResolve :: FixupKind -> Bool
 canResolve kind =

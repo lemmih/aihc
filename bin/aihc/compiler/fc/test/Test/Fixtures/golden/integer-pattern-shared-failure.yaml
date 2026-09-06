@@ -1,0 +1,77 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  other x = Off
+  pick 0 0 = On
+  pick x _ = other x
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Classes
+  scope 3 = "aihc-prim" GHC.Prim
+  scope 4 = "aihc-prim" GHC.Prim.Integer
+  scope 5 = "aihc-prim" GHC.Prim.Num
+  scope 6 = "aihc-prim" GHC.Types
+
+  import headers
+    2.t$Dict$Eq :: ∀(a : 6.tType). 6.tType;
+    5.t$Dict$Num :: ∀(a : 6.tType). 6.tType;
+    6.tBool :: 6.tType;
+    3.tInt# :: 6.tTYPE 6.vIntRep;
+    4.tInteger :: 6.tType;
+    6.tLevity :: 6.tType;
+    6.tLiftedRep :: 6.tRuntimeRep;
+    6.tRuntimeRep :: 6.tType;
+    6.tTYPE :: ∀(rep : 6.tRuntimeRep). 6.tType;
+    6.tType :: 6.tType;
+    2.v== :: ∀(a : 6.tType). 2.t$Dict$Eq a 6.→ a 6.→ a 6.→ 6.tBool;
+    6.vBoxedRep :: 6.tLevity 6.→ 6.tRuntimeRep;
+    6.vFalse :: 6.tBool;
+    4.vIS :: FUN @6.vIntRep @6.tLiftedRep 3.tInt# 4.tInteger;
+    6.vIntRep :: 6.tRuntimeRep;
+    6.vLifted :: 6.tLevity;
+    6.vTrue :: 6.tBool;
+    5.vfromInteger :: ∀(a : 6.tType). 5.t$Dict$Num a 6.→ 4.tInteger 6.→ a
+
+  import synonyms
+    6.tLiftedRep = 6.vBoxedRep 6.vLifted;
+    6.tType = 6.tTYPE 6.tLiftedRep
+
+  pub type 1.tFlag :: 6.tType {
+      pub 1.vOff :: 1.tFlag;
+      pub 1.vOn :: 1.tFlag
+  }
+
+  pub val 1.vother :: ∀(a : 6.tType). a 6.→ 1.tFlag
+   = Λ(a : 6.tType).
+    λ(x : a).
+      1.vOff
+
+  pub val 1.vpick :: ∀(a : 6.tType) (b : 6.tType). 2.t$Dict$Eq b 6.→ 5.t$Dict$Num b 6.→ 2.t$Dict$Eq a 6.→ 5.t$Dict$Num a 6.→ a 6.→ b 6.→ 1.tFlag
+   = Λ(a : 6.tType).
+    Λ(b : 6.tType).
+      λ($d0 : 2.t$Dict$Eq b).
+        λ($d1 : 5.t$Dict$Num b).
+          λ($d2 : 2.t$Dict$Eq a).
+            λ($d3 : 5.t$Dict$Num a).
+              λ(x : a).
+                λ(y : b).
+                  let {
+                      _fail : 1.tFlag =
+                          1.vother @a x
+                  } in
+                      case 2.v== @a $d2 x (5.vfromInteger @a $d3 (4.vIS 0#6.vIntRep)) as (_case_guard : 6.tBool) return (1.tFlag) of {
+                          6.vTrue →
+                              case 2.v== @b $d0 y (5.vfromInteger @b $d1 (4.vIS 0#6.vIntRep)) as (_case_guard{1} : 6.tBool) return (1.tFlag) of {
+                                  6.vTrue →
+                                      1.vOn;
+                                  6.vFalse →
+                                      _fail
+                              };
+                          6.vFalse →
+                              _fail
+                      }
+status: pass
+reason: Every literal test of a row names one failure binding.

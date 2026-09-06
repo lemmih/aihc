@@ -59,7 +59,7 @@ data EvTerm
     EvCallStackPush !(Text, Text) !Text !CallSite !EvTerm
   | -- | The empty call stack, with the origin of the @CallStack@ type.
     EvCallStackEmpty !(Text, Text)
-  deriving (Eq, Show, Read)
+  deriving (Eq, Ord, Show, Read)
 
 -- | The source position of one call site.
 data CallSite = CallSite
@@ -69,14 +69,14 @@ data CallSite = CallSite
     callSiteEndLine :: !Int,
     callSiteEndColumn :: !Int
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Ord, Show, Read)
 
 -- | A binding of an evidence variable to its term.
 data EvBinding = EvBinding
   { evBindVar :: !EvVar,
     evBindTerm :: !EvTerm
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Ord, Show, Read)
 
 -- | Coercions for type equality evidence.
 --
@@ -95,4 +95,4 @@ data Coercion
     TyConAppCo !TyCon ![Coercion]
   | -- | Type family / newtype axiom instantiation (future).
     AxiomInstCo !TcAxiomKey ![TcType]
-  deriving (Eq, Show, Read)
+  deriving (Eq, Ord, Show, Read)

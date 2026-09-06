@@ -45,13 +45,9 @@ expected: |-
   pub val 1.vfirst :: ∀(a : 2.tType). 1.tL a 2.→ a
    = Λ(a : 2.tType).
     λ(x : 1.tL a).
-      let {
-          _fail : a =
-              case x as (_case_nomatch : 1.tL a) return (a) of {
+      1.v$mHead @a @a x (λ(x{1} : a).
+        x{1}) (case x as (_case_nomatch : 1.tL a) return (a) of {
 
-              }
-      } in
-          1.v$mHead @a @a x (λ(x{1} : a).
-            x{1}) _fail
+      })
 status: pass
 reason: A unidirectional pattern synonym gives a matcher only.
