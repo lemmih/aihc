@@ -42,6 +42,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
+import Data.Word (Word8)
 import Paths_aihc (getDataFileName)
 import System.Directory (doesFileExist, findExecutable)
 import System.Environment (lookupEnv)
@@ -98,6 +99,18 @@ parseNativeTarget value =
 -- object symbol. ASCII letters and digits stay intact, components use a single
 -- underscore separator, and only literal underscores or unsafe UTF-8 bytes
 -- are escaped.
+--
+-- An escape is @__@, an optional decimal repeat count, and then either a
+-- single-letter code from 'escapeCodes' or @x@ and two hex digits. Reading it
+-- back is unambiguous: the count stops at the first non-digit, which is the
+-- code. Both the count and the codes exist because tuple constructors are
+-- almost entirely punctuation, and spelling @(,,,)@ out one @__x2c@ at a time
+-- made the symbol grow with the arity and the object file grow with its cube.
+--
+-- Reading it back needs the components to be non-empty, which
+-- 'Aihc.Grin.Syntax.grinScopedName' guarantees by always supplying a package,
+-- a module, and a base name. An empty one would put two separators in a row,
+-- and a run of underscores cannot say how it was split.
 renderLinkedFunctionSymbol :: Text -> Text
 renderLinkedFunctionSymbol logicalName =
   Text.decodeUtf8 (BL.toStrict (Builder.toLazyByteString rendered))
@@ -106,17 +119,29 @@ renderLinkedFunctionSymbol logicalName =
       case BS.split 0 (Text.encodeUtf8 logicalName) of
         [unstructured] -> Builder.string7 "aihc_entry_" <> renderComponent unstructured
         components -> mconcat (intersperse (Builder.word8 underscore) (map renderComponent components))
-    -- Copy the run of bytes that stay intact, then escape the one that stops
-    -- it. Almost every name is one such run.
+    -- Copy the run of bytes that stay intact, then escape the run of the byte
+    -- that stops it. Almost every name is one such intact run.
     renderComponent bytes =
       case BS.span asciiAlphaNumeric bytes of
         (intact, rest) ->
           Builder.byteString intact <> case BS.uncons rest of
             Nothing -> mempty
-            Just (byte, remaining) -> renderByte byte <> renderComponent remaining
-    renderByte byte
-      | byte == underscore = Builder.string7 "__u"
-      | otherwise = Builder.string7 "__x" <> Builder.word8 (hexDigit (byte `shiftR` 4)) <> Builder.word8 (hexDigit (byte .&. 0x0f))
+            Just (byte, remaining) ->
+              case BS.span (== byte) remaining of
+                (repeated, following) ->
+                  renderRun byte (1 + BS.length repeated) <> renderComponent following
+    -- A count of one stays implicit so that every name has one spelling.
+    renderRun byte count =
+      Builder.string7 "__"
+        <> (if count == 1 then mempty else Builder.string7 (show count))
+        <> renderCode byte
+    renderCode byte =
+      case lookup byte escapeCodes of
+        Just code -> Builder.word8 code
+        Nothing ->
+          Builder.word8 lowerX
+            <> Builder.word8 (hexDigit (byte `shiftR` 4))
+            <> Builder.word8 (hexDigit (byte .&. 0x0f))
     hexDigit nibble
       | nibble < 10 = 48 + nibble
       | otherwise = 87 + nibble
@@ -125,6 +150,40 @@ renderLinkedFunctionSymbol logicalName =
         || (byte >= 65 && byte <= 90)
         || (byte >= 97 && byte <= 122)
     underscore = 95
+    lowerX = 120
+
+-- | Short escape codes for the bytes that Haskell names use most, measured
+-- over the installed store. A coded escape costs three bytes where the hex
+-- form costs five.
+--
+-- A code may be neither @x@, which introduces the hex form, nor a digit,
+-- which a repeat count uses. Any byte without a code still round-trips
+-- through the hex form, so this table is a size choice and not a limit on
+-- what can be named.
+escapeCodes :: [(Word8, Word8)]
+escapeCodes = [(ascii source, ascii code) | (source, code) <- table]
+  where
+    ascii = fromIntegral . fromEnum
+    table =
+      [ ('_', 'u'),
+        (',', 'c'),
+        ('.', 'd'),
+        ('-', 'm'),
+        ('(', 'p'),
+        (')', 'q'),
+        ('$', 's'),
+        ('#', 'h'),
+        ('\'', 'r'),
+        ('>', 'g'),
+        ('=', 'e'),
+        ('<', 'l'),
+        ('*', 'a'),
+        (':', 'o'),
+        ('/', 'f'),
+        ('+', 't'),
+        ('[', 'k'),
+        (']', 'j')
+      ]
 
 -- | Render the object symbol for one static Haskell value.
 renderLinkedGlobalSymbol :: Text -> Text
@@ -133,7 +192,7 @@ renderLinkedGlobalSymbol = renderLinkedFunctionSymbol
 -- | Render the object symbol for one constructor application stage.
 renderLinkedConstructorInfoSymbol :: Text -> Int -> Text
 renderLinkedConstructorInfoSymbol name remaining =
-  "aihc_constructor_" <> renderLinkedFunctionSymbol name <> "_" <> T.pack (show remaining)
+  "aihc_c_" <> renderLinkedFunctionSymbol name <> "_" <> T.pack (show remaining)
 
 hostNativeTarget :: Maybe NativeTarget
 hostNativeTarget
