@@ -1,0 +1,45 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import GHC.Real (Fractional (..), Rational, denominator, numerator)
+
+    half :: Double
+    half = 0.5
+
+    quarter :: Float
+    quarter = 0.25
+
+    negative :: Double
+    negative = -1.5
+
+    scaled :: Double
+    scaled = 1.25e2
+
+    ratio :: Rational
+    ratio = 0.75
+
+    twice :: (Fractional a) => a -> a
+    twice value = value * 2.0
+
+    defaulted :: Bool
+    defaulted = 1.5 < 2.5
+
+    values :: (Bool, Bool, Bool, Bool, Bool, Integer, Integer)
+    values =
+      ( twice half == 1.0,
+        twice quarter == 0.5,
+        negative + 1.5 == 0.0,
+        scaled == 125.0,
+        defaulted,
+        numerator ratio,
+        denominator ratio
+      )
+output: |
+  (True,True,True,True,True,(IS 3),(IS 4))
+expression: |
+  values
+status: pass
+reason: a fractional literal applies fromRational to a Rational, so it gets its
+  type from the Fractional class

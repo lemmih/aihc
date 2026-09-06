@@ -1,0 +1,65 @@
+annotated:
+- |-
+  module GHC.Num where
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
+       │         │  └─ t GHC.Prim
+       │         └─ v GHC.Num
+       └─ t GHC.Num
+  class Num a where
+        └─ t GHC.Num
+    fromInteger :: Integer -> a
+    └─ v GHC.Num   └─ t GHC.Num
+- |-
+  module GHC.Prim where
+  data Int#
+       └─ t GHC.Prim
+- |-
+  module GHC.Real where
+  import GHC.Num (Integer, Num)
+  data Ratio a = Ratio a a
+       │         └─ v GHC.Real
+       └─ t GHC.Real
+  type Rational = Ratio Integer
+       │          │     └─ t GHC.Num
+       │          └─ t GHC.Real
+       └─ t GHC.Real
+  class Num a => Fractional a where
+        │        └─ t GHC.Real
+        └─ t GHC.Num
+    fromRational :: Rational -> a
+    └─ v GHC.Real   └─ t GHC.Real
+- |-
+  module Main where
+  fromRational x = x
+  └─ v Main    │   └─ v 0
+               └─ v 0
+  half = 0.5
+  │      └─ v GHC.Real
+  └─ v Main
+extensions:
+- MagicHash
+modules:
+- |
+  module GHC.Prim where
+  data Int#
+- |
+  module GHC.Num where
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
+  class Num a where
+    fromInteger :: Integer -> a
+- |
+  module GHC.Real where
+  import GHC.Num (Integer, Num)
+  data Ratio a = Ratio a a
+  type Rational = Ratio Integer
+  class Num a => Fractional a where
+    fromRational :: Rational -> a
+- |
+  module Main where
+  fromRational x = x
+  half = 0.5
+reason: fractional literals resolve GHC.Real.fromRational by default, even when a
+  local fromRational is in scope
+status: pass
