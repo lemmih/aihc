@@ -4,6 +4,11 @@ module Aihc.Cli.PackagePlan
     buildPackagePlanWithResolver,
     ParsedInterfaceFile (..),
     parseInterfaceFile,
+    DependencyVersions,
+    dependencyVersionsFromManifests,
+    coreProviders,
+    coreProviderSourcePath,
+    CoreProvider (..),
     localDependencyResolverWithFallback,
     packageSpecFromSource,
     renderHumanDiagnostic,
@@ -12,7 +17,8 @@ where
 
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Hackage.Cpp (cppMacrosFromOptions, injectSyntheticCppMacros, minVersionMacroNamesFromDeps)
+import Aihc.Hackage.Cpp (DependencyVersions, cppMacrosFromOptions, injectSyntheticCppMacros)
+import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibraryByStandin, showVersionBranch)
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
@@ -194,45 +200,73 @@ canonicalPackageSpec spec =
     Just provider -> PackageSpec (coreProviderName provider) (coreProviderVersion provider)
     Nothing -> spec
 
+-- | Every standin under @core-libs@, with the version of the boot library it
+-- replaces. The versions come from the emulated GHC release so that a
+-- package sees the same @base@ version in its @MIN_VERSION_base@ macro, in
+-- its resolved dependencies and in the standin's own @.cabal@ file.
+coreProviders :: [CoreProvider]
+coreProviders = map (uncurry coreProvider) coreProviderSources
+  where
+    coreProviderSources =
+      [ ("aihc-base", "core-libs" </> "aihc-base"),
+        ("aihc-prim", "core-libs" </> "aihc-prim"),
+        ("aihc-internal", "core-libs" </> "aihc-internal"),
+        ("aihc-template-haskell", "core-libs" </> "aihc-template-haskell"),
+        ("system-cxx-std-lib", "core-libs" </> "system-cxx-std-lib")
+      ]
+    coreProvider name sourceRel =
+      CoreProvider
+        { coreProviderName = name,
+          coreProviderVersion =
+            maybe
+              (error ("core-libs package " <> name <> " is not a boot library of the emulated GHC release"))
+              (showVersionBranch . bootLibraryVersion)
+              (lookupBootLibraryByStandin name emulatedGhc),
+          coreProviderSourceRel = sourceRel
+        }
+
+namedCoreProvider :: String -> CoreProvider
+namedCoreProvider name =
+  case [provider | provider <- coreProviders, coreProviderName provider == name] of
+    provider : _ -> provider
+    [] -> error ("unknown core provider " <> name)
+
 aihcBaseProvider :: CoreProvider
-aihcBaseProvider =
-  CoreProvider
-    { coreProviderName = "aihc-base",
-      coreProviderVersion = "4.21.2.0",
-      coreProviderSourceRel = "core-libs" </> "aihc-base"
-    }
+aihcBaseProvider = namedCoreProvider "aihc-base"
 
 aihcPrimProvider :: CoreProvider
-aihcPrimProvider =
-  CoreProvider
-    { coreProviderName = "aihc-prim",
-      coreProviderVersion = "0.13.0",
-      coreProviderSourceRel = "core-libs" </> "aihc-prim"
-    }
+aihcPrimProvider = namedCoreProvider "aihc-prim"
 
 aihcInternalProvider :: CoreProvider
-aihcInternalProvider =
-  CoreProvider
-    { coreProviderName = "aihc-internal",
-      coreProviderVersion = "9.1204.0",
-      coreProviderSourceRel = "core-libs" </> "aihc-internal"
-    }
+aihcInternalProvider = namedCoreProvider "aihc-internal"
 
 aihcTemplateHaskellProvider :: CoreProvider
-aihcTemplateHaskellProvider =
-  CoreProvider
-    { coreProviderName = "aihc-template-haskell",
-      coreProviderVersion = "2.23.0.0",
-      coreProviderSourceRel = "core-libs" </> "aihc-template-haskell"
-    }
+aihcTemplateHaskellProvider = namedCoreProvider "aihc-template-haskell"
 
 systemCxxStdLibProvider :: CoreProvider
-systemCxxStdLibProvider =
-  CoreProvider
-    { coreProviderName = "system-cxx-std-lib",
-      coreProviderVersion = "1.0",
-      coreProviderSourceRel = "core-libs" </> "system-cxx-std-lib"
-    }
+systemCxxStdLibProvider = namedCoreProvider "system-cxx-std-lib"
+
+-- | The versions a file's @MIN_VERSION_*@ macros report, from the manifests
+-- of the packages it is compiled against. A standin is reachable under both
+-- its own name and the name of the boot library it replaces, because a
+-- Hackage package writes @MIN_VERSION_base@ while the installed package is
+-- called @aihc-base@.
+dependencyVersionsFromManifests :: [(Text, Text)] -> DependencyVersions
+dependencyVersionsFromManifests manifests =
+  Map.fromList (concatMap entries manifests)
+  where
+    entries (name, versionText) =
+      case mapM readComponent (T.splitOn "." versionText) of
+        Just version ->
+          (name, version)
+            : [ (T.pack (bootLibraryName library), version)
+              | Just library <- [lookupBootLibraryByStandin (T.unpack name) emulatedGhc]
+              ]
+        Nothing -> []
+    readComponent component =
+      case reads (T.unpack component) of
+        [(value, "")] -> Just value
+        _ -> Nothing
 
 coreProviderSourcePath :: CoreProvider -> IO FilePath
 coreProviderSourcePath provider = do
@@ -442,8 +476,8 @@ type DiagnosticSourceMap = Map.Map FilePath (Map.Map Int Text)
 data ParsedInterfaceFile
   = ParsedInterfaceFile !FilePath Module !DiagnosticSourceMap [Aeson.Value] [Aeson.Value] [Extension]
 
-parseInterfaceFile :: FilePath -> HackageCabal.FileInfo -> IO ParsedInterfaceFile
-parseInterfaceFile packageRoot fileInfo = do
+parseInterfaceFile :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO ParsedInterfaceFile
+parseInterfaceFile packageRoot versions fileInfo = do
   rawSource <- HackageUtil.readTextFileLenient path
   let normalized = normalizeSource path rawSource
       cabalExtSettings = mapMaybe (parseExtensionSettingName . T.pack) (HackageCabal.fileInfoExtensions fileInfo)
@@ -451,7 +485,7 @@ parseInterfaceFile packageRoot fileInfo = do
       cppEnabledInFile = any isCppExtension (headerExtensionSettings (readModuleHeaderPragmas normalized))
   (source, cppDiagnostics) <-
     if cppEnabledGlobally || cppEnabledInFile
-      then preprocessInterfaceSource packageRoot fileInfo normalized
+      then preprocessInterfaceSource packageRoot versions fileInfo normalized
       else pure (normalized, [])
   let headerPragmas = readModuleHeaderPragmas source
       allExtSettings = cabalExtSettings <> headerExtensionSettings headerPragmas
@@ -507,14 +541,13 @@ parseLineDirective line = do
               Just (T.unpack file)
         _ -> Nothing
 
-preprocessInterfaceSource :: FilePath -> HackageCabal.FileInfo -> Text -> IO (Text, [Aeson.Value])
-preprocessInterfaceSource packageRoot fileInfo source = do
+preprocessInterfaceSource :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> Text -> IO (Text, [Aeson.Value])
+preprocessInterfaceSource packageRoot versions fileInfo source = do
   drive (Cpp.preprocess cppConfig (TE.encodeUtf8 injectedSource))
   where
     path = HackageCabal.fileInfoPath fileInfo
     cppOptions = HackageCabal.fileInfoCppOptions fileInfo
-    minVersionMacros = minVersionMacroNamesFromDeps (HackageCabal.fileInfoDependencies fileInfo)
-    injectedSource = injectSyntheticCppMacros cppOptions minVersionMacros source
+    injectedSource = injectSyntheticCppMacros cppOptions versions (HackageCabal.fileInfoDependencies fileInfo) source
     cppConfig =
       Cpp.defaultConfig
         { Cpp.configInputFile = path,

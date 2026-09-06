@@ -1,0 +1,48 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Applicative (Const (..))
+    import Data.Functor.Contravariant
+    import Prelude
+
+    isEven :: Predicate Int
+    isEven = Predicate even
+
+    byLength :: Comparison String
+    byLength = contramap length defaultComparison
+
+    startsWithB :: String -> Int
+    startsWithB ('b' : _) = 1
+    startsWithB _ = 0
+
+    checks :: [Bool]
+    checks =
+      [ getPredicate isEven 4,
+        not (getPredicate (contramap (+ 1) isEven) 4),
+        getPredicate (length >$< isEven) "ab",
+        getPredicate (isEven >$$< (* 3)) 2,
+        getPredicate (isEven <> Predicate (> 2)) 4,
+        not (getPredicate (isEven <> Predicate (> 2)) 2),
+        getPredicate mempty 'x',
+        getComparison byLength "ab" "abc" == LT,
+        getComparison (byLength <> contramap startsWithB defaultComparison) "ba" "ab" == GT,
+        getComparison mempty 'a' 'b' == EQ,
+        getEquivalence (comparisonEquivalence byLength) "ab" "cd",
+        getEquivalence (contramap fst defaultEquivalence) (1 :: Int, 'a') (1, 'b'),
+        getOp (contramap show (Op length)) (123 :: Int) == 3,
+        getOp (Op (: []) <> Op (\x -> [x, x])) 'a' == "aaa",
+        getConst (contramap not (Const "kept")) == "kept",
+        getConst (phantom (Const "same")) == "same",
+        getPredicate (True >$ Predicate id) (0 :: Int),
+        not (getPredicate (Predicate id $< False) 'c')
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: pass
+reason: Data.Functor.Contravariant provides contramap, the operators, and the Predicate/Comparison/Equivalence/Op wrappers

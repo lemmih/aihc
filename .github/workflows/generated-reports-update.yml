@@ -57,11 +57,10 @@ jobs:
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
-      - name: Cache Stackage and package downloads
+      - name: Cache package downloads
         uses: actions/cache@v6
         with:
           path: |
-            .cache/aihc/stackage
             .cache/aihc/hackage
           key: generated-reports-aihc-downloads-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |

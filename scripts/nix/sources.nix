@@ -105,6 +105,10 @@ in rec {
     ".cabal"
   ];
 
+  systemCxxStdLibSrc = mkComponentSrc "/core-libs/system-cxx-std-lib" [
+    ".cabal"
+  ];
+
   templateHaskellSrc = mkComponentSrc "/core-libs/aihc-template-haskell" [
     ".hs"
     ".hs-boot"

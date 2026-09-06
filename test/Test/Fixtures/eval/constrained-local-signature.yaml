@@ -1,0 +1,35 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    class Step a where
+      step :: a -> a
+
+    instance Step Nat where
+      step = S
+
+    data Pair a = Pair a a
+
+    twice :: Step a => a -> Pair a
+    twice x = Pair (step x) (step (step x))
+
+    count :: Step b => [a] -> b -> b
+    count xs z = go xs z
+      where
+        go :: Step i => [a] -> i -> i
+        go [] acc = bump acc
+        go (_ : rest) acc =
+          let Pair first _ = twice acc
+           in go rest first
+        bump :: Step i => i -> i
+        bump = \n -> step n
+output: |
+  S (S (S (S Z)))
+expression: |
+  count [Z, Z, Z] Z
+status: pass
+reason: a local binding with a constrained signature takes the dictionary of its
+  own context, so its body and its recursive calls use the signature's given

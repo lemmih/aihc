@@ -1,6 +1,7 @@
-; More values live at once than the AMD64 pool holds. The allocator gives
-; registers to the intervals that end first and sends the rest to frame
-; slots, so this fixture shows both halves of the result.
+; A wide straight-line function. Both pools hold every volatile register,
+; so the function is a leaf with no frame at all, and on AMD64 a result that
+; takes the register of an operand that dies at its instruction computes in
+; place.
 func @wide(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64) -> i64 cc c {
 entry:
   %g = add i64 %a, %b

@@ -18,6 +18,7 @@ module Aihc.Tc.Kind
     scopedSigTyVars,
     standaloneKindSigToScheme,
     surfacePredToPred,
+    takeVisibleArgumentKinds,
     tyConKindFromParams,
     tyConKindFromParamsWith,
     tcTypeKind,
@@ -535,6 +536,14 @@ makeParamEnvWith = go
           tvEnv' = Map.insert (paramName param) (tv, kind) tvEnv
       (param :) <$> go tvEnv' rest
 
+-- | The kinds of the first visible arguments of a type constructor kind.
+takeVisibleArgumentKinds :: Int -> TcType -> [TcType]
+takeVisibleArgumentKinds = go
+  where
+    go remaining (KFun argument result)
+      | remaining > 0 = argument : go (remaining - 1) result
+    go _ _ = []
+
 tyConKindFromParams :: [ParamInfo] -> Maybe Type -> TcM TcType
 tyConKindFromParams = tyConKindFromParamsWith Map.empty
 
@@ -659,13 +668,9 @@ defaultKindMetas kind =
       solution <- readMetaTv unique
       case solution of
         Just solved -> do
-          solved' <- zonkKind solved
-          tracked <- isTrackedKindMeta unique
-          incomplete <- containsUnsolvedMeta solved'
-          defaulted <-
-            if tracked && incomplete
-              then unifyKinds solved' KType >> pure KType
-              else defaultKindMetas solved'
+          -- A partially solved kind such as @k1 -> k2@ keeps its shape; only
+          -- the metas that remain inside it default.
+          defaulted <- defaultKindMetas =<< zonkKind solved
           writeMetaTv unique defaulted
           pure defaulted
         Nothing -> do
@@ -676,6 +681,14 @@ defaultKindMetas kind =
     TcTyVar tyVar -> do
       kind' <- defaultKindMetas (tvKind tyVar)
       pure (TcTyVar (setTyVarKind kind' tyVar))
+    KTYPE (TcMetaTv representation) -> do
+      -- An open representation defaults to lifted, not to 'Type'. The meta
+      -- may come from instantiating a representation-polymorphic kind, so
+      -- this does not depend on kind-meta tracking.
+      solution <- readMetaTv representation
+      case solution of
+        Just {} -> defaultKindMetas =<< zonkKind kind
+        Nothing -> writeMetaTv representation liftedRep >> pure KType
     TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM defaultKindMetas arguments
     TcFunTy argument result -> TcFunTy <$> defaultKindMetas argument <*> defaultKindMetas result
     TcForAllTy tyVar body -> do
@@ -695,33 +708,6 @@ defaultKindMetas kind =
             <*> mapM defaultKindPred antecedents
             <*> defaultKindPred consequent
     defaultVariable variable = setTyVarKind <$> defaultKindMetas (tvKind variable) <*> pure variable
-
-containsUnsolvedMeta :: TcType -> TcM Bool
-containsUnsolvedMeta ty =
-  case ty of
-    TcMetaTv unique -> do
-      solution <- readMetaTv unique
-      maybe (pure True) containsUnsolvedMeta solution
-    TcTyVar tyVar -> containsUnsolvedMeta (tvKind tyVar)
-    TcTyCon _ arguments -> or <$> mapM containsUnsolvedMeta arguments
-    TcFunTy argument result -> (||) <$> containsUnsolvedMeta argument <*> containsUnsolvedMeta result
-    TcForAllTy tyVar body -> (||) <$> containsUnsolvedMeta (tvKind tyVar) <*> containsUnsolvedMeta body
-    TcQualTy predicates body -> do
-      predicateResults <- mapM containsUnsolvedPred predicates
-      bodyResult <- containsUnsolvedMeta body
-      pure (or predicateResults || bodyResult)
-    TcAppTy function argument -> (||) <$> containsUnsolvedMeta function <*> containsUnsolvedMeta argument
-  where
-    containsUnsolvedPred predicate =
-      case predicate of
-        ClassPred _ arguments -> or <$> mapM containsUnsolvedMeta arguments
-        EqPred left right -> (||) <$> containsUnsolvedMeta left <*> containsUnsolvedMeta right
-        IParamPred _ payload -> containsUnsolvedMeta payload
-        QuantifiedPred variables antecedents consequent -> do
-          variableResults <- mapM (containsUnsolvedMeta . tvKind) variables
-          antecedentResults <- mapM containsUnsolvedPred antecedents
-          consequentResult <- containsUnsolvedPred consequent
-          pure (or variableResults || or antecedentResults || consequentResult)
 
 freshKindMeta :: TcM TcType
 freshKindMeta = do

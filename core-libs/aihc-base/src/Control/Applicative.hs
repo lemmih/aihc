@@ -7,6 +7,7 @@ module Control.Applicative
     ZipList (..),
     liftA,
     liftA2,
+    (<**>),
   )
 where
 
@@ -18,6 +19,11 @@ liftA = fmap
 
 liftA2 :: (Applicative f) => (a -> b -> c) -> f a -> f b -> f c
 liftA2 function left right = function <$> left <*> right
+
+(<**>) :: (Applicative f) => f a -> f (a -> b) -> f b
+(<**>) = liftA2 (\value function -> function value)
+
+infixl 4 <**>
 
 newtype Const a b = Const {getConst :: a}
 

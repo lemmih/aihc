@@ -197,6 +197,10 @@ data Amd64Instruction
   | AmdTest !Amd64Rm !Amd64Register
   | AmdShl !Amd64Rm
   | AmdShr !Amd64Rm
+  | -- | Shifts by an immediate count.
+    AmdShlImmediate !Amd64Rm !Int
+  | AmdShrImmediate !Amd64Rm !Int
+  | AmdSarImmediate !Amd64Rm !Int
   | AmdNot !Amd64Rm
   | AmdMul !Amd64Rm
   | AmdDiv !Amd64Rm
@@ -399,6 +403,9 @@ encodeInstruction instruction =
         register = registerInfo right
     AmdShl destination -> encodeGroup True [0xd3] 4 (rmOperand destination) []
     AmdShr destination -> encodeGroup True [0xd3] 5 (rmOperand destination) []
+    AmdShlImmediate destination count -> encodeGroup True [0xc1] 4 (rmOperand destination) [fromIntegral count]
+    AmdShrImmediate destination count -> encodeGroup True [0xc1] 5 (rmOperand destination) [fromIntegral count]
+    AmdSarImmediate destination count -> encodeGroup True [0xc1] 7 (rmOperand destination) [fromIntegral count]
     AmdNot destination -> encodeGroup True [0xf7] 2 (rmOperand destination) []
     AmdMul source -> encodeGroup True [0xf7] 4 (rmOperand source) []
     AmdDiv source -> encodeGroup True [0xf7] 6 (rmOperand source) []

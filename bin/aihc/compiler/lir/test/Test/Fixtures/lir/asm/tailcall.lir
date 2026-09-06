@@ -1,6 +1,7 @@
-; A tail call. Every allocated value is read into an argument register before
-; the saved registers go back and the frame comes down, so the restore sits
-; between the argument loads and the branch.
+; A tail call. The arguments are hinted with the argument registers, so
+; the values the loop carries stay where the convention wants them and the
+; tail call is one move and a branch. An aihc function preserves nothing and
+; this one calls nothing, so there is no frame to take down.
 extern func @done(i64)
 
 func @count(%n: i64, %acc: i64) {
