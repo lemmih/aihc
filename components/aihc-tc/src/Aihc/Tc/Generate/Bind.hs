@@ -989,6 +989,7 @@ freeVarsExpr expr =
       pure (scrutVars <> altVars)
     ETypeSig inner _ -> freeVarsExpr inner
     EParen inner -> freeVarsExpr inner
+    EPragma _ inner -> freeVarsExpr inner
     EList items -> Set.unions <$> mapM freeVarsExpr items
     EArithSeq arithSeq -> freeVarsArithSeq arithSeq
     ETuple _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items

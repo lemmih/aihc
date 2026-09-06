@@ -1,0 +1,19 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    add :: Nat -> Nat -> Nat
+    add Z m = m
+    add (S n) m = {-# SCC "add/step" #-} S (add n m)
+
+    double :: Nat -> Nat
+    double n = {-# SCC "double" #-} add n n
+output: |
+  ((S (S (S (S Z)))),(S (S Z)))
+expression: |
+  (double (S (S Z)), {-# SCC "expression" #-} add (S Z) (S Z))
+status: pass
+reason: an SCC pragma on an expression has no effect on the value

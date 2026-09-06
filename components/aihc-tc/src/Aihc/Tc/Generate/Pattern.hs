@@ -278,6 +278,7 @@ viewExprSpan expr =
     EAnn ann inner -> fromMaybe (viewExprSpan inner) (fromAnnotation ann)
     EVar name -> sourceSpanFromAnnotations (nameAnns name)
     EParen inner -> viewExprSpan inner
+    EPragma _ inner -> viewExprSpan inner
     EApp function _ -> viewExprSpan function
     _ -> NoSourceSpan
 
