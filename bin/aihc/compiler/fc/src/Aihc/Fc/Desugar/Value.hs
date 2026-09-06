@@ -2158,6 +2158,8 @@ desugarExpr expression =
           operator' <- desugarInfixOperator operator
           (ExApp . ExApp operator' <$> desugarExpr left) <*> desugarExpr right
     Syn.EParen inner -> desugarExpr inner
+    -- The compiler ignores expression pragmas such as SCC.
+    Syn.EPragma _ inner -> desugarExpr inner
     Syn.ETypeSig inner _ -> desugarExpr inner
     Syn.ETypeApp function _ -> desugarExpr function
     Syn.ELambdaPats patterns body -> desugarLambda Nothing patterns body
@@ -2298,6 +2300,7 @@ annotatedVariable expression =
   case expression of
     Syn.EAnn _ inner -> annotatedVariable inner
     Syn.EParen inner -> annotatedVariable inner
+    Syn.EPragma _ inner -> annotatedVariable inner
     Syn.EVar name -> Just name
     _ -> Nothing
 
@@ -3758,6 +3761,7 @@ isApplicationExpression expression =
   case expression of
     Syn.EAnn _ inner -> isApplicationExpression inner
     Syn.EParen inner -> isApplicationExpression inner
+    Syn.EPragma _ inner -> isApplicationExpression inner
     Syn.EApp {} -> True
     Syn.EInfix {} -> True
     _ -> False
@@ -3860,6 +3864,7 @@ inferExprType expression =
         Just result -> pure result
         Nothing -> failValue ("infix operator is not a checked binary function: " <> show operatorType)
     Syn.EParen inner -> inferExprType inner
+    Syn.EPragma _ inner -> inferExprType inner
     Syn.ETypeSig inner _ -> inferExprType inner
     Syn.ETypeApp inner _ -> inferExprType inner
     -- A let expression and an if expression have the type of their body.
@@ -3877,6 +3882,7 @@ exprType expression =
     Syn.EInfix function operator _
       | isApplicationOperator operator -> exprType function >>= applicationResultType
     Syn.EParen inner -> exprType inner
+    Syn.EPragma _ inner -> exprType inner
     Syn.ELetDecls _ body -> exprType body
     Syn.EIf _ thenExpression _ -> exprType thenExpression
     Syn.ETypeSig inner _ -> exprType inner

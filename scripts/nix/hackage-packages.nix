@@ -46,6 +46,23 @@ let
         }
       ];
     }
+    {
+      name = "base64-bytestring";
+      version = "1.2.1.0";
+      hash = "sha256-Oe2u9XbsjSFi10dsUqlZbjoz+Bl5jn+s3xTTCono/oE=";
+      dependencies = [
+        {
+          name = "bytestring";
+          version = "0.12.2.0";
+          hash = "sha256-bBKEw1dWp24YUf+wrQYNqQ/eDqnM3m1ZtyFy6g1ZFq0=";
+        }
+        {
+          name = "deepseq";
+          version = "1.5.2.0";
+          hash = "sha256-vNcooswfE2geBWNtB08cATNIhQlJRRF587lcjfD3XyM=";
+        }
+      ];
+    }
   ];
 
   fetchPackage = pkgs: {

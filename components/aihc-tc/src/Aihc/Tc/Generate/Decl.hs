@@ -2502,6 +2502,7 @@ matcherPattern match =
       case expr of
         EAnn _ inner -> go inner
         EParen inner -> go inner
+        EPragma _ inner -> go inner
         ECase _ (alt : _) -> Just (caseAltPattern alt)
         _ -> Nothing
 
@@ -4094,6 +4095,7 @@ exprSpan expr =
     EAnn ann inner ->
       fromMaybe (exprSpan inner) (fromAnnotation @SourceSpan ann)
     EParen inner -> exprSpan inner
+    EPragma _ inner -> exprSpan inner
     ETypeSig inner _ -> exprSpan inner
     _ -> NoSourceSpan
 
