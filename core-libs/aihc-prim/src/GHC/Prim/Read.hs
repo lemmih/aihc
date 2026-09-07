@@ -15,8 +15,10 @@
 -- generated @Read@ code refers to therefore lives here: the precedence
 -- parser, the lexer, and the four combinators that read a constructor.
 --
--- The @Read@ class itself stays in @Prelude@. A derived instance finds its
--- methods through the class, so this module holds no class of its own.
+-- The @Read@ class itself stays in @GHC.Internal.Read@, next to its
+-- instances. A derived instance finds its methods through the class, and
+-- the type checker reads the module of the class from the deriving plan,
+-- so this module holds no class of its own.
 --
 -- The code below uses primitive comparisons instead of @Eq@ and @Ord@,
 -- because the instances for @Char@ and @Int@ belong to the base library.
