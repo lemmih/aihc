@@ -1,0 +1,33 @@
+extensions:
+  - OverloadedStrings
+modules:
+  - |
+    {-# LANGUAGE OverloadedStrings #-}
+    module Test where
+
+    import Prelude (String, Int, length)
+    import Data.String (IsString (..))
+
+    newtype Name = Name String
+
+    instance IsString Name where
+      fromString = Name
+
+    greeting :: Name
+    greeting = "hello"
+
+    -- A literal at a String type still works: the list instance converts it.
+    plain :: String
+    plain = "world"
+
+    unName :: Name -> String
+    unName (Name name) = name
+
+    sizes :: (Int, Int)
+    sizes = (length (unName greeting), length plain)
+output: |
+  ((I# 5),(I# 5))
+expression: |
+  sizes
+status: pass
+reason: OverloadedStrings applies fromString to a string literal

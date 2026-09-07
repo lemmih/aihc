@@ -443,6 +443,7 @@ charLiteralPatternType literal =
 -- | The check of a literal pattern that needs its resolver annotations.
 --
 -- An overloaded integer pattern uses the resolved syntax terms.
+-- A string pattern has them only under OverloadedStrings.
 -- A primitive literal pattern uses the resolved primitive type.
 literalPatternCheck :: SourceSpan -> Pattern -> TcType -> Maybe (TcM PatternCheck)
 literalPatternCheck sp pat scrutTy =
@@ -450,6 +451,9 @@ literalPatternCheck sp pat scrutTy =
     Just (isNegative, lit)
       | isOverloadedIntegerLiteral lit -> Just (checkOverloadedIntegerPattern sp pat isNegative scrutTy)
       | isOverloadedFractionalLiteral lit -> Just (checkOverloadedLiteralPattern sp pat "fromRational" Nothing isNegative scrutTy)
+      | isStringLiteral lit,
+        hasPatternSyntaxTerm "fromString" pat ->
+          Just (checkOverloadedLiteralPattern sp pat "fromString" Nothing isNegative scrutTy)
       | isPrimitiveLiteral lit -> Just (checkPrimitiveLiteralPattern sp pat scrutTy)
     _ -> Nothing
 
@@ -525,6 +529,23 @@ isOverloadedFractionalLiteral lit =
   case peelLiteralAnn lit of
     LitFloat _ TFractional _ -> True
     _ -> False
+
+isStringLiteral :: Literal -> Bool
+isStringLiteral lit =
+  case peelLiteralAnn lit of
+    LitString {} -> True
+    _ -> False
+
+-- | Whether the resolver gave the pattern the named syntax term.
+--
+-- A string pattern gets fromString only under OverloadedStrings.
+hasPatternSyntaxTerm :: Text -> Pattern -> Bool
+hasPatternSyntaxTerm name pat =
+  any isTerm (patternResolutions pat)
+  where
+    isTerm resolution =
+      resolutionNamespace resolution == ResolutionNamespaceTerm
+        && resolutionIdentifier resolution == IdentifierNamed name
 
 checkOverloadedIntegerPattern :: SourceSpan -> Pattern -> Bool -> TcType -> TcM PatternCheck
 checkOverloadedIntegerPattern sp pat isNegative scrutTy = do

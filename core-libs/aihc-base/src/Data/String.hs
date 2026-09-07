@@ -8,7 +8,5 @@ module Data.String
   )
 where
 
+import GHC.Prim.String (IsString (..))
 import Prelude (String, lines, unlines, unwords, words)
-
-class IsString a where
-  fromString :: String -> a
