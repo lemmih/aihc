@@ -321,6 +321,7 @@ data PackageTaskContext = PackageTaskContext
     taskStorePath :: !FilePath,
     taskResolvePackage :: !Package,
     taskPrimIdentity :: !PackageId,
+    taskBaseIdentity :: !PackageId,
     taskPackageRoot :: !FilePath,
     taskDependencyExports :: !ModuleExports,
     taskDependencyScopeHashes :: !(Map.Map Text Text),
@@ -560,6 +561,7 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
       dependencyInstanceFacts = mergeTcInterfaces (map installedInstanceFacts loadedDependencies)
       dependencyInstanceProviders = Map.unions (map installedInstanceProviders loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
+      baseIdentity = packageDependencyIdentity "aihc-base" resolvePackage dependencyExports
   backendPhaseTimings <- newIORef mempty
   let taskContext =
         PackageTaskContext
@@ -567,6 +569,7 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
             taskStorePath = outputRoot,
             taskResolvePackage = resolvePackage,
             taskPrimIdentity = primIdentity,
+            taskBaseIdentity = baseIdentity,
             taskPackageRoot = packageRoot,
             taskDependencyExports = dependencyExports,
             taskDependencyScopeHashes = dependencyScopeHashes,
@@ -626,15 +629,22 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
       }
 
 packagePrimIdentity :: Package -> ModuleExports -> PackageId
-packagePrimIdentity resolvePackage dependencyExports =
-  fromMaybe (PackageId "aihc-prim") $
-    if packageName resolvePackage == "aihc-prim"
+packagePrimIdentity = packageDependencyIdentity "aihc-prim"
+
+-- | The identity of one core-library package, as this compilation sees it:
+-- the package itself when it is that library, otherwise the dependency with
+-- that name. The plain name is the fallback, so a compilation without the
+-- library still has a name to report.
+packageDependencyIdentity :: Text -> Package -> ModuleExports -> PackageId
+packageDependencyIdentity libraryName resolvePackage dependencyExports =
+  fromMaybe (PackageId libraryName) $
+    if packageName resolvePackage == libraryName
       then Just (packageId resolvePackage)
       else
         listToMaybe
           [ dependencyIdentity
           | ModuleKey (Package dependencyName dependencyIdentity) _ <- Map.keys dependencyExports,
-            dependencyName == "aihc-prim"
+            dependencyName == libraryName
           ]
 
 packageStoreDirectory :: [InstalledPackage] -> FilePath -> IO FilePath
@@ -691,7 +701,7 @@ requiredDependencyModules sources =
         not (localImport importDecl)
       ]
         <> [(Nothing, "Prelude") | any moduleUsesImplicitPrelude sources]
-        <> [(Nothing, name) | name <- wiredTypeModules]
+        <> [(Nothing, name) | name <- wiredInterfaceModules]
     )
   where
     localNames = Set.fromList (map sourceName sources)
@@ -1082,7 +1092,7 @@ runResolveUnit context runtimes runtime = do
       packageModules = modulesInPackage resolvePackage (map sourceModuleAst sources)
       unitNames = map sourceName sources
       importedNames = nub (concatMap sourceDependencyNames sources)
-      dependencyNames = nub (importedNames <> wiredTypeModules)
+      dependencyNames = nub (importedNames <> wiredInterfaceModules)
       availableExports = Map.unions (map resolveUnitExports dependencyResults) `Map.union` dependencyExports
       availableScopeHashes = Map.unions (map resolveUnitScopeHashes dependencyResults) `Map.union` dependencyScopeHashes
       dependencyHashes = Map.fromList [("scope:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name scopeHashes]]
@@ -1121,6 +1131,7 @@ runTypeUnit context runtimes runtime = do
   let storePath = taskStorePath context
       resolvePackage = taskResolvePackage context
       primIdentity = taskPrimIdentity context
+      baseIdentity = taskBaseIdentity context
       root = taskPackageRoot context
       dependencyExports = taskDependencyExports context
       dependencyScopeHashes = taskDependencyScopeHashes context
@@ -1132,7 +1143,7 @@ runTypeUnit context runtimes runtime = do
       sources = sourceUnitSources unit
       unitNames = map sourceName sources
       importedNames = nub (concatMap sourceDependencyNames sources)
-      dependencyNames = nub (importedNames <> wiredTypeModules)
+      dependencyNames = nub (importedNames <> wiredInterfaceModules)
       availableTypes = LazyMap.unions (map typeUnitTypes dependencyResults) `LazyMap.union` dependencyTypes
       availableTypeHashes = LazyMap.unions (map typeUnitHashes dependencyResults) `LazyMap.union` dependencyTypeHashes
       availableExports = Map.unions (map resolveUnitExports dependencyResolveResults) `Map.union` dependencyExports
@@ -1177,7 +1188,7 @@ runTypeUnit context runtimes runtime = do
                in pure (resolveWithDeps builtinScope availableExports packageModules)
         let checked =
               typecheckModuleSccWithInterface
-                (tcConfig primIdentity)
+                (tcConfig primIdentity baseIdentity)
                 importedTypes
                 (map snd (resolvedModules resolved))
             checkedDiagnostics = concatMap tcModuleDiagnostics (fst checked)
@@ -1295,6 +1306,21 @@ writePackageInstanceArtifact verbose storePath typeHashes providers interface = 
 
 wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Tuple", "GHC.Types"]
+
+-- | Modules whose names generated code refers to, but whose order the
+-- dependency graph must not fix: a derived @Read@ instance calls the parser
+-- combinators of the base library, and a module that derives @Read@ does
+-- not import them. Each module here is exposed, and together they carry
+-- every name that the generated code uses. These modules belong to the base
+-- library, so the base library itself compiles them in its own import
+-- order.
+wiredDerivingModules :: [Text]
+wiredDerivingModules = ["GHC.Read", "Text.ParserCombinators.ReadPrec", "Text.Read.Lex"]
+
+-- | Every module whose type interface a compilation needs without an
+-- import.
+wiredInterfaceModules :: [Text]
+wiredInterfaceModules = wiredTypeModules <> wiredDerivingModules
 
 builtinFunctionScope :: Package -> ModuleExports -> [(Package, Module)] -> Scope
 builtinFunctionScope currentPackage dependencyExports packageModules =

@@ -23,6 +23,7 @@ module Prelude
     List (..),
     Maybe (..),
     Monad (..),
+    MonadFail (..),
     Num (..),
     Ord (..),
     Ordering (..),
@@ -789,6 +790,19 @@ instance Monad List where
 
   xs >> ys = thenList xs ys
   return x = [x]
+
+-- | The monads that can report a failed pattern match in @do@ notation.
+class (Monad m) => MonadFail m where
+  fail :: String -> m a
+
+instance MonadFail IO where
+  fail = error
+
+instance MonadFail List where
+  fail _ = []
+
+instance MonadFail Maybe where
+  fail _ = Nothing
 
 instance Monad Maybe where
   mx >>= k = bindMaybe mx k

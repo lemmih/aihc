@@ -202,7 +202,7 @@ renderFcCase tc =
             ResolveResult {resolvedModules, resolveErrors = []} ->
               let fixtureAsts = map snd resolvedModules
                   primitiveInterface = supportTcInterface primitiveSupport
-                  (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (PackageId "aihc-prim")) primitiveInterface fixtureAsts
+                  (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (PackageId "aihc-prim") (PackageId "aihc-base")) primitiveInterface fixtureAsts
                in if all tcModuleSuccess fixtureTcResults
                     then do
                       let availableInterface = primitiveInterface <> tcInterface
@@ -257,7 +257,7 @@ preparePrimitiveSupport primitiveModules =
        in case resolveWithDeps builtinScope mempty packageModules of
             resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
               let primitiveAsts = map snd resolvedModules
-                  (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface (tcConfig (PackageId "aihc-prim")) emptyTcInterface primitiveAsts
+                  (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface (tcConfig (PackageId "aihc-prim") (PackageId "aihc-base")) emptyTcInterface primitiveAsts
                in if all tcModuleSuccess primitiveTcResults
                     then
                       let primitiveBindings = concatMap tcModuleBindings primitiveTcResults

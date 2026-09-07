@@ -100,7 +100,7 @@ fixtureRoot :: FilePath
 fixtureRoot = "test/Test/Fixtures/annotated"
 
 testTcConfig :: TcConfig
-testTcConfig = tcConfig (PackageId "aihc-prim")
+testTcConfig = tcConfig (PackageId "aihc-prim") (PackageId "aihc-base")
 
 -- | Load every annotated fixture. The fixture root is resolved relative to the
 -- working directory, so running the suite from the wrong directory would

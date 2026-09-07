@@ -1,0 +1,19 @@
+modules:
+  - |
+    module Test where
+
+    -- The second component of properFraction fixes the fraction type. The
+    -- first component is ambiguous, so defaulting makes it Integer. The
+    -- solver must then discharge Integral Integer.
+    fractionPart x
+      | part < 0 = part + 1
+      | otherwise = part
+      where
+        (_, part) = properFraction x
+
+    result :: Bool
+    result = fractionPart (1.25 :: Double) == 0.25
+expression: result
+output: "True"
+status: pass
+reason: a constraint that defaulting makes concrete gets a second solve attempt instead of an unsolved-constraint error

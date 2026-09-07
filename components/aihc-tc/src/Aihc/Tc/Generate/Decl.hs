@@ -134,7 +134,7 @@ import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceTy
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
-import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDictWithGivens)
+import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
@@ -2719,14 +2719,21 @@ generalizableResidualPreds inferredType solveResult = do
   -- Anything else is ambiguous and the Haskell 2010 rule may make it
   -- concrete.
   keep <- generalizedMetaVars inferredType
-  _ <- defaultAmbiguousMetas keep initialCts
+  defaulted <- defaultAmbiguousMetas keep initialCts
   allResidualCts <- mapM zonkCtPred initialCts
   -- GHC never infers a HasCallStack constraint. An unsolved call-stack
   -- parameter gets the empty call stack.
   let (callStackCts, residualCts) = partition (isCallStackPred . ctPred) allResidualCts
   mapM_ reportUnsolvedDict callStackCts
   let uniqueResidualCts = nubBy sameCtPred residualCts
-      (polymorphicCts, concreteCts) = partition (predicateCanGeneralize . ctPred) uniqueResidualCts
+      (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize . ctPred) uniqueResidualCts
+  -- Defaulting makes an ambiguous meta-variable concrete. A constraint that
+  -- became concrete this way has an instance in most cases, so give the
+  -- dictionary solver a second attempt before the error report.
+  concreteCts <-
+    if defaulted
+      then concat <$> mapM attemptDefaultedCt defaultedCts
+      else pure defaultedCts
   -- Every occurrence still needs evidence, even when equal predicates share
   -- one constraint in the generalized type.
   forM_ residualCts $ \ct ->
@@ -2743,6 +2750,17 @@ generalizableResidualPreds inferredType solveResult = do
       pure (ct {ctPred = pred'})
 
     sameCtPred left right = ctPred left == ctPred right
+
+    -- Solve one constraint that defaulting made concrete, and keep it only
+    -- when the solver still cannot discharge it.
+    attemptDefaultedCt ct =
+      case ctPred ct of
+        ClassPred {} -> do
+          result <- solveDict ct
+          case result of
+            DictSolved -> pure []
+            DictStuck stuck -> pure [stuck]
+        _ -> pure [ct]
 
 -- | The meta-variables that generalization turns into quantified type
 -- variables: those of the binding type plus those the environment mentions.

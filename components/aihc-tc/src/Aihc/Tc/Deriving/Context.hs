@@ -145,7 +145,7 @@ derivingObligations plan =
 
 -- | The stock classes that the generator can write an instance for.
 isSupportedStockClass :: Text -> Bool
-isSupportedStockClass className = className `elem` ["Eq", "Ord", "Show", "Bounded"]
+isSupportedStockClass className = className `elem` ["Eq", "Ord", "Show", "Read", "Bounded"]
 
 inferPlanContext :: DerivingEnv -> TcDerivingPlan -> TcM TcDerivingPlan
 inferPlanContext environment plan =

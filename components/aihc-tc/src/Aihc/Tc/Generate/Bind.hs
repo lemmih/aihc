@@ -503,8 +503,14 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
             generalizable = filter (`notElem` envMetaVars) (predMetaVars predicate)
             owners = [key | (key, metas) <- binderInfos, any (`elem` metas) generalizable]
             restrictedOwners = filter (`Set.member` restricted) owners
+            -- Haskell 2010 rule 1 keeps the constrained type variables of a
+            -- restricted group monomorphic. Every binder that shares such a
+            -- variable stays monomorphic, not only the restricted one, so
+            -- one binder of the group cannot generalize a variable that the
+            -- enclosing scope must still fix.
+            sharedOwners = if null restrictedOwners then [] else owners
          in if null generalizable || null owners || not (null restrictedOwners) || not (isClassPred predicate)
-              then (preds, Set.union (Set.fromList restrictedOwners) monomorphic, outerCts ++ [ct], givens)
+              then (preds, Set.union (Set.fromList sharedOwners) monomorphic, outerCts ++ [ct], givens)
               else (foldr (\key -> Map.insertWith (flip (++)) key [predicate]) preds owners, monomorphic, outerCts, givens ++ [ct])
       (localPreds, monomorphicKeys, outer, givenCts) = foldl step (Map.empty, Set.empty, [], []) residualCts
   forM_ givenCts $ \ct ->

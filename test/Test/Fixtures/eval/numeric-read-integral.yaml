@@ -1,0 +1,21 @@
+modules:
+  - |
+    module Test where
+
+    import Numeric (lexDigits, readBin, readDec, readHex, readOct, readSigned)
+
+    data Results = Results Bool Bool Bool Bool Bool Bool
+
+    result :: Results
+    result =
+      Results
+        (readHex "ff rest" == [(255 :: Int, " rest")])
+        (readHex "FFz" == [(255 :: Int, "z")])
+        (readOct "17" == [(15 :: Int, "")])
+        (readDec "42x" == [(42 :: Int, "x")])
+        (readBin "101" == [(5 :: Int, "")] && readHex "zz" == ([] :: [(Int, String)]))
+        (readSigned readDec " -12 " == [(-12 :: Int, " ")] && lexDigits "12ab" == [("12", "ab")])
+expression: result
+output: Results True True True True True True
+status: pass
+reason: Numeric reads unsigned numbers in each standard base, and readSigned accepts a leading sign

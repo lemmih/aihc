@@ -189,6 +189,7 @@ generateItems gen =
                 "Eq" -> Just <$> eqItems gen constructors
                 "Ord" -> Just <$> ordItems gen constructors
                 "Show" -> Just <$> showItems gen constructors
+                "Read" -> Just <$> readItems gen constructors
                 "Bounded" -> boundedItems gen constructors
                 other -> failWith ("stock deriving of " <> T.unpack other <> " is not supported yet")
         (Right _, Nothing) -> failWith "stock deriving requires checked datatype metadata"
@@ -215,6 +216,26 @@ referencesAvailable gen = do
         (TcDerivingStock, "Ord") -> [derivingLT references, derivingEQ references, derivingGT references]
         (TcDerivingStock, "Show") ->
           [derivingIntCon references, derivingGreaterOrEqual references, derivingCons references]
+        (TcDerivingStock, "Read") ->
+          [ derivingIntCon references,
+            derivingBind references,
+            derivingThen references,
+            derivingReturn references,
+            derivingReadParens references,
+            derivingReadPrecContext references,
+            derivingReadStep references,
+            derivingReadReset references,
+            derivingReadAlternative references,
+            derivingReadFail references,
+            derivingReadExpect references,
+            derivingReadField references,
+            derivingReadSymField references,
+            derivingReadListDefault references,
+            derivingReadListPrecDefault references,
+            derivingLexemeIdent references,
+            derivingLexemeSymbol references,
+            derivingLexemePunc references
+          ]
         _ -> []
     describe reference = T.unpack (referenceModule reference <> "." <> referenceName reference)
     listToMaybe candidates =
@@ -388,6 +409,124 @@ fieldLabelText label =
       | isSymbolic text -> "(" <> text <> ")"
       | otherwise -> text
     Nothing -> ""
+
+-- * Read
+
+-- | The @Read@ methods of a datatype, in the shape GHC derives: one
+-- @readPrec@ alternative for each constructor, and the list methods that
+-- break the mutual recursion of the class defaults.
+readItems :: Gen -> [DataConInfo] -> TcM [InstanceDeclItem]
+readItems gen constructors = do
+  alternatives <- mapM constructorParser constructors
+  let body =
+        case alternatives of
+          [] -> referenceExpr gen derivingReadFail
+          first : rest -> foldl alternative first rest
+  pure
+    [ methodBind gen "readPrec" [simpleMatch gen [] (applyN gen (referenceExpr gen derivingReadParens) [body])],
+      methodBind gen "readListPrec" [simpleMatch gen [] (referenceExpr gen derivingReadListPrecDefault)],
+      methodBind gen "readList" [simpleMatch gen [] (referenceExpr gen derivingReadListDefault)]
+    ]
+  where
+    alternative left right = applyN gen (referenceExpr gen derivingReadAlternative) [left, right]
+
+    -- The parser of one constructor. A nullary constructor needs no
+    -- precedence context, because it consumes one lexeme.
+    constructorParser constructor
+      | null (dciFields constructor) =
+          pure (thenParse (expectConstructorName constructor) (returnParse (constructorExpr gen constructor)))
+      | otherwise = do
+          fields <- fieldLocals gen "a" constructor
+          let (precedence, parser) = constructorBody constructor fields
+          pure (atPrecedence precedence parser)
+
+    -- The precedence context of the alternative, and the parser inside it.
+    constructorBody constructor fields =
+      case dciSourceForm constructor of
+        RecordDataCon ->
+          ( 11,
+            thenParse
+              (expectConstructorName constructor)
+              ( thenParse
+                  (expectPunc "{")
+                  (recordFields (zip (map dcfiLabel (dciFields constructor)) fields))
+              )
+          )
+          where
+            recordFields pairs =
+              case pairs of
+                [] -> thenParse (expectPunc "}") result
+                (label, field) : rest ->
+                  bindParse
+                    (fieldParser label)
+                    field
+                    (if null rest then recordFields rest else thenParse (expectPunc ",") (recordFields rest))
+            result = returnParse (applyN gen (constructorExpr gen constructor) (map (localExpr gen) fields))
+        InfixDataCon
+          | [left, right] <- fields ->
+              -- Without fixity information every infix constructor takes
+              -- the default fixity 9.
+              ( 9,
+                bindParse
+                  stepReadPrec
+                  left
+                  ( thenParse
+                      (expectInfixName constructor)
+                      (bindParse stepReadPrec right (returnParse (applyN gen (constructorExpr gen constructor) (map (localExpr gen) fields))))
+                  )
+              )
+        _ ->
+          ( 10,
+            thenParse (expectConstructorName constructor) (prefixFields fields)
+          )
+          where
+            prefixFields remaining =
+              case remaining of
+                [] -> returnParse (applyN gen (constructorExpr gen constructor) (map (localExpr gen) fields))
+                field : rest -> bindParse stepReadPrec field (prefixFields rest)
+
+    -- A record field reads at the lowest precedence after its label.
+    fieldParser label =
+      case label of
+        Just text
+          | isSymbolic text -> applyN gen (referenceExpr gen derivingReadSymField) [stringExpr gen text, resetReadPrec]
+          | otherwise -> applyN gen (referenceExpr gen derivingReadField) [stringExpr gen text, resetReadPrec]
+        Nothing -> resetReadPrec
+
+    -- A symbolic constructor in prefix position keeps its parentheses,
+    -- which lex as separate tokens.
+    expectConstructorName constructor
+      | isSymbolic (dciName constructor) =
+          thenParse
+            (expectPunc "(")
+            (thenParse (expectLexeme derivingLexemeSymbol (dciName constructor)) (expectPunc ")"))
+      | otherwise = expectIdent (dciName constructor)
+
+    -- A backquoted constructor lexes as three tokens, an operator as one.
+    expectInfixName constructor
+      | isSymbolic (dciName constructor) = expectLexeme derivingLexemeSymbol (dciName constructor)
+      | otherwise =
+          thenParse
+            (expectPunc "`")
+            (thenParse (expectLexeme derivingLexemeIdent (dciName constructor)) (expectPunc "`"))
+
+    atPrecedence precedence parser =
+      applyN gen (referenceExpr gen derivingReadPrecContext) [intLiteral gen precedence, parser]
+    stepReadPrec = applyN gen (referenceExpr gen derivingReadStep) [methodExpr gen "readPrec"]
+    resetReadPrec = applyN gen (referenceExpr gen derivingReadReset) [methodExpr gen "readPrec"]
+    expectIdent = expectLexeme derivingLexemeIdent
+    expectPunc = expectLexeme derivingLexemePunc
+    expectLexeme select text =
+      applyN gen (referenceExpr gen derivingReadExpect) [applyN gen (referenceExpr gen select) [stringExpr gen text]]
+    thenParse first rest = applyN gen (referenceExpr gen derivingThen) [first, rest]
+    bindParse parser binder rest =
+      applyN gen (referenceExpr gen derivingBind) [parser, lambda gen binder rest]
+    returnParse value = applyN gen (referenceExpr gen derivingReturn) [value]
+
+-- | A string as an explicit list of characters, so the generated code needs
+-- no literal desugaring.
+stringExpr :: Gen -> Text -> Expr
+stringExpr gen text = at gen (EList [at gen (EChar character (T.pack (show character))) | character <- T.unpack text])
 
 -- * Bounded
 

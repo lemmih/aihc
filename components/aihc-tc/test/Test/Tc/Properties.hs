@@ -176,7 +176,7 @@ genTyCon1 =
     ]
 
 testTcEnv :: TcEnv
-testTcEnv = emptyTcEnv (tcConfig (PackageId "test-ghc-prim"))
+testTcEnv = emptyTcEnv (tcConfig (PackageId "test-ghc-prim") (PackageId "test-base"))
 
 genUnique :: Gen Unique
 genUnique = Unique <$> Gen.int (Range.linear 100 199)

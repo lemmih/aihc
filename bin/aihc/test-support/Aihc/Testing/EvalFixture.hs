@@ -291,7 +291,7 @@ compileEvalCase env tc = do
       Left ("resolve error: " <> show resolveErrors)
 
 evalTcConfig :: TcConfig
-evalTcConfig = tcConfig primPackageId
+evalTcConfig = tcConfig primPackageId (packageId unnamedPackage)
 
 -- | How to desugar each module, by module name.
 --
