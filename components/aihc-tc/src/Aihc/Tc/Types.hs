@@ -17,6 +17,7 @@ module Aihc.Tc.Types
     tyConPackageId,
     tyConModuleName,
     isArrowTyCon,
+    isEqualityTyCon,
     mkAppTy,
     mkTyConApp,
     tyConNamespace,
@@ -241,13 +242,23 @@ constraintTypeToPred ty =
 atomicConstraintTypeToPred :: TcType -> Maybe Pred
 atomicConstraintTypeToPred ty =
   case collectTypeApplications ty of
-    (TcTyCon (TyCon "~" 2) headArgs, arguments)
-      | [left, right] <- headArgs <> arguments -> Just (EqPred left right)
+    (TcTyCon tyCon headArgs, arguments)
+      | isEqualityTyCon tyCon,
+        [left, right] <- headArgs <> arguments ->
+          Just (EqPred left right)
     (TcTyCon tyCon [payload], [])
       | isImplicitParamTyConName (tyConName tyCon) -> Just (IParamPred (tyConName tyCon) payload)
     (TcTyCon tyCon headArgs, arguments) ->
       Just (ClassPred tyCon (headArgs <> arguments))
     _ -> Nothing
+
+-- | The exported nominal equality type in the primitive module.
+isEqualityTyCon :: TyCon -> Bool
+isEqualityTyCon tyCon =
+  tyConModuleName tyCon == "GHC.Types"
+    && tyConNamespace tyCon == ResolutionNamespaceType
+    && tyConName tyCon == "~"
+    && tyConArity tyCon == 2
 
 -- | The name of the constraint type constructor for one implicit parameter.
 isImplicitParamTyConName :: Text -> Bool

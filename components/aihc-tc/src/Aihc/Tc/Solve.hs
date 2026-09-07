@@ -25,7 +25,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Canonicalize
 import Aihc.Tc.Solve.Dict (DictResult (..), reportUnsolvedDict, solveDict, solveDictWithGivens)
-import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reducePredFamilies)
 import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyInertSet)
 import Aihc.Tc.Solve.Worklist
@@ -101,7 +101,12 @@ processConstraint :: Ct -> WorkList -> InertSet -> TcM SolveResult
 processConstraint ct wl inerts = do
   isFamily <- isTypeFamilyTyCon
   predicate <- zonkPred (ctPred ct) >>= reducePredFamilies
-  processCanonical wl inerts (canonicalize isFamily (ct {ctPred = predicate}))
+  case predicate of
+    -- Keep the parent evidence variable for the complete equality.
+    EqPred {} -> do
+      (wl', inerts') <- processEq (wl, inerts) (ct {ctPred = predicate})
+      solveLoop wl' inerts'
+    _ -> processCanonical wl inerts (canonicalize isFamily (ct {ctPred = predicate}))
 
 processCanonical :: WorkList -> InertSet -> CanonResult -> TcM SolveResult
 processCanonical wl inerts result = case result of
@@ -215,7 +220,8 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
     t2' <- zonkType t2
     let t1'' = applyGivenSubst givenEqualities t1'
         t2'' = applyGivenSubst givenEqualities t2'
-    result <- solveEquality (ct {ctPred = EqPred t1'' t2''})
+    proved <- solveGivenEquality givenPredicates ct
+    result <- if proved then pure EqSolved else solveEquality (ct {ctPred = EqPred t1'' t2''})
     case result of
       EqSolved -> pure []
       EqStuck stuck -> deferOrReport skolems stuck

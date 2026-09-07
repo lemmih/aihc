@@ -11,6 +11,5 @@ modules:
   import Proof (cast)
   data Flag = Off | On
   result = cast On :: Flag
-status: xfail
-reason: An imported signature preserves its equality constraint. AIHC cannot resolve the equality
-  class.
+status: pass
+reason: An imported signature preserves its equality constraint.

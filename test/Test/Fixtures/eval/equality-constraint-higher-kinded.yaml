@@ -15,6 +15,7 @@ expression: result
 output: |
   On
 status: xfail
-reason: Equality can relate type constructors. AIHC cannot resolve the equality class.
+reason: Equality can relate type constructors. AIHC still lacks complete equality support.
+
 evaluators:
 - grin

@@ -13,8 +13,8 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: Visible type arguments select a reflexive equality constraint. AIHC cannot resolve the equality
-  class.
+status: pass
+reason: Visible type arguments select a reflexive equality constraint.
+
 evaluators:
 - grin

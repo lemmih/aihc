@@ -12,5 +12,4 @@ modules:
   cast _ x = x
   result = cast On On
 status: pass
-reason: An open type family equation solves an equality constraint. AIHC cannot resolve the equality
-  class.
+reason: An open type family equation solves an equality constraint.

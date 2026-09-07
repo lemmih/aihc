@@ -74,6 +74,7 @@ import Aihc.Tc.Types
     TypeScheme (..),
     Unique (..),
     applyVariableEqualities,
+    isEqualityTyCon,
     tyConKey,
     tyConModuleName,
     tyConName,
@@ -199,7 +200,7 @@ convertKindScheme :: ConvertEnv -> TypeScheme -> Either String Type
 convertKindScheme env (ForAll tyVars predicates body) = do
   let bindersEnv = withTyVars tyVars env
   binders <- mapM (tyVarBinder bindersEnv) tyVars
-  convertedPredicates <- mapM (convertPred bindersEnv) (dictionaryPredicates predicates)
+  convertedPredicates <- mapM (convertPred bindersEnv) predicates
   convertedBody <- convertKind bindersEnv body
   pure (foldr TyForAll (evidenceArrows bindersEnv body convertedPredicates convertedBody) binders)
 
@@ -207,7 +208,7 @@ convertTypeScheme :: ConvertEnv -> TypeScheme -> Either String Type
 convertTypeScheme env (ForAll tyVars predicates body) = do
   let bindersEnv = withTyVars tyVars env
   binders <- mapM (tyVarBinder bindersEnv) tyVars
-  convertedPredicates <- mapM (convertPred bindersEnv) (dictionaryPredicates predicates)
+  convertedPredicates <- mapM (convertPred bindersEnv) predicates
   convertedBody <- convertType bindersEnv body
   pure (foldr TyForAll (evidenceArrows bindersEnv body convertedPredicates convertedBody) binders)
 
@@ -311,7 +312,8 @@ headerIndex convertEnv interface =
         [ [ (classDictTypeName (ciTyCon info), HeaderClass info),
             (classDictConName (ciTyCon info), HeaderClass info)
           ]
-        | info <- tcInterfaceClasses interface
+        | info <- tcInterfaceClasses interface,
+          not (isEqualityTyCon (ciTyCon info))
         ]
     -- A selector without a term fact, like the compiler supplied typeRep
     -- selector of Typeable, resolves through its class.
@@ -506,7 +508,11 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
           convertSynonym env info
         Syn.DeclClass classDecl -> do
           info <- lookupClassInfo package moduleName' (unqualifiedNameText (binderHeadName (Syn.classDeclHead classDecl))) classes
-          classDecl' <- convertClass env info
+          -- Nominal equality uses coercions instead of a class dictionary.
+          classDecls <-
+            if isEqualityTyCon (ciTyCon info)
+              then pure []
+              else (: []) <$> convertClass env info
           -- Each associated type family of the class is an empty family
           -- type, the same as a top-level family declaration.
           families <-
@@ -517,7 +523,7 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
                   convertEmptyFamily env (associatedFamilyParamNames familyName classDecl) Nominal familyInfo
               )
               (ciAssociatedTypes info)
-          pure (classDecl' : families)
+          pure (classDecls <> families)
         Syn.DeclNewtype newtypeDecl ->
           convertNewtype env
             =<< lookupDataType NewtypeTyCon package moduleName' (unqualifiedNameText (binderHeadName (Syn.newtypeDeclHead newtypeDecl))) dataTypes
@@ -1064,6 +1070,7 @@ exprOrigins expr =
     ExRec binds body -> concatMap bindOrigins binds <> exprOrigins body
     ExCase scrutinee binder resultType alts ->
       exprOrigins scrutinee <> binderOrigins binder <> typeOrigins resultType <> concatMap altOrigins alts
+    ExCoercion proof -> coercionOrigins proof
     ExCast inner coercion -> exprOrigins inner <> coercionOrigins coercion
     ExForeignCall call types arguments ->
       nameOriginPair (foreignCallName call)

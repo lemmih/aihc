@@ -16,6 +16,7 @@ expression: result
 output: |
   On
 status: xfail
-reason: Equality can relate promoted data constructors. AIHC cannot resolve the equality class.
+reason: Equality can relate promoted data constructors. AIHC still lacks complete equality support.
+
 evaluators:
 - grin

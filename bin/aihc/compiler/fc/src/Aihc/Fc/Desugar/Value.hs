@@ -47,6 +47,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
+    TcCastAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDictBinderAnnotation (..),
@@ -94,7 +95,7 @@ import Aihc.Tc.Types
     pattern WordRep,
   )
 import Control.Applicative ((<|>))
-import Control.Monad (forM, unless, zipWithM)
+import Control.Monad (foldM, forM, unless, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
 import Data.Bifunctor qualified as Bifunctor
@@ -509,7 +510,7 @@ desugarPatSynCall :: PatSynInfo -> TcAnnotation -> TcType -> Binder -> Syn.Patte
 desugarPatSynCall info annotation resultType scrutinee pattern' failureExpression body = do
   let children = patternChildren pattern'
       (requiredTerms, providedTerms) = splitAt (length (psiReqTheta info)) (tcAnnEvidenceTerms annotation)
-      providedPredicates = dictionaryPredicates [predicate | Ev.EvGiven predicate <- providedTerms]
+      providedPredicates = [predicate | Ev.EvGiven predicate <- providedTerms]
       typeVariables = tcAnnTypeBinders annotation
   typeBinders <- convertTypeBinders typeVariables
   fieldTypes <- mapM requiredPatternType children
@@ -999,9 +1000,7 @@ desugarInstanceDecl declaration =
 desugarInstance :: TcInstanceAnnotation -> Syn.InstanceDecl -> ValueM Decl
 desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars annotation) $ do
   let methods = Map.fromListWith appendMatches (instanceMethods instanceDecl)
-  -- An equality in the context has no runtime evidence.
-  let contextDicts = filter (not . isEqualityDictionary) (tcInstanceContextDicts annotation)
-  contextDictionaries <- zipWithM makeContextDictionary [0 :: Int ..] contextDicts
+  contextDictionaries <- zipWithM makeContextDictionary [0 :: Int ..] (tcInstanceContextDicts annotation)
   fields <- withDictionaries contextDictionaries $ do
     superClasses <- mapM (desugarEvidence . snd) (tcInstanceSuperClasses annotation)
     methodFields <- mapM (desugarInstanceMethod annotation contextDictionaries methods) (tcInstanceMethodOrder annotation)
@@ -1053,7 +1052,7 @@ desugarDefaultMethod annotation dictionaries methodName = do
       substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, _) = peelConstraints methodAfterForAlls
-      extraPredicates = dictionaryPredicates (map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates))
+      extraPredicates = map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates)
   extraTypeBinders <- convertTypeBinders extraTyVars
   convertedExtraTypes <- mapM (convertCheckedType . TcTyVar) extraTyVars
   extraDictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] extraPredicates
@@ -1080,19 +1079,6 @@ dropClassPredicate classTyCon predicates =
     ClassPred predicateClass _ : rest
       | predicateClass == classTyCon -> rest
     predicate : rest -> predicate : dropClassPredicate classTyCon rest
-
-isEqualityDictionary :: TcDictBinderAnnotation -> Bool
-isEqualityDictionary annotation =
-  maybe False isEqualityPred (constraintTypeToPred (tcDictBinderType annotation))
-
--- | Whether an evidence term is a coercion, which has no runtime value.
-isCoercionEvidence :: Ev.EvTerm -> Bool
-isCoercionEvidence evidence =
-  case evidence of
-    Ev.EvCoercion {} -> True
-    Ev.EvGiven predicate -> isEqualityPred predicate
-    Ev.EvCast inner _ -> isCoercionEvidence inner
-    _ -> False
 
 makeContextDictionary :: Int -> TcDictBinderAnnotation -> ValueM Dictionary
 makeContextDictionary index annotation = do
@@ -1465,6 +1451,7 @@ countUses name = go 0
       | otherwise =
           case expression of
             ExVar other -> if other == name then total + 1 else total
+            ExCoercion _ -> total
             ExLit _ -> total
             ExApp function argument -> go (go total function) argument
             ExTyApp function _ -> go total function
@@ -1484,6 +1471,7 @@ substituteVar name value = go
     go expression =
       case expression of
         ExVar other -> if other == name then value else expression
+        ExCoercion _ -> expression
         ExLit _ -> expression
         ExApp function argument -> ExApp (go function) (go argument)
         ExTyApp function ty -> ExTyApp (go function) ty
@@ -1884,7 +1872,7 @@ patternGivenPredicates = go
         | annotation <- annotations,
           Just checked <- [Syn.fromAnnotation annotation :: Maybe TcAnnotation]
         ]
-    evidencePredicates checked = dictionaryPredicates [predicate | Ev.EvGiven predicate <- tcAnnEvidenceTerms checked]
+    evidencePredicates checked = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceTerms checked]
 
 patternTypeVariables :: Syn.Pattern -> [TyVarId]
 patternTypeVariables = go
@@ -2145,7 +2133,16 @@ nameTcType name =
 -- Without a failure expression, a failed guard ends in an empty case on its
 -- own test value.
 desugarRhsWithFailure :: TcType -> Maybe Expr -> Syn.Rhs Syn.Expr -> ValueM Expr
-desugarRhsWithFailure resultType failure rhs =
+desugarRhsWithFailure resultType failure rhs = do
+  body <- desugarRhsBodyWithFailure resultType failure rhs
+  let annotations = case rhs of
+        Syn.UnguardedRhs anns _ _ -> anns
+        Syn.GuardedRhss anns _ _ -> anns
+      proofs = [proof | TcCastAnnotation proof <- mapMaybe Syn.fromAnnotation annotations]
+  foldM (\expression proof -> ExCast expression <$> convertCoercion proof) body proofs
+
+desugarRhsBodyWithFailure :: TcType -> Maybe Expr -> Syn.Rhs Syn.Expr -> ValueM Expr
+desugarRhsBodyWithFailure resultType failure rhs =
   case rhs of
     Syn.UnguardedRhs _ expression Nothing -> desugarExpr expression
     Syn.UnguardedRhs _ expression (Just declarations) ->
@@ -2282,7 +2279,7 @@ desugarExpr expression =
 
 desugarAnnotatedExpr :: TcAnnotation -> Syn.Expr -> ValueM Expr
 desugarAnnotatedExpr annotation inner = do
-  let evidencePredicates = dictionaryPredicates [predicate | Ev.EvGiven predicate <- tcAnnEvidenceBinders annotation]
+  let evidencePredicates = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceBinders annotation]
   evidenceBinders <- zipWithM (freshDictionaryBinder "$higher_rank_d") [0 :: Int ..] evidencePredicates
   body <-
     withAlternativeScope (not (null (tcAnnTypeBinders annotation))) (zipWith Dictionary evidencePredicates evidenceBinders) $
@@ -3467,6 +3464,7 @@ expressionFreeNames expression =
     ExCase scrutinee binder _ alternatives ->
       expressionFreeNames scrutinee
         <> Set.delete (binderName binder) (foldMap alternativeFreeNames alternatives)
+    ExCoercion _ -> Set.empty
     ExCast inner _ -> expressionFreeNames inner
     ExForeignCall _ _ arguments -> foldMap expressionFreeNames arguments
   where
@@ -3511,12 +3509,12 @@ desugarEvidence evidence =
         Nothing -> failValue ("missing given dictionary for " <> show predicate)
     Ev.EvDict origin dictionaryName types subEvidence -> do
       convertedTypes <- mapM convertCheckedType types
-      evidenceArguments <- mapM desugarEvidence (filter (not . isCoercionEvidence) subEvidence)
+      evidenceArguments <- mapM desugarEvidence subEvidence
       let (packageName, moduleName') = origin
           package = PackageId packageName
           name = Name dictionaryName SortValue (OriginTop package moduleName')
       pure (foldl ExApp (foldl ExTyApp (ExVar name) convertedTypes) evidenceArguments)
-    Ev.EvCoercion coercion -> ExCast (ExVar (Name "coercion" SortValue (OriginLocal (Unique 0)))) <$> convertCoercion coercion
+    Ev.EvCoercion coercion -> ExCoercion <$> convertCoercion coercion
     Ev.EvSuperClass _ _ _ fieldTypes fieldIndex -> do
       resultPredicateType <-
         case drop fieldIndex fieldTypes of
@@ -3701,7 +3699,7 @@ desugarResolvedOccurrence :: TcAnnotation -> ResolutionAnnotation -> ValueM Expr
 desugarResolvedOccurrence annotation resolution = do
   name <- resolvedAnnotationName resolution
   types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
-  evidence <- mapM desugarEvidence (filter (not . isCoercionEvidence) (tcAnnEvidenceTerms annotation))
+  evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
   desugarTermReference name types evidence (seqTermArgumentTypes annotation)
 
 resolvedAnnotationName :: ResolutionAnnotation -> ValueM Name
@@ -3776,6 +3774,11 @@ desugarIntegerLiteral value = do
 convertCoercion :: Ev.Coercion -> ValueM Coercion
 convertCoercion coercion =
   case coercion of
+    Ev.GivenCo predicate -> do
+      dictionaries <- gets vsDictionaries
+      case Map.lookup (predicateKey predicate) dictionaries of
+        Just binder -> pure (CoVar (binderName binder))
+        Nothing -> failValue ("missing given equality for " <> show predicate)
     Ev.CoVar (Ev.EvVar unique) -> pure (CoVar (Name "c" SortValue (OriginLocal unique)))
     Ev.Refl ty -> CoRefl <$> convertCheckedType ty
     Ev.Sym inner -> CoSym <$> convertCoercion inner

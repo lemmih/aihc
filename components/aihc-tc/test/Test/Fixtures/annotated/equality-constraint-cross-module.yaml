@@ -12,5 +12,4 @@ modules:
   data Flag = Off | On
   result = cast On :: Flag
 status: pass
-reason: An imported signature preserves its equality constraint. AIHC cannot resolve the equality
-  class.
+reason: An imported signature preserves its equality constraint.

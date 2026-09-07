@@ -893,14 +893,6 @@ surfaceAtomicPredToPred tvEnv ty =
 surfaceClassPredToPred :: TvKindEnv -> Type -> TcM Pred
 surfaceClassPredToPred tvEnv ty =
   case instanceHeadName (peelTypeHead ty) of
-    -- The built-in equality constraint has no class declaration.
-    Just className
-      | nameText className == "~",
-        [leftType, rightType] <- instanceHeadTypes (peelTypeHead ty) -> do
-          (left, leftKind) <- convertSurfaceTypeWithKinds tvEnv leftType
-          (right, rightKind) <- convertSurfaceTypeWithKinds tvEnv rightType
-          unifyKinds leftKind rightKind
-          pure (EqPred left right)
     Just className -> do
       let classNameText = nameText className
           headArgs = instanceHeadTypes (peelTypeHead ty)
@@ -915,13 +907,18 @@ surfaceClassPredToPred tvEnv ty =
                 Nothing -> do
                   emitError NoSourceSpan (OtherError ("constraint synonym does not expand to one constraint: " <> T.unpack classNameText))
                   abortTc "invalid constraint synonym expansion"
+        Just classInfo
+          | isEqualityTyCon (tciTyCon classInfo),
+            [left, right] <- headArgs -> do
+              (leftType, leftKind) <- convertSurfaceTypeWithKinds tvEnv left
+              (rightType, rightKind) <- convertSurfaceTypeWithKinds tvEnv right
+              unifyKinds leftKind rightKind
+              pure (EqPred leftType rightType)
         Just classInfo -> do
           classKind <- predicateClassKind classInfo
           let argKinds = takeClassArgKinds (length headArgs) classKind
           args <- zipWithM (checkSurfaceType tvEnv) headArgs argKinds
-          case (classNameText, args) of
-            ("~", [left, right]) -> pure (EqPred left right)
-            _ -> pure (ClassPred (tciTyCon classInfo) args)
+          pure (ClassPred (tciTyCon classInfo) args)
         Nothing -> do
           emitError NoSourceSpan (OtherError ("unknown class predicate: " <> T.unpack classNameText))
           abortTc ("missing checked type constructor for class predicate " <> T.unpack classNameText)

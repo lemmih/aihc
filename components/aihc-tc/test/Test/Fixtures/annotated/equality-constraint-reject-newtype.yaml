@@ -10,7 +10,8 @@ modules:
   witness = On
   result = witness
 status: pass
-reason: Nominal equality does not unwrap a newtype. AIHC cannot resolve the equality class.
+reason: Nominal equality does not unwrap a newtype.
+
 annotated:
 - |
   module Test where

@@ -19,10 +19,46 @@ This declaration represents the exported class for name resolution only.
 The GHC reference check uses the installed `GHC.Types` module instead.
 The TC, FC, and GRIN fixtures use the project libraries without a substitute equality class.
 
-Five resolver fixtures pass through explicit imports, qualified names, or a re-export.
-Five resolver fixtures have XFAIL status because equality syntax needs an explicit import in AIHC.
-All equality TC, FC, and GRIN fixtures currently have XFAIL status because AIHC cannot resolve `~`.
-Later corrections can expose separate errors in each downstream stage.
+All ten resolver fixtures pass.
+Equality syntax uses the exported `GHC.Types` identity without an explicit import.
+The current fixture counts include three additional TC cases and one additional case in each downstream stage.
+
+| Stage | PASS | XFAIL |
+| --- | ---: | ---: |
+| Resolve | 10 | 0 |
+| TC | 25 | 10 |
+| FC | 15 | 12 |
+| GRIN evaluation | 17 | 10 |
+
+The additional positive fixtures test a user class named `~` and transitivity with reversed constraint order.
+GHC 9.12.4 accepts both programs.
+The reversed-order program returns `On`.
+
+The additional negative TC fixture uses a GADT with a non-injective family equality.
+GHC 9.12.4 rejects its cast.
+AIHC currently accepts this invalid program, so the fixture has XFAIL status.
+GADT index refinement still requires a separate correction.
+
+The closed-family and explicit GADT programs pass evaluation but still fail their FC assertions.
+An evaluation result does not establish valid FC evidence.
+
+## Compiler evidence
+
+TC preserves direct, symmetric, and transitive given proofs in `GivenCo` terms.
+The active evidence scope supplies each given proof.
+A `TcCastAnnotation` supplies the checked cast for an equation result.
+FC consumes this annotation without Haskell type checks.
+
+FC represents a proof as `ExCoercion` with a `TyEq` type.
+This internal evidence type has the empty tuple runtime representation.
+GRIN removes its runtime fields and erases casts.
+The public `~` type still has kind `forall k. k -> k -> Constraint`.
+
+FC lint rejects representation axioms in nominal equality evidence.
+Two FC text fixtures check this boundary with nominal and representation axioms.
+
+Further work must preserve proofs through constructor decomposition, congruence, nested scopes, and superclass projection.
+Polymorphic kinds and GADT index refinement also need further corrections.
 
 ## Cases
 

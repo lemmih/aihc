@@ -61,6 +61,8 @@ data Expr
   | ExRec [Bind] Expr
   | ExCase Expr Binder Type [Alt]
   | ExCast Expr Coercion
+  | -- | Equality evidence has no runtime fields.
+    ExCoercion Coercion
   | -- | A saturated call of a foreign import. The type arguments instantiate
     -- the leading binders of the foreign type. The value arguments fill every
     -- arrow of the foreign type.

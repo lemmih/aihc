@@ -9,10 +9,10 @@ annotated:
           │       └─ type: ∀ a. [a] → Seq a
           └─ type: Type → Type
   instance a ~ Char => IsString (Seq a) where
-  └─ $fIsStringSeqChar ∷ () ⇒ IsString (Seq Char)
+  └─ $fIsStringSeqa ∷ ∀ a. (a ~ Char) ⇒ IsString (Seq a)
     fromString = Seq
     │            └─ type: [GHC.Types.Char] → Seq GHC.Types.Char; type-args: Char
-    └─ fromString ∷ [Char] → Seq Char
+    └─ fromString ∷ [Char] → Seq a
 extensions: []
 modules:
 - |
@@ -23,6 +23,6 @@ modules:
   newtype Seq a = Seq [a]
   instance a ~ Char => IsString (Seq a) where
     fromString = Seq
-reason: an equality in an instance context fixes the instance type variable,
-  so the instance head and the method bodies use the fixed type
+reason: an equality in an instance context proves the method body type through
+  the function arrow and the type constructor
 status: pass

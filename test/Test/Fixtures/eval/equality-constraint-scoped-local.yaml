@@ -16,7 +16,7 @@ expression: result
 output: |
   On
 status: xfail
-reason: A local signature can use the outer equality constraint. AIHC cannot resolve the equality
-  class.
+reason: A local signature can use the outer equality constraint. AIHC still lacks complete equality support.
+
 evaluators:
 - grin

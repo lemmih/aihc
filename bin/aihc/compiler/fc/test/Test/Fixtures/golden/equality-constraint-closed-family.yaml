@@ -12,5 +12,4 @@ modules:
   cast _ x = x
   result = cast On On
 status: xfail
-reason: A closed type family equation solves an equality constraint. AIHC cannot resolve the equality
-  class.
+reason: A closed type family equation solves an equality constraint. AIHC still lacks complete equality support.

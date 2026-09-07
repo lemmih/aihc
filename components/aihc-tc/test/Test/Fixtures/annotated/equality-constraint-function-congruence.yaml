@@ -9,4 +9,4 @@ modules:
   cast f = f
   result = cast (\x -> x) On
 status: pass
-reason: Equality lifts through function arguments and results. AIHC cannot resolve the equality class.
+reason: Equality lifts through function arguments and results. AIHC still lacks complete equality support.

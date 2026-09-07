@@ -13,7 +13,8 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: The prefix equality class comes from GHC.Types. AIHC cannot resolve the equality class.
+status: pass
+reason: The prefix equality class comes from GHC.Types.
+
 evaluators:
 - grin

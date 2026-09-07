@@ -12,4 +12,4 @@ modules:
   type instance F Flag = Flag
   result = cast On On :: Flag
 status: pass
-reason: A given equality rewrites a type family application. AIHC cannot resolve the equality class.
+reason: A given equality rewrites a type family application.

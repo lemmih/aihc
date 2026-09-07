@@ -13,7 +13,8 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: An explicit type import exposes the equality class. AIHC cannot resolve the equality class.
+status: pass
+reason: An explicit type import exposes the equality class.
+
 evaluators:
 - grin

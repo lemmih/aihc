@@ -9,4 +9,5 @@ modules:
   cast f = f
   result = cast (\x -> x) On
 status: xfail
-reason: Equality lifts through function arguments and results. AIHC cannot resolve the equality class.
+reason: Equality lifts through function arguments and results. The System FC printer
+  writes the arrow coercion as (->), and the System FC parser does not read it back.

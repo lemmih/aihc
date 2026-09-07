@@ -8,8 +8,9 @@ modules:
   witness :: (a ~ [a]) => [a]
   witness = []
   result = witness
-status: xfail
-reason: A finite type cannot equal a list of itself. AIHC cannot resolve the equality class.
+status: pass
+reason: A finite type cannot equal a list of itself.
+
 annotated:
 - |
   module Test where

@@ -12,4 +12,4 @@ modules:
   result = unbox (Box On)
 status: xfail
 reason: An existential constructor preserves equality evidence for its field. AIHC cannot resolve
-  the equality class.
+  the equality class. AIHC still lacks complete equality support.

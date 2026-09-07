@@ -6,6 +6,7 @@
 -- constructor equalities, and building coercion evidence.
 module Aihc.Tc.Solve.Equality
   ( solveEquality,
+    solveGivenEquality,
     EqResult (..),
   )
 where
@@ -16,8 +17,83 @@ import Aihc.Tc.Kind (tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
+import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkType)
+import Control.Monad (zipWithM)
 import Data.Map.Strict qualified as Map
+
+-- | Preserve a proof from the current signature or pattern scope.
+solveGivenEquality :: [Pred] -> Ct -> TcM Bool
+solveGivenEquality givens ct = case ctPred ct of
+  EqPred left right
+    | any isEqualityGiven givens -> do
+        predicates <- mapM zonkGiven givens
+        arrow <- arrowTyCon
+        proof <- prove arrow predicates [] left right
+        case proof of
+          Just coercion -> do
+            bindEvidence (ctEvVar ct) (EvCoercion coercion)
+            pure True
+          Nothing -> pure False
+  _ -> pure False
+  where
+    isEqualityGiven predicate =
+      case predicate of
+        EqPred {} -> True
+        _ -> False
+
+    zonkGiven (EqPred left right) = EqPred <$> zonkType left <*> zonkType right
+    zonkGiven predicate = pure predicate
+
+    -- A proof follows the given edges, or it lifts component proofs
+    -- through a type constructor or a function arrow, as in
+    -- @[Char] -> Seq Char ~ [Char] -> Seq a@ under the given @a ~ Char@.
+    -- A meta variable in a component unifies with the other side.
+    prove arrow predicates visited rawLeft rawRight = do
+      left <- zonkType rawLeft >>= reduceTypeFamilies
+      right <- zonkType rawRight >>= reduceTypeFamilies
+      if left == right
+        then pure (Just (Refl left))
+        else
+          if left `elem` visited
+            then pure Nothing
+            else do
+              direct <- firstProof [follow left right next proof | (next, proof) <- edges predicates left]
+              case direct of
+                Just proof -> pure (Just proof)
+                Nothing -> decompose left right
+      where
+        follow left right next proof =
+          fmap (Trans proof) <$> prove arrow predicates (left : visited) next right
+        component = prove arrow predicates visited
+        decompose left right =
+          case (left, right) of
+            (TcMetaTv {}, _) -> unifyComponent left right
+            (_, TcMetaTv {}) -> unifyComponent left right
+            (TcTyCon leftTyCon leftArguments, TcTyCon rightTyCon rightArguments)
+              | leftTyCon == rightTyCon,
+                length leftArguments == length rightArguments ->
+                  fmap (TyConAppCo leftTyCon) . sequence <$> zipWithM component leftArguments rightArguments
+            (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
+              fmap (TyConAppCo arrow) . sequence <$> zipWithM component [leftArgument, leftResult] [rightArgument, rightResult]
+            _ -> pure Nothing
+        unifyComponent left right = do
+          result <- unifyTypes left right
+          pure (either (const Nothing) (const (Just (Refl right))) result)
+
+    edges predicates source = concatMap edge predicates
+      where
+        edge predicate@(EqPred left right) =
+          [(right, GivenCo predicate) | left == source]
+            <> [(left, Sym (GivenCo predicate)) | right == source]
+        edge _ = []
+
+    firstProof [] = pure Nothing
+    firstProof (attempt : rest) = do
+      result <- attempt
+      case result of
+        Just proof -> pure (Just proof)
+        Nothing -> firstProof rest
 
 -- | Result of attempting to solve an equality constraint.
 data EqResult

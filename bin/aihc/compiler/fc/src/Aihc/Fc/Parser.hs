@@ -452,7 +452,8 @@ appArgument =
 exprAtom :: Parser Expr
 exprAtom =
   MP.choice
-    [ parens expression,
+    [ ExCoercion <$> (keyword "coercion" *> parens coercion),
+      parens expression,
       ExLit <$> MP.try literal,
       ExVar <$> MP.try localName,
       ExVar <$> topNameWithSort

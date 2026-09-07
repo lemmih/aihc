@@ -11,6 +11,7 @@ module Aihc.Fc.Wired
     constraintName,
     liftedRepName,
     unliftedRepName,
+    equalityRep,
     ghcTypesModule,
     primPackageFromScopes,
   )
@@ -24,6 +25,13 @@ import Data.Text (Text)
 
 ghcTypesModule :: Text
 ghcTypesModule = "GHC.Types"
+
+-- | The empty tuple representation erases equality evidence.
+equalityRep :: PackageId -> Type
+equalityRep package =
+  TyApp
+    (TyCon (wiredGhcTypes package "TupleRep" SortDataConstructor))
+    (TyApp (TyCon (wiredGhcTypes package "[]" SortDataConstructor)) (TyCon (runtimeRepConstructor package)))
 
 wiredGhcTypes :: PackageId -> Text -> Sort -> Name
 wiredGhcTypes package name sort =

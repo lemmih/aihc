@@ -13,8 +13,8 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: A GADT pattern introduces an explicit equality constraint. AIHC cannot resolve the equality
-  class.
+status: pass
+reason: A GADT pattern introduces an explicit equality constraint.
+
 evaluators:
 - grin

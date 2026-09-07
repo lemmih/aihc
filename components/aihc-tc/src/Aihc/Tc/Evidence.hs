@@ -85,6 +85,8 @@ data EvBinding = EvBinding
 data Coercion
   = -- | Coercion variable.
     CoVar !EvVar
+  | -- | A nominal equality from the current evidence scope.
+    GivenCo !Pred
   | -- | Reflexivity: @t ~ t@.
     Refl !TcType
   | -- | Symmetry: if @co : t1 ~ t2@ then @Sym co : t2 ~ t1@.

@@ -11,5 +11,4 @@ modules:
   cast Equal x = x
   result = cast Equal On :: Flag
 status: pass
-reason: A GADT pattern introduces an explicit equality constraint. AIHC cannot resolve the equality
-  class.
+reason: A GADT pattern introduces an explicit equality constraint.

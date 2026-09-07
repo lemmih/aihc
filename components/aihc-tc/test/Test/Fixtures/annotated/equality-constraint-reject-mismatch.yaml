@@ -9,7 +9,8 @@ modules:
   witness = On
   result = witness
 status: pass
-reason: Equality cannot equate distinct data types. AIHC cannot resolve the equality class.
+reason: Equality cannot equate distinct data types.
+
 annotated:
 - |
   module Test where

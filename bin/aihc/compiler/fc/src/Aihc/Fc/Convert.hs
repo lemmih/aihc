@@ -3,9 +3,7 @@
 
 -- | Convert checked kinds and types into System FC types.
 module Aihc.Fc.Convert
-  ( dictionaryPredicates,
-    isEqualityPred,
-    ConvertEnv (..),
+  ( ConvertEnv (..),
     emptyConvertEnv,
     withTyVar,
     withTyVars,
@@ -233,9 +231,8 @@ convertTypeWithExpectedKind env expectedKind ty =
     -- The constraint type of an implicit parameter is the type of its value.
     TcTyCon tyCon [payload]
       | Tc.isImplicitParamTyConName (Tc.tyConName tyCon) -> convertType env payload
-    -- The constraint type of an equality is the coercion type.
     TcTyCon tyCon [left, right]
-      | Tc.tyConName tyCon == "~" -> TyEq <$> convertType env left <*> convertType env right
+      | Tc.isEqualityTyCon tyCon -> convertPred env (EqPred left right)
     TcTyCon tyCon arguments -> do
       kindArgs <- invisibleKindArgs env tyCon arguments expectedKind
       argumentKinds <- visibleArgumentKinds env tyCon arguments expectedKind
@@ -252,7 +249,7 @@ convertTypeWithExpectedKind env expectedKind ty =
       convertedBody <- convertType (withTyVar tyVar env) body
       pure (TyForAll binder convertedBody)
     TcQualTy predicates body -> do
-      convertedPredicates <- mapM (convertPred env) (dictionaryPredicates predicates)
+      convertedPredicates <- mapM (convertPred env) predicates
       convertedBody <- convertType env body
       pure (evidenceArrows env body convertedPredicates convertedBody)
     TcAppTy function argument ->
@@ -312,11 +309,15 @@ evidenceArrows env body convertedPredicates convertedBody = go convertedPredicat
   where
     bodyRep = fromRight (liftedRepType env) (typeRep env body)
     go [] = convertedBody
-    go [predicate] = TyFun (liftedRepType env) bodyRep predicate convertedBody
+    go [predicate] = TyFun (evidenceRep env predicate) bodyRep predicate convertedBody
     go (predicate : rest) = funType env predicate (go rest)
 
 funType :: ConvertEnv -> Type -> Type -> Type
-funType env = TyFun (liftedRepType env) (liftedRepType env)
+funType env argument result = TyFun (evidenceRep env argument) (evidenceRep env result) argument result
+
+evidenceRep :: ConvertEnv -> Type -> Type
+evidenceRep env TyEq {} = equalityRep (cePrimPackage env)
+evidenceRep env _ = liftedRepType env
 
 liftedRepType :: ConvertEnv -> Type
 liftedRepType env = TyCon (liftedRepName (cePrimPackage env))
@@ -425,14 +426,3 @@ kindScheme env tyCon =
   case Map.lookup (tyConKey tyCon) (ceKindEnv env) of
     Just scheme -> Right scheme
     Nothing -> Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))
-
--- | The predicates that carry runtime evidence. An equality is a fact of
--- the type checker only, so its evidence is erased.
-dictionaryPredicates :: [Pred] -> [Pred]
-dictionaryPredicates = filter (not . isEqualityPred)
-
-isEqualityPred :: Pred -> Bool
-isEqualityPred predicate =
-  case predicate of
-    EqPred {} -> True
-    _ -> False

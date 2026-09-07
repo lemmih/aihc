@@ -140,12 +140,12 @@ minVersionDefine name version =
 -- count as zero.
 atLeast :: [Text] -> [Int] -> Text
 atLeast arguments version =
-  "(" <> T.intercalate " || " (map clause [1 .. length arguments]) <> ")"
+  "(" <> T.intercalate " || " (zipWith clause [1 ..] pairs) <> ")"
   where
     padded = take (length arguments) (version ++ repeat 0)
     pairs = zip arguments padded
-    clause n =
-      let (prefix, (argument, component) : _) = splitAt (n - 1) pairs
+    clause n (argument, component) =
+      let prefix = take (n - 1) pairs
           equalities = ["(" <> a <> ") == " <> T.pack (show c) | (a, c) <- prefix]
           comparison = "(" <> argument <> ") " <> (if n == length arguments then "<= " else "< ") <> T.pack (show component)
        in T.intercalate " && " (equalities ++ [comparison])

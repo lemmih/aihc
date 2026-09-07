@@ -17,7 +17,7 @@ expression: result
 output: |
   On
 status: pass
-reason: An instance context supplies equality evidence to its method. AIHC cannot resolve the equality
-  class.
+reason: An instance context supplies equality evidence to its method.
+
 evaluators:
 - grin

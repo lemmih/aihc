@@ -9,4 +9,4 @@ modules:
   cast x = x
   result = cast On :: Flag
 status: pass
-reason: A given equality works in the reverse direction. AIHC cannot resolve the equality class.
+reason: A given equality works in the reverse direction.

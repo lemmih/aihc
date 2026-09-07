@@ -1,6 +1,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -17,6 +19,7 @@ module GHC.Types
     Ordering (..),
     Constraint,
     Coercible,
+    type (~),
     TYPE,
     Type,
     UnliftedType,
@@ -120,6 +123,12 @@ data Constraint
 class Coercible a b
 
 instance Coercible a b
+
+-- | The compiler supplies nominal equality evidence for this class.
+type (~) :: forall k. k -> k -> Constraint
+class (a :: k) ~ (b :: k)
+
+infix 4 ~
 
 data TYPE (rep :: RuntimeRep)
 

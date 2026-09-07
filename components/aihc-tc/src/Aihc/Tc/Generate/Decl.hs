@@ -111,6 +111,7 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
     TcPatSynAnnotation (..),
     annotateDecl,
+    annotateRhsCast,
     renderTcType,
   )
 import Aihc.Tc.Constraint
@@ -131,12 +132,12 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), predTyVars, solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDictWithGivens)
-import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, forM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
+import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Char (isAlpha, isAlphaNum, ord)
@@ -1338,13 +1339,9 @@ annotateInstanceDeclTc origin instanceDecl =
       rawHeadTys <- checkInstanceHeadTypes className tvEnv headArgTypes
       rawContext <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
       classInfo <- lookupClassNamed className
-      let (rewrittenTvIds, rewrittenContext, rewrittenHeadTys) =
-            case classInfo of
-              Just info -> applyInstanceEqualities (ciTyCon info) rawTvIds rawContext rawHeadTys
-              Nothing -> (rawTvIds, rawContext, rawHeadTys)
-      tvIds <- mapM defaultTyVarKinds rewrittenTvIds
-      headTys <- mapM defaultTypeKinds rewrittenHeadTys
-      context <- mapM defaultPredKinds rewrittenContext
+      tvIds <- mapM defaultTyVarKinds rawTvIds
+      headTys <- mapM defaultTypeKinds rawHeadTys
+      context <- mapM defaultPredKinds rawContext
       dictName <- lookupInstanceDictName origin classNameText headTys
       info <- maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure classInfo
       let classSubstitution =
@@ -1520,11 +1517,11 @@ tcInstanceDeclBodies (DeclInstance instanceDecl) =
     (Nothing, _) -> pure (DeclInstance instanceDecl)
     (Just className, headArgTypes) -> do
       let classNameText = nameText className
-      (rawTvIds, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgTypes
+      (_, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgTypes
       rawHeadTys <- checkInstanceHeadTypes className tvEnv headArgTypes
       rawGivens <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
-      let (_, rewrittenGivens, rewrittenHeadTys) = applyInstanceEqualities (ciTyCon classInfo) rawTvIds rawGivens rawHeadTys
+      let (rewrittenGivens, rewrittenHeadTys) = (rawGivens, rawHeadTys)
       headTys <- mapM defaultTypeKinds rewrittenHeadTys
       givens <- mapM defaultPredKinds rewrittenGivens
       items <-
@@ -1598,31 +1595,14 @@ solveInstanceBodyConstraints givens results = do
 solveBodyConstraintsWithGivens :: [Pred] -> [Ct] -> [Implication] -> TcM ()
 solveBodyConstraintsWithGivens givens cts impls = do
   implications <- mapM addOuterGivens impls
-  -- A given equality rewrites the wanteds only inside an implication, so
-  -- the flat wanteds go into one when the context has an equality.
-  (flatCts, allImplications) <-
-    if any isEqualityPred givens
-      then do
-        outerGivens <- mapM givenConstraint givens
-        level <- getTcLevel
-        let bodyImplication =
-              Implication
-                { implSkols = [],
-                  implGivenEvs = map ctEvVar outerGivens,
-                  implGivenCts = outerGivens,
-                  implWantedCts = cts,
-                  implTcLevel = level,
-                  implInfo = InstOrigin "class body"
-                }
-        pure ([], bodyImplication : implications)
-      else pure (cts, implications)
-  solveResult <- solveWithImpls flatCts allImplications
-  -- The inert set holds the stuck flat wanteds, which are in @flatCts@, and
+  residual <- filterM (fmap not . solveGivenEquality givens) cts
+  solveResult <- solveWithImpls residual implications
+  -- The inert set holds the stuck flat wanteds, which are in @cts@, and
   -- the wanteds that the implications deferred, which are not.
-  let deferred = filter (\ct -> ctEvVar ct `notElem` map ctEvVar flatCts) (inertDicts (srInerts solveResult))
+  let deferred = filter (\ct -> ctEvVar ct `notElem` map ctEvVar residual) (inertDicts (srInerts solveResult))
   -- The residual holds the equalities that wait on a type family
   -- application.
-  stuck <- (srResidual solveResult <>) . concat <$> mapM attemptClassCt (flatCts <> deferred)
+  stuck <- (srResidual solveResult <>) . concat <$> mapM attemptClassCt (residual <> deferred)
   -- The signature makes every type variable of the binding rigid, so a
   -- meta-variable that survives the solve is ambiguous. Defaulting may make
   -- it concrete, which lets a second attempt discharge the constraint.
@@ -1665,10 +1645,6 @@ solveBodyConstraintsWithGivens givens cts impls = do
                   emitError (ctLoc errCt) (UnsolvedWanted predicate (ctOrigin errCt))
               pure []
       | otherwise = attemptClassCt ct
-    isEqualityPred predicate =
-      case predicate of
-        EqPred {} -> True
-        _ -> False
     isDictionaryPred predicate =
       case predicate of
         ClassPred {} -> True
@@ -2950,9 +2926,13 @@ registerClassDecl origin classDecl = do
       params = binderHeadParams (classDeclHead classDecl)
   -- The representation variables of the parameter kinds, like the @r@ of
   -- @(t :: TYPE r)@, are parameters of the class. The method signatures
-  -- and the default signatures refer to them. Other kind variables stay
-  -- kind metas, so an instance can give them any kind.
-  kindParams <- implicitBinderKindParams params
+  -- and the default signatures refer to them. The primitive equality
+  -- class takes every kind variable of its head. Other kind variables
+  -- stay kind metas, so an instance can give them any kind.
+  kindParams <-
+    if snd origin == "GHC.Types" && className == "~"
+      then implicitBinderKindParamsOf freeTypeVars params
+      else implicitBinderKindParams params
   let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
   paramInfos <- makeParamEnvWith kindEnv params
   let paramTyVars = map paramTyVar paramInfos
@@ -3223,7 +3203,7 @@ registerInstanceDecl origin instanceDecl =
       rawHeadTys <- checkInstanceHeadTypes className tvEnv headArgs
       rawContext <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
-      let (tvIds, context, headTys) = applyInstanceEqualities (ciTyCon classInfo) rawTvIds rawContext rawHeadTys
+      let (tvIds, context, headTys) = (rawTvIds, rawContext, rawHeadTys)
       dictName <- allocateInstanceDictName origin classNameText headTys
       registerInstanceAssociatedTypes origin classInfo tvIds headTys instanceDecl
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon classInfo) headTys)) tvIds
@@ -3238,27 +3218,6 @@ registerInstanceDecl origin instanceDecl =
             iiHead = headTys
           }
       pure [TcBindingResult dictName dictName dictTy]
-
--- | An equality in an instance context that fixes an instance type
--- variable, like @a ~ Char@, rewrites the head and the other predicates.
--- The dictionary then has no argument for the equality.
-applyInstanceEqualities :: TyCon -> [TyVarId] -> [Pred] -> [TcType] -> ([TyVarId], [Pred], [TcType])
-applyInstanceEqualities classTyCon tvIds context headTys =
-  case applyVariableEqualities (ForAll tvIds context (TcTyCon classTyCon headTys)) of
-    ForAll tvIds' context' (TcTyCon _ headTys') ->
-      -- The fixed variable is no parameter of the dictionary any more.
-      (filter (`elem` concatMap typeTyVarIds headTys') tvIds', context', headTys')
-    _ -> (tvIds, context, headTys)
-  where
-    typeTyVarIds ty =
-      case ty of
-        TcTyVar tyVar -> [tyVar]
-        TcTyCon _ arguments -> concatMap typeTyVarIds arguments
-        TcFunTy argument result -> typeTyVarIds argument <> typeTyVarIds result
-        TcAppTy function argument -> typeTyVarIds function <> typeTyVarIds argument
-        TcForAllTy _ body -> typeTyVarIds body
-        TcQualTy _ body -> typeTyVarIds body
-        TcMetaTv {} -> []
 
 predType :: Pred -> TcM TcType
 predType (ClassPred classTyCon args) = pure (TcTyCon classTyCon args)
@@ -3623,22 +3582,15 @@ typeDeclParamInfos maybeKindScheme params =
         }
 
 implicitBinderKindParams :: [TyVarBinder] -> TcM [ParamInfo]
-implicitBinderKindParams binders = mapM makeImplicitParam implicitNames
+implicitBinderKindParams = implicitBinderKindParamsOf representationVariables
+
+-- | The implicit kind parameters that a selector finds in the binder kinds.
+implicitBinderKindParamsOf :: (Type -> [Text]) -> [TyVarBinder] -> TcM [ParamInfo]
+implicitBinderKindParamsOf select binders = mapM makeImplicitParam implicitNames
   where
     explicitNames = map tyVarBinderName binders
-    implicitNames = nub (concatMap (maybe [] representationVariables . tyVarBinderKind) binders) \\ explicitNames
-    -- The variables that are arguments of TYPE.
-    representationVariables kind =
-      case kind of
-        TApp function argument
-          | TCon name _ <- peelTypeHead function,
-            nameText name == "TYPE" ->
-              freeTypeVars argument
-          | otherwise -> representationVariables function <> representationVariables argument
-        TParen inner -> representationVariables inner
-        TAnn _ inner -> representationVariables inner
-        TKindSig inner _ -> representationVariables inner
-        _ -> []
+    implicitNames = nub (concatMap (maybe [] select . tyVarBinderKind) binders) \\ explicitNames
+
     makeImplicitParam name = do
       rawTyVar <- freshSkolemTv name
       kind <- freshKindMeta
@@ -3648,6 +3600,20 @@ implicitBinderKindParams binders = mapM makeImplicitParam implicitNames
             paramTyVar = setTyVarKind kind rawTyVar,
             paramKind = kind
           }
+
+-- | The variables that are arguments of TYPE in a kind.
+representationVariables :: Type -> [Text]
+representationVariables kind =
+  case kind of
+    TApp function argument
+      | TCon name _ <- peelTypeHead function,
+        nameText name == "TYPE" ->
+          freeTypeVars argument
+      | otherwise -> representationVariables function <> representationVariables argument
+    TParen inner -> representationVariables inner
+    TAnn _ inner -> representationVariables inner
+    TKindSig inner _ -> representationVariables inner
+    _ -> []
 
 dataDeclParamInfos :: Maybe TypeScheme -> DataDecl -> TcM ([ParamInfo], [ParamInfo])
 dataDeclParamInfos maybeKindScheme declaration =
@@ -4273,7 +4239,7 @@ tcMatchEquation expectedOrigin argTys resTy match = do
       bodyWanteds = pcWantedCts patCheck ++ rhsCts ++ [resCt]
   if null givenCts && null (pcSkolems patCheck)
     then -- No constructor-local type variables or givens: keep flat wanteds.
-      pure (match {matchPats = pats', matchRhs = rhs'}, bodyWanteds, [])
+      pure (match {matchPats = pats', matchRhs = annotateRhsCast resTy ev rhs'}, bodyWanteds, [])
     else do
       -- GADT givens: wrap body wanteds in an implication.
       level <- getTcLevel
@@ -4286,7 +4252,7 @@ tcMatchEquation expectedOrigin argTys resTy match = do
                 implTcLevel = level,
                 implInfo = AppOrigin sp
               }
-      pure (match {matchPats = pats', matchRhs = rhs'}, [], [impl])
+      pure (match {matchPats = pats', matchRhs = annotateRhsCast resTy ev rhs'}, [], [impl])
 
 -- | Unify an additional match equation's RHS with the expected type.
 unifyMatchRhs :: TcType -> Match -> TcM (Match, [Ct])

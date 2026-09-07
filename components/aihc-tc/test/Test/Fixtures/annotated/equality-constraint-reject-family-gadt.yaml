@@ -1,0 +1,27 @@
+extensions:
+- GADTs
+- TypeOperators
+- TypeFamilies
+modules:
+- |
+  module Test where
+  type family F a
+  data Equal a b where
+    Equal :: (F a ~ F b) => Equal a b
+  cast :: Equal a b -> a -> b
+  cast Equal x = x
+status: xfail
+reason: GADT index refinement must not make a non-injective type family injective.
+
+annotated:
+- |
+  module Test where
+  type family F a
+              └─ type: Type → Type
+  data Equal a b where
+       └─ type: Type → Type → Type
+    Equal :: (F a ~ F b) => Equal a b
+    └─ type: ∀ a b. ((F a) ~ (F b)) ⇒ Equal a b
+  cast :: Equal a b -> a -> b
+  cast Equal x = x
+                 └─ error: expression has type a, but expected b from the type signature for cast

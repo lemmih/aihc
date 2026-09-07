@@ -12,8 +12,8 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: A qualified equality class has the same meaning as equality syntax. AIHC cannot resolve the
-  equality class.
+status: pass
+reason: A qualified equality class has the same meaning as equality syntax.
+
 evaluators:
 - grin

@@ -11,5 +11,4 @@ modules:
   cast x = x
   result = cast @Flag @Flag On
 status: pass
-reason: Visible type arguments select a reflexive equality constraint. AIHC cannot resolve the equality
-  class.
+reason: Visible type arguments select a reflexive equality constraint.

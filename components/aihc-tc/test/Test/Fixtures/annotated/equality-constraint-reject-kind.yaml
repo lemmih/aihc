@@ -10,8 +10,8 @@ modules:
   bad :: (Flag ~ 'On) => Flag
   bad = On
 status: pass
-reason: Homogeneous equality requires both arguments to have the same kind. AIHC cannot resolve the
-  equality class.
+reason: Homogeneous equality requires both arguments to have the same kind.
+
 annotated:
 - |
   module Test where
