@@ -8,36 +8,35 @@ modules:
     quoted b = [| b |]
 expected: |-
   scope 1 = "" Test
-  scope 2 = "aihc-prim" GHC.Prim
-  scope 3 = "aihc-prim" GHC.Types
+  scope 2 = "aihc-prim" GHC.CString
+  scope 3 = "aihc-prim" GHC.Prim
+  scope 4 = "aihc-prim" GHC.Types
 
   import headers
-    3.tChar :: 3.tType;
-    2.tChar# :: 3.tTYPE 3.vWordRep;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tType :: 3.tType;
-    3.t[] :: ∀(a : 3.tType). 3.tType;
-    3.v: :: ∀(a : 3.tType). a 3.→ 3.t[] a 3.→ 3.t[] a;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vC# :: FUN @3.vWordRep @3.tLiftedRep 2.tChar# 3.tChar;
-    3.vLifted :: 3.tLevity;
-    3.vWordRep :: 3.tRuntimeRep;
-    3.v[] :: ∀(a : 3.tType). 3.t[] a;
-    2.vraise# :: ∀(r : 3.tRuntimeRep) (a : 3.tType) (b : 3.tTYPE r). FUN @3.tLiftedRep @r a b
+    3.tAddr# :: 4.tTYPE 4.vAddrRep;
+    4.tChar :: 4.tType;
+    4.tLevity :: 4.tType;
+    4.tLiftedRep :: 4.tRuntimeRep;
+    4.tRuntimeRep :: 4.tType;
+    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType;
+    4.tType :: 4.tType;
+    4.t[] :: ∀(a : 4.tType). 4.tType;
+    4.vAddrRep :: 4.tRuntimeRep;
+    4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
+    4.vLifted :: 4.tLevity;
+    3.vraise# :: ∀(r : 4.tRuntimeRep) (a : 4.tType) (b : 4.tTYPE r). FUN @4.tLiftedRep @r a b;
+    2.vunpackCString# :: FUN @4.vAddrRep @4.tLiftedRep 3.tAddr# (4.t[] 4.tChar)
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    4.tLiftedRep = 4.vBoxedRep 4.vLifted;
+    4.tType = 4.tTYPE 4.tLiftedRep
 
-  pub type 1.tBox :: 3.tType {
+  pub type 1.tBox :: 4.tType {
       pub 1.vBox :: 1.tBox
   }
 
-  pub val 1.vquoted :: 1.tBox 3.→ 1.tBox
+  pub val 1.vquoted :: 1.tBox 4.→ 1.tBox
    = λ(x : 1.tBox).
-    2.vraise# @3.tLiftedRep @(3.t[] 3.tChar) @1.tBox (3.v: @3.tChar (3.vC# 'T'#3.vWordRep) (3.v: @3.tChar (3.vC# 'H'#3.vWordRep) (3.v: @3.tChar (3.vC# ' '#3.vWordRep) (3.v: @3.tChar (3.vC# 'i'#3.vWordRep) (3.v: @3.tChar (3.vC# 's'#3.vWordRep) (3.v: @3.tChar (3.vC# ' '#3.vWordRep) (3.v: @3.tChar (3.vC# 'u'#3.vWordRep) (3.v: @3.tChar (3.vC# 'n'#3.vWordRep) (3.v: @3.tChar (3.vC# 's'#3.vWordRep) (3.v: @3.tChar (3.vC# 'u'#3.vWordRep) (3.v: @3.tChar (3.vC# 'p'#3.vWordRep) (3.v: @3.tChar (3.vC# 'p'#3.vWordRep) (3.v: @3.tChar (3.vC# 'o'#3.vWordRep) (3.v: @3.tChar (3.vC# 'r'#3.vWordRep) (3.v: @3.tChar (3.vC# 't'#3.vWordRep) (3.v: @3.tChar (3.vC# 'e'#3.vWordRep) (3.v: @3.tChar (3.vC# 'd'#3.vWordRep) (3.v[] @3.tChar))))))))))))))))))
+    3.vraise# @4.tLiftedRep @(4.t[] 4.tChar) @1.tBox (2.vunpackCString# "TH is unsupported"#4.vAddrRep)
 status: pass
 reason: A Template Haskell quote desugars to a raise# call with a message.

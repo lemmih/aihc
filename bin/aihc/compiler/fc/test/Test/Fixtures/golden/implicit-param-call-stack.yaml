@@ -24,67 +24,67 @@ modules:
   noStack = failure True
 expected: |-
   scope 1 = "" Test
-  scope 2 = "aihc-prim" GHC.Prim
-  scope 3 = "aihc-prim" GHC.Tuple
-  scope 4 = "aihc-prim" GHC.Types
+  scope 2 = "aihc-prim" GHC.CString
+  scope 3 = "aihc-prim" GHC.Prim
+  scope 4 = "aihc-prim" GHC.Tuple
+  scope 5 = "aihc-prim" GHC.Types
 
   import headers
-    4.tChar :: 4.tType;
-    2.tChar# :: 4.tTYPE 4.vWordRep;
-    4.tInt :: 4.tType;
-    2.tInt# :: 4.tTYPE 4.vIntRep;
-    4.tLevity :: 4.tType;
-    4.tLiftedRep :: 4.tRuntimeRep;
-    4.tRuntimeRep :: 4.tType;
-    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType;
-    3.tTuple2 :: ∀(a1 : 4.tType) (a2 : 4.tType). 4.tType;
-    4.tType :: 4.tType;
-    4.t[] :: ∀(a : 4.tType). 4.tType;
-    3.v(,) :: ∀(a1 : 4.tType) (a2 : 4.tType). a1 4.→ a2 4.→ 3.tTuple2 a1 a2;
-    4.v: :: ∀(a : 4.tType). a 4.→ 4.t[] a 4.→ 4.t[] a;
-    4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
-    4.vC# :: FUN @4.vWordRep @4.tLiftedRep 2.tChar# 4.tChar;
-    4.vI# :: FUN @4.vIntRep @4.tLiftedRep 2.tInt# 4.tInt;
-    4.vIntRep :: 4.tRuntimeRep;
-    4.vLifted :: 4.tLevity;
-    4.vWordRep :: 4.tRuntimeRep;
-    4.v[] :: ∀(a : 4.tType). 4.t[] a
+    3.tAddr# :: 5.tTYPE 5.vAddrRep;
+    5.tChar :: 5.tType;
+    5.tInt :: 5.tType;
+    3.tInt# :: 5.tTYPE 5.vIntRep;
+    5.tLevity :: 5.tType;
+    5.tLiftedRep :: 5.tRuntimeRep;
+    5.tRuntimeRep :: 5.tType;
+    5.tTYPE :: ∀(rep : 5.tRuntimeRep). 5.tType;
+    4.tTuple2 :: ∀(a1 : 5.tType) (a2 : 5.tType). 5.tType;
+    5.tType :: 5.tType;
+    5.t[] :: ∀(a : 5.tType). 5.tType;
+    4.v(,) :: ∀(a1 : 5.tType) (a2 : 5.tType). a1 5.→ a2 5.→ 4.tTuple2 a1 a2;
+    5.vAddrRep :: 5.tRuntimeRep;
+    5.vBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
+    5.vI# :: FUN @5.vIntRep @5.tLiftedRep 3.tInt# 5.tInt;
+    5.vIntRep :: 5.tRuntimeRep;
+    5.vLifted :: 5.tLevity;
+    5.v[] :: ∀(a : 5.tType). 5.t[] a;
+    2.vunpackCString# :: FUN @5.vAddrRep @5.tLiftedRep 3.tAddr# (5.t[] 5.tChar)
 
   import synonyms
-    4.tLiftedRep = 4.vBoxedRep 4.vLifted;
-    4.tType = 4.tTYPE 4.tLiftedRep
+    5.tLiftedRep = 5.vBoxedRep 5.vLifted;
+    5.tType = 5.tTYPE 5.tLiftedRep
 
-  pub type 1.tBool :: 4.tType {
+  pub type 1.tBool :: 5.tType {
       pub 1.vTrue :: 1.tBool;
       pub 1.vFalse :: 1.tBool
   }
 
-  pub type 1.tSrcLoc :: 4.tType {
-      pub 1.vSrcLoc :: 4.t[] 4.tChar 4.→ 4.t[] 4.tChar 4.→ 4.t[] 4.tChar 4.→ 4.tInt 4.→ 4.tInt 4.→ 4.tInt 4.→ 4.tInt 4.→ 1.tSrcLoc
+  pub type 1.tSrcLoc :: 5.tType {
+      pub 1.vSrcLoc :: 5.t[] 5.tChar 5.→ 5.t[] 5.tChar 5.→ 5.t[] 5.tChar 5.→ 5.tInt 5.→ 5.tInt 5.→ 5.tInt 5.→ 5.tInt 5.→ 1.tSrcLoc
   }
 
-  pub type 1.tCallStack :: 4.tType {
+  pub type 1.tCallStack :: 5.tType {
       pub 1.vEmptyCallStack :: 1.tCallStack;
-      pub 1.vPushCallStack :: 4.t[] 4.tChar 4.→ 1.tSrcLoc 4.→ 1.tCallStack 4.→ 1.tCallStack
+      pub 1.vPushCallStack :: 5.t[] 5.tChar 5.→ 1.tSrcLoc 5.→ 1.tCallStack 5.→ 1.tCallStack
   }
 
   pub val 1.vemptyCallStack :: 1.tCallStack
    = 1.vEmptyCallStack
 
-  pub val 1.vpushCallStack :: 3.tTuple2 (4.t[] 4.tChar) 1.tSrcLoc 4.→ 1.tCallStack 4.→ 1.tCallStack
-   = λ(x : 3.tTuple2 (4.t[] 4.tChar) 1.tSrcLoc).
+  pub val 1.vpushCallStack :: 4.tTuple2 (5.t[] 5.tChar) 1.tSrcLoc 5.→ 1.tCallStack 5.→ 1.tCallStack
+   = λ(x : 4.tTuple2 (5.t[] 5.tChar) 1.tSrcLoc).
     λ(y : 1.tCallStack).
-      case x as (_scrut : 3.tTuple2 (4.t[] 4.tChar) 1.tSrcLoc) return (1.tCallStack) of {
-          3.v(,) (name : 4.t[] 4.tChar) (location : 1.tSrcLoc) →
+      case x as (_scrut : 4.tTuple2 (5.t[] 5.tChar) 1.tSrcLoc) return (1.tCallStack) of {
+          4.v(,) (name : 5.t[] 5.tChar) (location : 1.tSrcLoc) →
               1.vPushCallStack name location y
       }
 
-  pub val 1.vfailure :: 1.tCallStack 4.→ 1.tBool 4.→ 1.tBool
+  pub val 1.vfailure :: 1.tCallStack 5.→ 1.tBool 5.→ 1.tBool
    = λ($d0 : 1.tCallStack).
     λ(x : 1.tBool).
       x
 
   pub val 1.vnoStack :: 1.tBool
-   = 1.vfailure (1.vpushCallStack (3.v(,) @(4.t[] 4.tChar) @1.tSrcLoc (4.v: @4.tChar (4.vC# 'f'#4.vWordRep) (4.v: @4.tChar (4.vC# 'a'#4.vWordRep) (4.v: @4.tChar (4.vC# 'i'#4.vWordRep) (4.v: @4.tChar (4.vC# 'l'#4.vWordRep) (4.v: @4.tChar (4.vC# 'u'#4.vWordRep) (4.v: @4.tChar (4.vC# 'r'#4.vWordRep) (4.v: @4.tChar (4.vC# 'e'#4.vWordRep) (4.v[] @4.tChar)))))))) (1.vSrcLoc (4.v[] @4.tChar) (4.v: @4.tChar (4.vC# 'T'#4.vWordRep) (4.v: @4.tChar (4.vC# 'e'#4.vWordRep) (4.v: @4.tChar (4.vC# 's'#4.vWordRep) (4.v: @4.tChar (4.vC# 't'#4.vWordRep) (4.v[] @4.tChar))))) (4.v: @4.tChar (4.vC# 'm'#4.vWordRep) (4.v: @4.tChar (4.vC# 'o'#4.vWordRep) (4.v: @4.tChar (4.vC# 'd'#4.vWordRep) (4.v: @4.tChar (4.vC# 'u'#4.vWordRep) (4.v: @4.tChar (4.vC# 'l'#4.vWordRep) (4.v: @4.tChar (4.vC# 'e'#4.vWordRep) (4.v: @4.tChar (4.vC# ' '#4.vWordRep) (4.v: @4.tChar (4.vC# 'T'#4.vWordRep) (4.v: @4.tChar (4.vC# 'e'#4.vWordRep) (4.v: @4.tChar (4.vC# 's'#4.vWordRep) (4.v: @4.tChar (4.vC# 't'#4.vWordRep) (4.v: @4.tChar (4.vC# ' '#4.vWordRep) (4.v: @4.tChar (4.vC# 'w'#4.vWordRep) (4.v: @4.tChar (4.vC# 'h'#4.vWordRep) (4.v: @4.tChar (4.vC# 'e'#4.vWordRep) (4.v: @4.tChar (4.vC# 'r'#4.vWordRep) (4.v: @4.tChar (4.vC# 'e'#4.vWordRep) (4.v[] @4.tChar)))))))))))))))))) (4.vI# 18#4.vIntRep) (4.vI# 11#4.vIntRep) (4.vI# 18#4.vIntRep) (4.vI# 18#4.vIntRep))) 1.vemptyCallStack) 1.vTrue
+   = 1.vfailure (1.vpushCallStack (4.v(,) @(5.t[] 5.tChar) @1.tSrcLoc (2.vunpackCString# "failure"#5.vAddrRep) (1.vSrcLoc (5.v[] @5.tChar) (2.vunpackCString# "Test"#5.vAddrRep) (2.vunpackCString# "module Test where"#5.vAddrRep) (5.vI# 18#5.vIntRep) (5.vI# 11#5.vIntRep) (5.vI# 18#5.vIntRep) (5.vI# 18#5.vIntRep))) 1.vemptyCallStack) 1.vTrue
 status: pass
 reason: an occurrence of a function with a HasCallStack constraint pushes its call site onto the empty call stack
