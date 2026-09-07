@@ -1,0 +1,24 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  witness :: (Flag ~ ()) => Flag
+  witness = On
+  result = witness
+status: xfail
+reason: Equality cannot equate distinct data types. AIHC cannot resolve the equality class.
+annotated:
+- |
+  module Test where
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  witness :: (Flag ~ ()) => Flag
+  witness = On
+  └─ type: (Flag ~ ()) ⇒ Flag
+  result = witness
+           └─ error: couldn't match Flag with ()

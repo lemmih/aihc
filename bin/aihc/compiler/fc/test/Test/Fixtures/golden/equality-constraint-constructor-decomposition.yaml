@@ -1,0 +1,12 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  cast :: ([a] ~ [b]) => a -> b
+  cast x = x
+  result = cast On :: Flag
+status: xfail
+reason: List equality gives equality of the element types. AIHC cannot resolve the equality class.

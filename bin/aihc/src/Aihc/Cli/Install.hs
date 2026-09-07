@@ -215,8 +215,12 @@ data NativeModule = NativeModule
     nativeObject :: !(Maybe BL.ByteString)
   }
 
-newtype PendingCompile = PendingCompile
-  { pendingModules :: [Module]
+data PendingCompile = PendingCompile
+  { pendingModules :: [Module],
+    -- | How to desugar each module of the unit, by module name. The
+    -- configuration carries the export list, which the desugarer turns into
+    -- the visibility of every top-level name.
+    pendingDesugarConfigs :: Map.Map Text DesugarConfig
   }
 
 newtype UnitId = UnitId Int
@@ -1197,7 +1201,12 @@ runTypeUnit context runtimes runtime = do
       then pure Nothing
       else do
         let (checkedModules, _) = initialChecked
-        pure (Just (PendingCompile checkedModules))
+            desugarConfigs =
+              Map.fromList
+                [ (name, Fc.moduleDesugarConfig primIdentity resolvePackage name (resolveUnitExports resolvedOutput))
+                | name <- unitNames
+                ]
+        pure (Just (PendingCompile checkedModules desugarConfigs))
   let unitSet = Set.fromList unitNames
   -- Force the type result before this type-check task ends.
   typeResult <-
@@ -1234,6 +1243,7 @@ runBackendUnit context runtime = do
           (taskPrimIdentity context)
           (typeUnitDesugarInterface result)
           (moduleOutputPaths storePath (compileTarget config))
+          (pendingDesugarConfigs pending)
           (pendingModules pending)
       ended <- getMonotonicTimeNSec
       atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> withOtherTime started ended phaseTimings, ()))
@@ -1322,12 +1332,18 @@ renderBackendPhaseTotals timings =
       "other total: " <> renderDuration (backendOtherNs timings)
     ]
 
-compileCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [Module] -> IO BackendPhaseTimings
-compileCheckedModules config verbose primIdentity interface outputPaths checkedModules = do
+compileCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO BackendPhaseTimings
+compileCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
   (splitModules, desugarNs) <- measureTime $ do
     let bindings = concatMap tcModuleBindings checkedModules
-        desugarResults = map (Fc.desugarModuleFc (DesugarConfig primIdentity) bindings interface) checkedModules
         moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
+        -- A module the resolver did not report on keeps every name public.
+        desugarConfig name =
+          Map.findWithDefault (Fc.allPublicDesugarConfig primIdentity) name desugarConfigs
+        desugarResults =
+          [ Fc.desugarModuleFc (desugarConfig name) bindings interface checked
+          | (name, checked) <- zip moduleNames checkedModules
+          ]
         desugarErrors =
           [ T.unpack name <> ": " <> err
           | (name, result) <- zip moduleNames desugarResults,

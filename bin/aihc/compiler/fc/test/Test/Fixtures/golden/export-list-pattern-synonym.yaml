@@ -1,0 +1,72 @@
+---
+extensions:
+- PatternSynonyms
+modules:
+- |
+  module Test (Wrapped, pattern Shown) where
+  data Wrapped = Wrapped { unwrap :: Wrapped }
+  pattern Shown :: Wrapped -> Wrapped
+  pattern Shown x = Wrapped x
+  pattern Hidden :: Wrapped -> Wrapped
+  pattern Hidden x = Wrapped x
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tWrapped :: 2.tType {
+      1.vWrapped :: 1.tWrapped 2.→ 1.tWrapped
+  }
+
+  val 1.vunwrap :: 1.tWrapped 2.→ 1.tWrapped
+   = λ($record : 1.tWrapped).
+    case $record as ($record_scrut : 1.tWrapped) return (1.tWrapped) of {
+        1.vWrapped ($field0 : 1.tWrapped) →
+            $field0
+    }
+
+  pub val 1.v$mShown :: ∀(r : 2.tType). 1.tWrapped 2.→ (1.tWrapped 2.→ r) 2.→ r 2.→ r
+   = Λ(r : 2.tType).
+    λ(x : 1.tWrapped).
+      λ(y : 1.tWrapped 2.→ r).
+        λ(z : r).
+          case x as (_scrut : 1.tWrapped) return (r) of {
+              1.vWrapped (x{1} : 1.tWrapped) →
+                  y x{1};
+              _ →
+                  z
+          }
+
+  pub val 1.v$bShown :: 1.tWrapped 2.→ 1.tWrapped
+   = λ(x : 1.tWrapped).
+    1.vWrapped x
+
+  val 1.v$mHidden :: ∀(r : 2.tType). 1.tWrapped 2.→ (1.tWrapped 2.→ r) 2.→ r 2.→ r
+   = Λ(r : 2.tType).
+    λ(x : 1.tWrapped).
+      λ(y : 1.tWrapped 2.→ r).
+        λ(z : r).
+          case x as (_scrut : 1.tWrapped) return (r) of {
+              1.vWrapped (x{1} : 1.tWrapped) →
+                  y x{1};
+              _ →
+                  z
+          }
+
+  val 1.v$bHidden :: 1.tWrapped 2.→ 1.tWrapped
+   = λ(x : 1.tWrapped).
+    1.vWrapped x
+status: pass
+reason: No export list mentions a matcher or a builder, so each follows the pattern synonym it belongs to.

@@ -1,0 +1,14 @@
+extensions:
+- GADTs
+- TypeOperators
+- ExplicitNamespaces
+modules:
+- |
+  module Test where
+  import GHC.Types (type (~))
+  data Flag = Off | On
+  cast :: (~) a b => a -> b
+  cast x = x
+  result = cast On :: Flag
+status: xfail
+reason: The prefix equality class comes from GHC.Types. AIHC cannot resolve the equality class.

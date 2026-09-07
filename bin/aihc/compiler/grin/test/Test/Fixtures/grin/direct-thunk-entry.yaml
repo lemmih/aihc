@@ -15,10 +15,6 @@ expected: |-
 
   constructor 1.$Dict$Cls [BoxedRep Lifted, BoxedRep Lifted]
 
-  global 1.T = (C1.T)
-
-  global 1.$Dict$Cls = (C1.$Dict$Cls/2)
-
   global 1.one = (P$one/1)
 
   global 1.two = (P$two/1)

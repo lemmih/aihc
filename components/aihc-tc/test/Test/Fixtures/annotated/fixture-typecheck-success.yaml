@@ -1,0 +1,8 @@
+extensions: []
+modules:
+- |
+  module Test where
+  identity :: a -> a
+  identity x = x
+status: pass
+reason: The typecheck assertion accepts a valid identity function.

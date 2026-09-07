@@ -85,7 +85,7 @@ data TcAnnotatedCase = TcAnnotatedCase
     casePath :: !FilePath,
     caseExtensions :: ![Extension],
     caseModules :: ![Text],
-    caseAnnotated :: ![String],
+    caseAnnotated :: !(Maybe [String]),
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
   }
@@ -174,7 +174,7 @@ parseTcAnnotatedFixture path value = do
       ( withObject "tc annotated fixture" $ \obj -> do
           exts <- obj .: "extensions"
           mods <- obj .: "modules" >>= parseModules
-          annotated <- obj .: "annotated" >>= parseAnnotatedList
+          annotated <- obj .:? "annotated" >>= traverse parseAnnotatedList
           status <- obj .: "status"
           reason <- obj .:? "reason" .!= ""
           pure (exts, mods, annotated, status, reason)
@@ -185,7 +185,7 @@ parseTcAnnotatedFixture path value = do
   let relPath = dropRootPrefix path
       category = categoryFromPath relPath
       reason = trim (T.unpack reasonText)
-      annotated = map (trim . T.unpack) annotatedTexts
+      annotated = map (trim . T.unpack) <$> annotatedTexts
   pure
     TcAnnotatedCase
       { caseId = relPath,
@@ -230,8 +230,17 @@ evaluateTcAnnotatedCasePure tc =
     Right actual -> classifySuccess tc actual
 
 renderTcAnnotatedCase :: TcAnnotatedCase -> Either String [String]
-renderTcAnnotatedCase tc =
-  renderAnnotatedTcResults (caseModules tc) <$> checkTcAnnotatedCase tc
+renderTcAnnotatedCase tc = do
+  checked <- checkTcAnnotatedCase tc
+  case caseAnnotated tc of
+    Just _ -> pure (renderAnnotatedTcResults (caseModules tc) checked)
+    Nothing
+      | all tcModuleSuccess checked -> pure []
+      | otherwise ->
+          Left
+            ( "Expected successful type checks.\n"
+                <> unlines [show diagnostic | modu <- checked, diagnostic <- tcModuleDiagnostics modu]
+            )
 
 -- | Parse, resolve, and type-check the modules of one case.
 checkTcAnnotatedCase :: TcAnnotatedCase -> Either String [Module]
@@ -368,14 +377,14 @@ primitiveExtensions source =
 classifySuccess :: TcAnnotatedCase -> [String] -> (Outcome, String)
 classifySuccess tc actual =
   let expected = caseAnnotated tc
-      outputMatches = map trim actual == map trim expected
+      outputMatches = maybe True ((== map trim actual) . map trim) expected
    in case caseStatus tc of
         StatusPass
           | outputMatches -> (OutcomePass, "")
           | otherwise ->
               ( OutcomeFail,
                 "annotated output mismatch\nexpected:\n"
-                  <> unlines expected
+                  <> unlines (fromMaybe [] expected)
                   <> "\nactual:\n"
                   <> unlines actual
               )

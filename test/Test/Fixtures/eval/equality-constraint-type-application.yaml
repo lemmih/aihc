@@ -1,0 +1,20 @@
+extensions:
+- GADTs
+- TypeOperators
+- TypeApplications
+- ExplicitForAll
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  cast :: forall a b. (a ~ b) => a -> b
+  cast x = x
+  result = cast @Flag @Flag On
+expression: result
+output: |
+  On
+status: xfail
+reason: Visible type arguments select a reflexive equality constraint. AIHC cannot resolve the equality
+  class.
+evaluators:
+- grin

@@ -21,6 +21,7 @@ module Aihc.Resolve
     modulesInPackage,
     collectModuleExports,
     collectModuleExportsWithDeps,
+    exportedLocalNames,
     lookupImportedModule,
     emptyScope,
     unionScope,

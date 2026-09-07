@@ -11,6 +11,8 @@ module Aihc.Fc.Convert
     withTyVars,
     withKindEnv,
     withClassTyCons,
+    withExportedNames,
+    exportedVis,
     convertKind,
     convertRep,
     convertType,
@@ -96,7 +98,11 @@ data ConvertEnv = ConvertEnv
   { cePrimPackage :: PackageId,
     ceTyVars :: Map Unique TyVarId,
     ceKindEnv :: TcKindEnv,
-    ceClassTyCons :: Set TcTypeKey
+    ceClassTyCons :: Set TcTypeKey,
+    -- | The visible top-level names of the module, as
+    -- 'Aihc.Resolve.exportedLocalNames' gives them. 'Nothing' comes from a
+    -- caller that knows of no export list, and keeps every name public.
+    ceExportedNames :: !(Maybe (Set (ResolutionNamespace, Text)))
   }
 
 emptyConvertEnv :: PackageId -> ConvertEnv
@@ -105,12 +111,25 @@ emptyConvertEnv package =
     { cePrimPackage = package,
       ceTyVars = Map.empty,
       ceKindEnv = Map.empty,
-      ceClassTyCons = Set.empty
+      ceClassTyCons = Set.empty,
+      ceExportedNames = Nothing
     }
 
 withClassTyCons :: [TcTypeKey] -> ConvertEnv -> ConvertEnv
 withClassTyCons keys env =
   env {ceClassTyCons = Set.fromList keys <> ceClassTyCons env}
+
+withExportedNames :: Maybe (Set (ResolutionNamespace, Text)) -> ConvertEnv -> ConvertEnv
+withExportedNames names env = env {ceExportedNames = names}
+
+-- | Whether one top-level name of the module is visible to other modules.
+-- The namespace is part of the question: a data constructor and the type
+-- constructor beside it can share a name but never an export item.
+exportedVis :: ConvertEnv -> ResolutionNamespace -> Text -> Vis
+exportedVis env namespace name =
+  case ceExportedNames env of
+    Nothing -> Pub
+    Just names -> if Set.member (namespace, name) names then Pub else Private
 
 classDictTypeName :: TyCon -> Name
 classDictTypeName tyCon =

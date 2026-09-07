@@ -3,8 +3,6 @@ expected: |-
 
   constructor 1.Narrow [Int8Rep, Word16Rep]
 
-  global 1.Narrow = (C1.Narrow/2)
-
   global 1.value = (C1.Narrow (123 :: Int8Rep) (456 :: Word16Rep))
 extensions:
 - MagicHash

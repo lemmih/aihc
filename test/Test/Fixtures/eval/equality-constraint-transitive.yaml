@@ -1,0 +1,17 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  cast :: (a ~ b, b ~ c) => a -> b -> c
+  cast x _ = x
+  result = cast On Off :: Flag
+expression: result
+output: |
+  On
+status: xfail
+reason: Two given equalities form a transitive proof. AIHC cannot resolve the equality class.
+evaluators:
+- grin

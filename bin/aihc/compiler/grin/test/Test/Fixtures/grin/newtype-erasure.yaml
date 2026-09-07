@@ -3,8 +3,6 @@ expected: |-
 
   constructor 1.IS [IntRep]
 
-  global 1.IS = (C1.IS/1)
-
   global 1.value = (C1.IS (42 :: IntRep))
 extensions:
 - MagicHash

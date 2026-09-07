@@ -11,6 +11,8 @@ module Aihc.Fc
     tidyProgram,
     desugarModuleFc,
     DesugarConfig (..),
+    moduleDesugarConfig,
+    allPublicDesugarConfig,
     FcDesugarResult (..),
     lintProgram,
     loadScopeClosure,
@@ -20,7 +22,7 @@ module Aihc.Fc
   )
 where
 
-import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc)
+import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, moduleDesugarConfig)
 import Aihc.Fc.Lint (LintError (..), ModuleLoader, lintProgram, loadScopeClosure, storeModuleLoader)
 import Aihc.Fc.Name
 import Aihc.Fc.Parser (FcParseError, parseProgram, renderParseError)

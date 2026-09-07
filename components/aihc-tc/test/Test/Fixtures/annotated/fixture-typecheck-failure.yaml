@@ -1,0 +1,19 @@
+extensions: []
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  value :: Flag
+  value = ()
+status: pass
+reason: The diagnostic snapshot requires a type error after successful name resolution.
+annotated:
+- |
+  module Test where
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  value :: Flag
+  value = ()
+          └─ error: expression has type (), but expected Flag from the type signature for value

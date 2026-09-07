@@ -11,7 +11,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc, lintProgram, parseProgram, renderParseError, renderProgram)
+import Aihc.Fc (DesugarConfig, FcDesugarResult (..), desugarModuleFc, lintProgram, moduleDesugarConfig, parseProgram, renderParseError, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -69,7 +69,7 @@ data FcCase = FcCase
     casePath :: !FilePath,
     caseExtensions :: ![Extension],
     caseModules :: ![Text],
-    caseExpected :: !String,
+    caseExpected :: !(Maybe String),
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
   }
@@ -149,7 +149,7 @@ parseFcFixture path value = do
       ( withObject "fc fixture" $ \obj -> do
           exts <- obj .: "extensions"
           mods <- obj .: "modules" >>= parseModules
-          expected <- (obj .:? "expected" >>= traverse parseExpectedValue) .!= ""
+          expected <- obj .:? "expected" >>= traverse parseExpectedValue
           status <- obj .: "status"
           reason <- obj .:? "reason" .!= ""
           pure (exts, mods, expected, status, reason)
@@ -158,7 +158,7 @@ parseFcFixture path value = do
   exts <- validateExtensions path extNames
   status <- parseStatus path statusText
   let relPath = dropRootPrefix path
-      expected = trim (T.unpack expectedText)
+      expected = trim . T.unpack <$> expectedText
       reason = trim (T.unpack reasonText)
   pure
     FcCase
@@ -198,15 +198,20 @@ renderFcCase tc =
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
+          case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (fixtureModules modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               let fixtureAsts = map snd resolvedModules
                   primitiveInterface = supportTcInterface primitiveSupport
-                  (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (primPackageId desugarConfig)) primitiveInterface fixtureAsts
+                  (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (PackageId "aihc-prim")) primitiveInterface fixtureAsts
                in if all tcModuleSuccess fixtureTcResults
                     then do
                       let availableInterface = primitiveInterface <> tcInterface
-                          fixtureResults = map (\checked -> desugarModuleFc desugarConfig (tcModuleBindings checked) availableInterface checked) fixtureTcResults
+                          fixtureExports =
+                            collectModuleExportsWithDeps (supportScopes primitiveSupport) (fixtureModules modules)
+                          fixtureResults =
+                            map
+                              (\checked -> desugarModuleFc (desugarConfig fixturePackage fixtureExports checked) (tcModuleBindings checked) availableInterface checked)
+                              fixtureTcResults
                       if all dsSuccess fixtureResults
                         then lintAndRenderResults fixtureResults
                         else Left (unlines (concatMap dsErrors fixtureResults))
@@ -214,6 +219,7 @@ renderFcCase tc =
             ResolveResult {resolveErrors} ->
               Left ("resolve error: " <> show resolveErrors)
   where
+    fixtureModules = modulesInPackage fixturePackage
     parseFixtureModule input =
       parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
     lintAndRenderResults fixtureResults =
@@ -251,11 +257,14 @@ preparePrimitiveSupport primitiveModules =
        in case resolveWithDeps builtinScope mempty packageModules of
             resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
               let primitiveAsts = map snd resolvedModules
-                  (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface (tcConfig (primPackageId desugarConfig)) emptyTcInterface primitiveAsts
+                  (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface (tcConfig (PackageId "aihc-prim")) emptyTcInterface primitiveAsts
                in if all tcModuleSuccess primitiveTcResults
                     then
                       let primitiveBindings = concatMap tcModuleBindings primitiveTcResults
-                          primitiveResults = map (desugarModuleFc desugarConfig primitiveBindings tcInterface) primitiveTcResults
+                          primitiveResults =
+                            map
+                              (\checked -> desugarModuleFc (desugarConfig primitivePackage exports checked) primitiveBindings tcInterface checked)
+                              primitiveTcResults
                        in if all dsSuccess primitiveResults
                             then
                               Right
@@ -297,8 +306,9 @@ fixtureBuiltinScope modules =
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
     builtinFunctionModules = ["GHC.Prim", "GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real"]
 
-desugarConfig :: DesugarConfig
-desugarConfig = DesugarConfig {primPackageId = PackageId "aihc-prim"}
+desugarConfig :: Package -> ModuleExports -> Module -> DesugarConfig
+desugarConfig package exports modu =
+  moduleDesugarConfig (PackageId "aihc-prim") package (fromMaybe "Main" (moduleName modu)) exports
 
 parsePrimitiveModule :: FilePath -> Text -> Either String Module
 parsePrimitiveModule sourceName input =
@@ -328,18 +338,20 @@ classifySuccess :: FcCase -> String -> (Outcome, String)
 classifySuccess tc actual =
   case caseStatus tc of
     StatusPass
-      | trim actual == trim (caseExpected tc) -> (OutcomePass, "")
+      | outputMatches -> (OutcomePass, "")
       | otherwise ->
           ( OutcomeFail,
-            "output mismatch\nexpected:\n" <> caseExpected tc <> "\nactual:\n" <> trim actual
+            "output mismatch\nexpected:\n" <> fromMaybe "" (caseExpected tc) <> "\nactual:\n" <> trim actual
           )
     StatusFail -> (OutcomeFail, "expected failure but desugaring succeeded")
     StatusXFail
-      | trim actual == trim (caseExpected tc) -> (OutcomeXPass, "")
+      | outputMatches -> (OutcomeXPass, "")
       | otherwise -> (OutcomeXFail, "")
     StatusXPass
-      | trim actual == trim (caseExpected tc) -> (OutcomeXPass, "known bug still passes")
+      | outputMatches -> (OutcomeXPass, "known bug still passes")
       | otherwise -> (OutcomeFail, "expected xpass output match but got: " <> trim actual)
+  where
+    outputMatches = maybe True (== trim actual) (caseExpected tc)
 
 classifyFailure :: FcCase -> String -> (Outcome, String)
 classifyFailure tc errDetails =

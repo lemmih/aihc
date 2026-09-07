@@ -1,0 +1,25 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  witness :: (a ~ [a]) => [a]
+  witness = []
+  result = witness
+status: xfail
+reason: A finite type cannot equal a list of itself. AIHC cannot resolve the equality class.
+annotated:
+- |
+  module Test where
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  witness :: (a ~ [a]) => [a]
+  witness = []
+  │         └─ type: [a]; type-args: a
+  └─ type: ∀ a. (a ~ [a]) ⇒ [a]
+  result = witness
+           └─ error: couldn't match t0 with [t0]

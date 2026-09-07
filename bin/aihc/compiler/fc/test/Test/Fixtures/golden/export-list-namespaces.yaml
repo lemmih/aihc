@@ -1,0 +1,77 @@
+---
+extensions: []
+modules:
+- |
+  module Abstract (X) where
+  data X = X
+- |
+  module Bundled (Y(Y)) where
+  data Y = Y
+- |
+  module Hidden (mk) where
+  data Z = Z
+  mk :: Z
+  mk = Z
+expected: |-
+  scope 1 = "" Abstract
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tX :: 2.tType {
+      1.vX :: 1.tX
+  }
+  scope 1 = "" Bundled
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tY :: 2.tType {
+      pub 1.vY :: 1.tY
+  }
+  scope 1 = "" Hidden
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  type 1.tZ :: 2.tType {
+      1.vZ :: 1.tZ
+  }
+
+  pub val 1.vmk :: 1.tZ
+   = 1.vZ
+status: pass
+reason: An export item names one namespace, so X exports the type alone and Y(Y) also the data constructor.
