@@ -508,6 +508,7 @@ moduleScope packageId exports modu =
     `unionScope` importedScope packageId exports modu
     `unionScope` implicitPrelude
     `unionScope` listConstructorScope
+    `unionScope` equalityScope
     `unionScope` builtinScope
   where
     -- A module's own top-level names are also in scope qualified by the
@@ -521,6 +522,8 @@ moduleScope packageId exports modu =
       | otherwise = emptyScope
     ghcTypesScope = lookupImportedModule packageId Nothing "GHC.Types" exports
     listConstructorScope = selectTerm ":" ghcTypesScope `unionScope` selectTerm "[]" ghcTypesScope
+    -- Equality syntax uses the exported type identity without an import.
+    equalityScope = selectType "~" ghcTypesScope
 
 -- | Whether the module gets the implicit Prelude import.
 --
