@@ -1,0 +1,45 @@
+extensions: []
+source: |
+  module Test where
+  data Bool = False | True
+  data Box = Box Bool
+  not :: Bool -> Bool
+  not x = case x of
+    False -> True
+    True -> False
+  box :: Bool -> Box
+  box x = case x of
+    False -> Box True
+    True -> Box False
+expected: |-
+  scope 1 = "" Test
+
+  constructor 1.False []
+
+  constructor 1.True []
+
+  constructor 1.Box [BoxedRep Lifted]
+
+  global 1.not = (P$not/1)
+
+  global 1.box = (P$box/1)
+
+  $not (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
+      data 1.False ->
+        constant global-ref 1.True
+      data 1.True ->
+        constant global-ref 1.False
+
+  $box (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
+      data 1.False ->
+        store (C1.Box global-ref 1.True)
+      data 1.True ->
+        store (C1.Box global-ref 1.False)
+status: pass
+reason: refers to the static node of a nullary constructor without an eval
