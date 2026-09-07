@@ -1,3 +1,5 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PolyKinds #-}
 
 module Data.Functor.Compose
@@ -14,36 +16,9 @@ import Data.Traversable (Traversable (..))
 import Prelude
 
 newtype Compose (f :: k -> Type) (g :: l -> k) (a :: l) = Compose {getCompose :: f (g a)}
+  deriving newtype (Eq, Ord, Bounded, Enum, Monoid)
 
 infixr 9 `Compose`
-
-instance (Eq (f (g a))) => Eq (Compose f g a) where
-  Compose left == Compose right = left == right
-  Compose left /= Compose right = left /= right
-
-instance (Ord (f (g a))) => Ord (Compose f g a) where
-  compare (Compose left) (Compose right) = compare left right
-  Compose left < Compose right = left < right
-  Compose left <= Compose right = left <= right
-  Compose left > Compose right = left > right
-  Compose left >= Compose right = left >= right
-  max (Compose left) (Compose right) = Compose (max left right)
-  min (Compose left) (Compose right) = Compose (min left right)
-
-instance (Bounded (f (g a))) => Bounded (Compose f g a) where
-  minBound = Compose minBound
-  maxBound = Compose maxBound
-
-instance (Enum (f (g a))) => Enum (Compose f g a) where
-  succ (Compose value) = Compose (succ value)
-  pred (Compose value) = Compose (pred value)
-  toEnum value = Compose (toEnum value)
-  fromEnum (Compose value) = fromEnum value
-  enumFrom (Compose value) = mapCompose (enumFrom value)
-  enumFromThen (Compose first) (Compose second) = mapCompose (enumFromThen first second)
-  enumFromTo (Compose first) (Compose last) = mapCompose (enumFromTo first last)
-  enumFromThenTo (Compose first) (Compose second) (Compose last) =
-    mapCompose (enumFromThenTo first second last)
 
 instance (Read (f (g a))) => Read (Compose f g a) where
   readsPrec precedence = readParen (precedence > 10) readCompose
@@ -74,9 +49,6 @@ instance (Alternative f, Applicative g) => Alternative (Compose f g) where
 instance (Semigroup (f (g a))) => Semigroup (Compose f g a) where
   Compose left <> Compose right = Compose (left <> right)
 
-instance (Monoid (f (g a))) => Monoid (Compose f g a) where
-  mempty = Compose mempty
-
 readCompose :: (Read (f (g a))) => ReadS (Compose f g a)
 readCompose input =
   case lex input of
@@ -89,9 +61,6 @@ readCompose input =
 wrapComposeReads :: [(f (g a), String)] -> [(Compose f g a, String)]
 wrapComposeReads [] = []
 wrapComposeReads ((value, rest) : results) = (Compose value, rest) : wrapComposeReads results
-
-mapCompose :: [f (g a)] -> [Compose f g a]
-mapCompose = fmap Compose
 
 foldComposeRight :: (Foldable g) => (a -> b -> b) -> g a -> b -> b
 foldComposeRight f inner rest = foldr f rest inner
