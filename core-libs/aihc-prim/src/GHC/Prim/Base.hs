@@ -45,10 +45,13 @@ class (Functor f) => Applicative (f :: Type -> Type) where
 
 infixl 4 <*>, *>, <*
 
+{- HLINT ignore "Use >>" -}
 class (Applicative m) => Monad (m :: Type -> Type) where
   (>>=) :: m a -> (a -> m b) -> m b
   (>>) :: m a -> m b -> m b
   return :: a -> m a
+  action >> next = action >>= \_ -> next
+  return = pure
 
 infixl 1 >>=, >>
 

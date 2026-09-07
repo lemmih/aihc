@@ -21,6 +21,7 @@ module GHC.Read
   )
 where
 
+import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Read.Lex
   ( Lexeme (..),
     NumberToken (..),
@@ -208,6 +209,21 @@ instance (Read a) => Read (Maybe a) where
     parens
       ( choose [("Nothing", return Nothing)]
           +++ prec 10 (do expectP (Ident "Just"); value <- step readPrec; return (Just value))
+      )
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance (Read a) => Read (NonEmpty a) where
+  readPrec =
+    parens
+      ( prec
+          5
+          ( do
+              value <- step readPrec
+              expectP (Symbol ":|")
+              values <- step readPrec
+              return (value :| values)
+          )
       )
   readListPrec = readListPrecDefault
   readList = readListDefault
