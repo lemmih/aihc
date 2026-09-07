@@ -21,14 +21,14 @@ The TC, FC, and GRIN fixtures use the project libraries without a substitute equ
 
 All ten resolver fixtures pass.
 Equality syntax uses the exported `GHC.Types` identity without an explicit import.
-The current fixture counts include seven additional TC cases and three additional cases in each downstream stage.
+The current fixture counts include ten additional TC cases and four additional cases in each downstream stage.
 
 | Stage | PASS | XFAIL |
 | --- | ---: | ---: |
 | Resolve | 10 | 0 |
-| TC | 33 | 6 |
-| FC | 20 | 9 |
-| GRIN evaluation | 22 | 7 |
+| TC | 34 | 8 |
+| FC | 21 | 9 |
+| GRIN evaluation | 23 | 7 |
 
 The additional positive fixtures test a user class named `~` and transitivity with reversed constraint order.
 GHC 9.12.4 accepts both programs.
@@ -62,6 +62,9 @@ Congruence closure preserves proofs through lists, functions, and type applicati
 A cyclic-given fixture checks transitivity with congruence.
 A family-congruence fixture checks the valid direction of equality under a non-injective family.
 A TC fixture checks parent evidence after a child constraint defers.
+An instance-method result fixture checks congruence from an instance context at all three compiler stages.
+Two further TC fixtures cover instance-method arguments and the overloaded-string instance shape.
+These two fixtures retain XFAIL status.
 Six additional FC fixtures check application and function proofs, including invalid kinds and roles.
 
 Further work must preserve proofs through constructor decomposition, nested scopes, and superclass projection.

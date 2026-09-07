@@ -3989,11 +3989,11 @@ dataConSourceLayout declaration =
     RecordCon _ _ constructor fields ->
       (RecordDataCon, recordSourceFields fields, [unqualifiedNameText constructor])
     TupleCon _ _ flavor fields ->
-      (PrefixDataCon, map (Nothing,) fields, [tupleConText flavor (length fields)])
+      (SyntaxDataCon, map (Nothing,) fields, [tupleConText flavor (length fields)])
     UnboxedSumCon _ _ position arity field ->
-      (PrefixDataCon, [(Nothing, field)], [unboxedSumConText position arity])
+      (SyntaxDataCon, [(Nothing, field)], [unboxedSumConText position arity])
     ListCon {} ->
-      (PrefixDataCon, [], ["[]"])
+      (SyntaxDataCon, [], ["[]"])
     GadtCon _ _ constructors body ->
       let names = map unqualifiedNameText constructors
        in case body of

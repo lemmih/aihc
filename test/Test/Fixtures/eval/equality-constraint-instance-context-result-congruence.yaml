@@ -1,0 +1,24 @@
+extensions:
+- GADTs
+- TypeOperators
+- FlexibleInstances
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data DL a = DL a
+  wrap :: Flag -> DL Flag
+  wrap = DL
+  class FromFlag a where
+    fromFlag :: Flag -> a
+  instance (a ~ Flag) => FromFlag (DL a) where
+    fromFlag = wrap
+  result = case fromFlag On :: DL Flag of
+    DL x -> x
+status: pass
+reason: An instance-context equality lifts through a type constructor in a method result.
+expression: result
+output: |
+  On
+evaluators:
+- grin
