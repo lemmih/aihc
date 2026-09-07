@@ -13,7 +13,6 @@ module Aihc.Arm64.Text
 where
 
 import Aihc.Arm64.Assemble
-import Aihc.Native.Object (SectionRole (..))
 import Data.ByteString qualified as BS
 import Data.Char (toLower)
 import Data.Int (Int64)

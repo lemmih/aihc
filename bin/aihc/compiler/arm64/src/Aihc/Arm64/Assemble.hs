@@ -19,6 +19,8 @@ module Aihc.Arm64.Assemble
     arm64Word,
     arm64QuadSymbolAddend,
     arm64Section,
+    -- | Re-exported so that a caller can name the section of a statement.
+    SectionRole (..),
   )
 where
 

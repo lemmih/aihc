@@ -23,6 +23,8 @@ module Aihc.Amd64.Assemble
     amd64QuadSymbol,
     amd64QuadSymbolAddend,
     amd64Section,
+    -- | Re-exported so that a caller can name the section of a statement.
+    SectionRole (..),
   )
 where
 

@@ -312,6 +312,7 @@ test-suite spec
     Test.Llvm.Spec
     Test.Native.Compiler
     Test.Native.GcFuzz
+    Test.Native.Object
     Test.Native.Observed
     Test.Native.Primitive
     Test.Native.Runtime
