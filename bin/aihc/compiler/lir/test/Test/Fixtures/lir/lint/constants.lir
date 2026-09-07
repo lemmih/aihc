@@ -1,0 +1,21 @@
+; error: @small: duplicate definition of @small
+; error: @t: unknown symbol @missing
+; error: @t: @t is not a constant
+; error: @t: constant @big = 4294967296 does not fit i32
+; error: @u: constant @big = 4294967296 does not fit i32
+; error: @main/entry: constant @big = 4294967296 does not fit i8
+; error: @main/entry: literal @small does not have type ptr
+
+const @small = 1
+const @small = 2
+const @big = 4294967296
+
+data @t align 8 = { word @missing, i64 @t, i32 @big }
+data @u align 8 = { word @big }
+
+func @main() -> i8 {
+entry:
+  %a = add i8 @big, 1
+  %b = ptr.to_int @small
+  return %a
+}

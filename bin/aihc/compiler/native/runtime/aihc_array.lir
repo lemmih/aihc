@@ -13,15 +13,16 @@
 ; walks arrays that the GC fuzz harness builds with info tables of its own,
 ; so the object-kind check stays where the collector can share it.
 
+include "aihc_constants.lir"
+
 extern func @aihc_fail(ptr) cc c
 extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
 extern func @aihc_record_allocation(ptr) cc c
 extern func @aihc_array_length(ptr) -> i64 cc c
 
-; The info table of every array. AIHC_OBJECT_ARRAY is 6 and
-; AIHC_FRAME_NONE is 0. The collector reaches an array's elements from the
-; length rather than from field_is_pointer, which stays null as it does for
-; the C table this replaces.
+; The info table of every array. The collector reaches an array's elements
+; from the length rather than from field_is_pointer, which stays null as it
+; does for the C table this replaces.
 data @aihc_array_info align 8 = {
   ptr null,   ; identity
   code null,  ; entry
@@ -30,8 +31,8 @@ data @aihc_array_info align 8 = {
   ptr null,   ; field_is_pointer
   ptr null,   ; next
   code null,  ; backend_entry
-  word 0,     ; frame_kind
-  word 6,     ; object_kind = AIHC_OBJECT_ARRAY
+  word @AIHC_FRAME_NONE,    ; frame_kind
+  word @AIHC_OBJECT_ARRAY,  ; object_kind
   ptr null    ; srt
 }
 

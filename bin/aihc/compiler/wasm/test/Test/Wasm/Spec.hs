@@ -106,7 +106,8 @@ compileText lirModule = either (assertFailure . ("WebAssembly backend failed: " 
 fixtureTest :: Maybe WasmTools -> FilePath -> FilePath -> TestTree
 fixtureTest tools directory name = testCase name $ do
   source <- TIO.readFile (directory </> name)
-  lirModule <- either (assertFailure . renderParseError) pure (parseModule source)
+  parsed <- either (assertFailure . renderParseError) pure (parseModule source)
+  lirModule <- either (assertFailure . renderLoadError) pure =<< expandIncludes TIO.readFile (directory </> name) parsed
   let resultTypes = concat [functionResults function | ItemFunction function <- moduleItems lirModule, functionName function == Symbol "main"]
       wrapped = Module (moduleItems lirModule <> [ItemFunction (testWrapper resultTypes)])
   assembly <- compileText wrapped

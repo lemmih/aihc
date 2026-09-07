@@ -20,6 +20,7 @@ extra-source-files:
   compiler/lir/test/Test/Fixtures/lir/asm/*.lir
   compiler/lir/test/Test/Fixtures/lir/asm/*.s
   compiler/lir/test/Test/Fixtures/lir/eval/*.lir
+  compiler/lir/test/Test/Fixtures/lir/include/*.lir
   compiler/lir/test/Test/Fixtures/lir/lint/*.lir
   compiler/native/test/Test/Runtime/aihc_snapshot.c
   compiler/native/test/Test/Runtime/aihc_snapshot.h
@@ -49,6 +50,7 @@ extra-source-files:
 data-files:
   compiler/native/runtime/aihc_array.lir
   compiler/native/runtime/aihc_byte_array.lir
+  compiler/native/runtime/aihc_constants.lir
   compiler/native/runtime/aihc_gc_semispace.c
   compiler/native/runtime/aihc_host_posix.c
   compiler/native/runtime/aihc_host_wasip3.c
@@ -122,6 +124,7 @@ library compiler
     Aihc.Lir.Parser
     Aihc.Lir.Pretty
     Aihc.Lir.RegAlloc
+    Aihc.Lir.Resolve
     Aihc.Lir.Syntax
     Aihc.Llvm.Lir
     Aihc.Native

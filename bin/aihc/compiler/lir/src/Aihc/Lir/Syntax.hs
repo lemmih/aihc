@@ -21,6 +21,7 @@ module Aihc.Lir.Syntax
     functionSignature,
     ExternFunction (..),
     Global (..),
+    Constant (..),
     DataItem (..),
     DataField (..),
     Block (..),
@@ -58,6 +59,11 @@ data Item
   | ItemGlobal !Global
   | ItemData !DataItem
   | ItemExternData !Symbol
+  | ItemConstant !Constant
+  | -- | @include "path"@: the constants of another file, whose path is
+    -- relative to the directory of the including file.
+    -- "Aihc.Lir.Resolve" replaces the item with those constants.
+    ItemInclude !Text
   deriving (Eq, Show)
 
 -- | A module-level name: a function, a global, or a data object.
@@ -143,6 +149,15 @@ data Global = Global
   }
   deriving (Eq, Show)
 
+-- | @const \@name = value@: a named integer. A reference to it stands
+-- wherever an integer literal does, and 'Aihc.Lir.Resolve' substitutes the
+-- value before a backend sees the module.
+data Constant = Constant
+  { constantName :: !Symbol,
+    constantValue :: !Integer
+  }
+  deriving (Eq, Show)
+
 data DataItem = DataItem
   { dataName :: !Symbol,
     dataLinkage :: !Linkage,
@@ -156,6 +171,8 @@ data DataField
   = -- | An integer stored little-endian in the width of the type. The type
     -- is 'I1' or an integer type; the text format has no other form.
     DataInt !Type !Integer
+  | -- | @i64 \@name@: a 'DataInt' whose value is a named constant.
+    DataIntConstant !Type !Symbol
   | -- | A float stored little-endian in the width of the type. The type is
     -- 'F32' or 'F64'.
     DataFloat !Type !Double
@@ -168,6 +185,8 @@ data DataField
     -- both a 64-bit and a 32-bit target. The value fits 32 bits, so no
     -- target truncates it.
     DataWord !Integer
+  | -- | @word \@name@: a 'DataWord' whose value is a named constant.
+    DataWordConstant !Symbol
   | -- | @code \@symbol@ or @code null@: the address of a function, or one
     -- word of zero bytes.
     DataCode !(Maybe Symbol)

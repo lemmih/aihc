@@ -42,8 +42,14 @@ genItem =
       (1, ItemExternFunction <$> (ExternFunction <$> genSymbol <*> genSignature)),
       (1, ItemGlobal <$> (Global <$> genSymbol <*> genType <*> Gen.bool)),
       (2, ItemData <$> genData),
-      (1, ItemExternData <$> genSymbol)
+      (1, ItemExternData <$> genSymbol),
+      (1, ItemConstant <$> (Constant <$> genSymbol <*> genInteger)),
+      (1, ItemInclude <$> genIncludePath)
     ]
+
+-- | An include path, with the characters a string literal escapes.
+genIncludePath :: Gen Text
+genIncludePath = Gen.text (Range.linear 1 12) (Gen.frequency [(8, Gen.alphaNum), (1, Gen.element ("/._-\"\\\n" :: String))])
 
 genFunction :: Gen Function
 genFunction =
@@ -120,6 +126,8 @@ genDataField :: Gen DataField
 genDataField =
   Gen.choice
     [ DataInt <$> Gen.element [I1, I8, I16, I32, I64] <*> genInteger,
+      DataIntConstant <$> Gen.element [I1, I8, I16, I32, I64] <*> genSymbol,
+      DataWordConstant <$> genSymbol,
       DataFloat <$> Gen.element [F32, F64] <*> genDouble,
       DataSymbol <$> genSymbol <*> genInteger,
       pure DataNull,

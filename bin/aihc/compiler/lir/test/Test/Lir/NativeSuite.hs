@@ -116,7 +116,8 @@ compileUnit backend lirModule = either (assertFailure . ("backend failed: " <>))
 fixtureTest :: NativeBackend -> FilePath -> FilePath -> TestTree
 fixtureTest backend directory name = testCase name $ do
   source <- TIO.readFile (directory </> name)
-  lirModule <- either (assertFailure . renderParseError) pure (parseModule source)
+  parsed <- either (assertFailure . renderParseError) pure (parseModule source)
+  lirModule <- either (assertFailure . renderLoadError) pure =<< expandIncludes TIO.readFile (directory </> name) parsed
   let resultTypes = concat [functionResults function | ItemFunction function <- moduleItems lirModule, functionName function == Symbol "main"]
       wrapped = Module (moduleItems lirModule <> [ItemFunction (testWrapper resultTypes)])
   output <- compileUnit backend wrapped

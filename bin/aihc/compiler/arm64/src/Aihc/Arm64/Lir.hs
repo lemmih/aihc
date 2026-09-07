@@ -34,6 +34,7 @@ where
 import Aihc.Arm64.Assemble
 import Aihc.Lir.Lint (LintError, lintModule)
 import Aihc.Lir.RegAlloc (Allocation (..), Registers (..), allocateRegistersFor, readCounts)
+import Aihc.Lir.Resolve (resolveConstants, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Aihc.Native.Object (SectionRole (..))
 import Control.Monad (forM, when, zipWithM)
@@ -69,11 +70,12 @@ compileLirObject lirModule = do
   either (Left . Arm64LirObjectError . T.pack . show) pure (assembleMachO statements)
 
 compileLirStatements :: Module -> Either Arm64LirError [Arm64Statement]
-compileLirStatements lirModule@(Module items) =
+compileLirStatements lirModule =
   case lintModule lirModule of
     [] -> evalStateT compileItems initialState
     errors -> Left (Arm64LirLintErrors errors)
   where
+    Module items = resolveConstants lirModule
     initialState = ObjectState {objectTraps = Map.empty, objectNextLabel = 0}
     signatures =
       Map.fromList
@@ -173,12 +175,14 @@ compileData dataItem =
     symbol = lirSymbol (dataName dataItem)
     field dataField =
       case dataField of
+        DataIntConstant _ constant -> unresolvedConstant constant
         DataInt ty value -> [arm64Word (typeBytes ty) (fromInteger value)]
         DataFloat F32 value -> [arm64Word 4 (fromIntegral (castFloatToWord32 (double2Float value)))]
         DataFloat _ value -> [arm64Word 8 (castDoubleToWord64 value)]
         DataSymbol target 0 -> [arm64QuadSymbol (lirSymbol target)]
         DataSymbol target addend -> [arm64QuadSymbolAddend (lirSymbol target) (fromInteger addend)]
         DataNull -> [arm64Quad 0]
+        DataWordConstant constant -> unresolvedConstant constant
         DataWord value -> [arm64Word 8 (fromInteger value)]
         DataCode Nothing -> [arm64Quad 0]
         DataCode (Just target) -> [arm64QuadSymbol (lirSymbol target)]
