@@ -3939,10 +3939,12 @@ registerDataConWithResult paramInfos resTy con = case con of
         argSurfTys = gadtBodyArgTypes body
     gadtResTy <- checkSurfaceType constructorEnv resultSurfTy KType
     gadtArgTys <- mapM (checkRuntimeType constructorEnv) argSurfTys
-    predicates <- mapM (surfacePredToPred constructorEnv) context
-    let conTy = foldr TcFunTy gadtResTy gadtArgTys
-        candidateTyVars = paramVarIds <> constructorTyVars
-        quantifiedTyVars = filter (\tyVar -> typeMentionsTyVar tyVar conTy || any (predicateMentionsTyVar tyVar) predicates) candidateTyVars
+    writtenPredicates <- mapM (surfacePredToPred constructorEnv) context
+    (universalTyVars, refinementPredicates, universalResTy) <- rejigGadtResult resTy gadtResTy
+    let predicates = refinementPredicates <> writtenPredicates
+        conTy = foldr TcFunTy universalResTy gadtArgTys
+        candidateTyVars = filter (`notElem` universalTyVars) (paramVarIds <> constructorTyVars)
+        quantifiedTyVars = universalTyVars <> filter (\tyVar -> typeMentionsTyVar tyVar conTy || any (predicateMentionsTyVar tyVar) predicates) candidateTyVars
         gadtScheme = ForAll quantifiedTyVars predicates conTy
     mapM_
       ( \n -> do
@@ -3985,6 +3987,48 @@ registerDataConWithResult paramInfos resTy con = case con of
             _ -> extendTermEnvPermanent name (TcIdBinder scheme Closed)
       zonkedTy <- zonkType (schemeToType scheme)
       pure (TcBindingResult name name zonkedTy)
+
+-- | Give a GADT constructor the GHC representation: the result type is the
+-- data type applied to distinct universal variables, and every index that the
+-- declaration refines becomes an equality predicate. @Refl :: Equal a a@
+-- therefore has the type @forall a b. (b ~ a) => Equal a b@, so a match on the
+-- constructor binds the equality that the alternative body casts with.
+--
+-- The rejig applies when the declared result is the data type applied to
+-- distinct variables. A data family instance whose result carries indices keeps
+-- the written result type.
+rejigGadtResult :: TcType -> TcType -> TcM ([TyVarId], [Pred], TcType)
+rejigGadtResult declaredResTy writtenResTy =
+  case (declaredResTy, writtenResTy) of
+    (TcTyCon declaredTyCon declaredArgs, TcTyCon writtenTyCon writtenArgs)
+      | declaredTyCon == writtenTyCon,
+        length declaredArgs == length writtenArgs,
+        Just params <- mapM declaredParam declaredArgs,
+        distinctTyVars params -> do
+          (universals, predicates) <- rejigIndices [] (zip params writtenArgs)
+          pure (universals, predicates, TcTyCon writtenTyCon (map TcTyVar universals))
+    _ -> pure ([], [], writtenResTy)
+  where
+    declaredParam ty = case ty of
+      TcTyVar tyVar -> Just tyVar
+      _ -> Nothing
+    distinctTyVars tyVars = length (nub (map tvUnique tyVars)) == length tyVars
+
+-- | Walk the written result indices left to right. An index that is a variable
+-- no earlier index has claimed becomes the universal variable for that
+-- position. Every other index becomes a fresh universal variable and an
+-- equality with the written index.
+rejigIndices :: [TyVarId] -> [(TyVarId, TcType)] -> TcM ([TyVarId], [Pred])
+rejigIndices _ [] = pure ([], [])
+rejigIndices claimed ((param, writtenArg) : rest) = do
+  (universal, predicates) <- case writtenArg of
+    TcTyVar tyVar
+      | tvUnique tyVar `notElem` map tvUnique claimed -> pure (tyVar, [])
+    _ -> do
+      fresh <- setTyVarKind (tvKind param) <$> freshSkolemTv (tvName param)
+      pure (fresh, [EqPred (TcTyVar fresh) writtenArg])
+  (universals, restPredicates) <- rejigIndices (universal : claimed) rest
+  pure (universal : universals, predicates <> restPredicates)
 
 tupleConText :: TupleFlavor -> Int -> Text
 tupleConText flavor arity =

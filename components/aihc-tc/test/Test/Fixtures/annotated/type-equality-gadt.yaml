@@ -8,10 +8,10 @@ annotated:
   data a :~: b where
          └─ type: Type → Type → Type
     Refl :: a :~: a
-    └─ type: ∀ a. :~: a a
+    └─ type: ∀ a b. (b ~ a) ⇒ :~: a b
   proof :: Bool :~: Bool
   proof = Refl
-  │       └─ type: :~: Bool Bool; type-args: Bool
+  │       └─ type: :~: Bool Bool; type-args: Bool, Bool; evidence: refl Bool
   └─ type: :~: Bool Bool
 extensions:
   - TypeOperators
