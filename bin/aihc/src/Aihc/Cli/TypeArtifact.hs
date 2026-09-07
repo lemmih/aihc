@@ -816,9 +816,10 @@ putDataConSourceForm sourceForm = cborWord $ case sourceForm of
   PrefixDataCon -> 0
   InfixDataCon -> 1
   RecordDataCon -> 2
+  SyntaxDataCon -> 3
 
 getDataConSourceForm :: Get.Get DataConSourceForm
-getDataConSourceForm = getTagged "constructor source form" [(0, PrefixDataCon), (1, InfixDataCon), (2, RecordDataCon)]
+getDataConSourceForm = getTagged "constructor source form" [(0, PrefixDataCon), (1, InfixDataCon), (2, RecordDataCon), (3, SyntaxDataCon)]
 
 putDataConFieldUnpack :: DataConFieldUnpack -> Builder.Builder
 putDataConFieldUnpack unpack = cborWord $ case unpack of
