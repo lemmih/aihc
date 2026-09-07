@@ -1,0 +1,25 @@
+entry: $entry
+program: |
+  primitive quotRemWord2#%1 :: TupleRep [WordRep, WordRep]/3
+  primitive cstringLength#%2 :: IntRep/1
+
+  $entry -> TupleRep [WordRep, WordRep, IntRep, IntRep] =
+    (quotient%3 :: WordRep), (remainder%4 :: WordRep) <- primitive-call @(TupleRep [WordRep, WordRep]) quotRemWord2# (1 :: WordRep) (5 :: WordRep) (3 :: WordRep)
+    (length%5 :: IntRep) <- primitive-call @IntRep cstringLength# "abc\0def"#
+    (empty%6 :: IntRep) <- primitive-call @IntRep cstringLength# ""#
+    constant (quotient%3 :: WordRep) (remainder%4 :: WordRep) (length%5 :: IntRep) (empty%6 :: IntRep)
+return: "(6148914691236517207, 0, 3, 0)"
+heap: "[]"
+allocations:
+  macos-arm64: 0
+  linux-amd64: 0
+status: pass
+reason: Shared scalar helpers handle a high dividend word and zero-terminated strings. A four-value continuation remains local.
+lir-externs:
+  - aihc_lir_quotrem2
+  - aihc_lir_cstring_length
+lir-absent-functions:
+  - aihc_lir_quotrem2
+  - aihc_lir_cstring_length
+lir-functions:
+  - aihc_lir_continue_iiii

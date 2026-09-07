@@ -164,6 +164,15 @@ struct AihcMachine {
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
                "AIHC objects must have a one-word base header");
 
+/* Portable Lir access to pointer-sized runtime records. */
+uint64_t aihc_lir_info_kind(const AihcInfo *info);
+uint64_t aihc_lir_info_arity(const AihcInfo *info);
+uint64_t aihc_lir_info_count(const AihcInfo *info);
+AihcBackendEntry aihc_lir_info_entry(const AihcInfo *info);
+const AihcInfo *aihc_lir_info_next(const AihcInfo *info);
+const uint8_t *aihc_lir_info_bitmap(const AihcInfo *info);
+void aihc_lir_take_resume(AihcResume *resume, uint64_t *slots);
+
 static inline const AihcInfo *aihc_value_info_table(const AihcValue *value) {
   return (const AihcInfo *)(uintptr_t)value->header;
 }

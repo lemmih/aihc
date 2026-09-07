@@ -469,10 +469,10 @@ The lowering keeps the control model of CPS-GRIN:
   it with the constructor tables. A case on a scalar is a `switch`.
 - A heap reservation stores the live roots in a `stack.alloc` array, calls
   `aihc_ensure_heap`, and reloads the relocated roots.
-- Evaluation, application, continuation, and scheduler resumption go through
-  shared functions that the lowering generates into every module that uses
-  them. The functions `aihc_lir_continue_*` and `aihc_lir_apply_*` exist per
-  shape of the supplied values.
+- Evaluation and scheduler resumption use shared runtime functions.
+  Application and continuation use shared functions for `[]`, `[ptr]`, and
+  `[i64]`. The compiler emits local helpers for all other argument shapes.
+  Helper names describe Lir types, rather than source types.
 - The executable entry unit defines the top, final, update, and thread done
   continuations and the exit function. On a POSIX host it defines `main`,
   which starts the machine and returns when the exit function returns. On
@@ -492,9 +492,9 @@ both collectors work with this pipeline.
 
 A runtime unit is a `.lir` file in `bin/aihc/compiler/native/runtime` that
 `aihc prepare-runtime` parses, lints, and compiles with the backend of the
-target. Its object joins the C objects in the runtime archive, so a runtime
-function written in Lir and one written in C call each other through the same
-`c` convention and the same symbol names.
+target. Its object joins the C objects in the runtime archive.
+Calls between Lir and C use the `c` convention.
+Calls to shared Lir helpers use the `aihc` convention.
 
 The archive is what a program links. `Aihc.Cli.Runtime.buildRuntimeArchive`
 builds one, and a test harness that needs its own runtime — an instrumented
@@ -504,6 +504,18 @@ changes no test. A link places the archive after the objects that reference
 it.
 
 The units are:
+
+- `aihc_helpers.lir` defines `eval`, `resume`, the slot dispatchers,
+  `quotrem2`, and `cstring_length`. It also defines `apply` and `continue`
+  for `[]`, `[ptr]`, and `[i64]`. Library modules declare these functions
+  as externs. Other shapes remain local, without a fixed shape limit.
+  C accessors read pointer-sized info-table fields. `aihc_lir_take_resume`
+  copies a scheduler record to five eight-byte slots and clears the record.
+  The executable entry retains its exit helper because that helper updates
+  the executable halt flag.
+  ARM64 uses a local branch stub when more than eight calls share an
+  external `aihc` target. This keeps one external branch relocation per
+  stub, rather than one per call. The stub contains no helper logic.
 
 - `aihc_array.lir` holds the info table of a boxed array and the functions
   `aihc_array_new`, `aihc_array_index`, `aihc_array_write`, and

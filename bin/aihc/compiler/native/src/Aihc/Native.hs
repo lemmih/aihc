@@ -386,7 +386,7 @@ runtimePlan target garbageCollector = do
   lirUnits <-
     traverse
       (getDataFileName . ("compiler/native/runtime/" <>))
-      ["aihc_array.lir", "aihc_byte_array.lir", "aihc_mutvar.lir", "aihc_runtime_options.lir", "aihc_stable_name.lir"]
+      ["aihc_helpers.lir", "aihc_array.lir", "aihc_byte_array.lir", "aihc_mutvar.lir", "aihc_runtime_options.lir", "aihc_stable_name.lir"]
   pure
     RuntimePlan
       { runtimeSources = [core, collector, host],

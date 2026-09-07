@@ -23,3 +23,7 @@ allocations:
   linux-amd64: 1
 status: pass
 reason: saturated closure arguments beyond the native register set use temporary stack overflow slots without heap allocation
+lir-functions:
+  - aihc_lir_apply_iiiiiiiii
+lir-externs:
+  - aihc_lir_continue_i

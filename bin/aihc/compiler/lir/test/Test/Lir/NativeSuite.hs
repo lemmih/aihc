@@ -222,7 +222,10 @@ data SnapshotFixture = SnapshotFixture
     snapshotFixtureHeap :: !(Maybe Text),
     snapshotFixtureError :: !(Maybe Text),
     snapshotFixtureAllocations :: !(Maybe (Map.Map Text Word64)),
-    snapshotFixtureStatus :: !Text
+    snapshotFixtureStatus :: !Text,
+    snapshotFixtureLirExterns :: !(Maybe [Text]),
+    snapshotFixtureLirFunctions :: !(Maybe [Text]),
+    snapshotFixtureLirAbsentFunctions :: !(Maybe [Text])
   }
 
 instance FromJSON SnapshotFixture where
@@ -236,6 +239,9 @@ instance FromJSON SnapshotFixture where
         <*> object .:? "error"
         <*> object .:? "allocations"
         <*> object .: "status"
+        <*> object .:? "lir-externs"
+        <*> object .:? "lir-functions"
+        <*> object .:? "lir-absent-functions"
 
 -- | Lower the fixture program through Lir, check the Lir with the linter,
 -- and compare the native heap snapshot with the fixture.
@@ -247,6 +253,11 @@ snapshotTest backend directory name = testCase name $ do
   gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin program)
   (lirModule, metadata) <- either (assertFailure . show) pure (lowerObservedProgram (backendLowerTarget backend) (FunctionName (snapshotFixtureEntry fixture)) gc)
   assertEqual "Lir lint" [] (map renderLintError (lintModule lirModule))
+  let externs = [unSymbol (externFunctionName function) | ItemExternFunction function <- moduleItems lirModule]
+      functions = [unSymbol (functionName function) | ItemFunction function <- moduleItems lirModule]
+  mapM_ (\name' -> assertBool ("Lir extern: " <> T.unpack name') (name' `elem` externs)) (fromMaybe [] (snapshotFixtureLirExterns fixture))
+  mapM_ (\name' -> assertBool ("Lir function: " <> T.unpack name') (name' `elem` functions)) (fromMaybe [] (snapshotFixtureLirFunctions fixture))
+  mapM_ (\name' -> assertBool ("Lir function must be absent: " <> T.unpack name') (name' `notElem` functions)) (fromMaybe [] (snapshotFixtureLirAbsentFunctions fixture))
   reparsed <- either (assertFailure . renderParseError) pure (parseModule (renderModule lirModule))
   assertEqual "Lir pretty-printer round-trip" lirModule reparsed
   output <- compileUnit backend lirModule

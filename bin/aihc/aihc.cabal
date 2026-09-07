@@ -50,6 +50,7 @@ data-files:
   compiler/native/runtime/aihc_array.lir
   compiler/native/runtime/aihc_byte_array.lir
   compiler/native/runtime/aihc_gc_semispace.c
+  compiler/native/runtime/aihc_helpers.lir
   compiler/native/runtime/aihc_host_posix.c
   compiler/native/runtime/aihc_host_wasip3.c
   compiler/native/runtime/aihc_mutvar.lir

@@ -1,0 +1,447 @@
+; Shared evaluation, application, continuation, and scalar helpers.
+; Common argument shapes are [], [ptr], and [i64].
+; The compiler emits other shapes in the module that needs them.
+; Heap slots have eight bytes on every target.
+; C accessors isolate the pointer-sized info tables and scheduler records.
+
+extern func @aihc_lir_info_kind(ptr) -> i64 cc c
+extern func @aihc_lir_info_arity(ptr) -> i64 cc c
+extern func @aihc_lir_info_count(ptr) -> i64 cc c
+extern func @aihc_lir_info_entry(ptr) -> code cc c
+extern func @aihc_lir_info_next(ptr) -> ptr cc c
+extern func @aihc_lir_info_bitmap(ptr) -> ptr cc c
+extern func @aihc_lir_take_resume(ptr, ptr) cc c
+
+extern func @aihc_apply_slow(ptr, ptr, i64, ptr, ptr) -> ptr cc c
+
+extern func @aihc_begin_blackhole(ptr, ptr) cc c
+
+extern func @aihc_block_on_blackhole(ptr, ptr, ptr) -> ptr cc c
+
+extern func @aihc_no_match() cc c
+
+extern func @aihc_raise(ptr, ptr, ptr) -> ptr cc c
+
+export func @aihc_lir_eval(%machine: ptr, %value: ptr, %lifted: i64, %continuation: ptr, %update: ptr) {
+entry:
+  jump loop(%value)
+
+loop(%current: ptr):
+  %header_word = load i64 [%current] align 8
+  %header = ptr.from_int %header_word
+  %kind = call @aihc_lir_info_kind(%header)
+  switch i64 %kind {
+    2 -> thunk
+    4 -> indirection
+    5 -> blackhole
+    default -> ready
+  }
+
+thunk:
+  call @aihc_begin_blackhole(%machine, %current)
+  %entry = call @aihc_lir_info_entry(%header)
+  tailcall.indirect %entry(%machine, %current, %update) : (ptr, ptr, ptr)
+
+indirection:
+  %is_lifted = ne i64 %lifted, 0
+  br %is_lifted, indirection_lifted, indirection_unlifted
+
+indirection_lifted:
+  %next_word = load i64 [%current + 8] align 8
+  %next = ptr.from_int %next_word
+  jump loop(%next)
+
+indirection_unlifted:
+  %raw = load i64 [%current + 8] align 8
+  tailcall @aihc_lir_continue_slot(%machine, %continuation, %raw)
+
+blackhole:
+  %result = call @aihc_block_on_blackhole(%machine, %current, %continuation)
+  tailcall @aihc_lir_resume(%machine, %result)
+
+ready:
+  tailcall @aihc_lir_continue_p(%machine, %continuation, %current)
+}
+
+; A null resumption returns control to the host.
+; Clear the selected record before the next scheduler operation.
+export func @aihc_lir_resume(%machine: ptr, %resume: ptr) {
+entry:
+  %slots = stack.alloc 40 align 8
+  %no_resume = eq ptr %resume, null
+  br %no_resume, suspend, dispatch
+
+suspend:
+  return
+
+dispatch:
+  call @aihc_lir_take_resume(%resume, %slots)
+  %kind = load i64 [%slots] align 8
+  %function_word = load i64 [%slots + 8] align 8
+  %function = ptr.from_int %function_word
+  %continuation_word = load i64 [%slots + 16] align 8
+  %continuation = ptr.from_int %continuation_word
+  %value = load i64 [%slots + 24] align 8
+  %count = load i64 [%slots + 32] align 8
+  switch i64 %kind {
+    1 -> apply
+    2 -> continue
+    3 -> raise
+    default -> invalid
+  }
+
+apply:
+  switch i64 %count {
+    0 -> apply_zero
+    1 -> apply_one
+    default -> invalid
+  }
+
+apply_zero:
+  tailcall @aihc_lir_apply_(%machine, %function, %continuation)
+
+apply_one:
+  tailcall @aihc_lir_apply_slot(%machine, %function, %continuation, %value)
+
+continue:
+  switch i64 %count {
+    0 -> continue_zero
+    1 -> continue_one
+    default -> invalid
+  }
+
+continue_zero:
+  tailcall @aihc_lir_continue_(%machine, %function)
+
+continue_one:
+  tailcall @aihc_lir_continue_slot(%machine, %function, %value)
+
+raise:
+  %result = call @aihc_raise(%machine, %function, %continuation)
+  tailcall @aihc_lir_resume(%machine, %result)
+
+invalid:
+  call @aihc_no_match()
+  trap "invalid scheduler resumption"
+}
+
+export func @aihc_lir_quotrem2(%high: i64, %low: i64, %divisor: i64) -> (i64, i64) {
+entry:
+  jump loop(%high, %low, 0, 64)
+
+loop(%h: i64, %l: i64, %q: i64, %n: i64):
+  %done = eq i64 %n, 0
+  br %done, finish(%q, %h), step
+
+step:
+  %top = shr.u i64 %h, 63
+  %top_set = ne i64 %top, 0
+  %carry = shr.u i64 %l, 63
+  %shifted_high = shl i64 %h, 1
+  %next_high = or i64 %shifted_high, %carry
+  %next_low = shl i64 %l, 1
+  %next_quotient = shl i64 %q, 1
+  %next_count = sub i64 %n, 1
+  %fits = ge.u i64 %next_high, %divisor
+  %subtract = or i1 %top_set, %fits
+  br %subtract, subtract(%next_high, %next_low, %next_quotient, %next_count), loop(%next_high, %next_low, %next_quotient, %next_count)
+
+subtract(%h_2: i64, %l_2: i64, %q_2: i64, %n_2: i64):
+  %reduced = sub i64 %h_2, %divisor
+  %set_quotient = or i64 %q_2, 1
+  jump loop(%reduced, %l_2, %set_quotient, %n_2)
+
+finish(%quotient: i64, %remainder: i64):
+  return %quotient, %remainder
+}
+
+export func @aihc_lir_cstring_length(%address: ptr) -> i64 {
+entry:
+  jump loop(%address, 0)
+
+loop(%current: ptr, %count: i64):
+  %byte = load i8 [%current] align 1
+  %at_end = eq i8 %byte, 0
+  br %at_end, finish(%count), step
+
+step:
+  %next_address = ptr.add %current, 1
+  %next_count = add i64 %count, 1
+  jump loop(%next_address, %next_count)
+
+finish(%length: i64):
+  return %length
+}
+
+export func @aihc_lir_continue_(%machine: ptr, %continuation: ptr) {
+entry:
+  jump loop(%continuation)
+
+loop(%current: ptr):
+  %header_word = load i64 [%current] align 8
+  %header = ptr.from_int %header_word
+  %kind = call @aihc_lir_info_kind(%header)
+  %indirection = eq i64 %kind, 4
+  br %indirection, indirection, enter
+
+indirection:
+  %next_word = load i64 [%current + 8] align 8
+  %next = ptr.from_int %next_word
+  jump loop(%next)
+
+enter:
+  %entry = call @aihc_lir_info_entry(%header)
+  tailcall.indirect %entry(%machine, %current, null) : (ptr, ptr, ptr)
+}
+
+export func @aihc_lir_continue_i(%machine: ptr, %continuation: ptr, %value: i64) {
+entry:
+  jump loop(%continuation)
+
+loop(%current: ptr):
+  %header_word = load i64 [%current] align 8
+  %header = ptr.from_int %header_word
+  %kind = call @aihc_lir_info_kind(%header)
+  %indirection = eq i64 %kind, 4
+  br %indirection, indirection, enter
+
+indirection:
+  %next_word = load i64 [%current + 8] align 8
+  %next = ptr.from_int %next_word
+  jump loop(%next)
+
+enter:
+  %entry = call @aihc_lir_info_entry(%header)
+  tailcall.indirect %entry(%machine, %current, null, %value) : (ptr, ptr, ptr, i64)
+}
+
+export func @aihc_lir_continue_p(%machine: ptr, %continuation: ptr, %value: ptr) {
+entry:
+  jump loop(%continuation)
+
+loop(%current: ptr):
+  %header_word = load i64 [%current] align 8
+  %header = ptr.from_int %header_word
+  %kind = call @aihc_lir_info_kind(%header)
+  %indirection = eq i64 %kind, 4
+  br %indirection, indirection, enter
+
+indirection:
+  %next_word = load i64 [%current + 8] align 8
+  %next = ptr.from_int %next_word
+  jump loop(%next)
+
+enter:
+  %entry = call @aihc_lir_info_entry(%header)
+  tailcall.indirect %entry(%machine, %current, null, %value) : (ptr, ptr, ptr, ptr)
+}
+
+; Arity counts application stages, not the number of Lir values.
+; Each common shape below supplies one application stage.
+export func @aihc_lir_apply_(%machine: ptr, %function: ptr, %continuation: ptr) {
+entry:
+  %slot = stack.alloc 8 align 8
+  jump loop(%function)
+
+loop(%current: ptr):
+  %header_word = load i64 [%current] align 8
+  %header = ptr.from_int %header_word
+  %kind = call @aihc_lir_info_kind(%header)
+  %indirection = eq i64 %kind, 4
+  br %indirection, indirection, apply
+
+indirection:
+  %next_word = load i64 [%current + 8] align 8
+  %next = ptr.from_int %next_word
+  jump loop(%next)
+
+apply:
+  %arity = call @aihc_lir_info_arity(%header)
+  %closure = eq i64 %kind, 1
+  %saturated = eq i64 %arity, 1
+  %fast = and i1 %closure, %saturated
+  br %fast, fast, slow
+
+fast:
+  %entry = call @aihc_lir_info_entry(%header)
+  tailcall.indirect %entry(%machine, %current, %continuation) : (ptr, ptr, ptr)
+
+slow:
+  store ptr %continuation, [%slot] align 8
+  %result = call @aihc_apply_slow(%machine, %current, 0, null, %slot)
+  %adjusted = load ptr [%slot] align 8
+  tailcall @aihc_lir_continue_p(%machine, %adjusted, %result)
+}
+
+export func @aihc_lir_apply_i(%machine: ptr, %function: ptr, %continuation: ptr, %value: i64) {
+entry:
+  %arguments = stack.alloc 8 align 8
+  %slot = stack.alloc 8 align 8
+  jump loop(%function)
+
+loop(%current: ptr):
+  %header_word = load i64 [%current] align 8
+  %header = ptr.from_int %header_word
+  %kind = call @aihc_lir_info_kind(%header)
+  %indirection = eq i64 %kind, 4
+  br %indirection, indirection, apply
+
+indirection:
+  %next_word = load i64 [%current + 8] align 8
+  %next = ptr.from_int %next_word
+  jump loop(%next)
+
+apply:
+  %arity = call @aihc_lir_info_arity(%header)
+  %closure = eq i64 %kind, 1
+  %saturated = eq i64 %arity, 1
+  %fast = and i1 %closure, %saturated
+  br %fast, fast, slow
+
+fast:
+  %entry = call @aihc_lir_info_entry(%header)
+  tailcall.indirect %entry(%machine, %current, %continuation, %value) : (ptr, ptr, ptr, i64)
+
+slow:
+  store i64 %value, [%arguments] align 8
+  store ptr %continuation, [%slot] align 8
+  %result = call @aihc_apply_slow(%machine, %current, 1, %arguments, %slot)
+  %adjusted = load ptr [%slot] align 8
+  tailcall @aihc_lir_continue_p(%machine, %adjusted, %result)
+}
+
+export func @aihc_lir_apply_p(%machine: ptr, %function: ptr, %continuation: ptr, %value: ptr) {
+entry:
+  %arguments = stack.alloc 8 align 8
+  %slot = stack.alloc 8 align 8
+  jump loop(%function)
+
+loop(%current: ptr):
+  %header_word = load i64 [%current] align 8
+  %header = ptr.from_int %header_word
+  %kind = call @aihc_lir_info_kind(%header)
+  %indirection = eq i64 %kind, 4
+  br %indirection, indirection, apply
+
+indirection:
+  %next_word = load i64 [%current + 8] align 8
+  %next = ptr.from_int %next_word
+  jump loop(%next)
+
+apply:
+  %arity = call @aihc_lir_info_arity(%header)
+  %closure = eq i64 %kind, 1
+  %saturated = eq i64 %arity, 1
+  %fast = and i1 %closure, %saturated
+  br %fast, fast, slow
+
+fast:
+  %entry = call @aihc_lir_info_entry(%header)
+  tailcall.indirect %entry(%machine, %current, %continuation, %value) : (ptr, ptr, ptr, ptr)
+
+slow:
+  %argument_word = ptr.to_int %value
+  store i64 %argument_word, [%arguments] align 8
+  store ptr %continuation, [%slot] align 8
+  %result = call @aihc_apply_slow(%machine, %current, 1, %arguments, %slot)
+  %adjusted = load ptr [%slot] align 8
+  tailcall @aihc_lir_continue_p(%machine, %adjusted, %result)
+}
+
+; The next-stage bitmap selects a pointer or an integer argument.
+; Follow indirections before the bitmap check.
+export func @aihc_lir_continue_slot(%machine: ptr, %continuation: ptr, %value: i64) {
+entry:
+  jump loop(%continuation)
+
+loop(%current: ptr):
+  %header_word = load i64 [%current] align 8
+  %header = ptr.from_int %header_word
+  %kind = call @aihc_lir_info_kind(%header)
+  %indirection = eq i64 %kind, 4
+  br %indirection, indirection, check
+
+indirection:
+  %next_word = load i64 [%current + 8] align 8
+  %next = ptr.from_int %next_word
+  jump loop(%next)
+
+check:
+  %next_info = call @aihc_lir_info_next(%header)
+  %has_next = ne ptr %next_info, null
+  br %has_next, count, word
+
+count:
+  %kind_is_partial = eq i64 %kind, 3
+  br %kind_is_partial, partial_count, info_count
+
+partial_count:
+  %applied = load i64 [%current + 8] align 8
+  jump bitmap(%applied)
+
+info_count:
+  %count = call @aihc_lir_info_count(%header)
+  jump bitmap(%count)
+
+bitmap(%count_2: i64):
+  %bitmap = call @aihc_lir_info_bitmap(%next_info)
+  %entry = ptr.add %bitmap, %count_2
+  %flag = load i8 [%entry] align 1
+  %is_pointer = ne i8 %flag, 0
+  br %is_pointer, pointer, word
+
+pointer:
+  %pointer = ptr.from_int %value
+  tailcall @aihc_lir_continue_p(%machine, %current, %pointer)
+
+word:
+  tailcall @aihc_lir_continue_i(%machine, %current, %value)
+}
+
+export func @aihc_lir_apply_slot(%machine: ptr, %function: ptr, %continuation: ptr, %value: i64) {
+entry:
+  jump loop(%function)
+
+loop(%current: ptr):
+  %header_word = load i64 [%current] align 8
+  %header = ptr.from_int %header_word
+  %kind = call @aihc_lir_info_kind(%header)
+  %indirection = eq i64 %kind, 4
+  br %indirection, indirection, check
+
+indirection:
+  %next_word = load i64 [%current + 8] align 8
+  %next = ptr.from_int %next_word
+  jump loop(%next)
+
+check:
+  %next_info = call @aihc_lir_info_next(%header)
+  %has_next = ne ptr %next_info, null
+  br %has_next, count, word
+
+count:
+  %kind_is_partial = eq i64 %kind, 3
+  br %kind_is_partial, partial_count, info_count
+
+partial_count:
+  %applied = load i64 [%current + 8] align 8
+  jump bitmap(%applied)
+
+info_count:
+  %count = call @aihc_lir_info_count(%header)
+  jump bitmap(%count)
+
+bitmap(%count_2: i64):
+  %bitmap = call @aihc_lir_info_bitmap(%next_info)
+  %entry = ptr.add %bitmap, %count_2
+  %flag = load i8 [%entry] align 1
+  %is_pointer = ne i8 %flag, 0
+  br %is_pointer, pointer, word
+
+pointer:
+  %pointer = ptr.from_int %value
+  tailcall @aihc_lir_apply_p(%machine, %current, %continuation, %pointer)
+
+word:
+  tailcall @aihc_lir_apply_i(%machine, %current, %continuation, %value)
+}

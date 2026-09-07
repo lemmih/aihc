@@ -61,6 +61,35 @@ _Static_assert(offsetof(AihcStableName, next) == 24, "stable-name next ABI");
 _Static_assert(sizeof(AihcStableName) == 32, "stable-name size ABI");
 #endif
 
+/* Lir uses these accessors for records whose layout depends on pointer size. */
+uint64_t aihc_lir_info_kind(const AihcInfo *info) { return info->object_kind; }
+
+uint64_t aihc_lir_info_arity(const AihcInfo *info) {
+  return info->remaining_arity;
+}
+
+uint64_t aihc_lir_info_count(const AihcInfo *info) { return info->field_count; }
+
+AihcBackendEntry aihc_lir_info_entry(const AihcInfo *info) {
+  return info->backend_entry;
+}
+
+const AihcInfo *aihc_lir_info_next(const AihcInfo *info) { return info->next; }
+
+const uint8_t *aihc_lir_info_bitmap(const AihcInfo *info) {
+  return info->field_is_pointer;
+}
+
+/* Copy the record to fixed-width slots, then release its object references. */
+void aihc_lir_take_resume(AihcResume *resume, uint64_t *slots) {
+  slots[0] = resume->kind;
+  slots[1] = (uintptr_t)resume->function;
+  slots[2] = (uintptr_t)resume->continuation;
+  slots[3] = resume->value;
+  slots[4] = resume->count;
+  memset(resume, 0, sizeof(*resume));
+}
+
 const AihcSrt *aihc_current_srt = NULL;
 
 _Noreturn void aihc_fail(const char *message) { aihc_host_fail(message); }
