@@ -42,7 +42,7 @@ checkNewtypeInstance origin solve methodScheme original info context annotation 
       dictionaryCast <- case (tcDerivingDataType plan, tcInstanceSuperClasses annotation, evidence) of
         (Just dataType, [], Just _) | null (ciKindTyVars info) -> do
           proof <- newtypeCoercion (tcInstanceAssociatedTypes annotation) dataType representation (last (tcInstanceHeadTypes annotation))
-          pure (TyConAppCo (ciTyCon info) . (map Refl (init headTypes) <>) . (: []) <$> proof)
+          pure (TyConAppCo (ciTyCon info) headTypes . (map Refl (init headTypes) <>) . (: []) <$> proof)
         _ -> pure Nothing
       pure annotation {tcInstanceNewtype = Just (TcNewtypeInstance headTypes evidence fieldTypes dictionaryCast (catMaybes methods))}
   where
@@ -100,7 +100,7 @@ newtypeCoercion equations dataType rawSource rawTarget = go (normalize rawSource
           if trusted
             then do
               proofs <- sequence <$> zipWithM go sourceArguments targetArguments
-              pure (TyConAppCo sourceConstructor <$> proofs)
+              pure (TyConAppCo sourceConstructor sourceArguments <$> proofs)
             else pure (familyProof source target)
       | otherwise = pure (familyProof source target)
     familyProof source target = case [ Sym (AxiomInstCo (typeFamilyAxiomKey equation) arguments)
