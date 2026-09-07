@@ -1,0 +1,98 @@
+expected: |-
+  scope 1 = "" Hidden
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.t$Dict$Parent (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Parent :: ∀(a : 2.tType). 1.t$Dict$Parent a
+  }
+
+  pub type 1.t$Dict$Methods (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Methods :: ∀(a : 2.tType). 1.t$Dict$Parent a 2.→ (a 2.→ a) 2.→ (∀(b : 2.tType). a 2.→ b 2.→ b) 2.→ 1.t$Dict$Methods a
+  }
+
+  pub val 1.vpublic :: ∀(a : 2.tType). 1.t$Dict$Methods a 2.→ a 2.→ a
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Methods a).
+      case $d0 as ($dict : 1.t$Dict$Methods a) return (a 2.→ a) of {
+          1.v$Dict$Methods ($method0 : 1.t$Dict$Parent a) ($method1 : a 2.→ a) ($method2 : ∀(b : 2.tType). a 2.→ b 2.→ b) →
+              $method1
+      }
+
+  val 1.vprivate :: ∀(a : 2.tType) (b : 2.tType). 1.t$Dict$Methods a 2.→ a 2.→ b 2.→ b
+   = Λ(a : 2.tType).
+    Λ(b : 2.tType).
+      λ($d0 : 1.t$Dict$Methods a).
+        case $d0 as ($dict : 1.t$Dict$Methods a) return (a 2.→ b 2.→ b) of {
+            1.v$Dict$Methods ($method0 : 1.t$Dict$Parent a) ($method1 : a 2.→ a) ($method2 : ∀(b{1} : 2.tType). a 2.→ b{1} 2.→ b{1}) →
+                $method2 @b
+        }
+  scope 1 = "" Hidden
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    1.t$Dict$Methods :: ∀(a : 3.tType). 3.tType;
+    1.t$Dict$Parent :: ∀(a : 3.tType). 3.tType;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    1.v$Dict$Methods :: ∀(a : 3.tType). 1.t$Dict$Parent a 3.→ (a 3.→ a) 3.→ (∀(b : 3.tType). a 3.→ b 3.→ b) 3.→ 1.t$Dict$Methods a;
+    1.v$Dict$Parent :: ∀(a : 3.tType). 1.t$Dict$Parent a;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub type 2.tN (a : 3.tType) :: 3.tType {}
+
+  axiom 2.$ax$N (a : 3.tType) : 2.tN a ~R a
+
+  pub val 2.v$fParentNa :: ∀(a : 3.tType). 1.t$Dict$Parent (2.tN a)
+   = Λ(a : 3.tType).
+    1.v$Dict$Parent @(2.tN a)
+
+  pub val 2.v$fMethodsNa :: ∀(a : 3.tType). 1.t$Dict$Methods a 3.→ 1.t$Dict$Methods (2.tN a)
+   = Λ(a : 3.tType).
+    λ($d0 : 1.t$Dict$Methods a).
+      1.v$Dict$Methods @(2.tN a) (2.v$fParentNa @a) ((case $d0 as ($newtype_source : 1.t$Dict$Methods a) return (a 3.→ a) of {
+          1.v$Dict$Methods ($newtype_field0 : 1.t$Dict$Parent a) ($newtype_field1 : a 3.→ a) ($newtype_field2 : ∀(b : 3.tType). a 3.→ b 3.→ b) →
+              $newtype_field1
+      }) ▷ fun-co (sym (axiom-co 2.$ax$N @a)) (sym (axiom-co 2.$ax$N @a))) (Λ(b : 3.tType).
+        ((case $d0 as ($newtype_source : 1.t$Dict$Methods a) return (∀(b{1} : 3.tType). a 3.→ b{1} 3.→ b{1}) of {
+            1.v$Dict$Methods ($newtype_field0 : 1.t$Dict$Parent a) ($newtype_field1 : a 3.→ a) ($newtype_field2 : ∀(b{1} : 3.tType). a 3.→ b{1} 3.→ b{1}) →
+                $newtype_field2
+        }) @b) ▷ fun-co (sym (axiom-co 2.$ax$N @a)) (refl (b 3.→ b)))
+extensions:
+- GeneralizedNewtypeDeriving
+modules:
+- |
+  module Hidden (Parent, Methods(public)) where
+  class Parent a
+  class Parent a => Methods a where
+    public :: a -> a
+    private :: a -> b -> b
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Test where
+  import Hidden (Parent, Methods(public))
+  newtype N a = N a deriving Methods
+  instance Parent (N a)
+reason: project hidden and polymorphic methods from the representation dictionary
+status: pass

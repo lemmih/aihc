@@ -290,6 +290,7 @@ newtype TcNewtypeDeriving = TcNewtypeDeriving TcDerivingPlan
 data TcNewtypeInstance = TcNewtypeInstance
   { tcNewtypeHeadTypes :: ![TcType],
     tcNewtypeEvidence :: !(Maybe EvTerm),
+    tcNewtypeFieldTypes :: ![TcType],
     tcNewtypeDictionaryCast :: !(Maybe Coercion),
     tcNewtypeMethods :: ![TcNewtypeMethod]
   }
@@ -298,6 +299,7 @@ data TcNewtypeInstance = TcNewtypeInstance
 -- | A method cast applies after its type and dictionary arguments.
 data TcNewtypeMethod = TcNewtypeMethod
   { tcNewtypeMethodName :: !Text,
+    tcNewtypeMethodIndex :: !Int,
     tcNewtypeMethodTyVars :: ![TyVarId],
     tcNewtypeMethodPredicates :: ![Pred],
     tcNewtypeMethodCoercion :: !Coercion

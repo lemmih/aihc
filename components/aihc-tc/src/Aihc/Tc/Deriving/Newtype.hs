@@ -28,7 +28,13 @@ checkNewtypeInstance origin solve methodScheme original info context annotation 
     Right rawRepresentation -> do
       let representation = applySubst substitution rawRepresentation
           headTypes = init (tcInstanceHeadTypes annotation) <> [representation]
-      methods <- mapM (checkMethod plan headTypes . fst) (ciMethods info)
+      sourceSchemes <- mapM (methodScheme info headTypes . fst) (ciMethods info)
+      headKinds <- mapM tcTypeKind headTypes
+      let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (ciTyVars info)) headKinds)
+          classSubstitution = Map.fromList (zip (map tvUnique (ciTyVars info)) headTypes) <> kindSubstitution
+          superclassFields = map (applySubst classSubstitution) (ciSuperClassTypes info)
+          fieldTypes = superclassFields <> map fieldType sourceSchemes
+      methods <- zipWithM (checkMethod plan headTypes) [length superclassFields ..] (map fst (ciMethods info))
       evidence <- if null methods then pure Nothing else Just <$> solve (ciName info) context (ClassPred (ciTyCon info) headTypes)
       case evidence of
         Just term | mentionsSelf term -> reject "newtype deriving requires non-circular representation evidence"
@@ -38,10 +44,12 @@ checkNewtypeInstance origin solve methodScheme original info context annotation 
           proof <- newtypeCoercion (tcInstanceAssociatedTypes annotation) dataType representation (last (tcInstanceHeadTypes annotation))
           pure (TyConAppCo (ciTyCon info) . (map Refl (init headTypes) <>) . (: []) <$> proof)
         _ -> pure Nothing
-      pure annotation {tcInstanceNewtype = Just (TcNewtypeInstance headTypes evidence dictionaryCast (catMaybes methods))}
+      pure annotation {tcInstanceNewtype = Just (TcNewtypeInstance headTypes evidence fieldTypes dictionaryCast (catMaybes methods))}
   where
     reject = emitError (tcDerivingSourceSpan original) . OtherError
-    checkMethod plan headTypes name = do
+    fieldType (ForAll variables predicates body) =
+      foldr TcForAllTy (if null predicates then body else TcQualTy predicates body) variables
+    checkMethod plan headTypes index name = do
       ForAll variables sourcePredicates source <- methodScheme info headTypes name
       ForAll _ targetPredicates target <- methodScheme info (tcInstanceHeadTypes annotation) name
       proof <- case tcDerivingDataType plan of
@@ -49,7 +57,7 @@ checkNewtypeInstance origin solve methodScheme original info context annotation 
         _ -> pure Nothing
       case proof of
         Nothing -> reject ("newtype deriving cannot prove a safe coercion for method " <> T.unpack name) >> pure Nothing
-        Just coercion -> pure (Just (TcNewtypeMethod name variables targetPredicates coercion))
+        Just coercion -> pure (Just (TcNewtypeMethod name index variables targetPredicates coercion))
     mentionsSelf term = case term of
       EvDict dictionaryOrigin name _ arguments -> (dictionaryOrigin == origin && name == tcInstanceDictName annotation) || any mentionsSelf arguments
       EvSuperClass inner _ _ _ _ -> mentionsSelf inner

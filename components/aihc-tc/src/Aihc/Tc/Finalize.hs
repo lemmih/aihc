@@ -300,7 +300,7 @@ firstMetaInstanceAnnotation ann =
 firstMetaNewtype :: TcNewtypeInstance -> Maybe Unique
 firstMetaNewtype body =
   firstJusts
-    ( map firstMetaType (tcNewtypeHeadTypes body)
+    ( map firstMetaType (tcNewtypeHeadTypes body <> tcNewtypeFieldTypes body)
         ++ [firstMetaEvTerm evidence | Just evidence <- [tcNewtypeEvidence body]]
         ++ [firstMetaCoercion proof | Just proof <- [tcNewtypeDictionaryCast body]]
         ++ [ firstMetaCoercion (tcNewtypeMethodCoercion method)

@@ -1025,21 +1025,23 @@ desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars an
   where
     appendMatches (newType, newMatches) (_, oldMatches) = (newType, oldMatches <> newMatches)
 
--- | Apply the representation selector and cast its checked method type.
+-- | Select a representation field without a reference to a public method.
 desugarNewtypeMethod :: TcInstanceAnnotation -> TcNewtypeInstance -> TcNewtypeMethod -> ValueM Expr
 desugarNewtypeMethod annotation derived method = withTypeVariables (tcNewtypeMethodTyVars method) $ do
   typeBinders <- convertTypeBinders (tcNewtypeMethodTyVars method)
-  headTypes <- convertTyConApplicationArguments (tcInstanceClassTyCon annotation) (tcNewtypeHeadTypes derived)
   extraTypes <- mapM (convertCheckedType . TcTyVar) (tcNewtypeMethodTyVars method)
   dictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] (tcNewtypeMethodPredicates method)
   evidence <- maybe (failValue "newtype method lacks representation evidence") desugarEvidence (tcNewtypeEvidence derived)
+  let classTyCon = tcInstanceClassTyCon annotation
+  sourceBinder <- freshBinder "$newtype_source" (TcTyCon classTyCon (tcNewtypeHeadTypes derived))
+  fields <- zipWithM (freshIndexedBinder "$newtype_field") [0 :: Int ..] (tcNewtypeFieldTypes derived)
+  selected <- case drop (tcNewtypeMethodIndex method) fields of
+    field : _ -> pure field
+    [] -> failValue "newtype method index is outside the dictionary layout"
   proof <- convertCoercion (tcNewtypeMethodCoercion method)
-  let origin = case tcInstanceClassOrigin annotation of
-        Just (packageName, moduleName') -> OriginTop (PackageId packageName) moduleName'
-        Nothing -> OriginLocal (Unique 0)
-      selector = ExVar (Name (tcNewtypeMethodName method) SortValue origin)
-      instantiated = foldl ExTyApp selector (headTypes <> extraTypes)
-      applied = foldl ExApp (ExApp instantiated evidence) (map (ExVar . binderName) dictionaries)
+  let projection = ExCase evidence sourceBinder (binderType selected) [Alt (AltData (classDictConName classTyCon)) [] fields (ExVar (binderName selected))]
+      instantiated = foldl ExTyApp projection extraTypes
+      applied = foldl ExApp instantiated (map (ExVar . binderName) dictionaries)
   pure (foldr ExTyLam (foldr ExLam (ExCast applied proof) dictionaries) typeBinders)
 
 desugarInstanceMethod :: TcInstanceAnnotation -> [Dictionary] -> Map Text (TcType, [Syn.Match]) -> Text -> ValueM Expr
