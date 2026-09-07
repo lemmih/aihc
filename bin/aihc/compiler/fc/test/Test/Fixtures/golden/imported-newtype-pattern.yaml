@@ -52,10 +52,6 @@ expected: |-
   pub val 2.vunbox :: ∀(a : 3.tType). 1.tBox a 3.→ a
    = Λ(a : 3.tType).
     λ(x : 1.tBox a).
-      let {
-          value : a =
-              x ▷ axiom-co 1.$ax$Box @a
-      } in
-          value
+      x ▷ axiom-co 1.$ax$Box @a
 status: pass
 reason: ''

@@ -102,10 +102,6 @@ expected: |-
   pub val 2.vitems :: ∀(a : 3.tType). 1.tPayload (3.t[] a) 3.→ 3.t[] a
    = Λ(a : 3.tType).
     λ(x : 1.tPayload (3.t[] a)).
-      let {
-          values : 3.t[] a =
-              x ▷ trans (axiom-co 1.$ax$Payload$PayloadList @a) (axiom-co 1.$ax$R$Payload$PayloadList @a)
-      } in
-          values
+      x ▷ trans (axiom-co 1.$ax$Payload$PayloadList @a) (axiom-co 1.$ax$R$Payload$PayloadList @a)
 status: pass
 reason: An imported data-family constructor needs the instance axioms and the representation type in the import headers.

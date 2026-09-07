@@ -71,15 +71,11 @@ expected: |-
                           $super_field0
                   }
           } in
-              let {
-                  _case : 1.tFlag =
-                      1.vparent @a $super x
-              } in
-                  case _case as (_scrut : 1.tFlag) return (1.tFlag) of {
-                      1.vOff →
-                          1.vparent @a $super y;
-                      1.vOn →
-                          1.vchild @a $d0 x
-                  }
+              case 1.vparent @a $super x as (_scrut : 1.tFlag) return (1.tFlag) of {
+                  1.vOff →
+                      1.vparent @a $super y;
+                  1.vOn →
+                      1.vchild @a $d0 x
+              }
 status: pass
 reason: One binding selects the parent dictionary once for both uses.

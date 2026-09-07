@@ -52,11 +52,7 @@ expected: |-
                   3.v[] →
                       3.v[] @1.tInt;
                   3.v: (_pat : 1.tWrap) (_list_comp_tail : 3.t[] 1.tWrap) →
-                      let {
-                          n : 1.tInt =
-                              _pat ▷ axiom-co 1.$ax$Wrap
-                      } in
-                          3.v: @1.tInt n (_list_comp _list_comp_tail)
+                      3.v: @1.tInt (_pat ▷ axiom-co 1.$ax$Wrap) (_list_comp _list_comp_tail)
               }
     } in
         _list_comp x

@@ -249,7 +249,7 @@ desugarFromInterface config moduleBindings interface checked = do
       (lookupHeader convertEnv bindings headers)
       baseProgram
   let scopes = buildScopes (primPackageId config) moduleOrigin imports decls
-  pure (tidyProgramWithTidiedImports (normalizeProgram (Program scopes imports decls)))
+  pure (tidyProgramWithTidiedImports (normalizeProgram (primPackageId config) (Program scopes imports decls)))
 
 headerIndex :: ConvertEnv -> TcInterface -> Map.Map Name HeaderSource
 headerIndex convertEnv interface =

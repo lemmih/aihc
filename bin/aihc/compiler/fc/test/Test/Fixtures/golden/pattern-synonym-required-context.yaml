@@ -72,16 +72,12 @@ expected: |-
         λ(x : a).
           λ(y : r).
             λ(z : r).
-              let {
-                  _pat : 1.tBool =
-                      1.visZero @a $d0 x
-              } in
-                  case _pat as (_scrut : 1.tBool) return (r) of {
-                      1.vTrue →
-                          y;
-                      _ →
-                          z
-                  }
+              case 1.visZero @a $d0 x as (_scrut : 1.tBool) return (r) of {
+                  1.vTrue →
+                      y;
+                  _ →
+                      z
+              }
 
   pub val 1.vlabel :: ∀(a : 2.tType). 1.t$Dict$Describe a 2.→ a 2.→ 1.tLabel
    = Λ(a : 2.tType).
