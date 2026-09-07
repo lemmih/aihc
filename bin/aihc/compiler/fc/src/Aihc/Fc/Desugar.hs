@@ -1096,6 +1096,8 @@ coercionOrigins coercion =
     CoRefl ty -> typeOrigins ty
     CoSym inner -> coercionOrigins inner
     CoTrans left right -> coercionOrigins left <> coercionOrigins right
+    CoApp function argument -> coercionOrigins function <> coercionOrigins argument
+    CoFun domain range -> coercionOrigins domain <> coercionOrigins range
     CoTyConApp name arguments -> nameOriginPair name <> concatMap coercionOrigins arguments
     CoAxiom name arguments -> nameOriginPair name <> concatMap typeOrigins arguments
 

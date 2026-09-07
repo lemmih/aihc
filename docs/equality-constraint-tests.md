@@ -21,14 +21,14 @@ The TC, FC, and GRIN fixtures use the project libraries without a substitute equ
 
 All ten resolver fixtures pass.
 Equality syntax uses the exported `GHC.Types` identity without an explicit import.
-The current fixture counts include four additional TC cases and one additional case in each downstream stage.
+The current fixture counts include seven additional TC cases and three additional cases in each downstream stage.
 
 | Stage | PASS | XFAIL |
 | --- | ---: | ---: |
 | Resolve | 10 | 0 |
-| TC | 27 | 9 |
-| FC | 15 | 12 |
-| GRIN evaluation | 17 | 10 |
+| TC | 33 | 6 |
+| FC | 20 | 9 |
+| GRIN evaluation | 22 | 7 |
 
 The additional positive fixtures test a user class named `~` and transitivity with reversed constraint order.
 GHC 9.12.4 accepts both programs.
@@ -58,7 +58,13 @@ The public `~` type still has kind `forall k. k -> k -> Constraint`.
 FC lint rejects representation axioms in nominal equality evidence.
 Two FC text fixtures check this boundary with nominal and representation axioms.
 
-Further work must preserve proofs through constructor decomposition, congruence, nested scopes, and superclass projection.
+Congruence closure preserves proofs through lists, functions, and type applications.
+A cyclic-given fixture checks transitivity with congruence.
+A family-congruence fixture checks the valid direction of equality under a non-injective family.
+A TC fixture checks parent evidence after a child constraint defers.
+Six additional FC fixtures check application and function proofs, including invalid kinds and roles.
+
+Further work must preserve proofs through constructor decomposition, nested scopes, and superclass projection.
 Polymorphic kinds and GADT index refinement also need further corrections.
 
 ## Cases

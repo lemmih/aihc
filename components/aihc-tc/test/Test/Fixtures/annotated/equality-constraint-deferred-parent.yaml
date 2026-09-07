@@ -1,0 +1,13 @@
+extensions:
+- TypeFamilies
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  class FromItems c where
+    type Item c
+    fromItems :: [Item c] -> c
+    fromItemsWith :: Flag -> [Item c] -> c
+    fromItemsWith _ = fromItems
+status: pass
+reason: A deferred child equality retains the parent evidence variable for a later solver attempt.

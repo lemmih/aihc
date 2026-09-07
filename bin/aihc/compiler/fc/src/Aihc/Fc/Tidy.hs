@@ -181,6 +181,8 @@ tidyCoercion env coercion =
     CoRefl ty -> CoRefl (tidyType env ty)
     CoSym inner -> CoSym (tidyCoercion env inner)
     CoTrans left right -> CoTrans (tidyCoercion env left) (tidyCoercion env right)
+    CoApp function argument -> CoApp (tidyCoercion env function) (tidyCoercion env argument)
+    CoFun domain range -> CoFun (tidyCoercion env domain) (tidyCoercion env range)
     CoTyConApp name arguments ->
       CoTyConApp (tidyUse env name) (map (tidyCoercion env) arguments)
     CoAxiom name arguments ->

@@ -1,0 +1,21 @@
+extensions:
+- GADTs
+- TypeOperators
+- TypeFamilies
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Proxy a = Proxy
+  type family F a
+  cast :: (a ~ b) => Proxy a -> Proxy b -> Proxy (F a) -> Proxy (F b)
+  cast _ _ x = x
+  result = case cast (Proxy :: Proxy Flag) (Proxy :: Proxy Flag) (Proxy :: Proxy (F Flag)) of
+    Proxy -> On
+status: pass
+reason: Argument equality permits family congruence without family injectivity.
+expression: result
+output: |
+  On
+evaluators:
+- grin

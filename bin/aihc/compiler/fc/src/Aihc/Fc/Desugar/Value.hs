@@ -3739,6 +3739,8 @@ convertCoercion coercion =
     Ev.Refl ty -> CoRefl <$> convertCheckedType ty
     Ev.Sym inner -> CoSym <$> convertCoercion inner
     Ev.Trans left right -> CoTrans <$> convertCoercion left <*> convertCoercion right
+    Ev.AppCo function argument -> CoApp <$> convertCoercion function <*> convertCoercion argument
+    Ev.FunCo domain range -> CoFun <$> convertCoercion domain <*> convertCoercion range
     Ev.TyConAppCo tyCon arguments -> do
       env <- gets vsConvertEnv
       CoTyConApp (tyConNameFc env tyCon) <$> mapM convertCoercion arguments

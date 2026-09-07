@@ -32,9 +32,27 @@ For a repeated constructor index, the match retains the first type argument.
 The result constraint retains the equality with each later occurrence.
 A family application cannot determine a constructor type argument through decomposition.
 
+## Congruence closure
+
+The given-equality solver retains a finite graph of types and explicit coercions.
+The graph contains only subterms of the given equalities and the wanted equality.
+Each edge proves nominal equality between its vertices.
+Each new congruence edge joins two previously separate components.
+This condition bounds the number of closure steps, including cases with cyclic givens.
+
+Application congruence preserves equality of the function and argument.
+Function congruence preserves equality of the domain and range.
+Congruence can prove equality under a type family without an injectivity assumption.
+It does not project equality from family results to family arguments.
+
+FC has explicit application and function coercions.
+Its lint checks validate their endpoint kinds and nominal evidence.
+Each child wanted has a separate evidence variable.
+If a child defers, the solver retains the parent constraint for the next attempt.
+
 ## Evidence contract
 
-The following requirements define the next stage.
+The following requirements also apply to the remaining equality paths.
 
 Each solved wanted equality must have a coercion between its original endpoints under its evidence scope.
 Each child constraint must have a separate evidence variable.

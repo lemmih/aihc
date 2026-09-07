@@ -433,6 +433,8 @@ prettyCoercion scopes coercion =
     CoRefl ty -> "refl " <> prettyTypeWith scopes PrecAtom ty
     CoSym inner -> "sym " <> parens (prettyCoercion scopes inner)
     CoTrans left right -> "trans " <> parens (prettyCoercion scopes left) <+> parens (prettyCoercion scopes right)
+    CoApp function argument -> "app-co " <> parens (prettyCoercion scopes function) <+> parens (prettyCoercion scopes argument)
+    CoFun domain range -> "fun-co " <> parens (prettyCoercion scopes domain) <+> parens (prettyCoercion scopes range)
     CoTyConApp name arguments ->
       hsep ("tycon-co" : prettyName scopes name : map (parens . prettyCoercion scopes) arguments)
     CoAxiom name arguments ->

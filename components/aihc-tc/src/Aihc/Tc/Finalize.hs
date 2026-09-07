@@ -192,6 +192,8 @@ zonkCoercion coercion =
       Sym <$> zonkCoercion inner
     Trans left right ->
       Trans <$> zonkCoercion left <*> zonkCoercion right
+    AppCo function argument -> AppCo <$> zonkCoercion function <*> zonkCoercion argument
+    FunCo domain range -> FunCo <$> zonkCoercion domain <*> zonkCoercion range
     TyConAppCo tyCon coercions ->
       TyConAppCo tyCon <$> mapM zonkCoercion coercions
     AxiomInstCo name typeArgs ->
@@ -358,6 +360,8 @@ firstMetaCoercion coercion =
       firstMetaCoercion inner
     Trans left right ->
       firstMetaCoercion left <|> firstMetaCoercion right
+    AppCo function argument -> firstMetaCoercion function <|> firstMetaCoercion argument
+    FunCo domain range -> firstMetaCoercion domain <|> firstMetaCoercion range
     TyConAppCo _ coercions ->
       firstJusts (map firstMetaCoercion coercions)
     AxiomInstCo _ typeArgs ->
