@@ -1,0 +1,26 @@
+expected: |-
+  scope 1 = "" Target
+
+  primitive +# :: IntRep/2
+
+  global 1.visible = (P$visible/[[IntRep]])
+
+  $helper (x :: IntRep) -> IntRep =
+    primitive-call @IntRep +# (x :: IntRep) (1 :: IntRep)
+
+  $visible (x :: IntRep) -> IntRep =
+    argument :: IntRep <-
+      call @IntRep $helper (x :: IntRep)
+    call @IntRep $helper (argument :: IntRep)
+extensions:
+- MagicHash
+modules:
+- |
+  module Target (visible) where
+  import GHC.Prim
+  helper :: Int# -> Int#
+  helper x = x +# 1#
+  visible :: Int# -> Int#
+  visible x = helper (helper x)
+reason: an unexported function is not a symbol, so it gets no global
+status: pass

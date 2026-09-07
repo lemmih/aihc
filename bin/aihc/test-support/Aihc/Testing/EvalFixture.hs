@@ -279,7 +279,9 @@ compileEvalCase env tc = do
         Left ("typecheck error: " <> renderTcErrors tcResults)
       let interface = envInterface env <> localInterface
           bindings = envBindings env <> moduleGroupBindings tcResults
-          results = map (Fc.desugarModuleFc evalDesugarConfig bindings interface) tcResults
+          configs =
+            desugarConfigsByModule (collectModuleExportsWithDeps (envExports env) packageModules) packageModules
+          results = map (\checked -> Fc.desugarModuleFc (evalDesugarConfig configs checked) bindings interface checked) tcResults
       unless (all Fc.dsSuccess results) $
         Left ("desugar error: " <> unlines (concatMap Fc.dsErrors results))
       -- This program contains only the fixture modules. The shared
@@ -291,8 +293,25 @@ compileEvalCase env tc = do
 evalTcConfig :: TcConfig
 evalTcConfig = tcConfig primPackageId
 
-evalDesugarConfig :: Fc.DesugarConfig
-evalDesugarConfig = Fc.DesugarConfig {Fc.primPackageId = primPackageId}
+-- | How to desugar each module, by module name.
+--
+-- Two packages could in principle bring the same module name; the desugared
+-- module carries no package, so such a pair falls back to keeping every name
+-- public rather than picking one package's export list for the other.
+desugarConfigsByModule :: ModuleExports -> [(Package, Surface.Module)] -> Map.Map Text Fc.DesugarConfig
+desugarConfigsByModule exports packageModules =
+  Map.fromListWith
+    (\_ _ -> Fc.allPublicDesugarConfig primPackageId)
+    [ (moduleKeyOf modu, Fc.moduleDesugarConfig primPackageId package (moduleKeyOf modu) exports)
+    | (package, modu) <- packageModules
+    ]
+
+moduleKeyOf :: Surface.Module -> Text
+moduleKeyOf = fromMaybe "Main" . Surface.moduleName
+
+evalDesugarConfig :: Map.Map Text Fc.DesugarConfig -> Surface.Module -> Fc.DesugarConfig
+evalDesugarConfig configs modu =
+  Map.findWithDefault (Fc.allPublicDesugarConfig primPackageId) (moduleKeyOf modu) configs
 
 primPackageId :: PackageId
 primPackageId = PackageId "aihc-prim"
@@ -480,7 +499,8 @@ loadEvalEnvironment = do
       unless (all tcModuleSuccess tcResults) $
         fail ("core library typecheck error: " <> renderTcErrors tcResults)
       let bindings = moduleGroupBindings tcResults
-          results = map (Fc.desugarModuleFc evalDesugarConfig bindings interface) tcResults
+          configs = desugarConfigsByModule exports packageModules
+          results = map (\checked -> Fc.desugarModuleFc (evalDesugarConfig configs checked) bindings interface checked) tcResults
       unless (all Fc.dsSuccess results) $
         fail ("core library desugar error: " <> unlines (concatMap Fc.dsErrors results))
       let program = concatPrograms (map Fc.dsProgram results)
