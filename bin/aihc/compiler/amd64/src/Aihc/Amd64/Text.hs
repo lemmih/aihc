@@ -16,7 +16,6 @@ module Aihc.Amd64.Text
 where
 
 import Aihc.Amd64.Assemble
-import Aihc.Native.Object (SectionRole (..))
 import Data.ByteString qualified as BS
 import Data.Char (toLower)
 import Data.Int (Int64)
