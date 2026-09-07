@@ -15,4 +15,4 @@ modules:
   result = convert On :: Flag
 status: xfail
 reason: An instance context supplies equality evidence to its method. AIHC cannot resolve the equality
-  class.
+  class. AIHC still lacks complete equality support.

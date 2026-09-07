@@ -1,6 +1,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -16,6 +18,7 @@ module GHC.Types
     isTrue#,
     Ordering (..),
     Constraint,
+    type (~),
     TYPE,
     Type,
     UnliftedType,
@@ -112,6 +115,12 @@ data Ordering = LT | EQ | GT
 
 type Constraint :: Type
 data Constraint
+
+-- | The compiler supplies nominal equality evidence for this class.
+type (~) :: forall k. k -> k -> Constraint
+class (a :: k) ~ (b :: k)
+
+infix 4 ~
 
 data TYPE (rep :: RuntimeRep)
 

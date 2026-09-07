@@ -21,8 +21,13 @@ The TC, FC, and GRIN fixtures use the project libraries without a substitute equ
 
 All ten resolver fixtures pass.
 Equality syntax uses the exported `GHC.Types` identity without an explicit import.
-All equality TC, FC, and GRIN fixtures currently have XFAIL status because AIHC cannot resolve `~`.
-Later corrections can expose separate errors in each downstream stage.
+Nine of the original 32 TC fixtures pass.
+The other 23 TC fixtures still have XFAIL status.
+All 26 FC fixtures and all 26 GRIN fixtures still have XFAIL status.
+These failures now expose separate solver and evidence defects.
+
+One additional TC fixture verifies that a user class named `~` remains an ordinary class.
+GHC 9.12.4 accepts this fixture with `NoImplicitPrelude`.
 
 ## Cases
 

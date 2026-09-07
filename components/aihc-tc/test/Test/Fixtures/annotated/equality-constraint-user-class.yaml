@@ -1,0 +1,21 @@
+extensions:
+- MultiParamTypeClasses
+- TypeOperators
+- ExplicitNamespaces
+modules:
+- |
+  {-# LANGUAGE NoImplicitPrelude #-}
+  module Other where
+  class a ~ b
+  instance a ~ b
+- |
+  {-# LANGUAGE NoImplicitPrelude #-}
+  module Test where
+  import Other (type (~))
+  data Flag = Off | On
+  data Marker = Marker
+  keep :: (a ~ b) => a -> b -> a
+  keep x _ = x
+  result = keep On Marker
+status: pass
+reason: A user class named ~ does not impose nominal equality.

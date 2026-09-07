@@ -9,4 +9,4 @@ modules:
   cast x _ = x
   result = cast On Off :: Flag
 status: xfail
-reason: Two given equalities form a transitive proof. AIHC cannot resolve the equality class.
+reason: Two given equalities form a transitive proof. AIHC still lacks complete equality support.

@@ -2912,7 +2912,7 @@ registerClassDecl origin classDecl = do
       className = unqualifiedNameText classBinder
       params = binderHeadParams (classDeclHead classDecl)
   kindParams <-
-    if isTemplateHaskellLift origin className
+    if isTemplateHaskellLift origin className || (snd origin == "GHC.Types" && className == "~")
       then implicitBinderKindParams params
       else pure []
   let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]

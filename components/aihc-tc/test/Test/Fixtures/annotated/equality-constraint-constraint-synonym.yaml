@@ -11,4 +11,4 @@ modules:
   cast x = x
   result = cast On :: Flag
 status: xfail
-reason: A constraint synonym preserves equality evidence. AIHC cannot resolve the equality class.
+reason: A constraint synonym preserves equality evidence. AIHC still lacks complete equality support.

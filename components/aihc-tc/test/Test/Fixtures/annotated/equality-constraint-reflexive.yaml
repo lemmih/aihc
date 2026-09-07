@@ -9,4 +9,4 @@ modules:
   keep x = x
   result = keep On
 status: xfail
-reason: Reflexive equality needs no external evidence. AIHC cannot resolve the equality class.
+reason: Reflexive equality needs no external evidence. AIHC still lacks complete equality support.

@@ -13,4 +13,4 @@ modules:
   result = cast On :: Flag
 status: xfail
 reason: An imported signature preserves its equality constraint. AIHC cannot resolve the equality
-  class.
+  class. AIHC still lacks complete equality support.

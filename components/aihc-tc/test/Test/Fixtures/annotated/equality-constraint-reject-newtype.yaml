@@ -9,8 +9,9 @@ modules:
   witness :: (Flag ~ Wrap) => Flag
   witness = On
   result = witness
-status: xfail
-reason: Nominal equality does not unwrap a newtype. AIHC cannot resolve the equality class.
+status: pass
+reason: Nominal equality does not unwrap a newtype.
+
 annotated:
 - |
   module Test where
