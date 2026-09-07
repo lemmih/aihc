@@ -1,17 +1,16 @@
 extensions:
 - GADTs
 - TypeOperators
-- ScopedTypeVariables
+- MultiParamTypeClasses
+- FlexibleInstances
 modules:
 - |
-  {-# LANGUAGE ScopedTypeVariables #-}
   module Test where
   data Flag = Off | On
-  cast :: forall a b. (a ~ b) => a -> b
-  cast x = local x
-    where
-      local :: a -> b
-      local y = y
+  class ([a] ~ [b]) => Same a b
+  instance Same a a
+  cast :: Same a b => a -> b
+  cast x = x
   result = cast On :: Flag
 expression: result
 output: |

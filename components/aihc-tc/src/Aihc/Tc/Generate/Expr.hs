@@ -620,7 +620,7 @@ checkHigherRankArgument sp expectedTy arg = do
   rejectEscapingHigherRankMetas sp boundary skolems actualTy
   givenCts <- mapM makeGiven predicates
   let (equalityCts, dictionaryCts) = partition isEqualityConstraint argCts
-  residualEqualities <- concat <$> mapM solveEqualityConstraint equalityCts
+  residualEqualities <- concat <$> mapM (solveEqualityConstraint predicates) equalityCts
   residualDictionaries <- concat <$> mapM (solveDictionary predicates) dictionaryCts
   let annotatedArg = annotatePendingExprAt sp (pendingTypeLambdaAnnotation expectedTy skolems (map ctEvVar givenCts)) arg'
   pure (annotatedArg, residualEqualities <> residualDictionaries)
@@ -635,8 +635,8 @@ checkHigherRankArgument sp expectedTy arg = do
         EqPred {} -> True
         _ -> False
 
-    solveEqualityConstraint ct = do
-      result <- solveEquality ct
+    solveEqualityConstraint predicates ct = do
+      result <- withGivenPredicates predicates (solveEquality ct)
       pure $ case result of
         EqSolved -> []
         EqStuck stuck -> [stuck]

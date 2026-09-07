@@ -19,7 +19,7 @@ import Aihc.Fc.Normalize (normalizeProgram)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgramWithTidiedImports, tidyTypeEnv)
 import Aihc.Fc.TypeOf qualified as TypeOf
-import Aihc.Fc.Wired (ghcTypesModule)
+import Aihc.Fc.Wired (equalityRep, ghcTypesModule)
 import Aihc.Parser.Syntax
   ( DataDecl (..),
     Module (..),
@@ -912,7 +912,9 @@ constructorFun env fieldTys convertedFields resultTy convertedResult =
     go [] = Right convertedResult
     go ((maybeField, converted) : rest) = do
       restType <- go rest
-      r1 <- maybe (Right (liftedRepType env)) (typeRepOrLifted env) maybeField
+      r1 <- case (maybeField, converted) of
+        (Nothing, TyEq {}) -> Right (equalityRep (cePrimPackage env))
+        _ -> maybe (Right (liftedRepType env)) (typeRepOrLifted env) maybeField
       r2 <-
         if null rest
           then typeRepOrLifted env resultTy
@@ -1104,6 +1106,7 @@ coercionOrigins coercion =
     CoSym inner -> coercionOrigins inner
     CoTrans left right -> coercionOrigins left <> coercionOrigins right
     CoApp function argument -> coercionOrigins function <> coercionOrigins argument
+    CoNth _ proof -> coercionOrigins proof
     CoFun domain range -> coercionOrigins domain <> coercionOrigins range
     CoTyConApp name arguments -> nameOriginPair name <> concatMap coercionOrigins arguments
     CoAxiom name arguments -> nameOriginPair name <> concatMap typeOrigins arguments

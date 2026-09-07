@@ -4,6 +4,7 @@ extensions:
 - ScopedTypeVariables
 modules:
 - |
+  {-# LANGUAGE ScopedTypeVariables #-}
   module Test where
   data Flag = Off | On
   cast :: forall a b. (a ~ b) => a -> b
@@ -12,5 +13,5 @@ modules:
       local :: a -> b
       local y = y
   result = cast On :: Flag
-status: xfail
-reason: A local signature can use the outer equality constraint. AIHC still lacks complete equality support.
+status: pass
+reason: A local signature can use the outer equality constraint.

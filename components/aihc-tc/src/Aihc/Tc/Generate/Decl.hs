@@ -33,7 +33,7 @@ import Aihc.Parser.Syntax
     Decl (..),
     ExportSpec (..),
     Expr (..),
-    Extension,
+    Extension (..),
     FieldDecl (..),
     ForallTelescope (..),
     ForeignDecl (..),
@@ -127,7 +127,7 @@ import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
@@ -490,6 +490,7 @@ tcModuleScc modules = do
   -- making aliases available in constructor fields and class methods.
   let declarations = concatMap moduleDecls modules
       standaloneKindSignatures = collectStandaloneKindSignatures declarations
+      polyKindOrigins = [resolvedModuleOrigin modu | modu <- modules, PolyKinds `elem` moduleEnabledExtensions modu]
   mapM_ predeclareTypeConstructor declarations
   mapM_ predeclareTypeLevelDataConstructors declarations
   standaloneKindSchemes <- traverse standaloneKindSigToScheme standaloneKindSignatures
@@ -502,6 +503,8 @@ tcModuleScc modules = do
           declaration <- moduleDecls modu
         ]
   mapM_ (uncurry registerStructuralDecl) (filter (not . isInstanceDecl . snd) structuralDeclarations)
+  -- Generalize data kinds before instances use them.
+  generalizeDataKinds polyKindOrigins initialKeys
   mapM_ (uncurry registerStructuralDecl) (filter (isInstanceDecl . snd) structuralDeclarations)
   -- Deriving strategy and context inference depends only on registered type,
   -- class, and explicit-instance information. Finalize the entire SCC as one
@@ -622,11 +625,51 @@ globalStateKeys state =
       globalPatSynKeys = Map.keysSet (tcsPatSyns state)
     }
 
+-- | Generalize each data kind in its own module extension scope.
+generalizeDataKinds :: [(Text, Text)] -> GlobalStateKeys -> TcM ()
+generalizeDataKinds polyKindOrigins initialKeys = do
+  state <- lift get
+  let newDataTypes = Map.filterWithKey (\(_, _, namespace, _) info -> namespace == ResolutionNamespaceType && tciFlavor info == DataTyCon && (packageIdText (tyConPackageId (tciTyCon info)), tyConModuleName (tciTyCon info)) `elem` polyKindOrigins) (Map.withoutKeys (tcsGlobalTyCons state) (globalTyConKeys initialKeys))
+  generalized <- traverse generalizeDataKindInfo newDataTypes
+  lift $ modify' (\current -> current {tcsGlobalTyCons = generalized `Map.union` tcsGlobalTyCons current})
+
+generalizeDataKindInfo :: TyConInfo -> TcM TyConInfo
+generalizeDataKindInfo info = do
+  scheme <- generalizeDataKind (tciKindScheme info)
+  pure info {tciKindScheme = scheme}
+
+generalizeDataKind :: TypeScheme -> TcM TypeScheme
+generalizeDataKind (ForAll variables predicates body) = do
+  kind <- zonkKind body
+  let metas = nub (collectMetaVars kind)
+  forM_ (zip [0 :: Int ..] metas) $ \(index, meta) -> do
+    variable <- freshSkolemTv ("k" <> T.pack (show index))
+    writeMetaTv meta (TcTyVar variable)
+  kind' <- zonkKind kind
+  pure (ForAll (uniqueKindVariables (variables <> freeKindVariables kind')) predicates kind')
+
+closeKindVariables :: [TyVarId] -> [TyVarId]
+closeKindVariables variables =
+  uniqueKindVariables (concatMap (freeKindVariables . tvKind) variables <> variables)
+
+uniqueKindVariables :: [TyVarId] -> [TyVarId]
+uniqueKindVariables = nubBy (\left right -> tvUnique left == tvUnique right)
+
+freeKindVariables :: TcType -> [TyVarId]
+freeKindVariables ty = case ty of
+  TcTyVar variable -> freeKindVariables (tvKind variable) <> [variable]
+  TcMetaTv {} -> []
+  TcTyCon _ arguments -> concatMap freeKindVariables arguments
+  TcFunTy argument result -> freeKindVariables argument <> freeKindVariables result
+  TcAppTy function argument -> freeKindVariables function <> freeKindVariables argument
+  TcForAllTy variable body -> filter (/= variable) (freeKindVariables body)
+  TcQualTy _ body -> freeKindVariables body
+
 defaultGlobalKindMetas :: GlobalStateKeys -> TcM ()
 defaultGlobalKindMetas initialKeys = do
   state <- lift get
-  terms <- traverseNewMap globalTermKeys defaultBinderKinds (tcsGlobalTerms state)
   tyCons <- traverseNewMap globalTyConKeys defaultTyConInfoKinds (tcsGlobalTyCons state)
+  terms <- traverseNewMap globalTermKeys defaultBinderKinds (tcsGlobalTerms state)
   dataTypes <- traverseNewMap globalDataTypeKeys defaultDataTypeKinds (tcsDataTypes state)
   classes <- traverseNewMap globalClassKeys defaultClassKinds (tcsClasses state)
   instances <- instanceEnvFromList <$> mapM (traverseNewList globalInstanceKeys instanceInfoKey defaultInstanceKinds) (instanceEnvList (tcsInstances state))
@@ -662,10 +705,13 @@ defaultGlobalKindMetas initialKeys = do
       pure info {psiScheme = scheme, psiReqTheta = required, psiProvTheta = provided}
     defaultBinderKinds binder =
       case binder of
-        TcIdBinder scheme closedness -> TcIdBinder <$> defaultTypeSchemeKinds scheme <*> pure closedness
+        TcIdBinder scheme closedness -> do
+          ForAll variables predicates body <- defaultTypeSchemeKinds scheme
+          pure (TcIdBinder (ForAll (closeKindVariables variables) predicates body) closedness)
         TcMonoIdBinder ty -> TcMonoIdBinder <$> defaultTypeKinds ty
     defaultTyConInfoKinds info = do
-      kindScheme <- defaultTyConKindScheme (tciKindScheme info)
+      ForAll variables predicates body <- defaultTyConKindScheme (tciKindScheme info)
+      let kindScheme = ForAll (closeKindVariables variables) predicates body
       synonym <- traverse defaultTypeSynonymKinds (tciTypeSynonym info)
       pure
         info
@@ -694,8 +740,8 @@ defaultGlobalKindMetas initialKeys = do
       resultType <- defaultTypeKinds (dciResTy info)
       pure
         info
-          { dciUnivTyVars = universalTyVars,
-            dciExTyVars = existentialTyVars,
+          { dciUnivTyVars = closeKindVariables universalTyVars,
+            dciExTyVars = filter (`notElem` closeKindVariables universalTyVars) (closeKindVariables existentialTyVars),
             dciTheta = predicates,
             dciFields = fields,
             dciResTy = resultType
@@ -1434,7 +1480,13 @@ solveInstanceSuperClass :: Text -> [Pred] -> Pred -> TcM EvTerm
 solveInstanceSuperClass className givens predicate = do
   evidenceVariable <- freshEvVar
   let constraint = mkWantedCt predicate evidenceVariable (InstOrigin className) NoSourceSpan
-  result <- solveDictWithGivens givens constraint
+  result <- case predicate of
+    EqPred {} -> do
+      equality <- withGivenPredicates givens (solveEquality constraint)
+      pure $ case equality of
+        EqSolved -> DictSolved
+        _ -> DictStuck constraint
+    _ -> solveDictWithGivens givens constraint
   case result of
     DictSolved -> do
       evidence <- lookupEvidence evidenceVariable
@@ -2601,8 +2653,9 @@ tcFunctionWithSig displayName name sig matches = do
       -- Check each equation against the signature types. The explicit
       -- forall variables scope over the equations.
       results <-
-        withScopedTyVars (scopedSigTyVars (checkedSigScopedNames sig) skolems) $
-          mapM (tcMatchEquation (Just (TypeSignatureOrigin (checkedSigName sig) (checkedSigSpan sig))) argTys resTy) matches
+        withGivenPredicates sigPreds $
+          withScopedTyVars (scopedSigTyVars (checkedSigScopedNames sig) skolems) $
+            mapM (tcMatchEquation (Just (TypeSignatureOrigin (checkedSigName sig) (checkedSigSpan sig))) argTys resTy) matches
       let (_matches', ctsList, implsList) = unzip3 results
           allCts = concat ctsList
           allImpls = concat implsList
@@ -3564,7 +3617,15 @@ implicitBinderKindParams binders = mapM makeImplicitParam implicitNames
 
 dataDeclParamInfos :: Maybe TypeScheme -> DataDecl -> TcM ([ParamInfo], [ParamInfo])
 dataDeclParamInfos maybeKindScheme declaration =
-  typeDeclParamInfos maybeKindScheme (binderHeadParams (dataDeclHead declaration))
+  case maybeKindScheme of
+    Just {} -> typeDeclParamInfos maybeKindScheme binders
+    Nothing -> do
+      kindParams <- implicitBinderKindParams binders
+      let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
+      params <- makeParamEnvWith kindEnv binders
+      pure (kindParams, params)
+  where
+    binders = binderHeadParams (dataDeclHead declaration)
 
 registerDataDeclHeader :: Maybe TypeScheme -> DataDecl -> TcM [TcBindingResult]
 registerDataDeclHeader maybeKindScheme dd = do
@@ -3843,8 +3904,15 @@ registerDataConWithResult paramInfos resTy con = case con of
   ListCon forallVars context ->
     registerH98DataCon forallVars context Nothing "[]" []
   GadtCon forallBinders context names body -> do
-    constructorParams <- makeParamEnv (concatMap forallTelescopeBinders forallBinders)
-    let constructorEnv =
+    explicitParams <- makeParamEnv (concatMap forallTelescopeBinders forallBinders)
+    let explicitNames = map paramName (explicitParams <> paramInfos)
+        implicitNames = filter (`notElem` explicitNames) (nub (concatMap freeTypeVars (gadtBodyResultType body : gadtBodyArgTypes body <> context)))
+    implicitParams <- forM implicitNames $ \name -> do
+      variable <- freshSkolemTv name
+      kind <- freshKindMeta
+      pure (ParamInfo name (setTyVarKind kind variable) kind)
+    let constructorParams = explicitParams <> implicitParams
+        constructorEnv =
           Map.fromList
             [ (paramName param, (paramTyVar param, paramKind param))
             | param <- constructorParams

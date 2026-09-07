@@ -13,14 +13,14 @@ annotated:
   untag :: Tagged a -> Int
   untag (Tagged n) = n
   │      │      └─ type: GHC.Types.Int
-  │      └─ type: GHC.Types.Int → Tagged a; type-args: r, a
+  │      └─ type: Tagged a
   └─ type: ∀ a. Tagged a → GHC.Types.Int
 
   retag :: Tagged a -> Tagged b
   retag (Tagged n) = Tagged n
   │      │      │    └─ type: GHC.Types.Int → Tagged b; type-args: 'BoxedRep 'Lifted, b
   │      │      └─ type: GHC.Types.Int
-  │      └─ type: GHC.Types.Int → Tagged a; type-args: r, a
+  │      └─ type: Tagged a
   └─ type: ∀ a b. Tagged a → Tagged b
 
 status: pass

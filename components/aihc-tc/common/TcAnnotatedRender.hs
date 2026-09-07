@@ -266,7 +266,9 @@ renderCoercion coercion =
     Trans left right -> "trans (" <> renderCoercion left <> ") (" <> renderCoercion right <> ")"
     AppCo function argument -> "app (" <> renderCoercion function <> ") (" <> renderCoercion argument <> ")"
     FunCo domain range -> "fun (" <> renderCoercion domain <> ") (" <> renderCoercion range <> ")"
-    TyConAppCo tyCon args -> T.unpack (tyConName tyCon) <> " " <> unwords (map renderCoercion args)
+    NthCo index proof -> "nth[" <> show index <> "](" <> renderCoercion proof <> ")"
+    EvidenceCo _ evidence -> renderEvTerm evidence
+    TyConAppCo tyCon _ args -> T.unpack (tyConName tyCon) <> " " <> unwords (map renderCoercion args)
     AxiomInstCo key tys -> show key <> renderTypeArgs tys
 
 renderEvVar :: EvVar -> String

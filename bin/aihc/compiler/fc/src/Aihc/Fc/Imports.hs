@@ -258,6 +258,7 @@ coercionReferences coercion =
     CoSym inner -> coercionReferences inner
     CoTrans left right -> coercionReferences left <> coercionReferences right
     CoApp function argument -> coercionReferences function <> coercionReferences argument
+    CoNth _ proof -> coercionReferences proof
     CoFun domain range -> coercionReferences domain <> coercionReferences range
     CoTyConApp name arguments -> nameReference name <> foldMap coercionReferences arguments
     CoAxiom name arguments -> nameReference name <> foldMap typeReferences arguments

@@ -26,6 +26,7 @@ module Aihc.Fc.Convert
     typeRep,
     extraKindVars,
     invisibleKindArgs,
+    visibleArgumentKinds,
     typeKindInEnv,
     evidenceArrows,
   )

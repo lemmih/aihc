@@ -6,11 +6,12 @@ extensions:
 - PolyKinds
 modules:
 - |
+  {-# LANGUAGE PolyKinds #-}
   module Test where
   data Flag = Off | On
   data Proxy a = Proxy
   cast :: (a ~ 'On) => Proxy a -> Flag
   cast _ = On
   result = cast (Proxy :: Proxy 'On)
-status: xfail
-reason: Equality can relate promoted data constructors. AIHC still lacks complete equality support.
+status: pass
+reason: Equality can relate promoted data constructors.

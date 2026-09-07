@@ -25,7 +25,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Canonicalize
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Dict (DictResult (..), reportUnsolvedDict, solveDict, solveDictWithGivens)
-import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyInertSet)
 import Aihc.Tc.Solve.Worklist
@@ -208,17 +208,11 @@ applyGivenSubst givens ty = foldr applyOne ty givens
             _ -> t
 
 -- | Attempt to solve a wanted constraint using given equalities.
--- Rewrites both sides of the wanted using the given substitution and
--- then tries to solve the resulting equality.
+-- Equality evidence must prove the original endpoints.
 solveWantedWithGivens :: [TyVarId] -> [Pred] -> [(TcType, TcType)] -> Ct -> TcM [Ct]
 solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred ct of
-  EqPred t1 t2 -> do
-    t1' <- zonkType t1
-    t2' <- zonkType t2
-    let t1'' = applyGivenSubst givenEqualities t1'
-        t2'' = applyGivenSubst givenEqualities t2'
-    proved <- solveGivenEquality givenPredicates ct
-    result <- if proved then pure EqSolved else solveEquality (ct {ctPred = EqPred t1'' t2''})
+  EqPred {} -> do
+    result <- withGivenPredicates givenPredicates (solveEquality ct)
     case result of
       EqSolved -> pure []
       EqStuck stuck -> deferOrReport skolems stuck

@@ -13,6 +13,7 @@ module Aihc.Tc.Solve.Dict
     isCallStackPred,
     reportUnsolvedDict,
     matchTypes,
+    classFieldTypes,
   )
 where
 

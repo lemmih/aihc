@@ -6,6 +6,7 @@ extensions:
 - PolyKinds
 modules:
 - |
+  {-# LANGUAGE PolyKinds #-}
   module Test where
   data Flag = Off | On
   data Proxy a = Proxy
@@ -15,8 +16,7 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: Equality can relate promoted data constructors. AIHC still lacks complete equality support.
+status: pass
 
 evaluators:
 - grin

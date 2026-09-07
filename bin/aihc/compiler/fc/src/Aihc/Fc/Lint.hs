@@ -605,6 +605,7 @@ lintNominalCoercion env proof =
     CoSym inner -> lintNominalCoercion env inner
     CoTrans left right -> lintNominalCoercion env left >> lintNominalCoercion env right
     CoApp function argument -> lintNominalCoercion env function >> lintNominalCoercion env argument
+    CoNth _ inner -> lintNominalCoercion env inner
     CoFun domain range -> lintNominalCoercion env domain >> lintNominalCoercion env range
     CoTyConApp _ arguments -> mapM_ (lintNominalCoercion env) arguments
     CoAxiom name _ ->
@@ -642,6 +643,10 @@ coercionEndpoints env coercion =
       rightKind <- lintType env right
       unless (typesEqual env leftKind rightKind) (Left (KindMismatch "application coercion" leftKind rightKind))
       Right (left, right)
+    CoNth index proof -> do
+      lintNominalCoercion env proof
+      endpoints <- coercionEndpoints env proof
+      maybe (Left (LintFailure "invalid nominal argument projection")) Right (projectNominalArgument env index endpoints)
     CoFun domain range -> do
       lintNominalCoercion env domain
       lintNominalCoercion env range
