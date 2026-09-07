@@ -1,0 +1,20 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Equal a b where
+    Refl :: Equal a a
+  cast :: Equal a b -> a -> b
+  cast Refl x = x
+  result = cast Refl On :: Flag
+expression: result
+output: |
+  On
+status: pass
+reason: A GADT constructor that refines its result brings the equality into scope without an explicit context.
+
+evaluators:
+- grin

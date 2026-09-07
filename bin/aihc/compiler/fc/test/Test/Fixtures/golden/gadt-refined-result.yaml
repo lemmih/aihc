@@ -1,0 +1,70 @@
+---
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  {-# LANGUAGE GADTs, TypeOperators #-}
+  module Test where
+  data Flag = Off | On
+  data a :~: b where
+    Refl :: a :~: a
+  same :: a :~: b -> Flag
+  same Refl = On
+  cast :: a :~: b -> a -> b
+  cast Refl x = x
+  result :: Flag
+  result = cast Refl On
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.t[] :: ∀(a : 2.tType). 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity;
+    2.vTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
+    2.v[] :: ∀(a : 2.tType). 2.t[] a
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tFlag :: 2.tType {
+      pub 1.vOff :: 1.tFlag;
+      pub 1.vOn :: 1.tFlag
+  }
+
+  pub type 1.t:~: (a : 2.tType) (b : 2.tType) :: 2.tType {
+      pub 1.vRefl :: ∀(a : 2.tType) (b : 2.tType). FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @2.tLiftedRep (b ~ a) (1.t:~: a b)
+  }
+
+  pub val 1.vsame :: ∀(a : 2.tType) (b : 2.tType). 1.t:~: a b 2.→ 1.tFlag
+   = Λ(a : 2.tType).
+    Λ(b : 2.tType).
+      λ(x : 1.t:~: a b).
+        case x as (_scrut : 1.t:~: a b) return (1.tFlag) of {
+            1.vRefl ($pattern_d0 : b ~ a) →
+                1.vOn
+        }
+
+  pub val 1.vcast :: ∀(a : 2.tType) (b : 2.tType). 1.t:~: a b 2.→ a 2.→ b
+   = Λ(a : 2.tType).
+    Λ(b : 2.tType).
+      λ(x : 1.t:~: a b).
+        λ(y : a).
+          case x as (_scrut : 1.t:~: a b) return (b) of {
+              1.vRefl ($pattern_d0 : b ~ a) →
+                  y ▷ sym ($pattern_d0)
+          }
+
+  pub val 1.vresult :: 1.tFlag
+   = 1.vcast @1.tFlag @1.tFlag (1.vRefl @1.tFlag @1.tFlag (coercion (refl 1.tFlag))) 1.vOn
+status: pass
+reason: a GADT constructor whose result refines an index carries the refinement
+  as an equality, so the alternative binds a coercion and the program lints.

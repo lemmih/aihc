@@ -65,4 +65,4 @@ output: |
   True
 expression: result
 status: pass
-reason: "matching on Refl and HRefl imported from Data.Type.Equality brings the constructor equalities into scope"
+reason: a GADT constructor carries its result refinement as an equality, so matching on Refl brings a ~ b into scope across a type interface

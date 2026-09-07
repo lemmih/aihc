@@ -1,3 +1,5 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PolyKinds #-}
 
 {-# HLINT ignore "Use foldl" #-}
@@ -48,46 +50,11 @@ mod' numeratorValue denominatorValue =
 
 -- | Fixed-point values store an integer count of resolution-sized units.
 newtype Fixed (a :: k) = MkFixed Integer
+  deriving newtype (Eq, Ord, Enum)
 
 -- | Types used as a fixed-point parameter supply its scaling factor.
 class HasResolution (a :: k) where
   resolution :: p a -> Integer
-
-instance Eq (Fixed a) where
-  MkFixed left == MkFixed right = left == right
-  left /= right = not (left == right)
-
-instance Ord (Fixed a) where
-  compare (MkFixed left) (MkFixed right) = compare left right
-  MkFixed left < MkFixed right = left < right
-  MkFixed left <= MkFixed right = left <= right
-  MkFixed left > MkFixed right = left > right
-  MkFixed left >= MkFixed right = left >= right
-  max left right =
-    case left >= right of
-      True -> left
-      False -> right
-  min left right =
-    case left <= right of
-      True -> left
-      False -> right
-
-instance Enum (Fixed a) where
-  succ (MkFixed value) = MkFixed (succ value)
-  pred (MkFixed value) = MkFixed (pred value)
-  toEnum value = MkFixed (toEnum value)
-  fromEnum (MkFixed value) = fromEnum value
-  enumFrom (MkFixed value) = mapFixedValues (enumFrom value)
-  enumFromThen (MkFixed first) (MkFixed second) =
-    mapFixedValues (enumFromThen first second)
-  enumFromTo (MkFixed first) (MkFixed lastValue) =
-    mapFixedValues (enumFromTo first lastValue)
-  enumFromThenTo (MkFixed first) (MkFixed second) (MkFixed lastValue) =
-    mapFixedValues (enumFromThenTo first second lastValue)
-
-mapFixedValues :: [Integer] -> [Fixed a]
-mapFixedValues [] = []
-mapFixedValues (value : values) = MkFixed value : mapFixedValues values
 
 instance (HasResolution a) => Num (Fixed a) where
   MkFixed left + MkFixed right = MkFixed (left + right)

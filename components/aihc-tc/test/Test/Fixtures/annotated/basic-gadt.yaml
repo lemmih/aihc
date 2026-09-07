@@ -8,7 +8,7 @@ annotated:
   data GADT a where
        └─ type: Type → Type
     IsBool :: GADT Bool
-    └─ type: GADT Bool
+    └─ type: ∀ a. (a ~ Bool) ⇒ GADT a
   not True = False
   │   └─ type: Bool
   └─ type: Bool → Bool
@@ -18,7 +18,7 @@ annotated:
 
   fn :: a -> GADT a -> a
   fn x IsBool = not x
-  │  │ └─ type: GADT a
+  │  │ └─ type: GADT a; type-args: a; evidence: given a ~ Bool
   │  └─ type: a
   └─ type: ∀ a. a → GADT a → a
 extensions: []
