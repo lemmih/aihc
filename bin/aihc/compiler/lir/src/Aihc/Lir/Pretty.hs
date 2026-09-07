@@ -10,6 +10,7 @@ module Aihc.Lir.Pretty
     prettyLabel,
     prettyOperand,
     prettyLiteral,
+    prettyQuoted,
     renderModule,
     renderDoc,
     reservedWords,
@@ -57,6 +58,8 @@ prettyItem item =
         <> (if globalPinned global then " pinned" else mempty)
     ItemData dataItem -> prettyData dataItem
     ItemExternData symbol -> "extern data" <+> prettySymbol symbol
+    ItemConstant constant -> "const" <+> prettySymbol (constantName constant) <+> "=" <+> pretty (constantValue constant)
+    ItemInclude path -> "include" <+> prettyQuoted path
 
 prettyLinkage :: Linkage -> Doc ann
 prettyLinkage linkage =
@@ -122,10 +125,12 @@ prettyDataField :: DataField -> Doc ann
 prettyDataField field =
   case field of
     DataInt ty value -> prettyType ty <+> pretty value
+    DataIntConstant ty symbol -> prettyType ty <+> prettySymbol symbol
     DataFloat ty value -> prettyType ty <+> prettyFloat value
     DataSymbol symbol addend -> "ptr" <+> prettySymbol symbol <> prettyAddend addend
     DataNull -> "ptr null"
     DataWord value -> "word" <+> pretty value
+    DataWordConstant symbol -> "word" <+> prettySymbol symbol
     DataCode symbol -> "code" <+> maybe "null" prettySymbol symbol
     DataBytes bytes -> "bytes" <+> prettyBytes bytes
     DataZero count -> "zero" <+> pretty count

@@ -7,7 +7,7 @@ module Aihc.Lir.Lint
   )
 where
 
-import Aihc.Lir.Pretty (binaryOpName, compareOpName, convertOpName, floatBinaryOpName, floatUnaryOpName, prettyLabel, prettyLiteral, prettySymbol, prettyType, prettyVar, renderDoc, unaryOpName, wideOpName)
+import Aihc.Lir.Pretty (binaryOpName, compareOpName, convertOpName, floatBinaryOpName, floatUnaryOpName, prettyLabel, prettyLiteral, prettyQuoted, prettySymbol, prettyType, prettyVar, renderDoc, unaryOpName, wideOpName)
 import Aihc.Lir.Syntax
 import Data.Bits (popCount)
 import Data.IntMap.Strict (IntMap)
@@ -42,6 +42,7 @@ data SymbolInfo
   = SymbolFunction !Signature
   | SymbolGlobal !Type
   | SymbolData
+  | SymbolConstant !Integer
   deriving (Eq, Show)
 
 type Symbols = Map Symbol SymbolInfo
@@ -52,19 +53,23 @@ lintModule (Module items) =
   where
     (symbols, duplicateErrors) = foldl' addSymbol (Map.empty, []) items
     addSymbol (table, errors) item =
-      let (symbol, info) = itemSymbol item
-       in if Map.member symbol table
-            then (table, errors <> [LintError (Just symbol) Nothing ("duplicate definition of " <> renderSymbol symbol)])
-            else (Map.insert symbol info table, errors)
+      case itemSymbol item of
+        Nothing -> (table, errors)
+        Just (symbol, info)
+          | Map.member symbol table -> (table, errors <> [LintError (Just symbol) Nothing ("duplicate definition of " <> renderSymbol symbol)])
+          | otherwise -> (Map.insert symbol info table, errors)
 
-itemSymbol :: Item -> (Symbol, SymbolInfo)
+-- | The symbol an item defines or declares. An include names no symbol.
+itemSymbol :: Item -> Maybe (Symbol, SymbolInfo)
 itemSymbol item =
   case item of
-    ItemFunction function -> (functionName function, SymbolFunction (functionSignature function))
-    ItemExternFunction external -> (externFunctionName external, SymbolFunction (externFunctionSignature external))
-    ItemGlobal global -> (globalName global, SymbolGlobal (globalType global))
-    ItemData dataItem -> (dataName dataItem, SymbolData)
-    ItemExternData symbol -> (symbol, SymbolData)
+    ItemFunction function -> Just (functionName function, SymbolFunction (functionSignature function))
+    ItemExternFunction external -> Just (externFunctionName external, SymbolFunction (externFunctionSignature external))
+    ItemGlobal global -> Just (globalName global, SymbolGlobal (globalType global))
+    ItemData dataItem -> Just (dataName dataItem, SymbolData)
+    ItemExternData symbol -> Just (symbol, SymbolData)
+    ItemConstant constant -> Just (constantName constant, SymbolConstant (constantValue constant))
+    ItemInclude _ -> Nothing
 
 lintItem :: Symbols -> Item -> [LintError]
 lintItem symbols item =
@@ -75,6 +80,9 @@ lintItem symbols item =
     ItemGlobal _ -> []
     ItemData dataItem -> map (LintError (Just (dataName dataItem)) Nothing) (lintData symbols dataItem)
     ItemExternData _ -> []
+    ItemConstant _ -> []
+    -- "Aihc.Lir.Resolve" expands includes before a module reaches the linter.
+    ItemInclude path -> [LintError Nothing Nothing ("include " <> renderDoc (prettyQuoted path) <> " is not expanded")]
 
 signatureErrors :: Signature -> [Text]
 signatureErrors signature =
@@ -92,6 +100,9 @@ lintData symbols dataItem =
         DataInt ty _
           | isIntegerType ty -> []
           | otherwise -> ["data field type " <> renderType ty <> " is not an integer type"]
+        DataIntConstant ty symbol
+          | isIntegerType ty -> constantErrors symbols ty symbol
+          | otherwise -> ["data field type " <> renderType ty <> " is not an integer type"]
         DataFloat ty _
           | isFloatType ty -> []
           | otherwise -> ["data field type " <> renderType ty <> " is not a float type"]
@@ -101,10 +112,25 @@ lintData symbols dataItem =
           [ "data field word " <> tshow value <> " does not fit a 32-bit word"
           | not (literalFits I32 value)
           ]
+        DataWordConstant symbol -> constantErrors symbols I32 symbol
         DataCode Nothing -> []
         DataCode (Just symbol) -> functionSymbolErrors symbols symbol
         DataBytes _ -> []
         DataZero _ -> []
+
+-- | A constant reference names a constant whose value fits the type.
+constantErrors :: Symbols -> Type -> Symbol -> [Text]
+constantErrors symbols ty symbol =
+  case Map.lookup symbol symbols of
+    Just (SymbolConstant value) -> constantValueErrors ty symbol value
+    Just _ -> [renderSymbol symbol <> " is not a constant"]
+    Nothing -> ["unknown symbol " <> renderSymbol symbol]
+
+constantValueErrors :: Type -> Symbol -> Integer -> [Text]
+constantValueErrors ty symbol value =
+  [ "constant " <> renderSymbol symbol <> " = " <> tshow value <> " does not fit " <> renderType ty
+  | not (literalFits ty value)
+  ]
 
 -- | A @ptr@ literal or data field names a data object. A global has no
 -- address and a function is a @code@ value.
@@ -468,6 +494,10 @@ literalErrors env expected literal =
       | expected `elem` [Ptr, Code] -> []
       | otherwise -> mismatch
     LitSymbol symbol
+      | Just (SymbolConstant value) <- Map.lookup symbol (envSymbols env) ->
+          if isIntegerType expected || expected == I1
+            then constantValueErrors expected symbol value
+            else mismatch
       | expected == Ptr -> dataSymbolErrors (envSymbols env) symbol
       | expected == Code -> functionSymbolErrors (envSymbols env) symbol
       | otherwise -> mismatch

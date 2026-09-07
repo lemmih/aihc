@@ -109,7 +109,7 @@ A module is a sequence of items. Item order is not significant, except that the
 pretty-printer preserves it.
 
 ```text
-item ::= function | extern-function | global | data | extern-data
+item ::= function | extern-function | global | data | extern-data | constant | include
 ```
 
 Every symbol is defined or declared at most once in a module.
@@ -180,6 +180,52 @@ truncates it. A `bytes` field stores the UTF-8 encoding of the string. A
 
 A data object without `mut` is read-only. A store to a read-only data object
 traps.
+
+### Constants
+
+```text
+constant ::= "const" symbol "=" integer
+include ::= "include" string
+```
+
+A constant is a named integer. Like an integer literal, it has no type of its
+own: the operation, the block parameter, or the data field that refers to it
+gives the type, and the value has to fit that type. A reference to a constant
+is its symbol, and it stands wherever an integer literal does. An operand
+`@name` names a constant when the module defines one, and a data field
+`i64 @name` or `word @name` stores its value. A constant is not a data
+object: it has no address, a `ptr` field cannot name it, and `ptr.to_int`
+cannot take it.
+
+An `include` item names a file whose constants the module takes as its own.
+The path is relative to the directory of the file that holds the include. An
+included file holds nothing but constants and includes, so including it
+defines no function, global, or data object, and every module that includes
+it stays one object of its own. A chain of includes does not return to a file
+already on it.
+
+Constants and includes exist in the text and in the parsed module, so a file
+round-trips through the pretty-printer. Before a module reaches the linter,
+`expandIncludes` replaces every include with the constants of its file, and
+before it reaches a backend, `resolveConstants` substitutes every reference
+with its value and drops the definitions. The backends and the interpreter
+run that substitution themselves, so a caller hands them the expanded module.
+`loadModule` reads, parses, and expands a file in one step.
+
+```text
+include "aihc_constants.lir"
+
+const @SLOT = 8
+
+data @info align 8 = { word @AIHC_OBJECT_ARRAY, word @AIHC_FRAME_NONE }
+
+func @kind_of(%object: ptr) -> i64 {
+entry:
+  %kind = load i64 [%object + @SLOT] align 8
+  %is_array = eq i64 %kind, @AIHC_OBJECT_ARRAY
+  ...
+}
+```
 
 ### Info tables
 
@@ -492,7 +538,11 @@ both collectors work with this pipeline.
 
 A runtime unit is a `.lir` file in `bin/aihc/compiler/native/runtime` that
 `aihc prepare-runtime` parses, lints, and compiles with the backend of the
-target. Its object joins the C objects in the runtime archive, so a runtime
+target. The units share their named constants through
+`aihc_constants.lir`, which holds the object kinds and the frame kinds that
+an info table stores, and each unit takes them with
+`include "aihc_constants.lir"`. That file is not a unit: it holds nothing but
+constants, so nothing compiles it on its own. Its object joins the C objects in the runtime archive, so a runtime
 function written in Lir and one written in C call each other through the same
 `c` convention and the same symbol names.
 

@@ -187,7 +187,9 @@ item =
       ItemGlobal <$> globalItem,
       exportedItem,
       ItemFunction <$> functionItem Internal,
-      ItemData <$> dataItem Internal
+      ItemData <$> dataItem Internal,
+      ItemConstant <$> constantItem,
+      ItemInclude <$> (keyword "include" *> lexeme quotedText)
     ]
 
 externItem :: Parser Item
@@ -212,6 +214,13 @@ globalItem = do
   pinned <- isJust <$> optional (keyword "pinned")
   pure Global {globalName = name, globalType = ty, globalPinned = pinned}
 
+constantItem :: Parser Constant
+constantItem = do
+  keyword "const"
+  name <- symbolName
+  token "="
+  Constant name <$> integer
+
 dataItem :: Linkage -> Parser DataItem
 dataItem linkage = do
   keyword "data"
@@ -235,7 +244,7 @@ dataField =
   MP.choice
     [ DataBytes <$> (keyword "bytes" *> lexeme quotedBytes),
       DataZero <$> (keyword "zero" *> natural),
-      DataWord <$> (keyword "word" *> integer),
+      keyword "word" *> (DataWordConstant <$> symbolName <|> DataWord <$> integer),
       keyword "ptr" *> (DataNull <$ keyword "null" <|> DataSymbol <$> symbolName <*> addend),
       keyword "code" *> (DataCode Nothing <$ keyword "null" <|> DataCode . Just <$> symbolName),
       typedField
@@ -245,7 +254,7 @@ dataField =
       ty <- typeParser
       if isFloatType ty
         then DataFloat ty <$> floatLiteral
-        else DataInt ty <$> integer
+        else DataIntConstant ty <$> symbolName <|> DataInt ty <$> integer
     floatLiteral = do
       value <- literal
       case value of

@@ -1,0 +1,6 @@
+; Constants the evaluation and lint fixtures include. An included file holds
+; nothing but constants and includes.
+
+const @OBJECT_NODE = 0
+const @OBJECT_ARRAY = 6
+const @FRAME_NONE = 0

@@ -15,6 +15,7 @@ module Aihc.Llvm.Lir
 where
 
 import Aihc.Lir.Lint (LintError, lintModule)
+import Aihc.Lir.Resolve (resolveConstants)
 import Aihc.Lir.Syntax
 import Control.Monad (forM, forM_)
 import Control.Monad.Trans.Class (lift)
@@ -38,17 +39,18 @@ data LlvmLirError
 
 -- | Lint the module, then render it.
 compileLirModule :: Module -> Either LlvmLirError Text
-compileLirModule lirModule@(Module items) =
+compileLirModule lirModule =
   case lintModule lirModule of
     [] -> do
       (functions, traps) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) Map.empty
+      dataLines <- concat <$> traverse renderData [dataItem | ItemData dataItem <- items]
       pure
         ( T.unlines
             ( preamble
                 <> concatMap declareExtern [external | ItemExternFunction external <- items]
                 <> [renderSymbol symbol <> " = external global i8" | ItemExternData symbol <- items]
                 <> [renderSymbol (globalName global) <> " = internal global " <> renderType (globalType global) <> " " <> zeroValue (globalType global) | ItemGlobal global <- items]
-                <> concatMap renderData [dataItem | ItemData dataItem <- items]
+                <> dataLines
                 <> [ "@" <> quote (trapMessageName index) <> " = private constant [" <> tshow (BS.length bytes) <> " x i8] c\"" <> escapeBytes bytes <> "\""
                    | (message, index) <- Map.toAscList traps,
                      let bytes = Text.encodeUtf8 (message <> "\n")
@@ -59,6 +61,7 @@ compileLirModule lirModule@(Module items) =
         )
     errors -> Left (LlvmLirLintErrors errors)
   where
+    Module items = resolveConstants lirModule
     ctx =
       Ctx
         { ctxSignatures =
@@ -118,34 +121,40 @@ trapMessageName index = ".Llir_trap_" <> tshow index
 
 -- Data
 
-renderData :: DataItem -> [Text]
-renderData dataItem =
-  [ renderSymbol (dataName dataItem)
-      <> " = "
-      <> (if dataLinkage dataItem == Export then "" else "internal ")
-      <> (if dataMutable dataItem then "global " else "constant ")
-      <> "<{ "
-      <> T.intercalate ", " (map fst fields)
-      <> " }> <{ "
-      <> T.intercalate ", " (map (\(ty, value) -> ty <> " " <> value) fields)
-      <> " }>, align "
-      <> tshow (dataAlignment dataItem)
-  ]
+-- | The linter and 'resolveConstants' leave no constant reference behind, so
+-- one is an error here rather than a value.
+renderData :: DataItem -> Either LlvmLirError [Text]
+renderData dataItem = do
+  fields <- traverse renderField (dataFields dataItem)
+  pure
+    [ renderSymbol (dataName dataItem)
+        <> " = "
+        <> (if dataLinkage dataItem == Export then "" else "internal ")
+        <> (if dataMutable dataItem then "global " else "constant ")
+        <> "<{ "
+        <> T.intercalate ", " (map fst fields)
+        <> " }> <{ "
+        <> T.intercalate ", " (map (\(ty, value) -> ty <> " " <> value) fields)
+        <> " }>, align "
+        <> tshow (dataAlignment dataItem)
+    ]
   where
-    fields = map renderField (dataFields dataItem)
     renderField field =
       case field of
-        DataInt I1 value -> ("i8", tshow (value .&. 1))
-        DataInt ty value -> (renderType ty, renderInteger ty value)
-        DataFloat ty value -> (renderType ty, renderFloat ty value)
-        DataSymbol target 0 -> ("ptr", renderSymbol target)
-        DataSymbol target addend -> ("ptr", "getelementptr (i8, ptr " <> renderSymbol target <> ", i64 " <> tshow addend <> ")")
-        DataNull -> ("ptr", "null")
-        DataWord value -> ("i64", tshow value)
-        DataCode Nothing -> ("ptr", "null")
-        DataCode (Just target) -> ("ptr", renderSymbol target)
-        DataBytes bytes -> ("[" <> tshow (BS.length bytes) <> " x i8]", "c\"" <> escapeBytes bytes <> "\"")
-        DataZero count -> ("[" <> tshow count <> " x i8]", "zeroinitializer")
+        DataInt I1 value -> pure ("i8", tshow (value .&. 1))
+        DataInt ty value -> pure (renderType ty, renderInteger ty value)
+        DataIntConstant _ constant -> unresolved constant
+        DataFloat ty value -> pure (renderType ty, renderFloat ty value)
+        DataSymbol target 0 -> pure ("ptr", renderSymbol target)
+        DataSymbol target addend -> pure ("ptr", "getelementptr (i8, ptr " <> renderSymbol target <> ", i64 " <> tshow addend <> ")")
+        DataNull -> pure ("ptr", "null")
+        DataWord value -> pure ("i64", tshow value)
+        DataWordConstant constant -> unresolved constant
+        DataCode Nothing -> pure ("ptr", "null")
+        DataCode (Just target) -> pure ("ptr", renderSymbol target)
+        DataBytes bytes -> pure ("[" <> tshow (BS.length bytes) <> " x i8]", "c\"" <> escapeBytes bytes <> "\"")
+        DataZero count -> pure ("[" <> tshow count <> " x i8]", "zeroinitializer")
+    unresolved constant = Left (LlvmLirUnsupported ("unknown constant " <> unSymbol constant))
 
 escapeBytes :: BS.ByteString -> Text
 escapeBytes = T.concat . map escapeByte . BS.unpack

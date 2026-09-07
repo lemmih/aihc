@@ -19,7 +19,7 @@ import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeS
 import Aihc.Cli.Options (GarbageCollector (..), PrepareRuntimeOptions (..))
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Lir.Lower qualified as Lir
-import Aihc.Lir.Parser (parseModule, renderParseError)
+import Aihc.Lir.Resolve (loadModule, renderLoadError)
 import Aihc.Lir.Syntax (Module)
 import Aihc.Native
   ( NativeTarget (..),
@@ -141,9 +141,7 @@ buildLirRuntimeObjects target plan directory =
   forM (zip [0 :: Int ..] (runtimeLirSources plan)) $ \(index, source) -> do
     let name = "runtime-lir-" <> show index
         object = directory </> name <> ".o"
-    text <- TIO.readFile source
-    lirModule <-
-      either (ioError . userError . ((source <> ": Lir parse failed: ") <>) . renderParseError) pure (parseModule text)
+    lirModule <- either (ioError . userError . renderLoadError) pure =<< loadModule source
     compileLirObject target name lirModule directory object
     pure object
 
