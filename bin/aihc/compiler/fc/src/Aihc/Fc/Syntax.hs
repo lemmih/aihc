@@ -118,6 +118,7 @@ data Coercion
   | CoTrans Coercion Coercion
   | CoApp Coercion Coercion
   | CoFun Coercion Coercion
+  | CoNth Int Coercion
   | CoTyConApp Name [Coercion]
   | CoAxiom Name [Type]
   deriving (Eq, Ord, Show, Read)

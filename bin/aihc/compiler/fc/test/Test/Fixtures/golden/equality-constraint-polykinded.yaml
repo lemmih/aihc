@@ -6,6 +6,7 @@ extensions:
 - ScopedTypeVariables
 modules:
 - |
+  {-# LANGUAGE PolyKinds #-}
   module Test where
   data Flag = Off | On
   data Proxy (a :: k) = Proxy
@@ -13,5 +14,5 @@ modules:
   cast x = x
   result = case cast (Proxy :: Proxy 'On) :: Proxy 'On of
     Proxy -> On
-status: xfail
-reason: One equality function works at a polymorphic kind. AIHC still lacks complete equality support.
+status: pass
+reason: One equality function works at a polymorphic kind.

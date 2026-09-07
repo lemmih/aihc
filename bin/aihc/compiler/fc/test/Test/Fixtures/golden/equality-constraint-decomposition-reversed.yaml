@@ -5,8 +5,7 @@ modules:
 - |
   module Test where
   data Flag = Off | On
-  cast :: ([a] ~ [b]) => a -> b
+  cast :: ([b] ~ [a]) => a -> b
   cast x = x
   result = cast On :: Flag
 status: pass
-reason: Equality evidence remains valid through type checks.

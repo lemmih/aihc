@@ -8,9 +8,10 @@ modules:
   module Test where
   data Flag = Off | On
   class (a ~ b) => Same a b
+  class Same a b => Indirect a b
   instance Same a a
-  cast :: Same a b => a -> b
+  instance Indirect a a
+  cast :: Indirect a b => a -> b
   cast x = x
   result = cast On :: Flag
 status: pass
-reason: An equality superclass permits a cast.

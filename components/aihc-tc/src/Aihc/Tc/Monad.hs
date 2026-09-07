@@ -89,6 +89,8 @@ module Aihc.Tc.Monad
     getDefaultTypes,
     withScopedTyVars,
     getScopedTyVars,
+    withGivenPredicates,
+    getGivenPredicates,
     getTcLevel,
     withTcLevel,
     addInstance,
@@ -198,6 +200,7 @@ data TcEnv = TcEnv
     -- | The lexically scoped type variables, by source name. A signature
     -- with an explicit @forall@, an instance head, or a class head binds
     -- them over the bodies it covers.
+    tcEnvGivenPredicates :: ![Pred],
     tcEnvScopedTyVars :: !(Map Text (TyVarId, TcType))
   }
   deriving (Show)
@@ -296,6 +299,7 @@ emptyTcEnv config =
       tcEnvTcLevel = topTcLevel,
       tcEnvDefaultTypes = Nothing,
       tcEnvScopedTypeVariables = False,
+      tcEnvGivenPredicates = [],
       tcEnvScopedTyVars = Map.empty
     }
 
@@ -819,6 +823,13 @@ withScopedTyVars scoped action = do
   if enabled && not (Map.null scoped)
     then local (\env -> env {tcEnvScopedTyVars = scoped `Map.union` tcEnvScopedTyVars env}) action
     else action
+
+-- | Extend evidence scope for nested declarations.
+withGivenPredicates :: [Pred] -> TcM a -> TcM a
+withGivenPredicates predicates = local (\env -> env {tcEnvGivenPredicates = predicates <> tcEnvGivenPredicates env})
+
+getGivenPredicates :: TcM [Pred]
+getGivenPredicates = asks tcEnvGivenPredicates
 
 -- | The lexically scoped type variables that are in scope.
 getScopedTyVars :: TcM (Map Text (TyVarId, TcType))

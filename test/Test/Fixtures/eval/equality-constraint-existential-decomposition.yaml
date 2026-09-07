@@ -6,9 +6,14 @@ modules:
   module Test where
   data Flag = Off | On
   data Box where
-    Box :: (a ~ Flag) => a -> Box
+    Box :: ([a] ~ [Flag]) => a -> Box
   unbox :: Box -> Flag
   unbox (Box x) = x
   result = unbox (Box On)
+expression: result
+output: |
+  On
 status: pass
-reason: Equality evidence remains valid through type checks.
+
+evaluators:
+- grin

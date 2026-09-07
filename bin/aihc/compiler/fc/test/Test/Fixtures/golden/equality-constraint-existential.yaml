@@ -10,6 +10,5 @@ modules:
   unbox :: Box -> Flag
   unbox (Box x) = x
   result = unbox (Box On)
-status: xfail
-reason: An existential constructor preserves equality evidence for its field. AIHC cannot resolve
-  the equality class. AIHC still lacks complete equality support.
+status: pass
+reason: An existential constructor preserves equality evidence for its field.

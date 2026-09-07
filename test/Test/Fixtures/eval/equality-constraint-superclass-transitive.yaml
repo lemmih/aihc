@@ -1,11 +1,17 @@
 extensions:
 - GADTs
 - TypeOperators
+- MultiParamTypeClasses
+- FlexibleInstances
 modules:
 - |
   module Test where
   data Flag = Off | On
-  cast :: ([a] ~ [b]) => a -> b
+  class (a ~ b) => Same a b
+  class Same a b => Indirect a b
+  instance Same a a
+  instance Indirect a a
+  cast :: Indirect a b => a -> b
   cast x = x
   result = cast On :: Flag
 expression: result

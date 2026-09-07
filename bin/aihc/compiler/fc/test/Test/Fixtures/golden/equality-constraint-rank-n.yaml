@@ -11,5 +11,5 @@ modules:
   cast :: (a ~ b) => a -> b
   cast x = x
   result = use cast
-status: xfail
-reason: A higher-rank argument can require equality evidence. AIHC still lacks complete equality support.
+status: pass
+reason: A higher-rank argument can require equality evidence.

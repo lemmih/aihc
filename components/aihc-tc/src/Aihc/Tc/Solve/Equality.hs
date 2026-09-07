@@ -17,7 +17,8 @@ import Aihc.Tc.Solve.Congruence (proveGivenEquality)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
-import Aihc.Tc.Zonk (zonkType)
+import Aihc.Tc.Zonk (zonkPred, zonkType)
+import Control.Monad (unless)
 import Data.Map.Strict qualified as Map
 
 -- | Preserve a proof from the current signature or pattern scope.
@@ -26,7 +27,7 @@ solveGivenEquality givens ct = case ctPred ct of
   EqPred left right -> do
     left' <- zonkType left
     right' <- zonkType right
-    predicates <- mapM zonkGiven givens
+    predicates <- mapM zonkPred givens
     result <- proveGivenEquality predicates left' right'
     case result of
       Just proof -> do
@@ -34,9 +35,6 @@ solveGivenEquality givens ct = case ctPred ct of
         pure True
       Nothing -> pure False
   _ -> pure False
-  where
-    zonkGiven (EqPred left right) = EqPred <$> zonkType left <*> zonkType right
-    zonkGiven predicate = pure predicate
 
 -- | Result of attempting to solve an equality constraint.
 data EqResult
@@ -50,7 +48,13 @@ data EqResult
 
 -- | Attempt to solve an equality constraint.
 solveEquality :: Ct -> TcM EqResult
-solveEquality ct = case ctPred ct of
+solveEquality ct = do
+  givens <- getGivenPredicates
+  proved <- solveGivenEquality givens ct
+  if proved then pure EqSolved else solveWithoutGivens ct
+
+solveWithoutGivens :: Ct -> TcM EqResult
+solveWithoutGivens ct = case ctPred ct of
   EqPred t1 t2 -> do
     t1' <- zonkType t1 >>= reduceTypeFamilies
     t2' <- zonkType t2 >>= reduceTypeFamilies
@@ -127,7 +131,9 @@ solveDecomposed ct witness pairs = do
   results <- mapM solvePair pairs
   case firstUnsolved results of
     Nothing -> do
-      bindEvidence (ctEvVar ct) (EvCoercion (Refl witness))
+      givens <- getGivenPredicates
+      proved <- solveGivenEquality givens ct
+      unless proved (bindEvidence (ctEvVar ct) (EvCoercion (Refl witness)))
       pure EqSolved
     Just EqStuck {} -> pure (EqStuck ct)
     Just result -> pure result

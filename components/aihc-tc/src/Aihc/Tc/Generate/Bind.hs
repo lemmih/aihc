@@ -45,7 +45,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Resolve.Generic (everything, everywhereM)
-import Aihc.Tc.Annotations (pendingAnnotation)
+import Aihc.Tc.Annotations (annotateRhsCast, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -640,7 +640,7 @@ solveWithSigGivens (ForAll _ predicates _) cts
         _ -> False
 
     solveEqualityCt ct = do
-      result <- solveEquality ct
+      result <- withGivenPredicates predicates (solveEquality ct)
       pure $ case result of
         EqSolved -> []
         EqStuck stuck -> [stuck]
@@ -723,7 +723,7 @@ tcMatchEquation inferExpr argTys resTy match = do
       resCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin rhsLocation) rhsLocation
       bodyWanteds = rhsCts ++ [resCt]
   remainingCts <- solvePatternBranch rhsLocation patCheck resTy bodyWanteds
-  pure (match {matchPats = pats', matchRhs = rhs'}, remainingCts)
+  pure (match {matchPats = pats', matchRhs = annotateRhsCast resTy ev rhs'}, remainingCts)
 
 sourceSpanFromAnnotations :: [Annotation] -> SourceSpan
 sourceSpanFromAnnotations annotations =
