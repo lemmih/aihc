@@ -117,3 +117,6 @@ instance Semigroup Ordering where
 
 instance Monoid Ordering where
   mempty = EQ
+
+instance (Semigroup b) => Semigroup (a -> b) where
+  (left <> right) value = left value <> right value

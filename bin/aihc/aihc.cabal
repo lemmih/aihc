@@ -29,6 +29,7 @@ extra-source-files:
   test/Test/Fixtures/build-exe/source-directories/Cycle.hs
   test/Test/Fixtures/build-exe/source-directories/Main.hs
   test/Test/Fixtures/build-exe/source-directories/Message.hs
+  test/Test/Fixtures/build-exe/source-directories/PrimitiveChecks.hs
   test/Test/Fixtures/install/c-sources/cbits/helper.c
   test/Test/Fixtures/install/c-sources/demo.cabal
   test/Test/Fixtures/install/c-sources/src/Demo.hs

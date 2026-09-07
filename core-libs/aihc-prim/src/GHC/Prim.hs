@@ -1,8 +1,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE GHCForeignImportPrim #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -66,6 +66,9 @@ module GHC.Prim
     quotRemWord2#,
     quotWord#,
     raise#,
+    reallyUnsafePtrEquality#,
+    Proxy#,
+    proxy#,
     runRW#,
     readWordArray#,
     realWorld#,
@@ -382,6 +385,13 @@ data StablePtr# a
 
 type RealWorld :: Type
 data RealWorld
+
+type Proxy# :: forall k. k -> TYPE ('TupleRep '[])
+data Proxy# (a :: k)
+
+foreign import prim proxy# :: forall k (a :: k). Proxy# a
+
+foreign import prim reallyUnsafePtrEquality# :: a -> b -> Int#
 
 foreign import prim raise# :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b
 

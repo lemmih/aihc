@@ -1594,7 +1594,8 @@ comparisonPrimitives =
 -- | Comparisons of two addresses. An address compares as an unsigned number.
 addressComparisonPrimitives :: [(Text, CompareOp)]
 addressComparisonPrimitives =
-  [ ("eqAddr#", Eq),
+  [ ("reallyUnsafePtrEquality#", Eq),
+    ("eqAddr#", Eq),
     ("neAddr#", Ne),
     ("ltAddr#", LtU),
     ("leAddr#", LeU),

@@ -1,0 +1,26 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Data.Semigroup ((<>))
+
+    prefix :: Int -> String -> [Int]
+    prefix n _ = [n]
+
+    suffix :: Int -> String -> [Int]
+    suffix n _ = [n + 1]
+
+    checks = and
+      [ any (> 2) (Just (3 :: Int))
+      , not (any (> 2) (Nothing :: Maybe Int))
+      , all (> 2) (Just (3 :: Int))
+      , all (> 2) (Nothing :: Maybe Int)
+      , and (Just True)
+      , not (or (Just False))
+      , (prefix <> suffix) 3 "" == [3, 4]
+      ]
+output: |
+  True
+expression: checks
+status: pass
+reason: tests Foldable predicates and the function Semigroup instance

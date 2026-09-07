@@ -1,11 +1,15 @@
 module Main where
 
+import PrimitiveChecks (primitiveChecks)
 import Message
 import System.Environment (getArgs)
 import System.IO ()
 
 main :: IO ()
-main = do
+main = if primitiveChecks then run else error "primitive check failed"
+
+run :: IO ()
+run = do
   arguments <- getArgs
   case arguments of
     [] -> putStrLn message
