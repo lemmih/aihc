@@ -12,7 +12,9 @@ import Aihc.Parser.Syntax (Annotation, Module, fromAnnotation, mkAnnotation)
 import Aihc.Resolve.Traverse (traverseAnnotations)
 import Aihc.Tc.Annotations
   ( PendingTcAnnotation (..),
+    PendingTcCastAnnotation (..),
     TcAnnotation (..),
+    TcCastAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDerivingAnnotation (..),
@@ -44,6 +46,20 @@ finalizeModuleTc = traverseAnnotations finalizeAnnotationTc
 
 finalizeAnnotationTc :: Annotation -> TcM Annotation
 finalizeAnnotationTc ann =
+  case fromAnnotation @PendingTcCastAnnotation ann of
+    Just (PendingTcCastAnnotation ty ev) -> do
+      evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
+      case evidence of
+        EvCoercion (Refl _) -> pure (mkAnnotation ())
+        EvCoercion proof -> do
+          rejectMeta "cast annotation" (firstMetaCoercion proof)
+          pure (mkAnnotation (TcCastAnnotation proof))
+        EvVarTerm _ -> pure (mkAnnotation ())
+        _ -> abortTc "a result cast requires equality evidence"
+    Nothing -> finalizeOtherAnnotationTc ann
+
+finalizeOtherAnnotationTc :: Annotation -> TcM Annotation
+finalizeOtherAnnotationTc ann =
   case fromAnnotation @PendingTcAnnotation ann of
     Just pending -> mkAnnotation <$> annotationForPendingTc pending
     Nothing ->
@@ -169,6 +185,7 @@ zonkCoercion coercion =
   case coercion of
     CoVar ev ->
       pure (CoVar ev)
+    GivenCo predicate -> GivenCo <$> finalizePred predicate
     Refl ty ->
       Refl <$> zonkType ty
     Sym inner ->
@@ -334,6 +351,7 @@ firstMetaCoercion coercion =
   case coercion of
     CoVar {} ->
       Nothing
+    GivenCo predicate -> firstMetaPred predicate
     Refl ty ->
       firstMetaType ty
     Sym inner ->

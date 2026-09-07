@@ -552,6 +552,7 @@ lowerExpr env expression =
     Fc.ExLet binding body -> lowerLet env binding body
     Fc.ExRec bindings body -> lowerRec env bindings body
     Fc.ExCase scrutinee binder _ alternatives -> lowerCase env scrutinee binder alternatives
+    Fc.ExCoercion _ -> pure (GrinConstant [])
     Fc.ExCast inner _ -> lowerExpr env inner
     Fc.ExForeignCall call types arguments -> lowerForeignCallExpr env call types arguments
 
@@ -1144,6 +1145,7 @@ freeVariables expression =
     Fc.ExCase scrutinee binder _ alternatives ->
       freeVariables scrutinee
         <> Set.delete (Fc.binderName binder) (foldMap freeAltVariables alternatives)
+    Fc.ExCoercion _ -> Set.empty
     Fc.ExCast inner _ -> freeVariables inner
     Fc.ExForeignCall _ _ arguments -> foldMap freeVariables arguments
 
@@ -1200,6 +1202,10 @@ expressionType env expression =
           case reduce env functionType of
             Fc.TyFun _ _ _ result -> pure result
             other -> throwLower ("GRIN foreign call has a non-function type: " <> show other)
+    Fc.ExCoercion proof ->
+      case TypeOf.coercionEndpoints (lowerTypes env) proof of
+        Just (left, right) -> pure (Fc.TyEq (applySubstitution env left) (applySubstitution env right))
+        Nothing -> throwLower "GRIN cannot determine equality evidence endpoints"
     Fc.ExCast _ coercion ->
       case TypeOf.coercionEndpoints (lowerTypes env) coercion of
         Just (_, target) -> pure (applySubstitution env target)

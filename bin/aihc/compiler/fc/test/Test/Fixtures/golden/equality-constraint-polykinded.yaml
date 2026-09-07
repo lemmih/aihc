@@ -14,4 +14,4 @@ modules:
   result = case cast (Proxy :: Proxy 'On) :: Proxy 'On of
     Proxy -> On
 status: xfail
-reason: One equality function works at a polymorphic kind. AIHC cannot resolve the equality class.
+reason: One equality function works at a polymorphic kind. AIHC still lacks complete equality support.

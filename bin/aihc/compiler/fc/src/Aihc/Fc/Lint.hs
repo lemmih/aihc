@@ -183,7 +183,7 @@ lintType env ty =
       leftKind <- lintType env left
       rightKind <- lintType env right
       unless (typesEqual env leftKind rightKind) (Left (KindMismatch "equality" leftKind rightKind))
-      Right (constraintKind env)
+      Right (typeAppRep env (equalityRep (tePrimPackage env)))
 
 lintFun :: TypeEnv -> Type -> Type -> Type -> Type -> Either LintError Type
 lintFun env r1 r2 argument result = do
@@ -275,9 +275,6 @@ typeKindType env = typeSynonym (tePrimPackage env)
 
 runtimeRepKind :: TypeEnv -> Type
 runtimeRepKind env = TyCon (runtimeRepConstructor (tePrimPackage env))
-
-constraintKind :: TypeEnv -> Type
-constraintKind env = TyCon (constraintName (tePrimPackage env))
 
 typeAppRep :: TypeEnv -> Type -> Type
 typeAppRep env =
@@ -377,6 +374,12 @@ checkLiteralRepresentation literal =
 lintExpr :: TypeEnv -> Expr -> Either LintError Type
 lintExpr env expr =
   case expr of
+    ExCoercion proof -> do
+      lintNominalCoercion env proof
+      (left, right) <- coercionEndpoints env proof
+      let ty = TyEq left right
+      _ <- lintType env ty
+      Right ty
     ExVar name -> lookupTerm env name
     ExLit {} -> Left (LintFailure "literal expression needs an expected type")
     ExApp function argument -> do
@@ -592,6 +595,20 @@ matchReduced env foralls subst expected actual =
     _
       | typesEqual env expected actual -> Right subst
       | otherwise -> Left (TypeMismatch "constructor result" expected actual)
+
+-- | Equality evidence cannot use representation equality axioms.
+lintNominalCoercion :: TypeEnv -> Coercion -> Either LintError ()
+lintNominalCoercion env proof =
+  case proof of
+    CoVar _ -> Right ()
+    CoRefl _ -> Right ()
+    CoSym inner -> lintNominalCoercion env inner
+    CoTrans left right -> lintNominalCoercion env left >> lintNominalCoercion env right
+    CoTyConApp _ arguments -> mapM_ (lintNominalCoercion env) arguments
+    CoAxiom name _ ->
+      case Map.lookup name (teAxioms env) of
+        Just declaration | axiomRole declaration == Nominal -> Right ()
+        _ -> Left (LintFailure "equality evidence requires a nominal axiom")
 
 coercionEndpoints :: TypeEnv -> Coercion -> Either LintError (Type, Type)
 coercionEndpoints env coercion =

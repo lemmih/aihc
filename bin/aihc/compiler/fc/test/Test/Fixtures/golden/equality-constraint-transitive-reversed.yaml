@@ -5,7 +5,7 @@ modules:
 - |
   module Test where
   data Flag = Off | On
-  cast :: (a ~ b, b ~ c) => a -> b -> c
+  cast :: (b ~ c, a ~ b) => a -> b -> c
   cast x _ = x
   result = cast On Off :: Flag
 status: pass

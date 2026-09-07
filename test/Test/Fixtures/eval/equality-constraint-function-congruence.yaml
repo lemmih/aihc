@@ -12,6 +12,7 @@ expression: result
 output: |
   On
 status: xfail
-reason: Equality lifts through function arguments and results. AIHC cannot resolve the equality class.
+reason: Equality lifts through function arguments and results. AIHC still lacks complete equality support.
+
 evaluators:
 - grin

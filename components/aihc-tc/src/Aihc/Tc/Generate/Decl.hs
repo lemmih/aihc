@@ -111,6 +111,7 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
     TcPatSynAnnotation (..),
     annotateDecl,
+    annotateRhsCast,
     renderTcType,
   )
 import Aihc.Tc.Constraint
@@ -131,12 +132,12 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDictWithGivens)
-import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, forM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
+import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Char (isAlpha, isAlphaNum, ord)
@@ -1583,7 +1584,8 @@ solveInstanceBodyConstraints givens results = do
 solveBodyConstraintsWithGivens :: [Pred] -> [Ct] -> [Implication] -> TcM ()
 solveBodyConstraintsWithGivens givens cts impls = do
   implications <- mapM addOuterGivens impls
-  solveResult <- solveWithImpls cts implications
+  residual <- filterM (fmap not . solveGivenEquality givens) cts
+  solveResult <- solveWithImpls residual implications
   -- The inert set holds the stuck flat wanteds, which are in @cts@, and
   -- the wanteds that the implications deferred, which are not.
   let deferred = filter (\ct -> ctEvVar ct `notElem` map ctEvVar cts) (inertDicts (srInerts solveResult))
@@ -4184,7 +4186,7 @@ tcMatchEquation expectedOrigin argTys resTy match = do
       bodyWanteds = pcWantedCts patCheck ++ rhsCts ++ [resCt]
   if null givenCts && null (pcSkolems patCheck)
     then -- No constructor-local type variables or givens: keep flat wanteds.
-      pure (match {matchPats = pats', matchRhs = rhs'}, bodyWanteds, [])
+      pure (match {matchPats = pats', matchRhs = annotateRhsCast resTy ev rhs'}, bodyWanteds, [])
     else do
       -- GADT givens: wrap body wanteds in an implication.
       level <- getTcLevel
@@ -4197,7 +4199,7 @@ tcMatchEquation expectedOrigin argTys resTy match = do
                 implTcLevel = level,
                 implInfo = AppOrigin sp
               }
-      pure (match {matchPats = pats', matchRhs = rhs'}, [], [impl])
+      pure (match {matchPats = pats', matchRhs = annotateRhsCast resTy ev rhs'}, [], [impl])
 
 -- | Unify an additional match equation's RHS with the expected type.
 unifyMatchRhs :: TcType -> Match -> TcM (Match, [Ct])

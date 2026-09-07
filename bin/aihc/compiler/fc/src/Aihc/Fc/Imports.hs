@@ -212,6 +212,7 @@ exprReferences expr =
         <> binderReferences binder
         <> typeReferences result
         <> foldMap altReferences alts
+    ExCoercion proof -> coercionReferences proof
     ExCast body coercion -> exprReferences body <> coercionReferences coercion
     ExForeignCall call types arguments ->
       foreignCallReferences call

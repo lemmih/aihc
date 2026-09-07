@@ -157,7 +157,7 @@ typeOf env ty =
     TyForAll binder body ->
       typeOf (extendBinder env binder) body
     TyEq {} ->
-      Just (TyCon (constraintName (tePrimPackage env)))
+      Just (TyApp (TyCon (typeConstructor (tePrimPackage env))) (equalityRep (tePrimPackage env)))
 
 applyType :: Type -> Type -> Maybe Type
 applyType function argument =

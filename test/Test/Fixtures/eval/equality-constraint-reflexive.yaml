@@ -11,7 +11,8 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: Reflexive equality needs no external evidence. AIHC cannot resolve the equality class.
+status: pass
+reason: Reflexive equality needs no external evidence.
+
 evaluators:
 - grin

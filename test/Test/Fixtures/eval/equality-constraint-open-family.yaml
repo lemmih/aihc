@@ -14,8 +14,8 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: An open type family equation solves an equality constraint. AIHC cannot resolve the equality
-  class.
+status: pass
+reason: An open type family equation solves an equality constraint.
+
 evaluators:
 - grin

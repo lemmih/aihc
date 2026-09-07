@@ -260,6 +260,7 @@ renderCoercion :: Coercion -> String
 renderCoercion coercion =
   case coercion of
     CoVar evVar -> renderEvVar evVar
+    GivenCo predicate -> "given " <> renderPred predicate
     Refl ty -> "refl " <> renderTcType ty
     Sym co -> "sym (" <> renderCoercion co <> ")"
     Trans left right -> "trans (" <> renderCoercion left <> ") (" <> renderCoercion right <> ")"
