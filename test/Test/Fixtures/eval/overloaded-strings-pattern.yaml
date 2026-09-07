@@ -1,0 +1,36 @@
+extensions:
+  - OverloadedStrings
+modules:
+  - |
+    {-# LANGUAGE OverloadedStrings #-}
+    module Test where
+
+    import Prelude (Eq (..), String, Bool (..))
+    import Data.String (IsString (..))
+
+    newtype Name = Name String
+
+    instance IsString Name where
+      fromString = Name
+
+    instance Eq Name where
+      Name left == Name right = left == right
+
+    -- The pattern converts with fromString and compares with ==.
+    known :: Name -> Bool
+    known "root" = True
+    known _ = False
+
+    -- A string pattern at a String type keeps working.
+    isEmpty :: String -> Bool
+    isEmpty "" = True
+    isEmpty _ = False
+
+    result :: (Bool, Bool, Bool, Bool)
+    result = (known "root", known "other", isEmpty "", isEmpty "x")
+output: |
+  (True,False,True,False)
+expression: |
+  result
+status: pass
+reason: OverloadedStrings converts a string pattern with fromString and compares it with ==

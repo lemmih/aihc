@@ -1667,8 +1667,8 @@ overloadedPatternFailure resultType arguments = do
     [] -> failValue "overloaded literal match has no argument"
 
 -- | The test of an overloaded literal pattern. The literal converts with
--- fromInteger or fromRational, and the equality method compares it with
--- the scrutinee.
+-- fromInteger, fromRational or fromString, and the equality method compares
+-- it with the scrutinee.
 desugarOverloadedLiteralPatternTest :: Expr -> Syn.Pattern -> ValueM Expr
 desugarOverloadedLiteralPatternTest scrutinee pattern' = do
   (value, negative) <-
@@ -1682,6 +1682,8 @@ desugarOverloadedLiteralPatternTest scrutinee pattern' = do
         ExApp <$> desugarPatternMethod "fromInteger" pattern' <*> desugarIntegerLiteral integer
       OverloadedRational rational ->
         ExApp <$> desugarPatternMethod "fromRational" pattern' <*> desugarRationalLiteral rational
+      OverloadedString string ->
+        ExApp <$> desugarPatternMethod "fromString" pattern' <*> desugarStringValue string
   patternValue <-
     if negative
       then (`ExApp` positive) <$> desugarPatternMethod "negate" pattern'
@@ -1732,29 +1734,37 @@ patternOccurrence target = go Nothing
 data OverloadedLiteral
   = OverloadedInteger Integer
   | OverloadedRational Rational
+  | OverloadedString Text
 
 isOverloadedLiteralPattern :: Syn.Pattern -> Bool
 isOverloadedLiteralPattern = isJust . overloadedPatternValue
 
 -- | The literal of an overloaded literal pattern, with a flag for a negated literal.
 overloadedPatternValue :: Syn.Pattern -> Maybe (OverloadedLiteral, Bool)
-overloadedPatternValue pattern' =
-  case pattern' of
-    Syn.PAnn _ inner -> overloadedPatternValue inner
-    Syn.PParen inner -> overloadedPatternValue inner
-    Syn.PStrict inner -> overloadedPatternValue inner
-    Syn.PIrrefutable inner -> overloadedPatternValue inner
-    Syn.PAs _ inner -> overloadedPatternValue inner
-    Syn.PTypeSig inner _ -> overloadedPatternValue inner
-    Syn.PLit literal -> (,False) <$> overloadedLiteralValue literal
-    Syn.PNegLit literal -> (,True) <$> overloadedLiteralValue literal
-    _ -> Nothing
+overloadedPatternValue pattern' = go pattern'
+  where
+    -- OverloadedStrings converts a string pattern with fromString. Without
+    -- the extension the resolver leaves the pattern alone and its characters
+    -- match one by one.
+    overloadedString = isJust (patternOccurrence "fromString" pattern')
+    go inner' =
+      case inner' of
+        Syn.PAnn _ inner -> go inner
+        Syn.PParen inner -> go inner
+        Syn.PStrict inner -> go inner
+        Syn.PIrrefutable inner -> go inner
+        Syn.PAs _ inner -> go inner
+        Syn.PTypeSig inner _ -> go inner
+        Syn.PLit literal -> (,False) <$> overloadedLiteralValue overloadedString literal
+        Syn.PNegLit literal -> (,True) <$> overloadedLiteralValue overloadedString literal
+        _ -> Nothing
 
-overloadedLiteralValue :: Syn.Literal -> Maybe OverloadedLiteral
-overloadedLiteralValue literal =
+overloadedLiteralValue :: Bool -> Syn.Literal -> Maybe OverloadedLiteral
+overloadedLiteralValue overloadedString literal =
   case Syn.peelLiteralAnn literal of
     Syn.LitInt value Syn.TInteger _ -> Just (OverloadedInteger value)
     Syn.LitFloat value Syn.TFractional _ -> Just (OverloadedRational value)
+    Syn.LitString value _ | overloadedString -> Just (OverloadedString value)
     _ -> Nothing
 
 desugarDataPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
@@ -2365,6 +2375,11 @@ desugarAnnotatedExpr annotation inner = do
             resolutionNamespace resolution == ResolutionNamespaceTerm,
             resolutionIdentifier resolution == IdentifierNamed "fromRational" ->
               desugarOverloadedRational annotation resolution value
+        Syn.EAnn resolutionAnnotation (Syn.EString value _)
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            resolutionNamespace resolution == ResolutionNamespaceTerm,
+            resolutionIdentifier resolution == IdentifierNamed "fromString" ->
+              desugarOverloadedString annotation resolution value
         Syn.EAnn resolutionAnnotation (Syn.EIf condition thenExpression elseExpression)
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             isIfThenElseResolution resolution ->
@@ -3851,6 +3866,16 @@ desugarOverloadedInteger annotation resolution value = do
 --
 -- The Rational is the ratio of the numerator and the denominator of the
 -- literal. Both are Integer literals.
+-- | An overloaded string literal applies fromString to a String.
+--
+-- The argument type is the String of the method, so the literal is the
+-- ordinary [Char] desugaring.
+desugarOverloadedString :: TcAnnotation -> ResolutionAnnotation -> Text -> ValueM Expr
+desugarOverloadedString annotation resolution value = do
+  fromStringExpression <- desugarResolvedOccurrence annotation resolution
+  string <- desugarStringValue value
+  pure (ExApp fromStringExpression string)
+
 desugarOverloadedRational :: TcAnnotation -> ResolutionAnnotation -> Rational -> ValueM Expr
 desugarOverloadedRational annotation resolution value = do
   fromRationalExpression <- desugarResolvedOccurrence annotation resolution

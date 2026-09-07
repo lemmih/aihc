@@ -16,5 +16,5 @@ output: |
   True
 expression: |
   text
-status: xfail
+status: pass
 reason: RebindableSyntax with OverloadedStrings gives a string literal the in-scope fromString

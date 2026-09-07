@@ -91,6 +91,11 @@ inferExprAt ambient expr = case expr of
         inferOverloadedLiteral ambient "fromRational" [] ann resolution inner
   EAnn ann inner
     | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      isSyntaxTermResolution "fromString" resolution,
+      EString _ _ <- inner ->
+        inferOverloadedLiteral ambient "fromString" [] ann resolution inner
+  EAnn ann inner
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
       resolutionNamespace resolution == ResolutionNamespaceType,
       isPrimitiveLiteral inner ->
         inferPrimitiveLiteral ann resolution inner
