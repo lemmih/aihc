@@ -20,18 +20,3 @@ allocations:
   linux-amd64: 7
 status: pass
 reason: only explicit GrinEval enters the thunk, preserving its heap-pointer result and exposing the update as an indirection
-lir-externs:
-  - aihc_lir_eval
-  - aihc_lir_continue_p
-  - aihc_lir_resume
-lir-absent-functions:
-  - aihc_lir_eval
-  - aihc_lir_resume
-  - aihc_lir_continue_p
-  - aihc_lir_continue_i
-  - aihc_lir_continue_
-  - aihc_lir_apply_p
-  - aihc_lir_apply_i
-  - aihc_lir_apply_
-  - aihc_lir_continue_slot
-  - aihc_lir_apply_slot

@@ -21,17 +21,3 @@ allocations:
   linux-amd64: 4
 status: pass
 reason: GrinApply enters a stored closure that is already in WHNF without requiring GrinEval to change its heap pointer
-lir-externs:
-  - aihc_lir_apply_p
-  - aihc_lir_continue_p
-lir-absent-functions:
-  - aihc_lir_eval
-  - aihc_lir_resume
-  - aihc_lir_continue_p
-  - aihc_lir_continue_i
-  - aihc_lir_continue_
-  - aihc_lir_apply_p
-  - aihc_lir_apply_i
-  - aihc_lir_apply_
-  - aihc_lir_continue_slot
-  - aihc_lir_apply_slot

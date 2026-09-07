@@ -15,11 +15,3 @@ allocations:
   linux-amd64: 0
 status: pass
 reason: Shared scalar helpers handle a high dividend word and zero-terminated strings. A four-value continuation remains local.
-lir-externs:
-  - aihc_lir_quotrem2
-  - aihc_lir_cstring_length
-lir-absent-functions:
-  - aihc_lir_quotrem2
-  - aihc_lir_cstring_length
-lir-functions:
-  - aihc_lir_continue_iiii

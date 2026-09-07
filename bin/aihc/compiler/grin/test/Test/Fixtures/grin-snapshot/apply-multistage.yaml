@@ -17,17 +17,3 @@ allocations:
   linux-amd64: 3
 status: pass
 reason: a non-saturating closure application uses the C allocation path before the final register fast path
-lir-externs:
-  - aihc_lir_apply_i
-  - aihc_lir_continue_i
-lir-absent-functions:
-  - aihc_lir_eval
-  - aihc_lir_resume
-  - aihc_lir_continue_p
-  - aihc_lir_continue_i
-  - aihc_lir_continue_
-  - aihc_lir_apply_p
-  - aihc_lir_apply_i
-  - aihc_lir_apply_
-  - aihc_lir_continue_slot
-  - aihc_lir_apply_slot
