@@ -46,7 +46,9 @@ import Aihc.Tc.Generate.Record (lookupRecordConstructor, orderRecordFields)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (tcTypeKind)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Types
+import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (when)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -379,7 +381,7 @@ checkListPattern gadtHandling sp items scrutTy =
   case items of
     [] -> do
       scheme <- listConstructorScheme "[]"
-      (nilTy, _typeArgs, predicates, skolems) <- instantiateConstructorPattern scheme
+      (nilTy, _typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
       scrutCts <- constructorScrutineeCt gadtHandling sp "[]" scrutTy nilTy
       predicateGivens <- mapM (constructorGiven sp "[]") predicates
       pure
@@ -391,7 +393,7 @@ checkListPattern gadtHandling sp items scrutTy =
           }
     item : rest -> do
       scheme <- listConstructorScheme ":"
-      (consTy, _typeArgs, predicates, skolems) <- instantiateConstructorPattern scheme
+      (consTy, _typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
       (argumentTypes, resultTy) <- splitConTy 2 consTy
       case argumentTypes of
         [itemTy, tailTy] -> do
@@ -702,7 +704,7 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
       | Just info <- mPatSyn ->
           checkPatSynPattern gadtHandling sp originalPat conName info scheme subPats scrutTy
     Just (TcIdBinder scheme _) -> do
-      (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scheme
+      (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
       (argTys, conResTy) <- splitConTy (length subPats) conTy
       scrutCt <- constructorScrutineeCt gadtHandling sp conName scrutTy conResTy
       subCheck <- checkPatternsWith gadtHandling sp (zip subPats argTys)
@@ -740,7 +742,7 @@ checkPatSynPattern :: GadtHandling -> SourceSpan -> Pattern -> Text -> PatSynInf
 checkPatSynPattern gadtHandling sp originalPat conName info scheme subPats scrutTy = do
   when (length subPats /= psiArity info) $
     emitError sp (OtherError ("pattern synonym " <> T.unpack conName <> " takes " <> show (psiArity info) <> " arguments, but the pattern gives " <> show (length subPats)))
-  (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scheme
+  (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
   let (requiredPreds, providedPreds) = splitAt (length (psiReqTheta info)) predicates
   (argTys, conResTy) <- splitConTy (length subPats) conTy
   scrutCt <- constructorScrutineeCt gadtHandling sp conName scrutTy conResTy
@@ -780,11 +782,12 @@ constructorGiven sp constructorName predicate = do
         ctLoc = sp
       }
 
-instantiateConstructorPattern :: TypeScheme -> TcM (TcType, [TcType], [Pred], [TyVarId])
-instantiateConstructorPattern (ForAll tyVars predicates body) = do
+instantiateConstructorPattern :: TcType -> TypeScheme -> TcM (TcType, [TcType], [Pred], [TyVarId])
+instantiateConstructorPattern scrutTy (ForAll tyVars predicates body) = do
+  matched <- matchConstructorResult (Set.fromList (map tvUnique tyVars)) (constructorResultType body) =<< zonkType scrutTy
   let resultTyVars = constructorResultTyVars body
       isUniversal tyVar = tvUnique tyVar `Set.member` resultTyVars
-  substitutions <- mapM (instantiateTyVar isUniversal) tyVars
+  substitutions <- mapM (instantiateTyVar matched isUniversal) tyVars
   let substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty, _) <- substitutions]
       instantiateType = applySubst substitution
       typeArgs = map (instantiateType . TcTyVar) tyVars
@@ -796,7 +799,8 @@ instantiateConstructorPattern (ForAll tyVars predicates body) = do
       skolems
     )
   where
-    instantiateTyVar isUniversal tyVar
+    instantiateTyVar matched isUniversal tyVar
+      | Just ty <- Map.lookup (tvUnique tyVar) matched = pure (tyVar, ty, Nothing)
       | isUniversal tyVar = do
           meta <- freshMetaTv
           pure (tyVar, meta, Nothing)
@@ -805,10 +809,26 @@ instantiateConstructorPattern (ForAll tyVars predicates body) = do
           pure (tyVar, TcTyVar skolem, Just skolem)
 
 constructorResultTyVars :: TcType -> Set.Set Unique
-constructorResultTyVars = typeTyVars . dropConstructorArguments
-  where
-    dropConstructorArguments (TcFunTy _ result) = dropConstructorArguments result
-    dropConstructorArguments result = result
+constructorResultTyVars = typeTyVars . constructorResultType
+
+constructorResultType :: TcType -> TcType
+constructorResultType (TcFunTy _ result) = constructorResultType result
+constructorResultType result = result
+
+-- | Reuse indices that the scrutinee determines through nominal structure.
+-- Repeated indices retain the first match. The result constraint checks the rest.
+-- A family application cannot determine its arguments.
+matchConstructorResult :: Set.Set Unique -> TcType -> TcType -> TcM (Map.Map Unique TcType)
+matchConstructorResult variables result scrutinee =
+  case result of
+    TcTyVar variable
+      | tvUnique variable `Set.member` variables ->
+          pure (Map.singleton (tvUnique variable) scrutinee)
+    _ -> do
+      children <- decomposeNominalEquality result scrutinee
+      case children of
+        Nothing -> pure Map.empty
+        Just pairs -> Map.unions <$> mapM (uncurry (matchConstructorResult variables)) pairs
 
 typeTyVars :: TcType -> Set.Set Unique
 typeTyVars ty =

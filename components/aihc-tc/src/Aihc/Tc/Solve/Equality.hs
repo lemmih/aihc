@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Equality solver.
 --
 -- Handles unification of meta-variables, decomposition of type
@@ -15,6 +13,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
@@ -111,34 +110,6 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
   (TcTyVar v1, TcTyVar v2) | v1 == v2 -> do
     bindEvidence (ctEvVar ct) (EvCoercion (Refl t1))
     pure EqSolved
-  -- Same type constructor: decompose.
-  (TcTyCon tc1 args1, TcTyCon tc2 args2)
-    | tc1 == tc2,
-      length args1 == length args2 ->
-        solveDecomposed ct t1 (zip args1 args2)
-  -- Same function type shape: decompose.
-  (TcFunTy a1 b1, TcFunTy a2 b2) ->
-    solveDecomposed ct t1 [(a1, a2), (b1, b2)]
-  -- The function type is the saturated arrow constructor, so an applied
-  -- constructor variable can match it.
-  (TcAppTy f a, TcFunTy argument result) -> do
-    arrow <- arrowTyCon
-    solveDecomposed ct t1 [(f, TcTyCon arrow [argument]), (a, result)]
-  (TcFunTy argument result, TcAppTy f a) -> do
-    arrow <- arrowTyCon
-    solveDecomposed ct t1 [(TcTyCon arrow [argument], f), (result, a)]
-  -- Applied type constructor variable against a saturated tycon.
-  (TcAppTy f a, TcTyCon tc args)
-    | not (null args) ->
-        solveDecomposed ct t1 [(f, TcTyCon tc (init args)), (a, last args)]
-  (TcTyCon tc args, TcAppTy f a)
-    | not (null args) ->
-        solveDecomposed ct t1 [(TcTyCon tc (init args), f), (last args, a)]
-  -- Same type-application shape. This is also needed when solving wanted
-  -- equalities inside an implication, where canonicalization does not first
-  -- decompose the application for us.
-  (TcAppTy f1 a1, TcAppTy f2 a2) ->
-    solveDecomposed ct t1 [(f1, f2), (a1, a2)]
   -- Two polymorphic types are equal up to the names of their bound
   -- variables.
   (TcForAllTy v1 b1, TcForAllTy v2 b2) ->
@@ -146,12 +117,11 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
   (TcQualTy p1 b1, TcQualTy p2 b2)
     | p1 == p2 ->
         solveDecomposed ct t1 [(b1, b2)]
-  -- Incompatible types.
-  _ -> pure (EqError ct)
-
--- | The function arrow type constructor.
-arrowTyCon :: TcM TyCon
-arrowTyCon = mkKnownTyCon "GHC.Types" "(->)" 2 (KFun KType (KFun KType KType))
+  _ -> do
+    children <- decomposeNominalEquality t1 t2
+    case children of
+      Just pairs -> solveDecomposed ct t1 pairs
+      Nothing -> pure (EqError ct)
 
 -- | Solve a meta-variable equality by binding.
 solveMetaEq :: Ct -> Unique -> TcType -> TcM EqResult

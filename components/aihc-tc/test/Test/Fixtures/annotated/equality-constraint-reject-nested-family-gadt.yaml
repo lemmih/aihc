@@ -7,11 +7,11 @@ modules:
   module Test where
   type family F a
   data Equal a b where
-    Equal :: (F a ~ F b) => Equal a b
+    Equal :: ([F a] ~ [F b]) => Equal a b
   cast :: Equal a b -> a -> b
   cast Equal x = x
 status: pass
-reason: A GADT constraint does not make a type family injective.
+reason: List decomposition must stop at a type family application.
 annotated:
 - |
   module Test where
@@ -19,8 +19,8 @@ annotated:
               └─ type: Type → Type
   data Equal a b where
        └─ type: Type → Type → Type
-    Equal :: (F a ~ F b) => Equal a b
-    └─ type: ∀ a b. ((F a) ~ (F b)) ⇒ Equal a b
+    Equal :: ([F a] ~ [F b]) => Equal a b
+    └─ type: ∀ a b. ([F a] ~ [F b]) ⇒ Equal a b
   cast :: Equal a b -> a -> b
   cast Equal x = x
                  └─ error: expression has type a, but expected b from the type signature for cast
