@@ -35,16 +35,12 @@ loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
   %kind = call @aihc_lir_info_kind(%header)
-  %is_thunk = eq i64 %kind, @AIHC_OBJECT_THUNK
-  br %is_thunk, thunk, check_indirection
-
-check_indirection:
-  %is_indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
-  br %is_indirection, indirection, check_blackhole
-
-check_blackhole:
-  %is_blackhole = eq i64 %kind, @AIHC_OBJECT_BLACKHOLE
-  br %is_blackhole, blackhole, ready
+  switch i64 %kind {
+    @AIHC_OBJECT_THUNK -> thunk
+    @AIHC_OBJECT_INDIRECTION -> indirection
+    @AIHC_OBJECT_BLACKHOLE -> blackhole
+    default -> ready
+  }
 
 thunk:
   call @aihc_begin_blackhole(%machine, %current)
@@ -92,16 +88,12 @@ dispatch:
   %continuation = ptr.from_int %continuation_word
   %value = load i64 [%slots + 24] align 8
   %count = load i64 [%slots + 32] align 8
-  %is_apply = eq i64 %kind, @AIHC_RESUME_APPLY
-  br %is_apply, apply, check_continue
-
-check_continue:
-  %is_continue = eq i64 %kind, @AIHC_RESUME_CONTINUE
-  br %is_continue, continue, check_raise
-
-check_raise:
-  %is_raise = eq i64 %kind, @AIHC_RESUME_RAISE
-  br %is_raise, raise, invalid
+  switch i64 %kind {
+    @AIHC_RESUME_APPLY -> apply
+    @AIHC_RESUME_CONTINUE -> continue
+    @AIHC_RESUME_RAISE -> raise
+    default -> invalid
+  }
 
 apply:
   switch i64 %count {

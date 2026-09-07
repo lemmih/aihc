@@ -34,7 +34,7 @@ where
 import Aihc.Arm64.Assemble
 import Aihc.Lir.Lint (LintError, lintModule)
 import Aihc.Lir.RegAlloc (Allocation (..), Registers (..), allocateRegistersFor, readCounts)
-import Aihc.Lir.Resolve (resolveConstants, unresolvedConstant)
+import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Aihc.Native.Object (SectionRole (..))
 import Control.Monad (forM, when, zipWithM)
@@ -989,7 +989,7 @@ compileTerminator ctx next fused terminator =
             pure [arm64Instruction (ArmB stub)]
       let checks =
             concat
-              [ compareWith ctx ty False register (OperandLiteral (LitInt (switchCaseValue switchCase))) <> [arm64Instruction (ArmBCond ArmEq label)]
+              [ compareWith ctx ty False register (OperandLiteral (LitInt (resolvedSwitchCaseValue switchCase))) <> [arm64Instruction (ArmBCond ArmEq label)]
               | (switchCase, label, _) <- edges
               ]
           bodies =

@@ -1,0 +1,20 @@
+; expect: 42
+include "../include/object-kinds.lir"
+const @ANSWER = 42
+const @NEGATIVE = -1
+func @main() -> i64 {
+entry:
+  switch i64 @OBJECT_ARRAY {
+    @OBJECT_NODE, @OBJECT_ARRAY -> negative
+    default -> failed
+  }
+negative:
+  switch i8 255 {
+    @NEGATIVE -> answer
+    default -> failed
+  }
+answer:
+  return @ANSWER
+failed:
+  return 0
+}

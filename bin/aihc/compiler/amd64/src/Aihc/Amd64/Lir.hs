@@ -38,7 +38,7 @@ where
 import Aihc.Amd64.Assemble
 import Aihc.Lir.Lint (LintError, lintModule)
 import Aihc.Lir.RegAlloc (Allocation (..), Registers (..), allocateRegistersFor, readCounts)
-import Aihc.Lir.Resolve (resolveConstants, unresolvedConstant)
+import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Aihc.Native.Object (SectionRole (..))
 import Control.Monad (forM, when, zipWithM)
@@ -1096,7 +1096,7 @@ compileTerminator ctx next fused terminator =
             pure [jump stub]
       let checks =
             concat
-              [ compareWith ctx ty False register (OperandLiteral (LitInt (switchCaseValue switchCase))) <> [amd64Instruction (AmdJe label)]
+              [ compareWith ctx ty False register (OperandLiteral (LitInt (resolvedSwitchCaseValue switchCase))) <> [amd64Instruction (AmdJe label)]
               | (switchCase, label, _) <- edges
               ]
           bodies =

@@ -391,13 +391,13 @@ switchTerminator = do
   token "}"
   pure (Switch ty scrutinee cases fallback)
   where
-    -- A case lists one or more literals. The list is sugar for one case per
-    -- literal, so the module holds them separately.
+    -- A case lists integer literals or constants.
+    -- The module stores a separate case for each label.
     switchCase = do
-      values <- integer `MP.sepBy1` token ","
+      values <- ((SwitchCase <$> integer) <|> (SwitchCaseConstant <$> symbolName)) `MP.sepBy1` token ","
       token "->"
       chosen <- target
-      pure [SwitchCase value chosen | value <- values]
+      pure [value chosen | value <- values]
 
 target :: Parser Target
 target = Target <$> label <*> MP.option [] argumentList

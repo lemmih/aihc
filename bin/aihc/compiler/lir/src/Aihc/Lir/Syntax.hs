@@ -325,10 +325,15 @@ data Target = Target
   }
   deriving (Eq, Show)
 
-data SwitchCase = SwitchCase
-  { switchCaseValue :: !Integer,
-    switchCaseTarget :: !Target
-  }
+data SwitchCase
+  = SwitchCase
+      { switchCaseValue :: !Integer,
+        switchCaseTarget :: !Target
+      }
+  | SwitchCaseConstant
+      { switchCaseConstant :: !Symbol,
+        switchCaseTarget :: !Target
+      }
   deriving (Eq, Show)
 
 data Operand

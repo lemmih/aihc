@@ -13,6 +13,7 @@ module Aihc.Lir.Resolve
     loadModule,
     resolveConstants,
     unresolvedConstant,
+    resolvedSwitchCaseValue,
   )
 where
 
@@ -133,12 +134,19 @@ resolveConstants (Module items) = Module [resolveItem item | item <- items, not 
         Call symbol arguments -> Call symbol (map operand arguments)
         CallIndirect callee arguments signature -> CallIndirect (operand callee) (map operand arguments) signature
     resolveAddress address = address {addressBase = operand (addressBase address)}
+    resolveCase switchCase =
+      let target = resolveTarget (switchCaseTarget switchCase)
+       in case switchCase of
+            SwitchCase value _ -> SwitchCase value target
+            SwitchCaseConstant symbol _ ->
+              maybe (SwitchCaseConstant symbol target) (`SwitchCase` target) (Map.lookup symbol constants)
+
     resolveTerminator terminator =
       case terminator of
         Jump target -> Jump (resolveTarget target)
         Branch condition whenTrue whenFalse -> Branch (operand condition) (resolveTarget whenTrue) (resolveTarget whenFalse)
         Switch ty scrutinee cases fallback ->
-          Switch ty (operand scrutinee) [switchCase {switchCaseTarget = resolveTarget (switchCaseTarget switchCase)} | switchCase <- cases] (fmap resolveTarget fallback)
+          Switch ty (operand scrutinee) [resolveCase switchCase | switchCase <- cases] (fmap resolveTarget fallback)
         Return values -> Return (map operand values)
         TailCall symbol arguments -> TailCall symbol (map operand arguments)
         TailCallIndirect callee arguments signature -> TailCallIndirect (operand callee) (map operand arguments) signature
@@ -155,3 +163,8 @@ resolveConstants (Module items) = Module [resolveItem item | item <- items, not 
 -- module a user can fix.
 unresolvedConstant :: Symbol -> a
 unresolvedConstant symbol = error ("Lir constant " <> T.unpack (renderDoc (prettySymbol symbol)) <> " reached a backend unresolved")
+
+-- | Read a switch label after constant resolution.
+resolvedSwitchCaseValue :: SwitchCase -> Integer
+resolvedSwitchCaseValue (SwitchCase value _) = value
+resolvedSwitchCaseValue (SwitchCaseConstant symbol _) = unresolvedConstant symbol

@@ -193,7 +193,9 @@ own: the operation, the block parameter, or the data field that refers to it
 gives the type, and the value has to fit that type. A reference to a constant
 is its symbol, and it stands wherever an integer literal does. An operand
 `@name` names a constant when the module defines one, and a data field
-`i64 @name` or `word @name` stores its value. A constant is not a data
+`i64 @name` or `word @name` stores its value. A switch label can also name a constant: `@TAG -> target`.
+The linter checks duplicate labels after constant resolution.
+A constant is not a data
 object: it has no address, a `ptr` field cannot name it, and `ptr.to_int`
 cannot take it.
 

@@ -219,6 +219,7 @@ prettyTerminator terminator =
     Trap message -> "trap" <+> prettyQuoted message
   where
     prettyCase (SwitchCase value target) = pretty value <+> "->" <+> prettyTarget target
+    prettyCase (SwitchCaseConstant symbol target) = prettySymbol symbol <+> "->" <+> prettyTarget target
 
 prettyTarget :: Target -> Doc ann
 prettyTarget (Target label arguments) =
