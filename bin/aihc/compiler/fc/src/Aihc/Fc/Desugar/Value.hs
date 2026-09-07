@@ -995,9 +995,8 @@ desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars an
     case tcInstanceNewtype annotation of
       Just derived
         | Just proof <- tcNewtypeDictionaryCast derived,
-          Just evidence <- tcNewtypeEvidence derived -> do
-            body <- desugarEvidence evidence
-            withCoercion proof (pure . ExCast body)
+          Just evidence <- tcNewtypeEvidence derived ->
+            withCoercion proof (\converted -> (`ExCast` converted) <$> desugarEvidence evidence)
       derived -> do
         superClasses <- mapM (desugarEvidence . snd) (tcInstanceSuperClasses annotation)
         methodFields <- case derived of
@@ -1043,6 +1042,8 @@ desugarNewtypeMethod annotation derived method = withTypeVariables (tcNewtypeMet
   let projection = ExCase evidence sourceBinder (binderType selected) [Alt (AltData (classDictConName classTyCon)) [] fields (ExVar (binderName selected))]
       instantiated = foldl ExTyApp projection extraTypes
       applied = foldl ExApp instantiated (map (ExVar . binderName) dictionaries)
+  -- The coercion's evidence bindings may mention the method's own dictionary
+  -- binders, so they belong inside the lambdas.
   cast <- withCoercion (tcNewtypeMethodCoercion method) (pure . ExCast applied)
   pure (foldr ExTyLam (foldr ExLam cast dictionaries) typeBinders)
 

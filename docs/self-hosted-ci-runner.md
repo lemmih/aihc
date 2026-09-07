@@ -28,6 +28,11 @@ The self-hosted runner label defaults to `aihc-lima`.
 The actual execution job keeps the same job name regardless of where it runs, so
 required checks such as `flake-check` continue to work.
 
+`main` is merged through a merge queue, so `nix-flake-check.yml` and
+`minimum-ghc.yml` also run on `merge_group` events. A merge group is a trusted
+context: its entries were queued by someone with write access, so the probe may
+place those runs on the self-hosted runner just like a `push` to `main`.
+
 ## Repository Configuration
 
 The workflow probe first tries:
