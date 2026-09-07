@@ -1,3 +1,6 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module Numeric.Natural
   ( Natural,
     minusNaturalMaybe,
@@ -11,6 +14,7 @@ import Text.ParserCombinators.ReadPrec (ReadPrec, pfail, step)
 import Prelude
 
 newtype Natural = Natural Integer
+  deriving newtype (Eq, Ord, Real, Integral, Show)
 
 underflow :: a
 underflow = throw Underflow
@@ -20,25 +24,6 @@ minusNaturalMaybe (Natural left) (Natural right) =
   case left < right of
     True -> Nothing
     False -> Just (Natural (left - right))
-
-instance Eq Natural where
-  Natural left == Natural right = left == right
-  Natural left /= Natural right = left /= right
-
-instance Ord Natural where
-  compare (Natural left) (Natural right) = compare left right
-  Natural left < Natural right = left < right
-  Natural left <= Natural right = left <= right
-  Natural left > Natural right = left > right
-  Natural left >= Natural right = left >= right
-  max left right =
-    case left >= right of
-      True -> left
-      False -> right
-  min left right =
-    case left <= right of
-      True -> left
-      False -> right
 
 instance Num Natural where
   Natural left + Natural right = Natural (left + right)
@@ -89,25 +74,6 @@ naturalsFromThenTo first second last = go first
           case value >= last && value >= 0 of
             True -> Natural value : go (value + step)
             False -> []
-
-instance Real Natural where
-  toRational (Natural value) = toRational value
-
-instance Integral Natural where
-  quot (Natural numerator) (Natural denominator) = Natural (quot numerator denominator)
-  rem (Natural numerator) (Natural denominator) = Natural (rem numerator denominator)
-  div (Natural numerator) (Natural denominator) = Natural (div numerator denominator)
-  mod (Natural numerator) (Natural denominator) = Natural (mod numerator denominator)
-  quotRem (Natural numerator) (Natural denominator) =
-    case quotRem numerator denominator of
-      (quotient, remainder) -> (Natural quotient, Natural remainder)
-  divMod (Natural numerator) (Natural denominator) =
-    case divMod numerator denominator of
-      (quotient, remainder) -> (Natural quotient, Natural remainder)
-  toInteger (Natural value) = value
-
-instance Show Natural where
-  showsPrec precedence (Natural value) = showsPrec precedence value
 
 instance Read Natural where
   readPrec = do

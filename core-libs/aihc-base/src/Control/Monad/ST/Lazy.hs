@@ -1,3 +1,5 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
 
 -- | The lazy state-thread monad. This milestone runs each action in
@@ -15,18 +17,7 @@ import GHC.Base (Applicative (..), Functor (..), Monad (..))
 import GHC.ST qualified as Strict
 
 newtype ST s a = ST (Strict.ST s a)
-
-instance Functor (ST s) where
-  fmap f (ST action) = ST (fmap f action)
-
-instance Applicative (ST s) where
-  pure value = ST (pure value)
-  ST function <*> ST argument = ST (function <*> argument)
-
-instance Monad (ST s) where
-  ST action >>= next = ST (action >>= \value -> lazyToStrictST (next value))
-  ST action >> ST nextAction = ST (action >> nextAction)
-  return value = ST (return value)
+  deriving newtype (Functor, Applicative, Monad)
 
 -- | Run a lazy state thread and return its result.
 runST :: (forall s. ST s a) -> a

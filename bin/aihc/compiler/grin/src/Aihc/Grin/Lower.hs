@@ -749,29 +749,32 @@ lowerCatch resultRep action handler stateValues = do
         grinFunctionParameters = handlerCapture : stateCaptures <> [exception],
         grinFunctionResultRep = resultRep,
         grinFunctionBody =
+          -- The handler is forced here rather than before the protected
+          -- action, so that a bottom handler only raises once the action
+          -- has raised, as 'catch#' promises.
           GrinBind
-            [handlerAction]
-            (GrinApply liftedGrinRep (GrinVarValue handlerCapture) [GrinVarValue exception])
+            [evaluatedHandler]
+            (GrinEval liftedGrinRep (GrinVarValue handlerCapture))
             ( GrinBind
-                [evaluatedAction]
-                (GrinEval liftedGrinRep (GrinVarValue handlerAction))
-                (GrinApply resultRep (GrinVarValue evaluatedAction) (map GrinVarValue stateCaptures))
+                [handlerAction]
+                (GrinApply liftedGrinRep (GrinVarValue evaluatedHandler) [GrinVarValue exception])
+                ( GrinBind
+                    [evaluatedAction]
+                    (GrinEval liftedGrinRep (GrinVarValue handlerAction))
+                    (GrinApply resultRep (GrinVarValue evaluatedAction) (map GrinVarValue stateCaptures))
+                )
             )
       }
   pure
     ( GrinBind
-        [evaluatedHandler]
-        (GrinEval liftedGrinRep handler)
-        ( GrinBind
-            [wrapper]
-            ( GrinStore
-                ( GrinNode
-                    (GrinClosure functionName [[liftedGrinRep]])
-                    (GrinVarValue evaluatedHandler : stateValues)
-                )
+        [wrapper]
+        ( GrinStore
+            ( GrinNode
+                (GrinClosure functionName [[liftedGrinRep]])
+                (handler : stateValues)
             )
-            (GrinCatch resultRep action (GrinVarValue wrapper) stateValues)
         )
+        (GrinCatch resultRep action (GrinVarValue wrapper) stateValues)
     )
 
 lowerArgument :: LowerEnv -> Fc.Expr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr

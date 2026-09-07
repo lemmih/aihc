@@ -36,7 +36,6 @@ import Aihc.Lir.Lint (LintError, lintModule)
 import Aihc.Lir.RegAlloc (Allocation (..), Registers (..), allocateRegistersFor, readCounts)
 import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
-import Aihc.Native.Object (SectionRole (..))
 import Control.Monad (forM, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, put)
