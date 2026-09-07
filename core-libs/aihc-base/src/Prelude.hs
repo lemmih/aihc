@@ -271,13 +271,13 @@ zip :: [a] -> [b] -> [(a, b)]
 zip (left : lefts) (right : rights) = (left, right) : zip lefts rights
 zip _ _ = []
 
-and :: [Bool] -> Bool
+and :: (Foldable t) => t Bool -> Bool
 and = foldr (&&) True
 
-all :: (a -> Bool) -> [a] -> Bool
+all :: (Foldable t) => (a -> Bool) -> t a -> Bool
 all predicate = foldr (\value result -> predicate value && result) True
 
-any :: (a -> Bool) -> [a] -> Bool
+any :: (Foldable t) => (a -> Bool) -> t a -> Bool
 any predicate = foldr (\value result -> predicate value || result) False
 
 break :: (a -> Bool) -> [a] -> ([a], [a])
@@ -936,7 +936,7 @@ scanr1 combine (value : values) =
 notElem :: (Eq a) => a -> [a] -> Bool
 notElem value values = not (value `elem` values)
 
-or :: [Bool] -> Bool
+or :: (Foldable t) => t Bool -> Bool
 or = any id
 
 (!!) :: [a] -> Int -> a

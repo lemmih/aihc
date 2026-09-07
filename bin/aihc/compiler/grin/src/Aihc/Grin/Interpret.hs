@@ -972,6 +972,8 @@ evalPrimitive "casMutVar#" [mutVar, expected, replacement] = do
   let succeeded = current == expected
   when succeeded (liftEvalIO (writeIORef reference replacement))
   pure [intRuntimeValue (if succeeded then 0 else 1), if succeeded then replacement else current]
+evalPrimitive "reallyUnsafePtrEquality#" [left, right] =
+  pure [intRuntimeValue (if left == right then 1 else 0)]
 evalPrimitive "sameMutVar#" [left, right] = do
   leftReference <- expectMutVarPrimitiveArgument "sameMutVar#" left
   rightReference <- expectMutVarPrimitiveArgument "sameMutVar#" right

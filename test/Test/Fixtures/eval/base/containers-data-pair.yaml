@@ -1,0 +1,30 @@
+extensions: [RankNTypes]
+modules:
+  - |
+    module Test where
+    import Data.Data
+
+    newtype Count a = Count Int
+
+    count :: Data a => a -> Int
+    count value = case gfoldl add (\_ -> Count 0) value of Count n -> n
+
+    add :: Data d => Count (d -> b) -> d -> Count b
+    add (Count n) _ = Count (n + 1)
+
+    unfoldPair :: Count (Int, Bool)
+    unfoldPair = gunfold (\(Count n) -> Count (n + 1)) (\_ -> Count 0) (toConstr ((1 :: Int), True))
+
+    checks = and
+      [ (case unfoldPair of Count n -> n) == 2
+      , count ((1 :: Int), True) == 2
+      , count [(1 :: Int, True)] == 2
+      , showConstr (toConstr ((1 :: Int), True)) == "(,)"
+      , constrIndex (toConstr ((1 :: Int), True)) == 1
+      , dataTypeName (dataTypeOf ((1 :: Int), True)) == "Prelude.(,)"
+      ]
+output: |
+  True
+expression: checks
+status: pass
+reason: tests the library operations that containers requires

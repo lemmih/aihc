@@ -9,15 +9,20 @@ module Control.Applicative
     ZipList (..),
     liftA,
     liftA2,
+    liftA3,
+    (<$>),
     (<**>),
   )
 where
 
 import Data.Monoid (Monoid (..))
-import Prelude (Applicative (..), Functor (..), Maybe (..), (++))
+import Prelude (Applicative (..), Functor (..), Maybe (..), (++), (<$>))
 
 liftA :: (Applicative f) => (a -> b) -> f a -> f b
 liftA = fmap
+
+liftA3 :: (Applicative f) => (a -> b -> c -> d) -> f a -> f b -> f c -> f d
+liftA3 f a b c = liftA2 f a b <*> c
 
 (<**>) :: (Applicative f) => f a -> f (a -> b) -> f b
 (<**>) = liftA2 (\value function -> function value)

@@ -1,0 +1,18 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Control.Applicative ((<$>), liftA3)
+    import Control.Monad.Fix (fix)
+
+    checks = and
+      [ liftA3 (\a b c -> a + b + c) (Just 10) (Just 20) (Just 12) == Just (42 :: Int)
+      , liftA3 (\a b c -> a + b + c) (Just 10) Nothing (Just 12) == (Nothing :: Maybe Int)
+      , ((+ 1) <$> Just 41) == Just (42 :: Int)
+      , take 3 (fix (\xs -> (7 :: Int) : xs)) == [7, 7, 7]
+      ]
+output: |
+  True
+expression: checks
+status: pass
+reason: tests the library operations that containers requires

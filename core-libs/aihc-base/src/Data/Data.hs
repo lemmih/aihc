@@ -175,3 +175,17 @@ instance Data Word8 where
 
 word8Type :: DataType
 word8Type = mkNoRepType "Data.Word.Word8"
+
+instance (Data a, Data b) => Data (a, b) where
+  gfoldl f z (a, b) = z (,) `f` a `f` b
+  gunfold k z c = case constrIndex c of
+    1 -> k (k (z (,)))
+    _ -> errorWithoutStackTrace "Data.Data.gunfold((,))"
+  toConstr _ = pairConstr
+  dataTypeOf _ = pairDataType
+
+pairConstr :: Constr
+pairConstr = mkConstr (mkNoRepType "Prelude.(,)") "(,)" [] Infix
+
+pairDataType :: DataType
+pairDataType = mkDataType "Prelude.(,)" [pairConstr]

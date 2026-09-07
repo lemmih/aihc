@@ -332,6 +332,7 @@ compilerPrimitives = ["aihcExit#", "unsafeCoerce#", "raise#", "catch#", "runRW#"
 -- lowers it from its argument expressions.
 lowerPrimitiveBody :: GrinRep -> Text -> [[GrinValue]] -> LowerM GrinExpr
 lowerPrimitiveBody resultRep name valueGroups
+  | name == "proxy#", null valueGroups = pure (GrinConstant [])
   | name `elem` compilerPrimitives = throwLower ("GRIN cannot lower a compiler primitive from values: " <> T.unpack name)
   | otherwise = pure (GrinPrimitiveCall resultRep name (concat valueGroups))
 

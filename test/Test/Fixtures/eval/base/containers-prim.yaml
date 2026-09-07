@@ -1,0 +1,25 @@
+extensions: [MagicHash]
+modules:
+  - |
+    module Test where
+    import GHC.Exts (Proxy#, proxy#, reallyUnsafePtrEquality#, isTrue#)
+
+    ignoreProxy :: Proxy# () -> Int
+    ignoreProxy _ = 42
+
+    bogus :: a -> Proxy# ()
+    bogus _ = proxy#
+
+    loop :: Int
+    loop = loop
+
+    checks = and
+      [ ignoreProxy (bogus True) == 42
+      , not (isTrue# (reallyUnsafePtrEquality# (Just True) (Just False)))
+      , isTrue# (reallyUnsafePtrEquality# loop loop)
+      ]
+output: |
+  True
+expression: checks
+status: pass
+reason: tests the library operations that containers requires
