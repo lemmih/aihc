@@ -1,0 +1,17 @@
+modules:
+  - |
+    module Test where
+
+    import Data.List.NonEmpty (NonEmpty (..))
+
+    parsed :: NonEmpty Int
+    parsed = read "1 :| [2,3]"
+
+    total :: Int
+    total = case parsed of value :| values -> value + sum values
+output: |
+  I# 6
+expression: |
+  total
+status: pass
+reason: NonEmpty has a Read instance, as in base
