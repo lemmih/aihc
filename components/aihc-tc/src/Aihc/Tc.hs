@@ -143,7 +143,7 @@ import Aihc.Resolve.Generic (everywhereM)
 import Aihc.Resolve.Traverse (annotationList)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcForeignImportInfo (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
 import Aihc.Tc.Deriving.References (DerivingReference (..), DerivingReferences (..), defaultDerivingReferences)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataConRefinesResult, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
@@ -479,6 +479,15 @@ initialTcState imported =
     { tcsGlobalTerms = Map.map (`TcIdBinder` Closed) (tcInterfaceTermMap imported) <> tcsGlobalTerms initTcState,
       tcsGlobalTyCons = tcInterfaceTyConMap imported <> tcsGlobalTyCons initTcState,
       tcsDataTypes = tcInterfaceDataTypeMap imported,
+      -- Interfaces keep checked constructor types, not the declaration syntax,
+      -- so imported GADT constructors are recovered from their result types.
+      tcsGadtCons =
+        Set.fromList
+          [ dciName constructor
+          | dataType <- Map.elems (tcInterfaceDataTypeMap imported),
+            constructor <- dtiConstructors dataType,
+            dataConRefinesResult constructor
+          ],
       tcsClasses = tcInterfaceClassMap imported,
       tcsInstances = instanceEnvFromList (tcInterfaceInstances imported),
       tcsDataFamilyInstances = tcInterfaceDataFamilyInstanceMap imported,

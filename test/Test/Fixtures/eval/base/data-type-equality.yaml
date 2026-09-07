@@ -64,5 +64,5 @@ modules:
 output: |
   True
 expression: result
-status: xfail
-reason: "matching on Refl imported through a type interface does not bring a ~ b into scope (build-exe fails with 'could not match b with a'); the constructor's equality is lost when the GADT crosses the interface"
+status: pass
+reason: "matching on Refl and HRefl imported from Data.Type.Equality brings the constructor equalities into scope"

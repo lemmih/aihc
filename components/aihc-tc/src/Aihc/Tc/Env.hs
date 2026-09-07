@@ -19,6 +19,7 @@ module Aihc.Tc.Env
     DataConFieldUnpack (..),
     DataConSourceForm (..),
     dataConArgTypes,
+    dataConRefinesResult,
 
     -- * Class info
     ClassInfo (..),
@@ -54,6 +55,7 @@ where
 
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types
+import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -156,6 +158,25 @@ data DataConInfo = DataConInfo
 
 dataConArgTypes :: DataConInfo -> [TcType]
 dataConArgTypes = map dcfiType . dciFields
+
+-- | Whether matching on the constructor refines the scrutinee type, so the
+-- match brings a type equality into scope instead of unifying eagerly.
+--
+-- A Haskell 98 constructor returns its type constructor applied to distinct
+-- type variables, so its result type carries no information; a GADT
+-- constructor restricts some of those arguments. Constructor constraints do
+-- not count: they become givens of their own and leave the result type alone.
+-- Constructors read back from a module interface are classified this way
+-- because the interface keeps the checked types, not the declaration syntax.
+dataConRefinesResult :: DataConInfo -> Bool
+dataConRefinesResult = not . vanillaResult . dciResTy
+  where
+    vanillaResult ty =
+      case ty of
+        TcTyCon _ args ->
+          let tyVars = [tyVar | TcTyVar tyVar <- args]
+           in length tyVars == length args && length (nub tyVars) == length tyVars
+        _ -> False
 
 -- | Whether a pattern synonym can build values.
 data PatSynDirection
