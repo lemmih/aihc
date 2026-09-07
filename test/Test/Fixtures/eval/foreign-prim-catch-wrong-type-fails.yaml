@@ -7,5 +7,6 @@ modules:
 output: ""
 expression: |
   catch#
-status: xfail
+error: 'desugar error: foreign import prim catch# must repeat the type of GHC.Prim.catch#: expected ∀ a b. (State# RealWorld → Tuple2# (State# RealWorld) a) → (b → State# RealWorld → Tuple2# (State# RealWorld) a) → State# RealWorld → Tuple2# (State# RealWorld) a, got (() → Int#) → (Int# → () → Int#) → () → Int#'
+status: fail
 reason: catch# must use the exact GHC State# RealWorld and unboxed tuple type
