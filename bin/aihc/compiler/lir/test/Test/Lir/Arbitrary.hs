@@ -100,7 +100,7 @@ genTerminator =
   Gen.choice
     [ Jump <$> genTarget,
       Branch <$> genOperand <*> genTarget <*> genTarget,
-      Switch <$> genType <*> genOperand <*> smallList (SwitchCase <$> genInteger <*> genTarget) <*> Gen.maybe genTarget,
+      Switch <$> genType <*> genOperand <*> smallList (Gen.choice [SwitchCase <$> genInteger <*> genTarget, SwitchCaseConstant <$> genSymbol <*> genTarget]) <*> Gen.maybe genTarget,
       Return <$> smallList genOperand,
       TailCall <$> genSymbol <*> smallList genOperand,
       TailCallIndirect <$> genOperand <*> smallList genOperand <*> genSignature,

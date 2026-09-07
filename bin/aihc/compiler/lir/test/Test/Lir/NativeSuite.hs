@@ -19,14 +19,16 @@ import Aihc.Lir.Lower (LowerTarget, lowerEntry, lowerModule)
 import Aihc.Native
   ( NativeTarget,
     RuntimeGarbageCollector (..),
+    RuntimePlan (..),
     executableEntryName,
+    runtimePlan,
   )
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.RuntimeArchive (cachedRuntimeArchive)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
-import Control.Monad (forM, when)
+import Control.Monad (forM, forM_, when, (<=<))
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
 import Data.ByteString.Lazy qualified as BL
 import Data.List (sort)
@@ -72,11 +74,14 @@ tests backend = do
       snapshotDirectory = root </> "bin" </> "aihc" </> "compiler" </> "grin" </> "test" </> "Test" </> "Fixtures" </> "grin-snapshot"
   names <- sort . filter ((== ".lir") . takeExtension) <$> listDirectory directory
   snapshots <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory snapshotDirectory
+  plan <- runtimePlan (backendTarget backend) RuntimeGcSemispace
+  runtimeModules <- mapM (either (assertFailure . renderLoadError) pure <=< loadModule) (runtimeLirSources plan)
+  let runtimeExports = Map.fromList [(functionName function, functionSignature function) | runtimeModule <- runtimeModules, ItemFunction function <- moduleItems runtimeModule, functionLinkage function == Export]
   pure
     ( testGroup
         (backendName backend)
         [ testGroup "Lir evaluation fixtures" (map (fixtureTest backend directory) names),
-          testGroup "GRIN heap snapshots through Lir" (map (snapshotTest backend snapshotDirectory) snapshots),
+          testGroup "GRIN heap snapshots through Lir" (map (snapshotTest backend runtimeExports snapshotDirectory) snapshots),
           testGroup
             "programs through Lir"
             [ testGroup
@@ -240,14 +245,22 @@ instance FromJSON SnapshotFixture where
 
 -- | Lower the fixture program through Lir, check the Lir with the linter,
 -- and compare the native heap snapshot with the fixture.
-snapshotTest :: NativeBackend -> FilePath -> FilePath -> TestTree
-snapshotTest backend directory name = testCase name $ do
+snapshotTest :: NativeBackend -> Map.Map Symbol Signature -> FilePath -> FilePath -> TestTree
+snapshotTest backend runtimeExports directory name = testCase name $ do
   fixture <- either (assertFailure . Y.prettyPrintParseException) pure =<< Y.decodeFileEither (directory </> name)
   assertEqual "fixture status" "pass" (snapshotFixtureStatus fixture)
   program <- either (assertFailure . Grin.renderParseError) pure (parseProgram (snapshotFixtureProgram fixture))
   gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin program)
   (lirModule, metadata) <- either (assertFailure . show) pure (lowerObservedProgram (backendLowerTarget backend) (FunctionName (snapshotFixtureEntry fixture)) gc)
   assertEqual "Lir lint" [] (map renderLintError (lintModule lirModule))
+  -- Every fixture must use the runtime exports without local copies.
+  let localRuntimeFunctions = [functionName function | ItemFunction function <- moduleItems lirModule, Map.member (functionName function) runtimeExports]
+  assertEqual "local copies of runtime functions" [] localRuntimeFunctions
+  forM_ [external | ItemExternFunction external <- moduleItems lirModule, "aihc_lir_" `T.isPrefixOf` unSymbol (externFunctionName external)] $ \external ->
+    assertEqual
+      ("runtime helper signature: " <> T.unpack (unSymbol (externFunctionName external)))
+      (Just (externFunctionSignature external))
+      (Map.lookup (externFunctionName external) runtimeExports)
   reparsed <- either (assertFailure . renderParseError) pure (parseModule (renderModule lirModule))
   assertEqual "Lir pretty-printer round-trip" lirModule reparsed
   output <- compileUnit backend lirModule

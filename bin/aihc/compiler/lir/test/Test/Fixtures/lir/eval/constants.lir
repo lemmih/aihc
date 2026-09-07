@@ -7,24 +7,15 @@ include "../include/object-kinds.lir"
 const @ANSWER = 42
 const @NEGATIVE = -1
 
-data @info align 8 = {
-  ptr null,
-  code null,
-  word 1,
-  word 0,
-  ptr null,
-  ptr null,
-  code null,
-  word @FRAME_NONE,
-  word @OBJECT_ARRAY,
-  ptr null
-}
+data @info align 8 = { word @OBJECT_ARRAY, word @FRAME_NONE }
 
 data @answers align 8 = { i64 @ANSWER, i8 @NEGATIVE }
 
 func @main() -> (i64, i64, i1) {
 entry:
-  %kind = load i64 [@info + 64] align 8
+  ; Constant word values fit in 32 bits on every target.
+  %kind_word = load i32 [@info] align 4
+  %kind = zext i32 %kind_word to i64
   %answer = load i64 [@answers] align 8
   %negative = load i8 [@answers + 8] align 1
   %is_array = eq i64 %kind, @OBJECT_ARRAY

@@ -1,0 +1,15 @@
+; error: @main/entry: duplicate switch case 1
+; error: @main/entry: switch case 256 does not fit i8
+; error: @main/entry: unknown symbol @UNKNOWN
+; error: @main/entry: @main is not a constant
+const @ONE = 1
+const @LARGE = 256
+func @main() -> i64 {
+entry:
+  switch i8 1 {
+    1, @ONE, @LARGE, @UNKNOWN, @main -> done
+    default -> done
+  }
+done:
+  return 0
+}

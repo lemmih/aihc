@@ -25,3 +25,9 @@ const @AIHC_FRAME_CATCH = 2
 const @AIHC_FRAME_UPDATE = 3
 const @AIHC_FRAME_RESTORE_MASK = 4
 const @AIHC_FRAME_STOP = 5
+
+; Scheduler resumption kinds, the kind field of AihcResume.
+const @AIHC_RESUME_NONE = 0
+const @AIHC_RESUME_APPLY = 1
+const @AIHC_RESUME_CONTINUE = 2
+const @AIHC_RESUME_RAISE = 3

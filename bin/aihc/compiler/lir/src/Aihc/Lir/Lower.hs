@@ -11,9 +11,8 @@
 -- helper is a @call@ of an extern C function, and dynamic entries go through
 -- the @backend_entry@ field of an info table. That field has the signature
 -- @(ptr, ptr, ptr, T...) -> ()@ with the machine, the object, the
--- continuation, and the supplied values. Shared helpers for evaluation,
--- application, continuation, and scheduler resumption are generated into
--- every module that uses them.
+-- continuation, and the supplied values. The runtime defines fixed helpers
+-- and common argument shapes. Other shapes remain in the module.
 module Aihc.Lir.Lower
   ( LowerError (..),
     LowerOptions (..),
@@ -483,8 +482,30 @@ requireExternData symbol = modify' $ \state -> state {stateExternData = Set.inse
 
 requireHelper :: Helper -> LowerM Symbol
 requireHelper helper = do
-  modify' $ \state -> state {stateHelpers = Set.insert helper (stateHelpers state)}
-  pure (helperSymbol helper)
+  let symbol = helperSymbol helper
+  case sharedHelperSignature helper of
+    Just signature ->
+      modify' $ \state -> state {stateExterns = Map.insert symbol signature (stateExterns state)}
+    Nothing ->
+      modify' $ \state -> state {stateHelpers = Set.insert helper (stateHelpers state)}
+  pure symbol
+
+-- | The runtime Lir unit defines these fixed signatures.
+sharedHelperSignature :: Helper -> Maybe Signature
+sharedHelperSignature helper =
+  case helper of
+    HelperEval -> shared [Ptr, Ptr, I64, Ptr, Ptr] []
+    HelperResume -> shared [Ptr, Ptr] []
+    HelperContinue shape | common shape -> shared (Ptr : Ptr : shape) []
+    HelperApply shape | common shape -> shared (Ptr : Ptr : Ptr : shape) []
+    HelperContinueSlot -> shared [Ptr, Ptr, I64] []
+    HelperApplySlot -> shared [Ptr, Ptr, Ptr, I64] []
+    HelperQuotRem2 -> shared [I64, I64, I64] [I64, I64]
+    HelperCStringLength -> shared [Ptr] [I64]
+    _ -> Nothing
+  where
+    common shape = shape `elem` [[], [Ptr], [I64]]
+    shared parameters results = Just (Signature parameters results AihcConvention)
 
 emitItem :: Item -> LowerM ()
 emitItem item = modify' $ \state -> state {stateItemsRev = item : stateItemsRev state}
@@ -604,30 +625,6 @@ slotPointerFields :: LowerTarget -> DataField -> [DataField]
 slotPointerFields target field
   | lowerWordSize target == 8 = [field]
   | otherwise = [field, DataInt I32 0]
-
--- | The byte offsets of the fields of a C @AihcResume@ record, and its size.
-data ResumeLayout = ResumeLayout
-  { resumeKindOffset :: !Integer,
-    resumeFunctionOffset :: !Integer,
-    resumeContinuationOffset :: !Integer,
-    resumeValueOffset :: !Integer,
-    resumeCountOffset :: !Integer,
-    resumeSize :: !Integer
-  }
-
-resumeLayout :: LowerTarget -> ResumeLayout
-resumeLayout target =
-  ResumeLayout
-    { resumeKindOffset = 0,
-      resumeFunctionOffset = 8,
-      resumeContinuationOffset = 8 + word,
-      resumeValueOffset = value,
-      resumeCountOffset = value + 8,
-      resumeSize = value + 16
-    }
-  where
-    word = toInteger (lowerWordSize target)
-    value = ((8 + 2 * word + 7) `div` 8) * 8
 
 -- | The exit-code field of the machine, at the same offset on every target.
 machineExitCodeOffset :: Integer
@@ -2054,232 +2051,13 @@ generateHelper env helper =
       continue <- requireHelper (HelperContinue [Ptr])
       terminate (TailCall continue [OperandVar machine, typedOperand adjusted, applied])
       finishFunction symbol Internal ((machine, Ptr) : (function, Ptr) : (continuation, Ptr) : values) [] AihcConvention
-    -- A null resumption means that every thread waits for IO and the host
-    -- owns the IO loop: return to the function that started the machine.
-    HelperResume -> do
-      target <- targetM
-      let layout = resumeLayout target
-          word = toInteger (lowerWordSize target)
-      machine <- fresh "machine"
-      resume <- fresh "resume"
-      beginBlock (Label "entry") []
-      isNull <- emitValue "no_resume" I1 (Compare Eq Ptr (OperandVar resume) (OperandLiteral LitNull))
-      terminate (Branch (typedOperand isNull) (Target (Label "suspend") []) (Target (Label "dispatch") []))
-      beginBlock (Label "suspend") []
-      terminate (Return [])
-      beginBlock (Label "dispatch") []
-      kind <- emitValue "kind" I64 (Load I64 (Address (OperandVar resume) (resumeKindOffset layout)) 8)
-      function <- emitValue "function" Ptr (Load Ptr (Address (OperandVar resume) (resumeFunctionOffset layout)) word)
-      continuation <- emitValue "continuation" Ptr (Load Ptr (Address (OperandVar resume) (resumeContinuationOffset layout)) word)
-      value <- emitValue "value" I64 (Load I64 (Address (OperandVar resume) (resumeValueOffset layout)) 8)
-      count <- emitValue "count" I64 (Load I64 (Address (OperandVar resume) (resumeCountOffset layout)) 8)
-      forM_ [0, 8 .. resumeSize layout - 8] $ \offset -> emit [] (Store I64 (OperandLiteral (LitInt 0)) (Address (OperandVar resume) offset) 8)
-      terminate (Switch I64 (typedOperand kind) [SwitchCase 1 (Target (Label "apply") []), SwitchCase 2 (Target (Label "continue") []), SwitchCase 3 (Target (Label "raise") [])] (Just (Target (Label "invalid") [])))
-      beginBlock (Label "apply") []
-      terminate (Switch I64 (typedOperand count) [SwitchCase 0 (Target (Label "apply_zero") []), SwitchCase 1 (Target (Label "apply_one") [])] (Just (Target (Label "invalid") [])))
-      beginBlock (Label "apply_zero") []
-      applyZero <- requireHelper (HelperApply [])
-      terminate (TailCall applyZero [OperandVar machine, typedOperand function, typedOperand continuation])
-      beginBlock (Label "apply_one") []
-      applyOne <- requireHelper HelperApplySlot
-      terminate (TailCall applyOne [OperandVar machine, typedOperand function, typedOperand continuation, typedOperand value])
-      beginBlock (Label "continue") []
-      terminate (Switch I64 (typedOperand count) [SwitchCase 0 (Target (Label "continue_zero") []), SwitchCase 1 (Target (Label "continue_one") [])] (Just (Target (Label "invalid") [])))
-      beginBlock (Label "continue_zero") []
-      continueZero <- requireHelper (HelperContinue [])
-      terminate (TailCall continueZero [OperandVar machine, typedOperand function])
-      beginBlock (Label "continue_one") []
-      continueOne <- requireHelper HelperContinueSlot
-      terminate (TailCall continueOne [OperandVar machine, typedOperand function, typedOperand value])
-      beginBlock (Label "raise") []
-      raised <- callRuntime "aihc_raise" [Ptr, Ptr, Ptr] [Ptr] [OperandVar machine, typedOperand function, typedOperand continuation]
-      terminate (TailCall symbol [OperandVar machine, raised])
-      beginBlock (Label "invalid") []
-      _ <- callRuntime "aihc_no_match" [] [] []
-      terminate (Trap "invalid scheduler resumption")
-      finishFunction symbol Internal [(machine, Ptr), (resume, Ptr)] [] AihcConvention
-    HelperEval -> do
-      machine <- fresh "machine"
-      value <- fresh "value"
-      lifted <- fresh "lifted"
-      continuation <- fresh "continuation"
-      updateContinuation <- fresh "update"
-      beginBlock (Label "entry") []
-      terminate (Jump (Target (Label "loop") [OperandVar value]))
-      current <- fresh "current"
-      beginBlock (Label "loop") [(current, Ptr)]
-      header <- loadHeader (OperandVar current)
-      kind <- loadInfoWord "kind" header infoObjectKindIndex
-      terminate
-        ( Switch
-            I64
-            (typedOperand kind)
-            [ SwitchCase (toInteger runtimeObjectThunk) (Target (Label "thunk") []),
-              SwitchCase runtimeObjectIndirection (Target (Label "indirection") []),
-              SwitchCase runtimeObjectBlackhole (Target (Label "blackhole") [])
-            ]
-            (Just (Target (Label "ready") []))
-        )
-      beginBlock (Label "thunk") []
-      _ <- callRuntime "aihc_begin_blackhole" [Ptr, Ptr] [] [OperandVar machine, OperandVar current]
-      entry <- loadInfoCode "entry" header infoBackendEntryIndex
-      terminate (TailCallIndirect (typedOperand entry) [OperandVar machine, OperandVar current, OperandVar updateContinuation] (Signature [Ptr, Ptr, Ptr] [] AihcConvention))
-      beginBlock (Label "indirection") []
-      isLifted <- emitValue "is_lifted" I1 (Compare Ne I64 (OperandVar lifted) (OperandLiteral (LitInt 0)))
-      terminate (Branch (typedOperand isLifted) (Target (Label "indirection_lifted") []) (Target (Label "indirection_unlifted") []))
-      beginBlock (Label "indirection_lifted") []
-      next <- loadSlot "next" Ptr (OperandVar current) 8
-      terminate (Jump (Target (Label "loop") [typedOperand next]))
-      -- An unlifted result travels through the indirection as a raw slot.
-      beginBlock (Label "indirection_unlifted") []
-      raw <- emitValue "raw" I64 (Load I64 (Address (OperandVar current) 8) 8)
-      continueSlot <- requireHelper HelperContinueSlot
-      terminate (TailCall continueSlot [OperandVar machine, OperandVar continuation, typedOperand raw])
-      beginBlock (Label "blackhole") []
-      resume <- callRuntime "aihc_block_on_blackhole" [Ptr, Ptr, Ptr] [Ptr] [OperandVar machine, OperandVar current, OperandVar continuation]
-      resumeHelper <- requireHelper HelperResume
-      terminate (TailCall resumeHelper [OperandVar machine, resume])
-      beginBlock (Label "ready") []
-      continuePointer <- requireHelper (HelperContinue [Ptr])
-      terminate (TailCall continuePointer [OperandVar machine, OperandVar continuation, OperandVar current])
-      finishFunction symbol Internal [(machine, Ptr), (value, Ptr), (lifted, I64), (continuation, Ptr), (updateContinuation, Ptr)] [] AihcConvention
-    -- The value is a pointer when the bitmap of the next application stage
-    -- says so for the field the value becomes. An object without a next
-    -- stage cannot enter a code entry, so its value stays a word.
-    HelperContinueSlot -> do
-      machine <- fresh "machine"
-      continuation <- fresh "continuation"
-      value <- fresh "value"
-      continuePointer <- requireHelper (HelperContinue [Ptr])
-      continueWord <- requireHelper (HelperContinue [I64])
-      slotDispatch
-        (OperandVar continuation)
-        (\object pointer -> terminate (TailCall continuePointer [OperandVar machine, object, pointer]))
-        (\object -> terminate (TailCall continueWord [OperandVar machine, object, OperandVar value]))
-        (OperandVar value)
-      finishFunction symbol Internal [(machine, Ptr), (continuation, Ptr), (value, I64)] [] AihcConvention
-    HelperApplySlot -> do
-      machine <- fresh "machine"
-      function <- fresh "function"
-      continuation <- fresh "continuation"
-      value <- fresh "value"
-      applyPointer <- requireHelper (HelperApply [Ptr])
-      applyWord <- requireHelper (HelperApply [I64])
-      slotDispatch
-        (OperandVar function)
-        (\object pointer -> terminate (TailCall applyPointer [OperandVar machine, object, OperandVar continuation, pointer]))
-        (\object -> terminate (TailCall applyWord [OperandVar machine, object, OperandVar continuation, OperandVar value]))
-        (OperandVar value)
-      finishFunction symbol Internal [(machine, Ptr), (function, Ptr), (continuation, Ptr), (value, I64)] [] AihcConvention
-    HelperQuotRem2 -> do
-      high <- fresh "high"
-      low <- fresh "low"
-      divisor <- fresh "divisor"
-      beginBlock (Label "entry") []
-      terminate (Jump (Target (Label "loop") [OperandVar high, OperandVar low, OperandLiteral (LitInt 0), OperandLiteral (LitInt 64)]))
-      h <- fresh "h"
-      l <- fresh "l"
-      q <- fresh "q"
-      n <- fresh "n"
-      beginBlock (Label "loop") [(h, I64), (l, I64), (q, I64), (n, I64)]
-      done <- emitValue "done" I1 (Compare Eq I64 (OperandVar n) (OperandLiteral (LitInt 0)))
-      terminate (Branch (typedOperand done) (Target (Label "finish") [OperandVar q, OperandVar h]) (Target (Label "step") []))
-      beginBlock (Label "step") []
-      top <- emitValue "top" I64 (Binary ShrU I64 (OperandVar h) (OperandLiteral (LitInt 63)))
-      topSet <- emitValue "top_set" I1 (Compare Ne I64 (typedOperand top) (OperandLiteral (LitInt 0)))
-      carry <- emitValue "carry" I64 (Binary ShrU I64 (OperandVar l) (OperandLiteral (LitInt 63)))
-      shiftedHigh <- emitValue "shifted_high" I64 (Binary Shl I64 (OperandVar h) (OperandLiteral (LitInt 1)))
-      nextHigh <- emitValue "next_high" I64 (Binary Or I64 (typedOperand shiftedHigh) (typedOperand carry))
-      nextLow <- emitValue "next_low" I64 (Binary Shl I64 (OperandVar l) (OperandLiteral (LitInt 1)))
-      nextQuotient <- emitValue "next_quotient" I64 (Binary Shl I64 (OperandVar q) (OperandLiteral (LitInt 1)))
-      nextCount <- emitValue "next_count" I64 (Binary Sub I64 (OperandVar n) (OperandLiteral (LitInt 1)))
-      fits <- emitValue "fits" I1 (Compare GeU I64 (typedOperand nextHigh) (OperandVar divisor))
-      subtract' <- emitValue "subtract" I1 (Binary Or I1 (typedOperand topSet) (typedOperand fits))
-      let continueArguments = [typedOperand nextHigh, typedOperand nextLow, typedOperand nextQuotient, typedOperand nextCount]
-      terminate (Branch (typedOperand subtract') (Target (Label "subtract") continueArguments) (Target (Label "loop") continueArguments))
-      h2 <- fresh "h"
-      l2 <- fresh "l"
-      q2 <- fresh "q"
-      n2 <- fresh "n"
-      beginBlock (Label "subtract") [(h2, I64), (l2, I64), (q2, I64), (n2, I64)]
-      reduced <- emitValue "reduced" I64 (Binary Sub I64 (OperandVar h2) (OperandVar divisor))
-      setQuotient <- emitValue "set_quotient" I64 (Binary Or I64 (OperandVar q2) (OperandLiteral (LitInt 1)))
-      terminate (Jump (Target (Label "loop") [typedOperand reduced, OperandVar l2, typedOperand setQuotient, OperandVar n2]))
-      quotient <- fresh "quotient"
-      remainder <- fresh "remainder"
-      beginBlock (Label "finish") [(quotient, I64), (remainder, I64)]
-      terminate (Return [OperandVar quotient, OperandVar remainder])
-      finishFunction symbol Internal [(high, I64), (low, I64), (divisor, I64)] [I64, I64] AihcConvention
-    HelperCStringLength -> do
-      address <- fresh "address"
-      beginBlock (Label "entry") []
-      terminate (Jump (Target (Label "loop") [OperandVar address, OperandLiteral (LitInt 0)]))
-      current <- fresh "current"
-      count <- fresh "count"
-      beginBlock (Label "loop") [(current, Ptr), (count, I64)]
-      byte <- emitValue "byte" I8 (Load I8 (Address (OperandVar current) 0) 1)
-      atEnd <- emitValue "at_end" I1 (Compare Eq I8 (typedOperand byte) (OperandLiteral (LitInt 0)))
-      terminate (Branch (typedOperand atEnd) (Target (Label "finish") [OperandVar count]) (Target (Label "step") []))
-      beginBlock (Label "step") []
-      nextAddress <- emitValue "next_address" Ptr (PtrAdd (OperandVar current) (OperandLiteral (LitInt 1)))
-      nextCount <- emitValue "next_count" I64 (Binary Add I64 (OperandVar count) (OperandLiteral (LitInt 1)))
-      terminate (Jump (Target (Label "loop") [typedOperand nextAddress, typedOperand nextCount]))
-      length' <- fresh "length"
-      beginBlock (Label "finish") [(length', I64)]
-      terminate (Return [OperandVar length'])
-      finishFunction symbol Internal [(address, Ptr)] [I64] AihcConvention
+    _ -> failWith (LowerUnsupportedExpression "internal: shared helper requested a local definition")
   where
     symbol = helperSymbol helper
     loadHeader object = typedOperand <$> loadSlot "header" Ptr object 0
-    -- Follow indirections, then branch on the pointer bitmap of the next
-    -- stage. The blocks of the function start here.
-    slotDispatch :: Operand -> (Operand -> Operand -> LowerM ()) -> (Operand -> LowerM ()) -> Operand -> LowerM ()
-    slotDispatch object asPointer asWord value = do
-      beginBlock (Label "entry") []
-      terminate (Jump (Target (Label "loop") [object]))
-      current <- fresh "current"
-      beginBlock (Label "loop") [(current, Ptr)]
-      header <- loadHeader (OperandVar current)
-      kind <- loadInfoWord "kind" header infoObjectKindIndex
-      isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectIndirection)))
-      terminate (Branch (typedOperand isIndirection) (Target (Label "indirection") []) (Target (Label "check") []))
-      beginBlock (Label "indirection") []
-      next <- loadSlot "next" Ptr (OperandVar current) 8
-      terminate (Jump (Target (Label "loop") [typedOperand next]))
-      beginBlock (Label "check") []
-      nextInfo <- loadInfoPointer "next_info" header infoNextIndex
-      hasNext <- emitValue "has_next" I1 (Compare Ne Ptr (typedOperand nextInfo) (OperandLiteral LitNull))
-      terminate (Branch (typedOperand hasNext) (Target (Label "count") []) (Target (Label "word") []))
-      -- An unsaturated constructor holds its own count; every other object
-      -- with a next stage takes it from its info table.
-      beginBlock (Label "count") []
-      kindIsPartial <- emitValue "kind_is_partial" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectPartialConstructor))))
-      terminate (Branch (typedOperand kindIsPartial) (Target (Label "partial_count") []) (Target (Label "info_count") []))
-      beginBlock (Label "partial_count") []
-      applied <- loadSlot "applied" I64 (OperandVar current) 8
-      terminate (Jump (Target (Label "bitmap") [typedOperand applied]))
-      beginBlock (Label "info_count") []
-      infoCount <- loadInfoWord "count" header infoFieldCountIndex
-      terminate (Jump (Target (Label "bitmap") [typedOperand infoCount]))
-      count <- fresh "count"
-      beginBlock (Label "bitmap") [(count, I64)]
-      bitmap <- loadInfoPointer "bitmap" (typedOperand nextInfo) infoFieldIsPointerIndex
-      entry <- emitValue "entry" Ptr (PtrAdd (typedOperand bitmap) (OperandVar count))
-      flag <- emitValue "flag" I8 (Load I8 (Address (typedOperand entry) 0) 1)
-      isPointer <- emitValue "is_pointer" I1 (Compare Ne I8 (typedOperand flag) (OperandLiteral (LitInt 0)))
-      terminate (Branch (typedOperand isPointer) (Target (Label "pointer") []) (Target (Label "word") []))
-      beginBlock (Label "pointer") []
-      pointer <- emitValue "pointer" Ptr (PtrFromInt value)
-      asPointer (OperandVar current) (typedOperand pointer)
-      beginBlock (Label "word") []
-      asWord (OperandVar current)
 
--- | The word indices of the info-table fields the helpers read.
-infoFieldCountIndex, infoRemainingArityIndex, infoFieldIsPointerIndex, infoNextIndex, infoBackendEntryIndex, infoObjectKindIndex :: Int
-infoFieldCountIndex = 2
+infoRemainingArityIndex, infoBackendEntryIndex, infoObjectKindIndex :: Int
 infoRemainingArityIndex = 3
-infoFieldIsPointerIndex = 4
-infoNextIndex = 5
 infoBackendEntryIndex = 6
 infoObjectKindIndex = 8
 
@@ -2289,9 +2067,8 @@ runtimeObjectClosure = 1
 runtimeObjectThunk = 2
 runtimeObjectPartialConstructor = 3
 
-runtimeObjectIndirection, runtimeObjectBlackhole :: Integer
+runtimeObjectIndirection :: Integer
 runtimeObjectIndirection = 4
-runtimeObjectBlackhole = 5
 
 -- Program queries
 

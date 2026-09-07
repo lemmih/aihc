@@ -25,7 +25,7 @@ module Aihc.Wasm.Lir
 where
 
 import Aihc.Lir.Lint (LintError, lintModule)
-import Aihc.Lir.Resolve (resolveConstants, unresolvedConstant)
+import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Control.Monad (forM_, unless, when)
 import Control.Monad.Trans.Class (lift)
@@ -517,7 +517,7 @@ compileTerminator fn depth terminator =
     Switch ty scrutinee cases fallback -> do
       forM_ cases $ \switchCase -> do
         push fn ty scrutinee
-        push fn ty (OperandLiteral (LitInt (switchCaseValue switchCase)))
+        push fn ty (OperandLiteral (LitInt (resolvedSwitchCaseValue switchCase)))
         emit (prefix ty <> ".eq")
         emit "if"
         jumpTo fn (depth + 1) (switchCaseTarget switchCase)

@@ -15,7 +15,7 @@ module Aihc.Llvm.Lir
 where
 
 import Aihc.Lir.Lint (LintError, lintModule)
-import Aihc.Lir.Resolve (resolveConstants, unresolvedConstant)
+import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Control.Monad (forM, forM_)
 import Control.Monad.Trans.Class (lift)
@@ -417,7 +417,7 @@ compileTerminator ctx function parameters terminator =
           Nothing -> ("%" <>) <$> trapBlock "switch without a matching case"
       edges <- forM cases $ \switchCase -> do
         edge <- edgeTo parameters (switchCaseTarget switchCase)
-        pure (renderType ty <> " " <> renderInteger ty (switchCaseValue switchCase) <> ", label " <> edge)
+        pure (renderType ty <> " " <> renderInteger ty (resolvedSwitchCaseValue switchCase) <> ", label " <> edge)
       emit ("switch " <> typed ty scrutinee <> ", label " <> fallbackEdge <> " [" <> T.intercalate " " edges <> "]")
     Return values -> returnValues (functionResults function) (zipWith renderOperand (functionResults function) values)
     TailCall symbol arguments ->

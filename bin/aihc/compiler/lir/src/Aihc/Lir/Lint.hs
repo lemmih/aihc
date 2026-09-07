@@ -407,7 +407,7 @@ lintTerminator env blockIndex terminator =
     Switch ty scrutinee cases fallback ->
       ["switch does not accept " <> renderType ty | not (isIntegerType ty)]
         <> check ty scrutinee
-        <> caseErrors ty cases
+        <> caseErrors (envSymbols env) ty cases
         <> concatMap (targetErrors . switchCaseTarget) cases
         <> maybe [] targetErrors fallback
     Return values ->
@@ -449,10 +449,15 @@ lintTerminator env blockIndex terminator =
                 then ["block " <> renderLabel name <> " expects " <> tshow (length parameters) <> " arguments, got " <> tshow (length arguments)]
                 else concat (zipWith check parameters arguments)
 
-caseErrors :: Type -> [SwitchCase] -> [Text]
-caseErrors ty cases = snd (foldl' addCase (Set.empty, []) cases)
+caseErrors :: Symbols -> Type -> [SwitchCase] -> [Text]
+caseErrors symbols ty cases = snd (foldl' addCase (Set.empty, []) cases)
   where
     addCase :: (Set Integer, [Text]) -> SwitchCase -> (Set Integer, [Text])
+    addCase state@(seen, errors) (SwitchCaseConstant symbol target) =
+      case Map.lookup symbol symbols of
+        Just (SymbolConstant value) -> addCase state (SwitchCase value target)
+        Just _ -> (seen, errors <> [renderSymbol symbol <> " is not a constant"])
+        Nothing -> (seen, errors <> ["unknown symbol " <> renderSymbol symbol])
     addCase (seen, errors) (SwitchCase value _)
       | not (literalFits ty value) = (seen, errors <> ["switch case " <> tshow value <> " does not fit " <> renderType ty])
       | Set.member canonical seen = (seen, errors <> ["duplicate switch case " <> tshow value])

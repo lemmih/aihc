@@ -11,7 +11,7 @@ module Aihc.Lir.Interpret
 where
 
 import Aihc.Lir.Pretty (prettySymbol, renderDoc)
-import Aihc.Lir.Resolve (resolveConstants)
+import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue)
 import Aihc.Lir.Syntax
 import Control.Monad (foldM, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -339,8 +339,8 @@ execTerminator program function locals terminator =
       jumpTo (if value == VInt 1 then whenTrue else whenFalse)
     Switch ty scrutinee cases fallback -> do
       value <- operand ty scrutinee
-      case find (\(SwitchCase caseValue _) -> VInt (fromIntegerBits ty caseValue) == value) cases of
-        Just (SwitchCase _ target) -> jumpTo target
+      case find (\switchCase -> VInt (fromIntegerBits ty (resolvedSwitchCaseValue switchCase)) == value) cases of
+        Just switchCase -> jumpTo (switchCaseTarget switchCase)
         Nothing -> maybe (trap "switch without a matching case") jumpTo fallback
     Return values -> Returned <$> zipWithM operand (functionResults function) values
     TailCall symbol arguments -> do
