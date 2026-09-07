@@ -648,8 +648,6 @@ coercionEndpoints env coercion =
       endpoints <- coercionEndpoints env proof
       maybe (Left (LintFailure "invalid nominal argument projection")) Right (projectNominalArgument env index endpoints)
     CoFun domain range -> do
-      lintNominalCoercion env domain
-      lintNominalCoercion env range
       (leftDomain, rightDomain) <- coercionEndpoints env domain
       (leftRange, rightRange) <- coercionEndpoints env range
       left <- functionEndpoint leftDomain leftRange

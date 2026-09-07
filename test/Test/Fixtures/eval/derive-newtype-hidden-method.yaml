@@ -1,0 +1,25 @@
+extensions:
+- GeneralizedNewtypeDeriving
+modules:
+- |
+  module Hidden (Parent, Methods(public)) where
+  class Parent a
+  class Parent a => Methods a where
+    public :: a -> Bool
+    public = private
+    private :: a -> Bool
+  instance Parent Bool
+  instance Methods Bool where
+    private _ = True
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Test where
+  import Hidden (Parent, Methods(public))
+  newtype N = N Bool deriving Methods
+  instance Parent N
+  result :: Bool
+  result = public (N False)
+expression: result
+output: 'True'
+status: pass
+reason: select a hidden representation method from its dictionary

@@ -1,0 +1,17 @@
+extensions:
+- GeneralizedNewtypeDeriving
+- DerivingStrategies
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, DerivingStrategies #-}
+  module Test where
+  newtype N = N Int
+    deriving newtype (Eq, Ord, Enum, Bounded, Num, Real, Integral)
+  data Result = Result Bool Bool Bool
+  result :: Result
+  result = case quotRem (N 17) (N 5) of
+    (N q, N r) -> Result (q == 3) (r == 2) ([N 1 .. N 3] == [N 1, N 2, N 3])
+expression: result
+output: Result True True True
+status: pass
+reason: derive integral tuple results and enumeration lists

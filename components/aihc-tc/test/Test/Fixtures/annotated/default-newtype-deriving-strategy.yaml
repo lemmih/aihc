@@ -11,14 +11,6 @@ annotated:
   └─ deriving plans: newtype C (N a) [context: C a] [methods: c]
     deriving C
              └─ $fCNa ∷ ∀ a. (C a) ⇒ C (N a)
-             └─ type: a → a; type-args: a; evidence: given C a
-             └─ c ∷ N a → N a
-             └─ type: a → N a; type-args: a
-             └─ type: N a
-             └─ type: a
-             └─ type: N a
-             └─ type: a
-             └─ type: N a → N a
 extensions:
 - GeneralizedNewtypeDeriving
 modules:

@@ -1,0 +1,60 @@
+annotated:
+- |-
+  {-# LANGUAGE GeneralizedNewtypeDeriving, DerivingStrategies, TypeFamilies, KindSignatures, MultiParamTypeClasses #-}
+  module Main where
+  import GHC.Types (Type)
+  type family F a
+              └─ type: Type → Type
+  data Hidden a = Hidden (F a)
+       │          └─ type: ∀ a. F a → Hidden a
+       └─ type: Type → Type
+  class Direct a where
+  └─ class methods: direct ∷ ∀ a. (Direct a) ⇒ a → F a
+    direct :: a -> F a
+  class Indirect a where
+  └─ class methods: indirect ∷ ∀ a. (Indirect a) ⇒ a → Hidden a
+    indirect :: a -> Hidden a
+  class Variable (f :: Type -> Type) a where
+  └─ class methods: variable ∷ ∀ f a. (Variable f a) ⇒ a → f a
+    variable :: a -> f a
+  newtype N a = N a
+  │       │     └─ type: ∀ a. a → N a
+  │       └─ type: Type → Type
+  └─ deriving plans: newtype Direct (N a) [context: Direct a] [methods: direct], newtype Indirect (N a) [context: Indirect a] [methods: indirect]
+    deriving newtype (Direct, Indirect)
+                      ││       └─ $fIndirectNa ∷ ∀ a. (Indirect a) ⇒ Indirect (N a)
+                      ││       └─ error: newtype deriving cannot prove a safe coercion for method indirect
+                      └─ $fDirectNa ∷ ∀ a. (Direct a) ⇒ Direct (N a)
+                      └─ error: newtype deriving cannot prove a safe coercion for method direct
+  newtype V (f :: Type -> Type) a = V a
+  │       │                         └─ type: ∀ f a. a → V f a
+  │       └─ type: (Type → Type) → Type → Type
+  └─ deriving plans: newtype Variable f (V f a) [context: Variable f a] [methods: variable]
+    deriving newtype (Variable f)
+                      └─ $fVariablefVfa ∷ ∀ f a. (Variable f a) ⇒ Variable f (V f a)
+                      └─ error: newtype deriving cannot prove a safe coercion for method variable
+extensions:
+- GeneralizedNewtypeDeriving
+- DerivingStrategies
+- TypeFamilies
+- KindSignatures
+- MultiParamTypeClasses
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, DerivingStrategies, TypeFamilies, KindSignatures, MultiParamTypeClasses #-}
+  module Main where
+  import GHC.Types (Type)
+  type family F a
+  data Hidden a = Hidden (F a)
+  class Direct a where
+    direct :: a -> F a
+  class Indirect a where
+    indirect :: a -> Hidden a
+  class Variable (f :: Type -> Type) a where
+    variable :: a -> f a
+  newtype N a = N a
+    deriving newtype (Direct, Indirect)
+  newtype V (f :: Type -> Type) a = V a
+    deriving newtype (Variable f)
+reason: reject casts through families, indirect nominal fields, and unknown type constructors
+status: pass

@@ -1,0 +1,18 @@
+extensions:
+- DerivingStrategies
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies #-}
+  module Test where
+  newtype Default a = Default a deriving (Eq, Ord, Bounded)
+  newtype Stock a = Stock a deriving stock (Eq, Ord, Bounded)
+  data Result = Result Bool Bool Bool
+  result :: Result
+  result = Result
+    (Default True == Default True && Stock False == Stock False)
+    (Default False < Default True && Stock False < Stock True)
+    ((minBound :: Default Bool) == Default False && (maxBound :: Stock Bool) == Stock True)
+expression: result
+output: Result True True True
+status: pass
+reason: default newtype strategies need no extension and preserve explicit stock requests

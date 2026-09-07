@@ -55,8 +55,16 @@ inferDerivingContexts :: [Module] -> TcM [Module]
 inferDerivingContexts modules = do
   existingInstances <- getInstances
   let originalPlans = concatMap moduleDerivingPlans modules
-      environment = derivingEnv existingInstances originalPlans
-  contextPlans <- mapM (inferPlanContext environment) originalPlans
+      trialEnvironment = derivingEnv existingInstances originalPlans
+      selectPlan plan
+        | tcDerivingStockFallback plan,
+          TcDerivingInferContext <- tcDerivingContext plan,
+          Left _ <- inferredContext trialEnvironment plan =
+            plan {tcDerivingStrategy = TcDerivingStock}
+        | otherwise = plan
+      selectedPlans = map selectPlan originalPlans
+      environment = derivingEnv existingInstances selectedPlans
+  contextPlans <- mapM (inferPlanContext environment) selectedPlans
   pure (map (replaceModulePlans contextPlans) modules)
 
 -- | Everything context simplification needs about the batch: the instances
@@ -85,11 +93,10 @@ derivingEnv existingInstances plans =
 
     inferable = [(plan, obligations) | plan <- plans, Just (Right obligations) <- [inferableObligations plan]]
 
-    -- A plan that mentions itself starts out with the context a depth-first
-    -- search would cut the cycle with: anyclass deriving rejects the cycle,
-    -- a structural strategy assumes the recursive occurrence needs nothing.
+    -- Reject cycles for anyclass and newtype plans.
+    -- Stock plans can use recursive structural instances.
     initialContext (plan, _)
-      | tcDerivingStrategy plan == TcDerivingAnyclass = (planKey plan, Left (planPredicate plan))
+      | tcDerivingStrategy plan `elem` [TcDerivingAnyclass, TcDerivingNewtype] = (planKey plan, Left (planPredicate plan))
       | otherwise = (planKey plan, Right [])
 
     -- Contexts are inferred simultaneously, so a plan can refer to a plan
@@ -130,7 +137,10 @@ derivingObligations plan =
     TcDerivingNewtype ->
       Just $ do
         representation <- newtypeRepresentation plan
-        pure [ClassPred (tcDerivingClassTyCon plan) (init (tcDerivingHeadTypes plan) <> [representation])]
+        let substitution = Map.fromList (zip (map tvUnique (tcDerivingClassTyVars plan)) (tcDerivingHeadTypes plan))
+            supers = mapMaybe (constraintTypeToPred . applySubst substitution . tcDictBinderType) (tcDerivingClassSuperClasses plan)
+            methods = [ClassPred (tcDerivingClassTyCon plan) (init (tcDerivingHeadTypes plan) <> [representation]) | not (null (tcDerivingClassMethods plan))]
+        pure (supers <> methods)
     TcDerivingVia {} -> Nothing
 
 -- | The stock classes that the generator can write an instance for.
