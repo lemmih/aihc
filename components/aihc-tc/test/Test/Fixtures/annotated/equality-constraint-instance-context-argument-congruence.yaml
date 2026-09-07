@@ -1,0 +1,17 @@
+extensions:
+- GADTs
+- TypeOperators
+- FlexibleInstances
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data DL a = DL [a]
+  unwrap :: DL a -> [a]
+  unwrap (DL xs) = xs
+  class ToFlags a where
+    toFlags :: a -> [Flag]
+  instance (a ~ Flag) => ToFlags (DL a) where
+    toFlags = unwrap
+status: xfail
+reason: An instance-context equality lifts through a type constructor in a method argument. AIHC still lacks complete equality support.

@@ -1,0 +1,17 @@
+extensions:
+- GADTs
+- TypeOperators
+- FlexibleInstances
+modules:
+- |
+  module Test where
+  import GHC.Types (Char)
+  data DL a = DL [a]
+  fromL :: [a] -> DL a
+  fromL = DL
+  class IsStr a where
+    fromStr :: [Char] -> a
+  instance (a ~ Char) => IsStr (DL a) where
+    fromStr = fromL
+status: xfail
+reason: The dlist IsString instance shape - an instance-context equality with Char used under both a list and the instance head. AIHC still lacks complete equality support.

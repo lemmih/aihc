@@ -64,7 +64,7 @@ import Aihc.Tc
     typeFamilyAxiomKey,
   )
 import Aihc.Tc.Annotations (TcInstanceAnnotation (..))
-import Aihc.Tc.Env (TypeSynonymInfo (..))
+import Aihc.Tc.Env (DataConSourceForm (..), TypeSynonymInfo (..))
 import Aihc.Tc.Types
   ( Pred (..),
     TcAxiomKey (..),
@@ -891,9 +891,16 @@ convertConstructor env info = do
       result
   let constructorType = foldr TyForAll body binders
       (package, moduleName') = dciOrigin info
+      -- Built-in syntax such as @(,)@ or @[]@ has no name that an export
+      -- list could mention, and the compiler references it from any
+      -- module, so it stays public.
+      constructorVis =
+        case dciSourceForm info of
+          SyntaxDataCon -> Pub
+          _ -> exportedVis env ResolutionNamespaceTerm (dciName info)
   pure
     ConDecl
-      { conVis = exportedVis env ResolutionNamespaceTerm (dciName info),
+      { conVis = constructorVis,
         conName = Name (dciName info) SortDataConstructor (OriginTop package moduleName'),
         conType = constructorType
       }

@@ -103,10 +103,14 @@ dataTypeKey = tyConKey . dtiTyCon
 
 -- | The source declaration form of a constructor. Stock deriving needs this
 -- distinction for constructor rendering and record-specific operations.
+-- A syntax constructor renders as a prefix one; the form records that no
+-- export list can name it.
 data DataConSourceForm
   = PrefixDataCon
   | InfixDataCon
   | RecordDataCon
+  | -- | Built-in syntax such as @(,)@, @(# | #)@ or @[]@.
+    SyntaxDataCon
   deriving (Eq, Show, Read)
 
 -- | Source unpacking intent for a constructor field. This is kept separate

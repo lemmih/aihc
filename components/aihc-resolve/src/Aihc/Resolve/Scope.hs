@@ -24,9 +24,6 @@ module Aihc.Resolve.Scope
     resolveTypeName,
     resolveFixityName,
     collectPatVarBinders,
-    tupleConName,
-    unboxedSumConName,
-    listConName,
     importItemTypeName,
   )
 where
@@ -61,7 +58,6 @@ import Aihc.Parser.Syntax
     Pattern (..),
     RecordField (..),
     SourceSpan (..),
-    TupleFlavor (..),
     Type (..),
     TypeFamilyDecl (..),
     TypeSynDecl (..),
@@ -339,9 +335,15 @@ declExportedNames decl =
       dataDeclExports (dataDeclHead dataDecl) (dataDeclConstructors dataDecl)
     DeclNewtype newtypeDecl ->
       let typeName = binderHeadName (newtypeDeclHead newtypeDecl)
-          termNames = maybe [] dataConDeclNames (newtypeDeclConstructor newtypeDecl)
-          constructorNames = maybe [] dataConDeclConstructorNames (newtypeDeclConstructor newtypeDecl)
-       in DeclExports termNames [typeName] (constructorMap typeName constructorNames) (maybe Map.empty (recordFieldMap . (: [])) (newtypeDeclConstructor newtypeDecl)) Map.empty Map.empty Map.empty
+          constructors = maybeToList (newtypeDeclConstructor newtypeDecl)
+       in DeclExports
+            (dataDeclTermNames constructors)
+            [typeName]
+            (constructorMap typeName (concatMap dataConDeclConstructors constructors))
+            (recordFieldMap constructors)
+            Map.empty
+            Map.empty
+            Map.empty
     DeclDataFamilyDecl familyDecl ->
       DeclExports [] [binderHeadName (dataFamilyDeclHead familyDecl)] Map.empty Map.empty Map.empty Map.empty Map.empty
     DeclDataFamilyInst familyInst -> dataFamilyInstExports familyInst
@@ -384,8 +386,8 @@ dataFamilyInstExports familyInst =
         Map.empty
   where
     constructors = dataFamilyInstConstructors familyInst
-    termNames = dataDeclConstructorNames constructors
-    constructorNames = concatMap dataConDeclConstructorNames constructors
+    termNames = dataDeclTermNames constructors
+    constructorNames = concatMap dataConDeclConstructors constructors
     recordFields = recordFieldMap constructors
 
 typeFamilyHeadName :: Type -> Maybe UnqualifiedName
@@ -401,9 +403,9 @@ dataDeclExports :: BinderHead UnqualifiedName -> [DataConDecl] -> DeclExports
 dataDeclExports headBinder constructors =
   let typeName = binderHeadName headBinder
    in DeclExports
-        (dataDeclConstructorNames constructors)
+        (dataDeclTermNames constructors)
         [typeName]
-        (constructorMap typeName (concatMap dataConDeclConstructorNames constructors))
+        (constructorMap typeName (concatMap dataConDeclConstructors constructors))
         (recordFieldMap constructors)
         Map.empty
         Map.empty
@@ -437,37 +439,28 @@ classDeclAssociatedTypeNames = concatMap go
     go (ClassItemDataFamilyDecl familyDecl) = [binderHeadName (dataFamilyDeclHead familyDecl)]
     go _ = []
 
-dataDeclConstructorNames :: [DataConDecl] -> [UnqualifiedName]
-dataDeclConstructorNames = concatMap dataConDeclNames
+-- | The term names that constructor declarations bind: the constructors
+-- that the source names and their record field selectors.
+dataDeclTermNames :: [DataConDecl] -> [UnqualifiedName]
+dataDeclTermNames constructors =
+  concatMap dataConDeclConstructors constructors
+    <> concatMap (concatMap fieldNames . snd) (concatMap dataConDeclRecordFields constructors)
 
-dataConDeclNames :: DataConDecl -> [UnqualifiedName]
-dataConDeclNames dataConDecl =
-  let go d =
-        case d of
-          DataConAnn _ inner -> go inner
-          PrefixCon _ _ name _ -> [name]
-          InfixCon _ _ _ name _ -> [name]
-          RecordCon _ _ name fields -> name : concatMap fieldNames fields
-          GadtCon _ _ names (GadtRecordBody fields _) -> names <> concatMap fieldNames fields
-          GadtCon _ _ names _ -> names
-          TupleCon _ _ flavor fields -> [tupleConName flavor (length fields)]
-          UnboxedSumCon _ _ pos arity _ -> [unboxedSumConName pos arity]
-          ListCon {} -> [listConName]
-   in go dataConDecl
-
-dataConDeclConstructorNames :: DataConDecl -> [UnqualifiedName]
-dataConDeclConstructorNames dataConDecl =
-  let go d =
-        case d of
-          DataConAnn _ inner -> go inner
-          PrefixCon _ _ name _ -> [name]
-          InfixCon _ _ _ name _ -> [name]
-          RecordCon _ _ name _ -> [name]
-          GadtCon _ _ names _ -> names
-          TupleCon _ _ flavor fields -> [tupleConName flavor (length fields)]
-          UnboxedSumCon _ _ pos arity _ -> [unboxedSumConName pos arity]
-          ListCon {} -> [listConName]
-   in go dataConDecl
+-- | The constructors that one declaration names. Built-in syntax such as
+-- @(,)@, @(# | #)@ and @[]@ binds no name: a use of it resolves to
+-- 'ResolvedSyntax' without consulting the scope, so the scope holds no
+-- entry for it.
+dataConDeclConstructors :: DataConDecl -> [UnqualifiedName]
+dataConDeclConstructors dataConDecl =
+  case dataConDecl of
+    DataConAnn _ inner -> dataConDeclConstructors inner
+    PrefixCon _ _ name _ -> [name]
+    InfixCon _ _ _ name _ -> [name]
+    RecordCon _ _ name _ -> [name]
+    GadtCon _ _ names _ -> names
+    TupleCon {} -> []
+    UnboxedSumCon {} -> []
+    ListCon {} -> []
 
 dataConDeclRecordFields :: DataConDecl -> [(UnqualifiedName, [FieldDecl])]
 dataConDeclRecordFields dataConDecl =
@@ -478,29 +471,6 @@ dataConDeclRecordFields dataConDecl =
           GadtCon _ _ names (GadtRecordBody fields _) -> [(name, fields) | name <- names]
           _ -> []
    in go dataConDecl
-
-tupleConName :: TupleFlavor -> Int -> UnqualifiedName
-tupleConName flavor arity =
-  mkUnqualifiedName NameConSym $ case flavor of
-    Boxed -> "(" <> commas arity <> ")"
-    Unboxed -> "(#" <> commas arity <> "#)"
-
-unboxedSumConName :: Int -> Int -> UnqualifiedName
-unboxedSumConName pos arity =
-  mkUnqualifiedName NameConSym ("(#" <> bars (pos - 1) <> "_" <> bars (arity - pos) <> "#)")
-
-listConName :: UnqualifiedName
-listConName = mkUnqualifiedName NameConSym "[]"
-
-commas :: Int -> Text
-commas n
-  | n <= 1 = ""
-  | otherwise = T.replicate (n - 1) ","
-
-bars :: Int -> Text
-bars n
-  | n <= 0 = ""
-  | otherwise = T.replicate n "|"
 
 moduleScope :: Package -> ModuleExports -> Module -> Scope
 moduleScope packageId exports modu =
@@ -520,8 +490,11 @@ moduleScope packageId exports modu =
     implicitPrelude
       | moduleImportsImplicitPrelude modu = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
       | otherwise = emptyScope
+    -- The list constructor @:@ is an ordinary infix constructor of
+    -- @GHC.Types@ that the syntax reaches without an import. The empty
+    -- list is built-in syntax and needs no scope entry.
     ghcTypesScope = lookupImportedModule packageId Nothing "GHC.Types" exports
-    listConstructorScope = selectTerm ":" ghcTypesScope `unionScope` selectTerm "[]" ghcTypesScope
+    listConstructorScope = selectTerm ":" ghcTypesScope
     -- Equality syntax uses the exported type identity without an import.
     equalityScope = selectType "~" ghcTypesScope
 

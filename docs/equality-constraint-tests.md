@@ -21,12 +21,12 @@ The TC, FC, and GRIN fixtures use the project libraries without a substitute equ
 
 All ten resolver fixtures pass.
 Equality syntax uses the exported `GHC.Types` identity without an explicit import.
-The current fixture counts include four additional TC cases and one additional case in each downstream stage.
+The current fixture counts include seven additional TC cases and one additional case in each downstream stage.
 
 | Stage | PASS | XFAIL |
 | --- | ---: | ---: |
 | Resolve | 10 | 0 |
-| TC | 27 | 9 |
+| TC | 27 | 12 |
 | FC | 15 | 12 |
 | GRIN evaluation | 17 | 10 |
 
