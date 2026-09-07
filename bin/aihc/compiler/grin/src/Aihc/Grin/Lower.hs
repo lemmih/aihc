@@ -573,6 +573,11 @@ lowerVariable env name = do
       | Just arity <- partialConstructorArity env name,
         isLiftedRuntimeRep representation ->
           lowerConstructorApplication env name arity []
+      -- The global of a nullary constructor holds a node that is already a
+      -- value, so its pointer is the result and needs no evaluation.
+      | isNullaryConstructor env name,
+        isLiftedRuntimeRep representation ->
+          GrinConstant . pure . GrinGlobalValue <$> lookupGlobalName env name
       | Just node <- privateFunctionNode env name -> pure (GrinStore node)
       | otherwise -> do
           globalName <- lookupGlobalName env name
@@ -1466,6 +1471,12 @@ constructorTag = stableGlobalName
 partialConstructorArity :: LowerEnv -> Fc.Name -> Maybe Int
 partialConstructorArity env name =
   mfilter (> 0) (Map.lookup name (lowerConstructorArities env))
+
+-- | Whether a name is a constructor with no fields. Its global is one
+-- static node in weak head normal form.
+isNullaryConstructor :: LowerEnv -> Fc.Name -> Bool
+isNullaryConstructor env name =
+  Map.lookup name (lowerConstructorArities env) == Just 0
 
 lookupGlobalName :: LowerEnv -> Fc.Name -> LowerM Text
 lookupGlobalName env name =

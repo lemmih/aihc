@@ -151,11 +151,11 @@ import Paths_aihc (getDataFileName)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
 import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
-import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, makeRelative, takeDirectory, takeFileName, (<.>), (</>))
 import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stdout)
-import System.Process (readProcessWithExitCode)
+import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 
 data InstallResult = InstallResult
   { installStorePath :: !FilePath,
@@ -1580,29 +1580,21 @@ buildLibraryArchive target verbose archive moduleObjects = do
   -- there is a valid empty archive for ld64, GNU ld, lld and wasm-ld alike.
   if null nonemptyObjects
     then BS.writeFile archive emptyArchive
-    else
-      withDeterministicArchiveEnvironment $
-        runTool archiver (["rcs", archive] <> nonemptyObjects)
+    else do
+      environment <- getEnvironment
+      -- Set archive timestamps only in the child process environment.
+      let archiveEnvironment = ("ZERO_AR_DATE", "1") : filter ((/= "ZERO_AR_DATE") . fst) environment
+      runToolWithEnvironment (Just archiveEnvironment) archiver (["rcs", archive] <> nonemptyObjects)
   verbose ("Write archive: " <> archive)
   where
     emptyArchive = BS8.pack "!<arch>\n"
 
-withDeterministicArchiveEnvironment :: IO value -> IO value
-withDeterministicArchiveEnvironment action =
-  bracket setDeterministic restoreEnvironment (const action)
-  where
-    setDeterministic = do
-      previous <- lookupEnv "ZERO_AR_DATE"
-      setEnv "ZERO_AR_DATE" "1"
-      pure previous
-    restoreEnvironment previous =
-      case previous of
-        Nothing -> unsetEnv "ZERO_AR_DATE"
-        Just value -> setEnv "ZERO_AR_DATE" value
-
 runTool :: FilePath -> [String] -> IO ()
-runTool executable arguments = do
-  (status, output, errors) <- readProcessWithExitCode executable arguments ""
+runTool = runToolWithEnvironment Nothing
+
+runToolWithEnvironment :: Maybe [(String, String)] -> FilePath -> [String] -> IO ()
+runToolWithEnvironment environment executable arguments = do
+  (status, output, errors) <- readCreateProcessWithExitCode (proc executable arguments) {env = environment} ""
   case status of
     ExitSuccess -> pure ()
     ExitFailure code ->
