@@ -513,9 +513,6 @@ The units are:
   copies a scheduler record to five eight-byte slots and clears the record.
   The executable entry retains its exit helper because that helper updates
   the executable halt flag.
-  ARM64 uses a local branch stub when more than eight calls share an
-  external `aihc` target. This keeps one external branch relocation per
-  stub, rather than one per call. The stub contains no helper logic.
 
 - `aihc_array.lir` holds the info table of a boxed array and the functions
   `aihc_array_new`, `aihc_array_index`, `aihc_array_write`, and

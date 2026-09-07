@@ -85,38 +85,7 @@ compileLirStatements lirModule@(Module items) =
       let dataStatements = concatMap compileData [dataItem | ItemData dataItem <- items]
           globalStatements = concatMap compileGlobal [global | ItemGlobal global <- items]
       trapStatements <- renderTraps
-      pure (shareExternBranches externs functionStatements <> trapStatements <> dataStatements <> globalStatements)
-    externs =
-      [ lirSymbol (externFunctionName external)
-      | ItemExternFunction external <- items,
-        signatureConvention (externFunctionSignature external) == AihcConvention
-      ]
-
--- | Repeated external branches share one relocation through a local stub.
--- A stub adds four text bytes, one relocation, and a short local symbol.
--- Nine branches save more relocation bytes than this cost.
-shareExternBranches :: [Text] -> [Arm64Statement] -> [Arm64Statement]
-shareExternBranches externs statements = map redirect statements <> stubs
-  where
-    counts = Map.fromListWith (+) [(target, 1 :: Int) | Arm64Code instruction <- statements, target <- branchTarget instruction]
-    labels =
-      Map.fromList
-        [ (target, ".Llir_extern_" <> tshow index)
-        | (index, target) <- zip [0 :: Int ..] [target | target <- externs, Map.findWithDefault 0 target counts > 8]
-        ]
-    branchTarget instruction =
-      case instruction of
-        ArmB target -> [target]
-        ArmBl target -> [target]
-        _ -> []
-    redirect statement =
-      case statement of
-        Arm64Code (ArmB target) -> arm64Instruction (ArmB (Map.findWithDefault target target labels))
-        Arm64Code (ArmBl target) -> arm64Instruction (ArmBl (Map.findWithDefault target target labels))
-        _ -> statement
-    stubs =
-      [arm64Section TextSection | not (Map.null labels)]
-        <> concat [[arm64Label label, arm64Instruction (ArmB target)] | (target, label) <- Map.toAscList labels]
+      pure (functionStatements <> trapStatements <> dataStatements <> globalStatements)
 
 -- Object state
 
