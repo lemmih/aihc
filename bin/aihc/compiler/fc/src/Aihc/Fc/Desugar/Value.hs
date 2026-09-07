@@ -152,7 +152,34 @@ data PreparedValueInterface = PreparedValueInterface
 
 type ValueM = StateT ValueState (Either String)
 
-type MatchWork = (Syn.Match, [(TcTermKey, (Binder, TcType))])
+type MatchWork = (Syn.Match, MatchLocals)
+
+-- | What a match row has collected while the match compiler consumed its
+-- columns: the variables its patterns bind, and the selector thunks that
+-- its lazy patterns need around the body.
+data MatchLocals = MatchLocals
+  { matchLocalBinders :: [(TcTermKey, (Binder, TcType))],
+    matchLocalSelectors :: [Bind]
+  }
+
+instance Semigroup MatchLocals where
+  left <> right =
+    MatchLocals
+      (matchLocalBinders left <> matchLocalBinders right)
+      (matchLocalSelectors left <> matchLocalSelectors right)
+
+instance Monoid MatchLocals where
+  mempty = MatchLocals [] []
+
+matchBinderLocals :: [(TcTermKey, (Binder, TcType))] -> MatchLocals
+matchBinderLocals entries = MatchLocals entries []
+
+-- | Run the body of a match row with its bindings in scope and its lazy
+-- pattern selectors around the result.
+withMatchLocals :: MatchLocals -> ValueM Expr -> ValueM Expr
+withMatchLocals locals action = do
+  body <- withLocals (matchLocalBinders locals) action
+  pure (foldr ExLet body (matchLocalSelectors locals))
 
 data ValueGroup
   = FunctionGroup !TcTermKey !Text ![Syn.Match] !TcType
@@ -479,7 +506,7 @@ desugarPatSynPattern resultType fallback argument arguments argumentTypes (match
     extra <- patternMatchBindings pattern' argument ty
     let match' = match {Syn.matchPats = patternChildren pattern' <> drop 1 (Syn.matchPats match)}
     desugarPatSynCall info annotation resultType argument pattern' failureExpression $ \fields fieldTypes ->
-      desugarMatchArguments resultType (Just failureExpression) (fields <> arguments) (fieldTypes <> restTypes) [(match', locals <> extra)]
+      desugarMatchArguments resultType (Just failureExpression) (fields <> arguments) (fieldTypes <> restTypes) [(match', locals <> matchBinderLocals extra)]
 
 -- | Match one binder against a pattern synonym pattern with a success
 -- continuation.
@@ -1365,11 +1392,19 @@ withTypeVariables variables action = do
 -- when given, runs when no row matches. Without a fallback, an empty case
 -- reports the failure.
 desugarMatchArguments :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
-desugarMatchArguments resultType fallback [] _ ((match, locals) : rest) = do
+desugarMatchArguments resultType fallback binders argumentTypes works = do
+  -- A lazy pattern never fails, so it must not reach the match compiler.
+  -- Expand it first: its variables become selector thunks and the column
+  -- itself becomes a wildcard.
+  expanded <- mapM (expandLazyPatterns binders argumentTypes) works
+  desugarMatchColumns resultType fallback binders argumentTypes expanded
+
+desugarMatchColumns :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
+desugarMatchColumns resultType fallback [] _ ((match, locals) : rest) = do
   failure <- matchFailure resultType fallback [] [] (Syn.matchRhs match) rest
-  withLocals locals (desugarRhsWithFailure resultType failure (Syn.matchRhs match))
-desugarMatchArguments _ fallback [] _ [] = maybe (failValue "pattern match has no result") pure fallback
-desugarMatchArguments resultType fallback binders@(argument : arguments) argumentTypes works
+  withMatchLocals locals (desugarRhsWithFailure resultType failure (Syn.matchRhs match))
+desugarMatchColumns _ fallback [] _ [] = maybe (failValue "pattern match has no result") pure fallback
+desugarMatchColumns resultType fallback binders@(argument : arguments) argumentTypes works
   | any (firstPatternIsOverloadedLiteral . fst) works =
       desugarOverloadedLiteralMatches resultType fallback binders argumentTypes works
   | (first, firstLocals) : rest <- works,
@@ -1378,7 +1413,7 @@ desugarMatchArguments resultType fallback binders@(argument : arguments) argumen
     all patternIsIrrefutable firstPatterns = do
       extra <- matchArgumentBindings binders argumentTypes first
       failure <- matchFailure resultType fallback binders argumentTypes (Syn.matchRhs first) rest
-      withLocals (firstLocals <> extra) (desugarRhsWithFailure resultType failure (Syn.matchRhs first))
+      withMatchLocals (firstLocals <> matchBinderLocals extra) (desugarRhsWithFailure resultType failure (Syn.matchRhs first))
   | all (maybe False patternIsIrrefutable . listToMaybe . Syn.matchPats . fst) works = do
       (ty, restTypes) <- requiredArgumentTypes argumentTypes
       nextWorks <- mapM (extendMatchWork argument ty) works
@@ -1429,7 +1464,7 @@ desugarViewPattern resultType fallback argument arguments argumentTypes (match, 
   let match' = match {Syn.matchPats = inner : drop 1 (Syn.matchPats match)}
   body <-
     shareFailure resultType failure $ \shared ->
-      desugarMatchArguments resultType shared (viewBinder : arguments) (innerType : restTypes) [(match', locals <> extra)]
+      desugarMatchArguments resultType shared (viewBinder : arguments) (innerType : restTypes) [(match', locals <> matchBinderLocals extra)]
   pure (ExLet (Bind viewBinder (ExApp function (ExVar (binderName argument)))) body)
 
 -- | Bind a failure expression once so that each use is a variable.
@@ -1513,12 +1548,54 @@ firstPatternIsView match =
     [] -> False
 
 emptyMatchWork :: Syn.Match -> MatchWork
-emptyMatchWork match = (match, [])
+emptyMatchWork match = (match, mempty)
+
+-- | Replace the lazy patterns of a row with wildcards and bind their
+-- variables to selector thunks. A lazy pattern matches without forcing its
+-- argument, so each of its variables instead forces the argument on its own
+-- first use, exactly as a lazy @let@ pattern binding does.
+expandLazyPatterns :: [Binder] -> [TcType] -> MatchWork -> ValueM MatchWork
+expandLazyPatterns binders types (match, locals) = do
+  let patterns = Syn.matchPats match
+  expansions <- mapM expandColumn (zip3 binders types patterns)
+  let expanded = map fst expansions <> drop (length expansions) patterns
+  pure (match {Syn.matchPats = expanded}, locals <> mconcat (map snd expansions))
+  where
+    expandColumn (binder, ty, pattern') = expandLazyPattern binder ty pattern'
+
+expandLazyPattern :: Binder -> TcType -> Syn.Pattern -> ValueM (Syn.Pattern, MatchLocals)
+expandLazyPattern binder ty pattern' =
+  case pattern' of
+    Syn.PAnn annotation inner -> rebuild (Syn.PAnn annotation) inner
+    Syn.PParen inner -> rebuild Syn.PParen inner
+    Syn.PStrict inner -> rebuild Syn.PStrict inner
+    Syn.PTypeSig inner signature -> rebuild (`Syn.PTypeSig` signature) inner
+    Syn.PAs name inner -> rebuild (Syn.PAs name) inner
+    Syn.PIrrefutable inner -> (Syn.PWildcard,) <$> lazyPatternSelectors binder ty inner
+    _ -> pure (pattern', mempty)
+  where
+    rebuild wrap inner = do
+      (expanded, selectors) <- expandLazyPattern binder ty inner
+      pure (wrap expanded, selectors)
+
+-- | One selector thunk per variable of a lazy pattern. Forcing a selector
+-- matches the pattern against the argument and returns that variable.
+lazyPatternSelectors :: Binder -> TcType -> Syn.Pattern -> ValueM MatchLocals
+lazyPatternSelectors binder ty pattern' = do
+  specs <- patternBinderSpecs pattern'
+  mconcat <$> mapM selector specs
+  where
+    selector (key, name, variableType) = do
+      variable <- freshBinder name variableType
+      body <- desugarDoPattern variableType binder ty pattern' $ do
+        (field, _) <- lookupLocal key name
+        pure (ExVar (binderName field))
+      pure (MatchLocals [(key, (variable, variableType))] [Bind variable body])
 
 extendMatchWork :: Binder -> TcType -> MatchWork -> ValueM MatchWork
 extendMatchWork binder ty (match, locals) = do
   extra <- firstPatternBindings binder ty match
-  pure (match, locals <> extra)
+  pure (match, locals <> matchBinderLocals extra)
 
 dropMatchWorkPattern :: MatchWork -> MatchWork
 dropMatchWorkPattern (match, locals) = (dropFirstPattern match, locals)
@@ -1539,11 +1616,11 @@ desugarOverloadedLiteralMatch :: TcType -> [Binder] -> [TcType] -> MatchWork -> 
 desugarOverloadedLiteralMatch resultType arguments argumentTypes (match, locals) failure =
   compile locals (zip3 arguments argumentTypes (Syn.matchPats match))
   where
-    compile current [] = withLocals current (desugarRhsWithFailure resultType (Just failure) (Syn.matchRhs match))
+    compile current [] = withMatchLocals current (desugarRhsWithFailure resultType (Just failure) (Syn.matchRhs match))
     compile current ((argument, ty, pattern') : rest)
       | patternIsIrrefutable pattern' = do
           extra <- patternMatchBindings pattern' argument ty
-          compile (current <> extra) rest
+          compile (current <> matchBinderLocals extra) rest
       | isOverloadedLiteralPattern pattern' = do
           test <- desugarOverloadedLiteralPatternTest (ExVar (binderName argument)) pattern'
           testType <- requiredPatternMethodResultType "==" pattern'
@@ -1552,7 +1629,7 @@ desugarOverloadedLiteralMatch resultType arguments argumentTypes (match, locals)
           trueName <- primitiveName "GHC.Types" "True" SortDataConstructor
           falseName <- primitiveName "GHC.Types" "False" SortDataConstructor
           extra <- patternMatchBindings pattern' argument ty
-          success <- compile (current <> extra) rest
+          success <- compile (current <> matchBinderLocals extra) rest
           pure
             ( ExCase
                 test
@@ -1852,7 +1929,7 @@ specializeMatchWork key arity fields fieldTypes (match, locals) =
           | not (patternIsDefault pattern'),
             patternKey pattern' == key -> do
               extra <- concat <$> mapM (\(child, field, fieldType) -> patternMatchBindings child field fieldType) (zip3 (patternChildren pattern') fields fieldTypes)
-              pure (Just (specialized, locals <> extra))
+              pure (Just (specialized, locals <> matchBinderLocals extra))
         _ -> pure (Just (specialized, locals))
 
 patternGivenPredicates :: Syn.Pattern -> [Pred]

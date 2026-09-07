@@ -1,0 +1,28 @@
+modules:
+  - |
+    module Test where
+
+    newtype Box a = Box a
+
+    unbox :: Box a -> a
+    unbox (Box value) = value
+
+    instance Functor Box where
+      fmap f (Box value) = Box (f value)
+
+    instance Applicative Box where
+      pure = Box
+      Box f <*> Box value = Box (f value)
+
+    -- Only (>>=) is defined: (>>) and return come from the class defaults.
+    instance Monad Box where
+      Box value >>= next = next value
+
+    chained :: Box Int
+    chained = Box 1 >> return 2 >>= \value -> return (value + 3)
+output: |
+  I# 5
+expression: |
+  unbox chained
+status: pass
+reason: the Monad class supplies defaults for (>>) and return

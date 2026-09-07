@@ -27,7 +27,7 @@ extern func @aihc_no_match() cc c
 
 extern func @aihc_raise(ptr, ptr, ptr) -> ptr cc c
 
-export func @aihc_lir_eval(%machine: ptr, %value: ptr, %lifted: i64, %continuation: ptr, %update: ptr) {
+export func @aihc_lir_eval(%machine: ptr, %value: ptr, %continuation: ptr, %update: ptr) {
 entry:
   jump loop(%value)
 
@@ -48,17 +48,9 @@ thunk:
   tailcall.indirect %entry(%machine, %current, %update) : (ptr, ptr, ptr)
 
 indirection:
-  %is_lifted = ne i64 %lifted, 0
-  br %is_lifted, indirection_lifted, indirection_unlifted
-
-indirection_lifted:
   %next_word = load i64 [%current + 8] align 8
   %next = ptr.from_int %next_word
   jump loop(%next)
-
-indirection_unlifted:
-  %raw = load i64 [%current + 8] align 8
-  tailcall @aihc_lir_continue_slot(%machine, %continuation, %raw)
 
 blackhole:
   %result = call @aihc_block_on_blackhole(%machine, %current, %continuation)

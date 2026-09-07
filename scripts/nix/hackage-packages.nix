@@ -81,6 +81,18 @@ let
       hash = "sha256-NvAF43qCGqg+rmrmb39sStmvdvvjSYBz6U9rzdqdMVM=";
     }
     {
+      name = "dlist";
+      version = "1.0";
+      hash = "sha256-D2gFpv68TRj7z5xCmhi/MWUQ7uyg4zxPgHLRrFGbDNI=";
+      dependencies = [
+        {
+          name = "deepseq";
+          version = "1.5.2.0";
+          hash = "sha256-vNcooswfE2geBWNtB08cATNIhQlJRRF587lcjfD3XyM=";
+        }
+      ];
+    }
+    {
       name = "pretty";
       version = "1.1.3.6";
       hash = "sha256-5UIpOfD+0vxVCsb+3Efe8w91dIqFpLcaGsZ+RZm4Wx4=";

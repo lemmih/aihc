@@ -494,7 +494,7 @@ requireHelper helper = do
 sharedHelperSignature :: Helper -> Maybe Signature
 sharedHelperSignature helper =
   case helper of
-    HelperEval -> shared [Ptr, Ptr, I64, Ptr, Ptr] []
+    HelperEval -> shared [Ptr, Ptr, Ptr, Ptr] []
     HelperResume -> shared [Ptr, Ptr] []
     HelperContinue shape | common shape -> shared (Ptr : Ptr : shape) []
     HelperApply shape | common shape -> shared (Ptr : Ptr : Ptr : shape) []
@@ -955,12 +955,12 @@ compileExpr ctx env expression =
       compileExpr ctx env' body
     GrinStoreRec bindings body -> compileStoreRec "aihc_make_node" bindings body
     GrinStoreRecUnchecked bindings body -> compileStoreRec "aihc_make_node_unchecked" bindings body
-    GrinCpsEval runtimeRep value continuation updateContinuation -> do
+    GrinCpsEval _ value continuation updateContinuation -> do
       valueOperand <- pointerValue ctx env value
       continuationOperand <- pointerValue ctx env continuation
       updateOperand <- pointerValue ctx env updateContinuation
       eval <- requireHelper HelperEval
-      terminate (TailCall eval [ctxMachine ctx, valueOperand, OperandLiteral (LitInt (if isLiftedRuntimeRep runtimeRep then 1 else 0)), continuationOperand, updateOperand])
+      terminate (TailCall eval [ctxMachine ctx, valueOperand, continuationOperand, updateOperand])
     GrinCall _ name arguments -> do
       target <- functionTarget (ctxEnv ctx) name
       parameters <- maybe (failWith (LowerMissingFunction name)) pure (Map.lookup name (envFunctionParameters (ctxEnv ctx)))
@@ -1944,7 +1944,7 @@ startMachine = do
   emit [] (Store Code (OperandLiteral (LitSymbol exit)) (Address machine machineExitCodeOffset) (toInteger (lowerWordSize target)))
   emit [] (Store I64 (OperandLiteral (LitInt 0)) (Address (OperandLiteral (LitSymbol finishedSymbol)) 0) 8)
   eval <- requireHelper HelperEval
-  emit [] (Call eval [machine, OperandLiteral (LitSymbol entryGlobal), OperandLiteral (LitInt 1), top, update])
+  emit [] (Call eval [machine, OperandLiteral (LitSymbol entryGlobal), top, update])
   pure machine
 
 -- | The continuation that a finished thread enters. Exported for harnesses
