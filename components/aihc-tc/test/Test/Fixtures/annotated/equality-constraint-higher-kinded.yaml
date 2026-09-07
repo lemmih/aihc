@@ -11,5 +11,5 @@ modules:
   result = case cast [On] :: [Flag] of
     [x] -> x
     _ -> Off
-status: xfail
+status: pass
 reason: Equality can relate type constructors. AIHC cannot resolve the equality class.

@@ -9,7 +9,7 @@ modules:
   cast x = x
   reflexive :: (a ~ a) => a -> a
   reflexive x = x
-status: xfail
+status: pass
 reason: An unrelated reflexive equality cannot justify a polymorphic cast. AIHC cannot resolve the
   equality class.
 annotated:

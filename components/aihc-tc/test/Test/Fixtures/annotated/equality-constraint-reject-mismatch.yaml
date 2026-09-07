@@ -8,7 +8,7 @@ modules:
   witness :: (Flag ~ ()) => Flag
   witness = On
   result = witness
-status: xfail
+status: pass
 reason: Equality cannot equate distinct data types. AIHC cannot resolve the equality class.
 annotated:
 - |
