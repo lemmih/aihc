@@ -103,7 +103,7 @@ buildFcPrograms extensions sources = do
   let fixtureAsts = map snd (resolvedModules resolved)
       (fixtureTcResults, tcInterface) =
         typecheckModulesWithInterface
-          (tcConfig (PackageId "aihc-prim") (PackageId "aihc-base"))
+          (tcConfig (PackageId "aihc-prim"))
           (supportTcInterface primitiveSupport)
           fixtureAsts
   if not (all tcModuleSuccess fixtureTcResults)
@@ -190,7 +190,7 @@ preparePrimitiveSupport sources = do
   let primitiveAsts = map snd (resolvedModules resolved)
       (primitiveTcResults, tcInterface) =
         typecheckModuleSccWithInterface
-          (tcConfig (PackageId "aihc-prim") (PackageId "aihc-base"))
+          (tcConfig (PackageId "aihc-prim"))
           emptyTcInterface
           primitiveAsts
   if not (all tcModuleSuccess primitiveTcResults)

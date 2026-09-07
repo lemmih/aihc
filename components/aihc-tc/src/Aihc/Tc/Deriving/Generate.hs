@@ -230,8 +230,6 @@ referencesAvailable gen = do
             derivingReadExpect references,
             derivingReadField references,
             derivingReadSymField references,
-            derivingReadListDefault references,
-            derivingReadListPrecDefault references,
             derivingLexemeIdent references,
             derivingLexemeSymbol references,
             derivingLexemePunc references
@@ -422,11 +420,9 @@ readItems gen constructors = do
         case alternatives of
           [] -> referenceExpr gen derivingReadFail
           first : rest -> foldl alternative first rest
-  pure
-    [ methodBind gen "readPrec" [simpleMatch gen [] (applyN gen (referenceExpr gen derivingReadParens) [body])],
-      methodBind gen "readListPrec" [simpleMatch gen [] (referenceExpr gen derivingReadListPrecDefault)],
-      methodBind gen "readList" [simpleMatch gen [] (referenceExpr gen derivingReadListDefault)]
-    ]
+  -- The class defaults give the other three methods. They do not call each
+  -- other, so @readPrec@ alone is a complete instance.
+  pure [methodBind gen "readPrec" [simpleMatch gen [] (applyN gen (referenceExpr gen derivingReadParens) [body])]]
   where
     alternative left right = applyN gen (referenceExpr gen derivingReadAlternative) [left, right]
 

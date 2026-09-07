@@ -262,6 +262,7 @@ library
     GHC.Internal.IO.Handle.Read
     GHC.Internal.IO.Types
     GHC.Internal.Integer
+    GHC.Internal.Read
     GHC.Internal.Stack
     GHC.Internal.Traversable
     GHC.Read.Lex

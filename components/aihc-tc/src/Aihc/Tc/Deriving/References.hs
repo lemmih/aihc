@@ -6,11 +6,10 @@
 -- A derived instance is ordinary surface syntax, so its method bodies
 -- mention library values and types such as @True@, @(:)@, or @Int#@. The
 -- type checker does not know where those live: the compiler that embeds it
--- says so through a 'DerivingReferences' table in its configuration. Most
--- names come from the primitive package, and the parser combinators that a
--- derived @Read@ instance uses come from the base package. Class methods
--- such as @(==)@ or @showsPrec@ need no entry, because the class being
--- derived says where they are.
+-- says so through a 'DerivingReferences' table in its configuration. Every
+-- name comes from the primitive package; class methods such as @(==)@ or
+-- @showsPrec@ need no entry, because the class being derived says where
+-- they are.
 module Aihc.Tc.Deriving.References
   ( DerivingReference (..),
     DerivingReferences (..),
@@ -81,11 +80,6 @@ data DerivingReferences = DerivingReferences
     -- | @readSymField@, which accepts @(op) =@ before a record field with
     -- a symbolic label.
     derivingReadSymField :: !DerivingReference,
-    -- | @readListDefault@, the @readList@ method of a derived instance.
-    derivingReadListDefault :: !DerivingReference,
-    -- | @readListPrecDefault@, the @readListPrec@ method of a derived
-    -- instance.
-    derivingReadListPrecDefault :: !DerivingReference,
     -- | The @Ident@ lexeme constructor, for a constructor name.
     derivingLexemeIdent :: !DerivingReference,
     -- | The @Symbol@ lexeme constructor, for an operator name.
@@ -100,9 +94,9 @@ data DerivingReferences = DerivingReferences
   deriving (Eq, Show)
 
 -- | The table for the aihc core libraries, given the identity of the
--- @aihc-prim@ package and of the @aihc-base@ package.
-defaultDerivingReferences :: PackageId -> PackageId -> DerivingReferences
-defaultDerivingReferences prim base =
+-- @aihc-prim@ package.
+defaultDerivingReferences :: PackageId -> DerivingReferences
+defaultDerivingReferences prim =
   DerivingReferences
     { derivingTrue = term prim "GHC.Types" NameConId "True",
       derivingFalse = term prim "GHC.Types" NameConId "False",
@@ -116,24 +110,22 @@ defaultDerivingReferences prim base =
       derivingBind = term prim "GHC.Prim.Base" NameVarSym ">>=",
       derivingThen = term prim "GHC.Prim.Base" NameVarSym ">>",
       derivingReturn = term prim "GHC.Prim.Base" NameVarId "return",
-      derivingReadParens = term base "GHC.Read" NameVarId "parens",
-      derivingReadPrecContext = term base readPrecModule NameVarId "prec",
-      derivingReadStep = term base readPrecModule NameVarId "step",
-      derivingReadReset = term base readPrecModule NameVarId "reset",
-      derivingReadAlternative = term base readPrecModule NameVarSym "+++",
-      derivingReadFail = term base readPrecModule NameVarId "pfail",
-      derivingReadExpect = term base "GHC.Read.Lex" NameVarId "expectP",
-      derivingReadField = term base "GHC.Read" NameVarId "readField",
-      derivingReadSymField = term base "GHC.Read" NameVarId "readSymField",
-      derivingReadListDefault = term base "GHC.Read" NameVarId "readListDefault",
-      derivingReadListPrecDefault = term base "GHC.Read" NameVarId "readListPrecDefault",
-      derivingLexemeIdent = term base "GHC.Read.Lex" NameConId "Ident",
-      derivingLexemeSymbol = term base "GHC.Read.Lex" NameConId "Symbol",
-      derivingLexemePunc = term base "GHC.Read.Lex" NameConId "Punc",
+      derivingReadParens = term prim readModule NameVarId "parens",
+      derivingReadPrecContext = term prim readModule NameVarId "prec",
+      derivingReadStep = term prim readModule NameVarId "step",
+      derivingReadReset = term prim readModule NameVarId "reset",
+      derivingReadAlternative = term prim readModule NameVarSym "+++",
+      derivingReadFail = term prim readModule NameVarId "pfail",
+      derivingReadExpect = term prim readModule NameVarId "expectP",
+      derivingReadField = term prim readModule NameVarId "readField",
+      derivingReadSymField = term prim readModule NameVarId "readSymField",
+      derivingLexemeIdent = term prim readModule NameConId "Ident",
+      derivingLexemeSymbol = term prim readModule NameConId "Symbol",
+      derivingLexemePunc = term prim readModule NameConId "Punc",
       derivingStockClasses = coreStockClasses
     }
   where
-    readPrecModule = "Text.ParserCombinators.ReadPrec"
+    readModule = "GHC.Prim.Read"
     term package moduleName nameType name =
       DerivingReference package moduleName name nameType ResolutionNamespaceTerm
 
@@ -146,7 +138,7 @@ coreStockClasses =
     ("GHC.Prim.Enum", "Enum"),
     ("GHC.Enum", "Bounded"),
     ("GHC.Show", "Show"),
-    ("Prelude", "Read"),
+    ("GHC.Internal.Read", "Read"),
     ("GHC.Ix", "Ix"),
     ("GHC.Prim.Base", "Functor"),
     ("GHC.Internal.Foldable", "Foldable"),
@@ -183,8 +175,6 @@ derivingReferenceList references =
     derivingReadExpect references,
     derivingReadField references,
     derivingReadSymField references,
-    derivingReadListDefault references,
-    derivingReadListPrecDefault references,
     derivingLexemeIdent references,
     derivingLexemeSymbol references,
     derivingLexemePunc references

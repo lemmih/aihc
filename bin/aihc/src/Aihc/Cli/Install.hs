@@ -321,7 +321,6 @@ data PackageTaskContext = PackageTaskContext
     taskStorePath :: !FilePath,
     taskResolvePackage :: !Package,
     taskPrimIdentity :: !PackageId,
-    taskBaseIdentity :: !PackageId,
     taskPackageRoot :: !FilePath,
     taskDependencyExports :: !ModuleExports,
     taskDependencyScopeHashes :: !(Map.Map Text Text),
@@ -561,7 +560,6 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
       dependencyInstanceFacts = mergeTcInterfaces (map installedInstanceFacts loadedDependencies)
       dependencyInstanceProviders = Map.unions (map installedInstanceProviders loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
-      baseIdentity = packageDependencyIdentity "aihc-base" resolvePackage dependencyExports
   backendPhaseTimings <- newIORef mempty
   let taskContext =
         PackageTaskContext
@@ -569,7 +567,6 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
             taskStorePath = outputRoot,
             taskResolvePackage = resolvePackage,
             taskPrimIdentity = primIdentity,
-            taskBaseIdentity = baseIdentity,
             taskPackageRoot = packageRoot,
             taskDependencyExports = dependencyExports,
             taskDependencyScopeHashes = dependencyScopeHashes,
@@ -629,22 +626,15 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
       }
 
 packagePrimIdentity :: Package -> ModuleExports -> PackageId
-packagePrimIdentity = packageDependencyIdentity "aihc-prim"
-
--- | The identity of one core-library package, as this compilation sees it:
--- the package itself when it is that library, otherwise the dependency with
--- that name. The plain name is the fallback, so a compilation without the
--- library still has a name to report.
-packageDependencyIdentity :: Text -> Package -> ModuleExports -> PackageId
-packageDependencyIdentity libraryName resolvePackage dependencyExports =
-  fromMaybe (PackageId libraryName) $
-    if packageName resolvePackage == libraryName
+packagePrimIdentity resolvePackage dependencyExports =
+  fromMaybe (PackageId "aihc-prim") $
+    if packageName resolvePackage == "aihc-prim"
       then Just (packageId resolvePackage)
       else
         listToMaybe
           [ dependencyIdentity
           | ModuleKey (Package dependencyName dependencyIdentity) _ <- Map.keys dependencyExports,
-            dependencyName == libraryName
+            dependencyName == "aihc-prim"
           ]
 
 packageStoreDirectory :: [InstalledPackage] -> FilePath -> IO FilePath
@@ -1131,7 +1121,6 @@ runTypeUnit context runtimes runtime = do
   let storePath = taskStorePath context
       resolvePackage = taskResolvePackage context
       primIdentity = taskPrimIdentity context
-      baseIdentity = taskBaseIdentity context
       root = taskPackageRoot context
       dependencyExports = taskDependencyExports context
       dependencyScopeHashes = taskDependencyScopeHashes context
@@ -1188,7 +1177,7 @@ runTypeUnit context runtimes runtime = do
                in pure (resolveWithDeps builtinScope availableExports packageModules)
         let checked =
               typecheckModuleSccWithInterface
-                (tcConfig primIdentity baseIdentity)
+                (tcConfig primIdentity)
                 importedTypes
                 (map snd (resolvedModules resolved))
             checkedDiagnostics = concatMap tcModuleDiagnostics (fst checked)
@@ -1308,14 +1297,12 @@ wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Tuple", "GHC.Types"]
 
 -- | Modules whose names generated code refers to, but whose order the
--- dependency graph must not fix: a derived @Read@ instance calls the parser
--- combinators of the base library, and a module that derives @Read@ does
--- not import them. Each module here is exposed, and together they carry
--- every name that the generated code uses. These modules belong to the base
--- library, so the base library itself compiles them in its own import
--- order.
+-- dependency graph must not fix: a derived @Read@ instance calls the reader
+-- of the primitive package, and a module that derives @Read@ does not
+-- import it. The primitive package itself compiles this module in its own
+-- import order.
 wiredDerivingModules :: [Text]
-wiredDerivingModules = ["GHC.Read", "Text.ParserCombinators.ReadPrec", "Text.Read.Lex"]
+wiredDerivingModules = ["GHC.Prim.Read"]
 
 -- | Every module whose type interface a compilation needs without an
 -- import.
