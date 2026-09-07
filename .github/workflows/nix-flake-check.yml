@@ -1,17 +1,17 @@
 name: Nix Flake Check
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
+  merge_group:
+  workflow_dispatch:
 
-# A new push to a branch cancels the runs of the same workflow that are
-# still queued or in progress for that branch. The runs on main always
-# complete: each commit on main gets its own group.
+# A new push to a pull request cancels the runs of the same workflow that are
+# still queued or in progress for that pull request. Merge queue runs always
+# complete: each merge group gets its own ref, and cancelling one would stall
+# the queue.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
