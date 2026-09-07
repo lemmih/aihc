@@ -996,7 +996,7 @@ desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars an
       Just derived
         | Just proof <- tcNewtypeDictionaryCast derived,
           Just evidence <- tcNewtypeEvidence derived ->
-            ExCast <$> desugarEvidence evidence <*> convertCoercion proof
+            withCoercion proof (\converted -> (`ExCast` converted) <$> desugarEvidence evidence)
       derived -> do
         superClasses <- mapM (desugarEvidence . snd) (tcInstanceSuperClasses annotation)
         methodFields <- case derived of
@@ -1039,11 +1039,13 @@ desugarNewtypeMethod annotation derived method = withTypeVariables (tcNewtypeMet
   selected <- case drop (tcNewtypeMethodIndex method) fields of
     field : _ -> pure field
     [] -> failValue "newtype method index is outside the dictionary layout"
-  proof <- convertCoercion (tcNewtypeMethodCoercion method)
   let projection = ExCase evidence sourceBinder (binderType selected) [Alt (AltData (classDictConName classTyCon)) [] fields (ExVar (binderName selected))]
       instantiated = foldl ExTyApp projection extraTypes
       applied = foldl ExApp instantiated (map (ExVar . binderName) dictionaries)
-  pure (foldr ExTyLam (foldr ExLam (ExCast applied proof) dictionaries) typeBinders)
+  -- The coercion's evidence bindings may mention the method's own dictionary
+  -- binders, so they belong inside the lambdas.
+  cast <- withCoercion (tcNewtypeMethodCoercion method) (pure . ExCast applied)
+  pure (foldr ExTyLam (foldr ExLam cast dictionaries) typeBinders)
 
 desugarInstanceMethod :: TcInstanceAnnotation -> [Dictionary] -> Map Text (TcType, [Syn.Match]) -> Text -> ValueM Expr
 desugarInstanceMethod annotation dictionaries methods methodName =
