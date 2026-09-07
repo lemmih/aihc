@@ -2067,9 +2067,8 @@ runtimeObjectClosure = 1
 runtimeObjectThunk = 2
 runtimeObjectPartialConstructor = 3
 
-runtimeObjectIndirection, runtimeObjectBlackhole :: Integer
+runtimeObjectIndirection :: Integer
 runtimeObjectIndirection = 4
-runtimeObjectBlackhole = 5
 
 -- Program queries
 
