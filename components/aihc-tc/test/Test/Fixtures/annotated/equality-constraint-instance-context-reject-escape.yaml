@@ -1,0 +1,44 @@
+extensions:
+- GADTs
+- TypeOperators
+- FlexibleInstances
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data DL a = DL [a]
+  fromL :: [a] -> DL a
+  fromL = DL
+  class FromFlags a where
+    fromFlags :: [Flag] -> a
+  instance (a ~ Flag) => FromFlags (DL a) where
+    fromFlags = fromL
+  escape :: [Flag] -> DL a
+  escape = fromL
+status: pass
+reason: An instance equality cannot escape into a separate function.
+annotated:
+- |
+  module Test where
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  data DL a = DL [a]
+       │      └─ type: ∀ a. [a] → DL a
+       └─ type: Type → Type
+  fromL :: [a] -> DL a
+  fromL = DL
+  │       └─ type: [a] → DL a; type-args: a
+  └─ type: ∀ a. [a] → DL a
+  class FromFlags a where
+  └─ class methods: fromFlags ∷ ∀ a. (FromFlags a) ⇒ [Flag] → a
+    fromFlags :: [Flag] -> a
+  instance (a ~ Flag) => FromFlags (DL a) where
+  └─ $fFromFlagsDLa ∷ ∀ a. (a ~ Flag) ⇒ FromFlags (DL a)
+    fromFlags = fromL
+    │           └─ type: [Flag] → DL Flag; type-args: Flag
+    └─ fromFlags ∷ [Flag] → DL a
+  escape :: [Flag] -> DL a
+  escape = fromL
+           └─ error: expression has type [Flag] → DL Flag, but expected [Flag] → DL a from the type signature for escape

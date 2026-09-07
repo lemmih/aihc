@@ -13,5 +13,5 @@ modules:
     toFlags :: a -> [Flag]
   instance (a ~ Flag) => ToFlags (DL a) where
     toFlags = unwrap
-status: xfail
-reason: An instance-context equality lifts through a type constructor in a method argument. AIHC still lacks complete equality support.
+status: pass
+reason: An instance-context equality lifts through a type constructor in a method argument.

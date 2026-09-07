@@ -12,6 +12,11 @@ modules:
   class IsStr a where
     fromStr :: [Char] -> a
   instance (a ~ Char) => IsStr (DL a) where
-    fromStr = fromL
+    fromStr xs = fromL xs
+expression: 'fromStr "ok" :: DL Char'
+output: |
+  DL (: 'o' (: 'k' []))
+evaluators:
+- grin
 status: pass
 reason: An instance equality supplies evidence for the method argument and result.
