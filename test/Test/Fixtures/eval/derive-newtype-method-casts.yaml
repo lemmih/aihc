@@ -1,0 +1,40 @@
+extensions:
+  - TypeApplications
+  - AllowAmbiguousTypes
+  - DerivingStrategies
+  - GeneralizedNewtypeDeriving
+modules:
+  - |
+    {-# LANGUAGE TypeApplications, AllowAmbiguousTypes, DerivingStrategies, GeneralizedNewtypeDeriving #-}
+    module Test where
+
+    class Parent a where
+      parent :: a -> Bool
+    class Parent a => Methods a where
+      pair :: a -> (a, a)
+      values :: a -> [a]
+      values x = [x]
+      constant :: Bool
+      defaultConstant :: Bool
+      defaultConstant = False
+    instance Parent Int where
+      parent _ = False
+    instance Methods Int where
+      pair x = (x, x)
+      values x = [x, x]
+      constant = True
+      defaultConstant = True
+    newtype N = N Int
+      deriving newtype Methods
+    instance Parent N where
+      parent _ = True
+    fromParent :: Methods a => a -> Bool
+    fromParent = parent
+    data Result = Result Bool Bool Bool
+    result :: Result
+    result = case pair (N 7) of
+      (N a, N b) -> Result (a == b && constant @N && defaultConstant @N) (length (values (N 3)) == 2) (fromParent (N 1))
+expression: result
+output: Result True True True
+status: pass
+reason: method casts preserve tuple results, representation overrides, and target superclass evidence

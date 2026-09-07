@@ -36,6 +36,8 @@ import Aihc.Parser.Syntax
     SourceSpan,
     StandaloneDerivingDecl (..),
     Type (..),
+    TypeFamilyInst (..),
+    TypeHeadForm (..),
     TypePromotion (..),
     UnqualifiedName (..),
     ValueDecl (..),
@@ -47,15 +49,15 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations
-  ( TcClassMethodAnnotation (..),
-    TcDerivingAnnotation (..),
+  ( TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
+    TcNewtypeDeriving (..),
   )
-import Aihc.Tc.Deriving.Context (isSupportedStockClass, newtypeRepresentation, stockFieldTypes, typeTyVars)
+import Aihc.Tc.Deriving.Context (isSupportedStockClass, newtypeRepresentation, stockFieldTypes)
 import Aihc.Tc.Deriving.References
-import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataConSourceForm (..), DataTypeInfo (..))
+import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataConSourceForm (..), DataTypeInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
@@ -119,17 +121,22 @@ generatePlan references origin sourceDecl plan =
               items <- generateItems gen
               pure $
                 items <&> \generated ->
-                  DeclAnn (mkAnnotation (genSpan gen)) $
-                    DeclInstance
-                      InstanceDecl
-                        { instanceDeclPragmas = [],
-                          instanceDeclWarning = Nothing,
-                          instanceDeclForall = forallBinders,
-                          instanceDeclContext = surfaceContext,
-                          instanceDeclHead = surfaceHead,
-                          instanceDeclItems = generated
-                        }
+                  markNewtype $
+                    DeclAnn (mkAnnotation (genSpan gen)) $
+                      DeclInstance
+                        InstanceDecl
+                          { instanceDeclPragmas = [],
+                            instanceDeclWarning = Nothing,
+                            instanceDeclForall = forallBinders,
+                            instanceDeclContext = surfaceContext,
+                            instanceDeclHead = surfaceHead,
+                            instanceDeclItems = generated
+                          }
   where
+    markNewtype declaration =
+      case tcDerivingStrategy plan of
+        TcDerivingNewtype -> DeclAnn (mkAnnotation (TcNewtypeDeriving plan)) declaration
+        _ -> declaration
     gen =
       Gen
         { genSpan = tcDerivingSourceSpan plan,
@@ -172,7 +179,7 @@ generateItems gen =
     TcDerivingNewtype ->
       case newtypeRepresentation plan of
         Left message -> failWith message
-        Right _ -> Just <$> newtypeItems gen
+        Right representation -> associatedItems gen representation
     TcDerivingStock ->
       case (stockFieldTypes plan, tcDerivingDataType plan) of
         (Left message, _) -> failWith message
@@ -408,76 +415,32 @@ boundedItems gen constructors
 -- method at the representation type. A method whose type mentions the
 -- class parameter somewhere the wrapper cannot reach keeps its default,
 -- or is reported when it has none.
-newtypeItems :: Gen -> TcM [InstanceDeclItem]
-newtypeItems gen =
-  catMaybes <$> mapM methodItem (tcDerivingClassMethods (genPlan gen))
+-- | Forward associated equations to the representation type.
+associatedItems :: Gen -> TcType -> TcM (Maybe [InstanceDeclItem])
+associatedItems gen representation = do
+  info <- lookupClass (tcDerivingClassTyCon plan)
+  case info of
+    Nothing -> pure Nothing
+    Just classInfo -> sequence <$> mapM familyItem (ciAssociatedTypes classInfo)
   where
     plan = genPlan gen
-    classVar =
-      case reverse (tcDerivingClassTyVars plan) of
-        variable : _ -> Just variable
-        [] -> Nothing
-    methodItem method = do
-      let name = tcClassMethodName method
-          body = stripQualifiers (snd (peelForAlls (tcClassMethodType method)))
-      coerced <-
-        case classVar of
-          Just variable
-            | variable `elem` typeTyVars body -> coerceExpr gen variable ToNewtype body (methodExpr gen name)
-          _ -> pure Nothing
-      case coerced of
-        Just expr -> pure (Just (methodBind gen name [simpleMatch gen [] expr]))
-        Nothing
-          | name `elem` tcDerivingDefaultMethods plan -> pure Nothing
-          | otherwise -> do
-              emitError (genSpan gen) (OtherError ("newtype deriving cannot coerce the method " <> T.unpack name <> " of " <> T.unpack (tcDerivingClassName plan)))
-              pure Nothing
-    stripQualifiers ty =
-      case ty of
-        TcQualTy _ inner -> stripQualifiers inner
-        _ -> ty
-
-data CoerceDirection = ToNewtype | FromNewtype
-
-flipDirection :: CoerceDirection -> CoerceDirection
-flipDirection direction =
-  case direction of
-    ToNewtype -> FromNewtype
-    FromNewtype -> ToNewtype
-
--- | Convert a value between the representation and the newtype along the
--- structure of a method type: occurrences of the class parameter wrap or
--- unwrap, function types convert argument and result, and types without
--- the parameter pass through.
-coerceExpr :: Gen -> TyVarId -> CoerceDirection -> TcType -> Expr -> TcM (Maybe Expr)
-coerceExpr gen classVar direction ty expr
-  | classVar `notElem` typeTyVars ty = pure (Just expr)
-  | headIsClassVar ty =
-      case (direction, newtypeConstructor) of
-        (ToNewtype, Just constructor) -> pure (Just (at gen (EApp (constructorExpr gen constructor) expr)))
-        (FromNewtype, Just constructor) -> do
-          field <- freshLocal gen "r"
-          pure (Just (caseOf gen expr [(constructorPattern gen constructor [Just field], localExpr gen field)]))
-        _ -> pure Nothing
-  | TcFunTy argument result <- ty = do
-      parameter <- freshLocal gen "x"
-      convertedArgument <- coerceExpr gen classVar (flipDirection direction) argument (localExpr gen parameter)
-      case convertedArgument of
-        Nothing -> pure Nothing
-        Just argumentExpr -> do
-          convertedResult <- coerceExpr gen classVar direction result (at gen (EApp expr argumentExpr))
-          pure (lambda gen parameter <$> convertedResult)
-  | otherwise = pure Nothing
-  where
-    newtypeConstructor =
-      case dtiConstructors <$> tcDerivingDataType (genPlan gen) of
-        Just [constructor] -> Just constructor
-        _ -> Nothing
-    headIsClassVar candidate =
-      case candidate of
-        TcTyVar variable -> variable == classVar
-        TcAppTy function _ -> headIsClassVar function
-        _ -> False
+    heads = tcDerivingHeadTypes plan
+    targetPosition = length heads - 1
+    familyItem associated
+      | Just targetPosition `notElem` atiClassParams associated = reject
+      | otherwise = case sequence (atiClassParams associated) of
+          Nothing -> reject
+          Just positions -> do
+            let sourceHeads = init heads <> [representation]
+                left = TcTyCon (atiTyCon associated) [heads !! position | position <- positions]
+                right = TcTyCon (atiTyCon associated) [sourceHeads !! position | position <- positions]
+            case (surfaceType (genSpan gen) left, surfaceType (genSpan gen) right) of
+              (Just lhs, Just rhs) -> pure (Just (InstanceItemTypeFamilyInst (TypeFamilyInst [] TypeHeadPrefix lhs rhs)))
+              _ -> reject
+      where
+        reject = do
+          emitError (genSpan gen) (OtherError "newtype deriving requires supported associated type parameters")
+          pure Nothing
 
 -- * Syntax builders
 
@@ -653,9 +616,3 @@ surfacePred sp predicate =
     ClassPred classTyCon arguments ->
       foldl TApp (TCon (tyConNameSyntax sp classTyCon) Unpromoted) <$> mapM (surfaceType sp) arguments
     _ -> Nothing
-
-peelForAlls :: TcType -> ([TyVarId], TcType)
-peelForAlls (TcForAllTy tyVar body) =
-  let (tyVars, inner) = peelForAlls body
-   in (tyVar : tyVars, inner)
-peelForAlls ty = ([], ty)

@@ -28,6 +28,9 @@ module Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
+    TcNewtypeDeriving (..),
+    TcNewtypeInstance (..),
+    TcNewtypeMethod (..),
     TcPatSynAnnotation (..),
     TcInstanceMethodAnnotation (..),
 
@@ -246,6 +249,7 @@ data TcDerivingContext
 data TcDerivingPlan = TcDerivingPlan
   { tcDerivingSourceSpan :: !SourceSpan,
     tcDerivingStrategy :: !TcDerivingStrategy,
+    tcDerivingStockFallback :: !Bool,
     tcDerivingClassName :: !Text,
     tcDerivingClassTyCon :: !TyCon,
     tcDerivingClassOrigin :: !(Maybe (Text, Text)),
@@ -278,6 +282,28 @@ data TcPatSynAnnotation = TcPatSynAnnotation
   }
   deriving (Eq, Show)
 
+-- | A generated instance retains its source derivation plan.
+newtype TcNewtypeDeriving = TcNewtypeDeriving TcDerivingPlan
+  deriving (Eq, Show)
+
+-- | Checked evidence and casts for a newtype instance.
+data TcNewtypeInstance = TcNewtypeInstance
+  { tcNewtypeHeadTypes :: ![TcType],
+    tcNewtypeEvidence :: !(Maybe EvTerm),
+    tcNewtypeDictionaryCast :: !(Maybe Coercion),
+    tcNewtypeMethods :: ![TcNewtypeMethod]
+  }
+  deriving (Eq, Show)
+
+-- | A method cast applies after its type and dictionary arguments.
+data TcNewtypeMethod = TcNewtypeMethod
+  { tcNewtypeMethodName :: !Text,
+    tcNewtypeMethodTyVars :: ![TyVarId],
+    tcNewtypeMethodPredicates :: ![Pred],
+    tcNewtypeMethodCoercion :: !Coercion
+  }
+  deriving (Eq, Show)
+
 data TcInstanceAnnotation = TcInstanceAnnotation
   { tcInstanceDictName :: !Text,
     tcInstanceDictType :: !TcType,
@@ -299,7 +325,8 @@ data TcInstanceAnnotation = TcInstanceAnnotation
     tcInstanceDefaultMethodEvidence :: ![(Text, [EvTerm])],
     -- | The checked associated type family equations of the instance,
     -- explicit ones and instantiated class defaults.
-    tcInstanceAssociatedTypes :: ![TypeFamilyInstanceInfo]
+    tcInstanceAssociatedTypes :: ![TypeFamilyInstanceInfo],
+    tcInstanceNewtype :: !(Maybe TcNewtypeInstance)
   }
   deriving (Eq, Show)
 

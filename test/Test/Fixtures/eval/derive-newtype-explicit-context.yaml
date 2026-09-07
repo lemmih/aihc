@@ -1,0 +1,16 @@
+extensions:
+- GeneralizedNewtypeDeriving
+- StandaloneDeriving
+- DerivingStrategies
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, StandaloneDeriving, DerivingStrategies #-}
+  module Test where
+  newtype N a = N [a]
+  deriving newtype instance Eq a => Eq (N a)
+  result :: Bool
+  result = N [True, False] == N [True, False]
+expression: result
+output: 'True'
+status: pass
+reason: preserve a standalone context and solve the representation dictionary

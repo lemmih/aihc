@@ -24,6 +24,8 @@ import Aihc.Tc.Annotations
     TcDictBinderAnnotation (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
+    TcNewtypeInstance (..),
+    TcNewtypeMethod (..),
     TcPatSynAnnotation (..),
     renderTcType,
   )
@@ -292,6 +294,20 @@ firstMetaInstanceAnnotation ann =
            ]
         ++ concatMap (map firstMetaEvTerm . snd) (tcInstanceDefaultMethodEvidence ann)
         ++ map firstMetaTypeFamilyInstance (tcInstanceAssociatedTypes ann)
+        ++ [firstMetaNewtype body | Just body <- [tcInstanceNewtype ann]]
+    )
+
+firstMetaNewtype :: TcNewtypeInstance -> Maybe Unique
+firstMetaNewtype body =
+  firstJusts
+    ( map firstMetaType (tcNewtypeHeadTypes body)
+        ++ [firstMetaEvTerm evidence | Just evidence <- [tcNewtypeEvidence body]]
+        ++ [firstMetaCoercion proof | Just proof <- [tcNewtypeDictionaryCast body]]
+        ++ [ firstMetaCoercion (tcNewtypeMethodCoercion method)
+               <|> firstJusts (map (firstMetaType . tvKind) (tcNewtypeMethodTyVars method))
+               <|> firstJusts (map firstMetaPred (tcNewtypeMethodPredicates method))
+           | method <- tcNewtypeMethods body
+           ]
     )
 
 firstMetaDictBinderAnnotation :: TcDictBinderAnnotation -> Maybe Unique

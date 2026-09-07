@@ -22,15 +22,6 @@ annotated:
   └─ deriving plans: newtype Container (N a) [context: Container a] [methods: contents, size]
     deriving newtype Container
                      └─ $fContainerNa ∷ ∀ a. (Container a) ⇒ Container (N a)
-                     └─ type: a → a; type-args: a; evidence: given Container a
-                     └─ error: newtype deriving cannot coerce the method contents of Container
-                     └─ type: a → N a; type-args: a
-                     └─ size ∷ N a → N a
-                     └─ type: a
-                     └─ type: N a
-                     └─ type: a
-                     └─ type: N a
-                     └─ type: N a → N a
   newtype V a = V a
   │       │     └─ type: ∀ a. a → V a
   │       └─ type: Type → Type
@@ -57,5 +48,6 @@ modules:
     deriving newtype Container
   newtype V a = V a
     deriving Eq via Wrapper a
-reason: the generator reports what it cannot derive and warns about strategies it does not support yet
+reason: the generator reports what it cannot derive and warns about strategies it
+  does not support yet
 status: pass

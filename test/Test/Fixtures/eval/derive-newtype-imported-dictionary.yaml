@@ -1,0 +1,23 @@
+extensions:
+- GeneralizedNewtypeDeriving
+modules:
+- |
+  module Other where
+  class C a where
+    c :: a -> a
+  newtype Wrapped = Wrapped Int
+  instance C Wrapped where
+    c (Wrapped n) = Wrapped (n + 1)
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Test where
+  import Other (C(..))
+  import qualified Other
+  newtype Wrapped = Wrapped Other.Wrapped deriving C
+  result :: Bool
+  result = case c (Wrapped (Other.Wrapped 4)) of
+    Wrapped (Other.Wrapped n) -> n == 5
+expression: result
+output: 'True'
+status: pass
+reason: distinguish equal dictionary names from different modules

@@ -643,8 +643,6 @@ coercionEndpoints env coercion =
       unless (typesEqual env leftKind rightKind) (Left (KindMismatch "application coercion" leftKind rightKind))
       Right (left, right)
     CoFun domain range -> do
-      lintNominalCoercion env domain
-      lintNominalCoercion env range
       (leftDomain, rightDomain) <- coercionEndpoints env domain
       (leftRange, rightRange) <- coercionEndpoints env range
       left <- functionEndpoint leftDomain leftRange

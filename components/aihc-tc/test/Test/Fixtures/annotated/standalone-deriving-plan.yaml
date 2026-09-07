@@ -21,14 +21,6 @@ annotated:
   └─ deriving plans: via Wrapper a Derived (T a) [context: Context a] [methods: derived]
   deriving newtype instance Derived a => Derived (N a)
   │                                      └─ $fDerivedNa ∷ ∀ a. (Derived a) ⇒ Derived (N a)
-  │                                      └─ type: a → a; type-args: a; evidence: given Derived a
-  │                                      └─ derived ∷ N a → N a
-  │                                      └─ type: a → N a; type-args: a
-  │                                      └─ type: N a
-  │                                      └─ type: a
-  │                                      └─ type: N a
-  │                                      └─ type: a
-  │                                      └─ type: N a → N a
   └─ deriving plans: newtype Derived (N a) [context: Derived a] [methods: derived]
 extensions:
 - DerivingStrategies

@@ -1,0 +1,42 @@
+annotated:
+- |-
+  {-# LANGUAGE RoleAnnotations #-}
+  module Abstract (Hidden, Alias, Uses(..)) where
+  type role Hidden nominal
+  data Hidden a = Hidden a
+       │          └─ type: ∀ a. a → Hidden a
+       └─ type: Type → Type
+  type Alias a = Hidden a
+       └─ type: Type → Type
+  class Uses a where
+  └─ class methods: use ∷ ∀ a. (Uses a) ⇒ a → Hidden a
+    use :: a -> Alias a
+- |-
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Main where
+  import Abstract (Uses)
+  newtype N a = N a deriving Uses
+  │       │     │            └─ $fUsesNa ∷ ∀ a. (Uses a) ⇒ Uses (N a)
+  │       │     │            └─ error: newtype deriving cannot prove a safe coercion for method use
+  │       │     └─ type: ∀ a. a → N a
+  │       └─ type: Type → Type
+  └─ deriving plans: newtype Uses (N a) [context: Uses a] [methods: use]
+extensions:
+- GeneralizedNewtypeDeriving
+- RoleAnnotations
+modules:
+- |
+  {-# LANGUAGE RoleAnnotations #-}
+  module Abstract (Hidden, Alias, Uses(..)) where
+  type role Hidden nominal
+  data Hidden a = Hidden a
+  type Alias a = Hidden a
+  class Uses a where
+    use :: a -> Alias a
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Main where
+  import Abstract (Uses)
+  newtype N a = N a deriving Uses
+reason: reject nominal roles through an imported abstract type and a type synonym
+status: pass

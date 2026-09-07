@@ -1,0 +1,12 @@
+extensions:
+- GeneralizedNewtypeDeriving
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies #-}
+  module Main where
+  class Has a where
+    data Item a
+  newtype N a = N a deriving Has
+reason: the resolver rejects associated data-family declarations before TC
+status: fail
