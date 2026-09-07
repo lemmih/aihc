@@ -7,6 +7,7 @@
 module Aihc.Tc.Deriving.Strategy
   ( checkDerivingStrategy,
     defaultStockFallback,
+    isGeneratedStockClass,
   )
 where
 
@@ -15,6 +16,7 @@ import Aihc.Parser.Syntax
     Extension (..),
     SourceSpan,
   )
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcDerivingStrategy (..))
 import Aihc.Tc.Deriving.References (DerivingReferences (..))
 import Aihc.Tc.Env (TyConFlavor (..))
@@ -29,8 +31,8 @@ import Data.Text qualified as T
 
 checkDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Maybe (Text, Text) -> TvKindEnv -> TcType -> SourceSpan -> Maybe DerivingStrategy -> TcM TcDerivingStrategy
 checkDerivingStrategy extensions targetFlavor className classOrigin tvEnv targetKind sourceSpan strategy = do
-  stockClasses <- derivingStockClasses <$> getDerivingReferences
-  let isStock = isStockClass stockClasses className classOrigin
+  references <- getDerivingReferences
+  let isStock = isStockClass references className classOrigin
   case strategy of
     Nothing -> selectDefaultDerivingStrategy extensions targetFlavor className isStock sourceSpan
     Just DerivingStock -> do
@@ -51,8 +53,8 @@ checkDerivingStrategy extensions targetFlavor className classOrigin tvEnv target
 -- | These default strategies can use stock when newtype derivation fails.
 defaultStockFallback :: Text -> Maybe (Text, Text) -> Maybe DerivingStrategy -> TcDerivingStrategy -> TcM Bool
 defaultStockFallback className origin requested selected = do
-  classes <- derivingStockClasses <$> getDerivingReferences
-  pure (isNothing requested && selected == TcDerivingNewtype && isStockClass classes className origin && className `elem` ["Functor", "Foldable", "Enum"])
+  references <- getDerivingReferences
+  pure (isNothing requested && selected == TcDerivingNewtype && isStockClass references className origin && className `elem` ["Functor", "Foldable", "Enum"])
 
 selectDefaultDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Bool -> SourceSpan -> TcM TcDerivingStrategy
 selectDefaultDerivingStrategy extensions targetFlavor className isStock sourceSpan
@@ -85,11 +87,28 @@ checkStockDeriving extensions className isStock sourceSpan
         Just (Just extension) ->
           requireDerivingExtension extensions extension ("stock deriving for " <> T.unpack className) sourceSpan
 
--- | Whether a class is one that GHC's stock deriving mechanisms know
--- about: the configuration lists each by its defining module and name.
-isStockClass :: [(Text, Text)] -> Text -> Maybe (Text, Text) -> Bool
-isStockClass stockClasses className (Just (_, moduleName)) = (moduleName, className) `elem` stockClasses
-isStockClass _ _ Nothing = False
+-- | Whether a class is one that GHC's stock deriving mechanisms know about.
+--
+-- A class the generator writes code for must match the package, the module
+-- and the name that the configuration lists, so a user module that repeats
+-- a core-library module name keeps its own class. A class the generator
+-- only recognizes matches the module and the name, because no code comes
+-- from it.
+isStockClass :: DerivingReferences -> Text -> Maybe (Text, Text) -> Bool
+isStockClass references className origin =
+  isGeneratedStockClass references className origin
+    || case origin of
+      Just (_, moduleName) -> (moduleName, className) `elem` derivingRecognizedClasses references
+      Nothing -> False
+
+-- | Whether a class is one that the generator writes an instance body for.
+-- The package must agree, so a class of another package is never stock.
+isGeneratedStockClass :: DerivingReferences -> Text -> Maybe (Text, Text) -> Bool
+isGeneratedStockClass references className origin =
+  case origin of
+    Just (packageIdentity, moduleName) ->
+      (PackageId packageIdentity, moduleName, className) `elem` derivingStockClasses references
+    Nothing -> False
 
 -- | Extensions required by GHC's stock deriving mechanisms. A @Nothing@
 -- requirement denotes the six classes available for ordinary Haskell data

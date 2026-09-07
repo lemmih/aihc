@@ -1,0 +1,37 @@
+extensions:
+  - DerivingStrategies
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies #-}
+    module Test where
+
+    data Results = Results Bool Bool Bool Bool Bool Bool Bool Bool Bool
+
+    data Shape = Circle Int | Rect { width :: Int, height :: Int } | Int :+: Int | Origin
+      deriving stock (Eq, Show, Read)
+
+    newtype Box = Box (Maybe Shape)
+      deriving stock (Eq, Show, Read)
+
+    data Pair = (:*:) Int Int
+      deriving stock (Eq, Show, Read)
+
+    data Named = Int `Joined` Int
+      deriving stock (Eq, Show, Read)
+
+    result :: Results
+    result =
+      Results
+        (read "Circle (-1)" == Circle (-1))
+        (read "Rect {width = 2, height = 3}" == Rect 2 3)
+        (read "Box (Just (Circle 4))" == Box (Just (Circle 4)))
+        (read "1 :+: 2" == 1 :+: 2)
+        (read "Origin" == Origin)
+        (read "[Origin, Circle 7]" == [Origin, Circle 7])
+        (readsPrec 11 "(5 :+: 6)" == [(5 :+: 6, "")])
+        (read (show ((:*:) 1 2)) == (:*:) 1 2)
+        (read (show (3 `Joined` 4)) == 3 `Joined` 4)
+expression: result
+output: Results True True True True True True True True True
+status: pass
+reason: derived readPrec parses prefix, record, infix, symbolic, and nullary constructors, and the list methods read a list of the datatype

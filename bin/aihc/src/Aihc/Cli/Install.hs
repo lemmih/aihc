@@ -691,7 +691,7 @@ requiredDependencyModules sources =
         not (localImport importDecl)
       ]
         <> [(Nothing, "Prelude") | any moduleUsesImplicitPrelude sources]
-        <> [(Nothing, name) | name <- wiredTypeModules]
+        <> [(Nothing, name) | name <- wiredInterfaceModules]
     )
   where
     localNames = Set.fromList (map sourceName sources)
@@ -1082,7 +1082,7 @@ runResolveUnit context runtimes runtime = do
       packageModules = modulesInPackage resolvePackage (map sourceModuleAst sources)
       unitNames = map sourceName sources
       importedNames = nub (concatMap sourceDependencyNames sources)
-      dependencyNames = nub (importedNames <> wiredTypeModules)
+      dependencyNames = nub (importedNames <> wiredInterfaceModules)
       availableExports = Map.unions (map resolveUnitExports dependencyResults) `Map.union` dependencyExports
       availableScopeHashes = Map.unions (map resolveUnitScopeHashes dependencyResults) `Map.union` dependencyScopeHashes
       dependencyHashes = Map.fromList [("scope:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name scopeHashes]]
@@ -1132,7 +1132,7 @@ runTypeUnit context runtimes runtime = do
       sources = sourceUnitSources unit
       unitNames = map sourceName sources
       importedNames = nub (concatMap sourceDependencyNames sources)
-      dependencyNames = nub (importedNames <> wiredTypeModules)
+      dependencyNames = nub (importedNames <> wiredInterfaceModules)
       availableTypes = LazyMap.unions (map typeUnitTypes dependencyResults) `LazyMap.union` dependencyTypes
       availableTypeHashes = LazyMap.unions (map typeUnitHashes dependencyResults) `LazyMap.union` dependencyTypeHashes
       availableExports = Map.unions (map resolveUnitExports dependencyResolveResults) `Map.union` dependencyExports
@@ -1295,6 +1295,19 @@ writePackageInstanceArtifact verbose storePath typeHashes providers interface = 
 
 wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Tuple", "GHC.Types"]
+
+-- | Modules whose names generated code refers to, but whose order the
+-- dependency graph must not fix: a derived @Read@ instance calls the reader
+-- of the primitive package, and a module that derives @Read@ does not
+-- import it. The primitive package itself compiles this module in its own
+-- import order.
+wiredDerivingModules :: [Text]
+wiredDerivingModules = ["GHC.Prim.Read"]
+
+-- | Every module whose type interface a compilation needs without an
+-- import.
+wiredInterfaceModules :: [Text]
+wiredInterfaceModules = wiredTypeModules <> wiredDerivingModules
 
 builtinFunctionScope :: Package -> ModuleExports -> [(Package, Module)] -> Scope
 builtinFunctionScope currentPackage dependencyExports packageModules =

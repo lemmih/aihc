@@ -10,8 +10,16 @@ message = cycleMessage
 keep :: Bool -> a -> a
 keep _ x = x
 
+-- | A derived Read instance outside the core libraries. Its generated
+-- parser calls names that this module does not import, so the build must
+-- make those names available on its own. The record also reads an Int and
+-- a String, whose instances this module reaches through Prelude alone.
+data Setting = Setting {label :: String, level :: Int}
+  deriving (Eq, Read)
+
 messageText :: String
-messageText =
-  if keep True $ (1208925819614629174706176 :: Integer) == 1208925819614629174706176
-    then "build-exe works"
-    else "large integer failed"
+messageText
+  | not (keep True $ (1208925819614629174706176 :: Integer) == 1208925819614629174706176) = "large integer failed"
+  | read "Setting {label = \"on\", level = 3}" /= Setting "on" 3 = "derived Read failed"
+  | read "42" /= (42 :: Int) = "Prelude read failed"
+  | otherwise = "build-exe works"

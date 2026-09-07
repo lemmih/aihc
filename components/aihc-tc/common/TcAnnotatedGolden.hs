@@ -137,7 +137,7 @@ primitiveSupport = unsafePerformIO $ do
 loadPrimitiveModules :: IO [(FilePath, Text)]
 loadPrimitiveModules = do
   sourceRoot <- findPrimitiveSourceRoot
-  mapM (loadOne sourceRoot) ["GHC/Classes.hs", "GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs"]
+  mapM (loadOne sourceRoot) ["GHC/Classes.hs", "GHC/Types.hs", "GHC/Prim.hs", "GHC/Prim/IO.hs", "GHC/Prim/Base.hs", "GHC/Tuple.hs"]
   where
     loadOne sourceRoot relativePath = do
       let path = sourceRoot </> relativePath

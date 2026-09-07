@@ -23,6 +23,7 @@ module Prelude
     List (..),
     Maybe (..),
     Monad (..),
+    MonadFail (..),
     Num (..),
     Ord (..),
     Ordering (..),
@@ -161,9 +162,11 @@ import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Foldable (Foldable (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
+import GHC.Internal.Read (Read (..))
 import GHC.Internal.Traversable (Traversable (..))
 import GHC.Num (Num (..))
 import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#))
+import GHC.Prim.Read (ReadS)
 import GHC.Real
   ( Fractional (..),
     Integral (..),
@@ -187,9 +190,7 @@ import GHC.Show (Show (..), ShowS, showChar, showParen, showString, shows)
 import GHC.Tuple ()
 import GHC.Types (RuntimeRep, TYPE, Type)
 import GHC.Word (Word (..), Word8 (..))
-import Text.ParserCombinators.ReadPrec (Prec, ReadPrec, minPrec, readPrec_to_S, readS_to_Prec)
-
-type ReadS a = String -> [(a, String)]
+import Text.ParserCombinators.ReadPrec (minPrec)
 
 -- | Function application. The result type can have any runtime
 -- representation, as in GHC. The definition returns the function itself, so
@@ -343,20 +344,6 @@ mapM_ function (value : values) = function value >> mapM_ function values
 
 sequence_ :: (Monad m) => [m a] -> m ()
 sequence_ = foldr (>>) (return ())
-
-class Read a where
-  readsPrec :: Int -> ReadS a
-  readList :: ReadS [a]
-  readPrec :: ReadPrec a
-  readListPrec :: ReadPrec [a]
-
-  readsPrec = readPrec_to_S readPrec
-  readList = readPrec_to_S readListPrec minPrec
-  readPrec = readS_to_Prec readsPrec
-  readListPrec = readS_to_Prec defaultReadListParser
-
-defaultReadListParser :: (Read a) => Prec -> ReadS [a]
-defaultReadListParser _ = readList
 
 reads :: (Read a) => ReadS a
 reads = readsPrec minPrec
@@ -789,6 +776,19 @@ instance Monad List where
 
   xs >> ys = thenList xs ys
   return x = [x]
+
+-- | The monads that can report a failed pattern match in @do@ notation.
+class (Monad m) => MonadFail m where
+  fail :: String -> m a
+
+instance MonadFail IO where
+  fail = error
+
+instance MonadFail List where
+  fail _ = []
+
+instance MonadFail Maybe where
+  fail _ = Nothing
 
 instance Monad Maybe where
   mx >>= k = bindMaybe mx k

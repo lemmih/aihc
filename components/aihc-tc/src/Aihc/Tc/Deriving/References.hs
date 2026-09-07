@@ -53,10 +53,52 @@ data DerivingReferences = DerivingReferences
     derivingGreaterOrEqual :: !DerivingReference,
     -- | The list constructor @(:)@, which derived @Show@ renders through.
     derivingCons :: !DerivingReference,
-    -- | The classes GHC's stock deriving mechanisms know about, as the
-    -- module that defines each and its name. A class elsewhere with the
-    -- same name is not stock.
-    derivingStockClasses :: ![(Text, Text)]
+    -- | The @(>>=)@ method of @Monad@, which sequences a derived @Read@
+    -- parser that keeps its result.
+    derivingBind :: !DerivingReference,
+    -- | The @(>>)@ method of @Monad@, which sequences a derived @Read@
+    -- parser that drops its result.
+    derivingThen :: !DerivingReference,
+    -- | The @return@ method of @Monad@, which delivers the parsed value.
+    derivingReturn :: !DerivingReference,
+    -- | @parens@, which accepts the optional parentheses around a value.
+    derivingReadParens :: !DerivingReference,
+    -- | @prec@, which sets the precedence context of one alternative.
+    derivingReadPrecContext :: !DerivingReference,
+    -- | @step@, which reads one field above the constructor precedence.
+    derivingReadStep :: !DerivingReference,
+    -- | @reset@, which reads a record field at the lowest precedence.
+    derivingReadReset :: !DerivingReference,
+    -- | @(+++)@, which offers the alternatives of a datatype.
+    derivingReadAlternative :: !DerivingReference,
+    -- | @pfail@, the parser of a datatype without constructors.
+    derivingReadFail :: !DerivingReference,
+    -- | @expectP@, which accepts one expected lexeme.
+    derivingReadExpect :: !DerivingReference,
+    -- | @readField@, which accepts @label =@ before a record field.
+    derivingReadField :: !DerivingReference,
+    -- | @readSymField@, which accepts @(op) =@ before a record field with
+    -- a symbolic label.
+    derivingReadSymField :: !DerivingReference,
+    -- | The @Ident@ lexeme constructor, for a constructor name.
+    derivingLexemeIdent :: !DerivingReference,
+    -- | The @Symbol@ lexeme constructor, for an operator name.
+    derivingLexemeSymbol :: !DerivingReference,
+    -- | The @Punc@ lexeme constructor, for punctuation.
+    derivingLexemePunc :: !DerivingReference,
+    -- | The classes that stock deriving writes code for, as the package
+    -- and module that define each and its name. All three must agree, so a
+    -- user module that repeats a core-library module name does not make
+    -- its own class stock. Every entry names the primitive package,
+    -- because each of these classes is declared there.
+    derivingStockClasses :: ![(PackageId, Text, Text)],
+    -- | The remaining stock classes of GHC, as the module that defines each
+    -- and its name. The generator writes no code for them: it reports that
+    -- stock deriving of the class is not supported and produces no
+    -- instance. A wrong match therefore cannot produce wrong code, so these
+    -- entries need no package and the table stays free of base-library
+    -- package identities.
+    derivingRecognizedClasses :: ![(Text, Text)]
   }
   deriving (Eq, Show)
 
@@ -74,24 +116,49 @@ defaultDerivingReferences prim =
       derivingIntPrimType = DerivingReference prim "GHC.Prim" "Int#" NameConId ResolutionNamespaceType,
       derivingGreaterOrEqual = term prim "GHC.Classes" NameVarSym ">=",
       derivingCons = term prim "GHC.Types" NameConSym ":",
-      derivingStockClasses = coreStockClasses
+      derivingBind = term prim "GHC.Prim.Base" NameVarSym ">>=",
+      derivingThen = term prim "GHC.Prim.Base" NameVarSym ">>",
+      derivingReturn = term prim "GHC.Prim.Base" NameVarId "return",
+      derivingReadParens = term prim readModule NameVarId "parens",
+      derivingReadPrecContext = term prim readModule NameVarId "prec",
+      derivingReadStep = term prim readModule NameVarId "step",
+      derivingReadReset = term prim readModule NameVarId "reset",
+      derivingReadAlternative = term prim readModule NameVarSym "+++",
+      derivingReadFail = term prim readModule NameVarId "pfail",
+      derivingReadExpect = term prim readModule NameVarId "expectP",
+      derivingReadField = term prim readModule NameVarId "readField",
+      derivingReadSymField = term prim readModule NameVarId "readSymField",
+      derivingLexemeIdent = term prim readModule NameConId "Ident",
+      derivingLexemeSymbol = term prim readModule NameConId "Symbol",
+      derivingLexemePunc = term prim readModule NameConId "Punc",
+      derivingStockClasses = coreStockClasses prim,
+      derivingRecognizedClasses = coreRecognizedClasses
     }
   where
+    readModule = "GHC.Prim.Read"
     term package moduleName nameType name =
       DerivingReference package moduleName name nameType ResolutionNamespaceTerm
 
--- | The stock classes of the aihc core libraries, where they are defined.
--- GHC keeps the same list as known-key names.
-coreStockClasses :: [(Text, Text)]
-coreStockClasses =
-  [ ("GHC.Classes", "Eq"),
-    ("GHC.Classes", "Ord"),
-    ("GHC.Prim.Enum", "Enum"),
-    ("GHC.Enum", "Bounded"),
-    ("GHC.Show", "Show"),
-    ("Prelude", "Read"),
-    ("GHC.Ix", "Ix"),
-    ("GHC.Prim.Base", "Functor"),
+-- | The stock classes that the aihc core libraries declare in the primitive
+-- package, where each is defined. GHC keeps the same list as known-key
+-- names, which carry a unit id; the package here plays that part.
+coreStockClasses :: PackageId -> [(PackageId, Text, Text)]
+coreStockClasses prim =
+  [ (prim, "GHC.Classes", "Eq"),
+    (prim, "GHC.Classes", "Ord"),
+    (prim, "GHC.Prim.Enum", "Enum"),
+    (prim, "GHC.Prim.Enum", "Bounded"),
+    (prim, "GHC.Prim.Show", "Show"),
+    (prim, "GHC.Prim.Read", "Read"),
+    (prim, "GHC.Prim.Base", "Functor")
+  ]
+
+-- | The stock classes of GHC that the core libraries declare outside the
+-- primitive package. The generator writes no code for them, so they carry
+-- no package.
+coreRecognizedClasses :: [(Text, Text)]
+coreRecognizedClasses =
+  [ ("GHC.Ix", "Ix"),
     ("GHC.Internal.Foldable", "Foldable"),
     ("GHC.Internal.Traversable", "Traversable"),
     ("Data.Data", "Data"),
@@ -113,5 +180,20 @@ derivingReferenceList references =
     derivingIntCon references,
     derivingIntPrimType references,
     derivingGreaterOrEqual references,
-    derivingCons references
+    derivingCons references,
+    derivingBind references,
+    derivingThen references,
+    derivingReturn references,
+    derivingReadParens references,
+    derivingReadPrecContext references,
+    derivingReadStep references,
+    derivingReadReset references,
+    derivingReadAlternative references,
+    derivingReadFail references,
+    derivingReadExpect references,
+    derivingReadField references,
+    derivingReadSymField references,
+    derivingLexemeIdent references,
+    derivingLexemeSymbol references,
+    derivingLexemePunc references
   ]

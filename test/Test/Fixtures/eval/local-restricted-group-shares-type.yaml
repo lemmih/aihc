@@ -1,0 +1,30 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Word (Word8)
+
+    quantize :: (RealFrac c, Integral d, Bounded d) => c -> d
+    quantize x
+      | x <= fromIntegral low = low
+      | fromIntegral high <= x = high
+      | otherwise = round x
+      where
+        low = minBound
+        high = maxBound
+
+    -- The where group is mutually recursive, and the monomorphism
+    -- restriction applies to the pattern binding. The scale type stays
+    -- monomorphic for both bindings, so the body can fix it.
+    scaled :: (RealFrac b, Floating b, Integral a, Bounded a) => [b] -> [a]
+    scaled values = map scale values
+      where
+        scale value = quantize (limit * value)
+        limit = fromIntegral (maxBound `asTypeOf` scale undefined)
+
+    result :: [Word8]
+    result = scaled [0.0, 0.5, 1.0, 2.0 :: Double]
+expression: result
+output: ": (W8# 0) (: (W8# 128) (: (W8# 255) (: (W8# 255) [])))"
+status: pass
+reason: the monomorphism restriction keeps the shared type variable of a restricted local group monomorphic for every binding of the group

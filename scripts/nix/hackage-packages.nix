@@ -76,6 +76,11 @@ let
       ];
     }
     {
+      name = "colour";
+      version = "2.3.7";
+      hash = "sha256-NvAF43qCGqg+rmrmb39sStmvdvvjSYBz6U9rzdqdMVM=";
+    }
+    {
       name = "dlist";
       version = "1.0";
       hash = "sha256-D2gFpv68TRj7z5xCmhi/MWUQ7uyg4zxPgHLRrFGbDNI=";

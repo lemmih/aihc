@@ -1,0 +1,20 @@
+modules:
+  - |
+    module Test where
+
+    data Results = Results Bool Bool Bool
+
+    firstDigit :: (MonadFail m) => [Int] -> m Int
+    firstDigit (value : _) = return value
+    firstDigit [] = fail "no digit"
+
+    result :: Results
+    result =
+      Results
+        (firstDigit [7] == Just 7)
+        (firstDigit [] == (Nothing :: Maybe Int))
+        (firstDigit [] == ([] :: [Int]))
+expression: result
+output: Results True True True
+status: pass
+reason: Prelude exports the MonadFail class and its fail method, as GHC does
