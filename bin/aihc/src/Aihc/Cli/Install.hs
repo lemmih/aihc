@@ -1294,7 +1294,7 @@ writePackageInstanceArtifact verbose storePath typeHashes providers interface = 
   verbose ("Write package instances: " <> path)
 
 wiredTypeModules :: [Text]
-wiredTypeModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Tuple", "GHC.Types"]
+wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Tuple", "GHC.Types"]
 
 builtinFunctionScope :: Package -> ModuleExports -> [(Package, Module)] -> Scope
 builtinFunctionScope currentPackage dependencyExports packageModules =

@@ -112,6 +112,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 
 data ValueState = ValueState
   { vsNextUnique :: !Int,
@@ -2988,15 +2989,25 @@ desugarString annotation value = do
       TcTyCon tyCon [ty]
         | tyConName tyCon == "[]" -> pure ty
       ty -> failValue ("string literal has non-list type " <> show ty)
-  convertedType <- convertCheckedType elementType
-  charConstructor <- boxedCharConstructor
-  representation <- convertRuntimeRep WordRep
-  nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
-  consName <- primitiveName "GHC.Types" ":" SortDataConstructor
-  let nil = ExTyApp (ExVar nilName) convertedType
-      cons = ExTyApp (ExVar consName) convertedType
-      boxedChar character = ExApp (ExVar charConstructor) (ExLit (LitChar representation character))
-  pure (foldr (ExApp . ExApp cons . boxedChar) nil (T.unpack value))
+  primPackage <- gets (cePrimPackage . vsConvertEnv)
+  case elementType of
+    TcTyCon tyCon []
+      | tyConPackageId tyCon == primPackage,
+        tyConModuleName tyCon == "GHC.Types",
+        tyConName tyCon == "Char" ->
+          desugarStringValue value
+    _ -> do
+      -- Spell the list out when the type checker recorded some other element
+      -- type, so the desugared term keeps that type.
+      convertedType <- convertCheckedType elementType
+      charConstructor <- boxedCharConstructor
+      representation <- convertRuntimeRep WordRep
+      nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
+      consName <- primitiveName "GHC.Types" ":" SortDataConstructor
+      let nil = ExTyApp (ExVar nilName) convertedType
+          cons = ExTyApp (ExVar consName) convertedType
+          boxedChar character = ExApp (ExVar charConstructor) (ExLit (LitChar representation character))
+      pure (foldr (ExApp . ExApp cons . boxedChar) nil (T.unpack value))
 
 desugarTuple :: TcAnnotation -> Syn.TupleFlavor -> [Maybe Syn.Expr] -> ValueM Expr
 desugarTuple annotation flavor elements = do
@@ -3563,15 +3574,36 @@ desugarCallStackEmpty :: (Text, Text) -> ValueM Expr
 desugarCallStackEmpty (packageName, moduleName') =
   pure (ExVar (Name "emptyCallStack" SortValue (OriginTop (PackageId packageName) moduleName')))
 
--- | A boxed string literal for compiler-generated code.
+-- | A boxed string literal, for source literals and compiler-generated code
+-- alike.
+--
+-- Like GHC, a literal of at most one character is a spelled-out list, and a
+-- longer literal is unpacked at run time from a NUL-terminated @Addr#@
+-- literal. A literal made only of characters between @\\1@ and @\\127@ is
+-- stored as Latin-1; any other literal is stored as modified UTF-8, where
+-- the NUL character is encoded as the overlong two-byte sequence
+-- @0xC0 0x80@ so that it never terminates the string.
 desugarStringValue :: Text -> ValueM Expr
-desugarStringValue value = do
-  charName <- primitiveName "GHC.Types" "Char" SortTypeConstructor
-  charConstructor <- boxedCharConstructor
-  representation <- convertRuntimeRep WordRep
-  desugarFcList
-    (TyCon charName)
-    [ExApp (ExVar charConstructor) (ExLit (LitChar representation character)) | character <- T.unpack value]
+desugarStringValue value =
+  case T.unpack value of
+    characters@(_ : _ : _) -> do
+      let (unpacker, bytes)
+            | all latin1Safe characters = ("unpackCString#", BS.pack (map (fromIntegral . fromEnum) characters))
+            | otherwise = ("unpackCStringUtf8#", BS.concat (map modifiedUtf8 characters))
+      unpackName <- primitiveName "GHC.CString" unpacker SortValue
+      representation <- convertRuntimeRep AddrRep
+      pure (ExApp (ExVar unpackName) (ExLit (LitAddr representation bytes)))
+    characters -> do
+      charName <- primitiveName "GHC.Types" "Char" SortTypeConstructor
+      charConstructor <- boxedCharConstructor
+      representation <- convertRuntimeRep WordRep
+      desugarFcList
+        (TyCon charName)
+        [ExApp (ExVar charConstructor) (ExLit (LitChar representation character)) | character <- characters]
+  where
+    latin1Safe character = character >= '\1' && character <= '\127'
+    modifiedUtf8 '\0' = BS.pack [0xC0, 0x80]
+    modifiedUtf8 character = TE.encodeUtf8 (T.singleton character)
 
 desugarTypeableEvidence :: Maybe (Text, Text) -> TcType -> [Ev.EvTerm] -> ValueM Expr
 desugarTypeableEvidence origin ty argumentEvidence = do
@@ -3635,7 +3667,7 @@ desugarFcList elementType elements = do
 -- from or in the fallback module.
 --
 -- A name reached this way does not go through the export list of the module
--- that defines it, so 'compilerVisibleTerms' has to keep it public there.
+-- that defines it, so the module has to keep it public.
 typeableName :: Maybe (Text, Text) -> Text -> Text -> Sort -> ValueM Name
 typeableName origin fallbackModule name sort =
   case origin of

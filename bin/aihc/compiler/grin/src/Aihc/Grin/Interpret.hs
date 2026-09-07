@@ -1654,18 +1654,20 @@ checkedAddressRange symbol offset byteCount =
 indexAddressPrimitive :: Text -> Int -> (Ptr () -> Int -> IO Integer) -> RuntimeValue -> RuntimeValue -> EvalM Integer
 indexAddressPrimitive symbol elementSize = readAddressPrimitive symbol elementSize elementSize
 
--- | Read one element at a scaled index. Literal addresses stay bounds checked.
--- Runtime addresses trust the program in the same way as native code.
+-- | Read one element at a scaled index. Literal addresses stay bounds
+-- checked, counting the NUL terminator that native code stores after the
+-- bytes of the literal. Runtime addresses trust the program in the same way
+-- as native code.
 readAddressPrimitive :: Text -> Int -> Int -> (Ptr () -> Int -> IO Integer) -> RuntimeValue -> RuntimeValue -> EvalM Integer
 readAddressPrimitive symbol stride elementSize readElement address indexValue = do
   index <- expectIntPrimitiveArgument symbol indexValue
   (byteOffset, _) <- checkedAddressRange symbol (index * toInteger stride) (toInteger elementSize)
   case address of
     RuntimeLit (GrinLitAddr bytes)
-      | byteOffset + elementSize <= BS.length bytes ->
+      | byteOffset + elementSize <= BS.length bytes + 1 ->
           liftEvalIO (BS.useAsCString bytes (\pointer -> readElement (castPtr pointer) byteOffset))
       | otherwise ->
-          throwInterpret (InterpretInvalidByteArrayRange symbol (toInteger byteOffset) (toInteger elementSize) (BS.length bytes))
+          throwInterpret (InterpretInvalidByteArrayRange symbol (toInteger byteOffset) (toInteger elementSize) (BS.length bytes + 1))
     RuntimeAddress pointer -> liftEvalIO (readElement pointer byteOffset)
     other -> throwInterpret (InterpretPrimitiveTypeError symbol other)
 

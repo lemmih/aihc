@@ -284,7 +284,8 @@ fixturePackage = Package "" (PackageId "")
 
 primitiveModulePaths :: [FilePath]
 primitiveModulePaths =
-  [ "GHC/Classes.hs",
+  [ "GHC/CString.hs",
+    "GHC/Classes.hs",
     "GHC/Prim.hs",
     "GHC/Prim/Base.hs",
     "GHC/Prim/Enum.hs",

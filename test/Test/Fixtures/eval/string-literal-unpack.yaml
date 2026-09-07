@@ -1,0 +1,39 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    {-# LANGUAGE MagicHash #-}
+    module Test where
+
+    import GHC.Prim
+    import GHC.Int (Int(..))
+    import Data.Char (ord)
+
+    data Results = Results [Int] [Int] [Int] Int Int
+
+    -- Every character is between 1 and 127: stored as Latin-1.
+    plain :: String
+    plain = "ab~"
+
+    -- A NUL never terminates the literal: it is stored as the overlong
+    -- sequence C0 80 in modified UTF-8.
+    withNul :: String
+    withNul = "a\0b"
+
+    -- Characters above 127 are stored as UTF-8 sequences of two to four bytes.
+    unicode :: String
+    unicode = "\128\955\8594\128512"
+
+    -- A primitive string literal is NUL-terminated in memory.
+    terminator :: Int
+    terminator = case "abc"# of
+      address -> I# (word2Int# (word8ToWord# (indexWord8OffAddr# address 3#)))
+
+    prefixLength :: Int
+    prefixLength = I# (cstringLength# "abc\0def"#)
+output: |
+  Results (: (I# 97) (: (I# 98) (: (I# 126) []))) (: (I# 97) (: (I# 0) (: (I# 98) []))) (: (I# 128) (: (I# 955) (: (I# 8594) (: (I# 128512) [])))) (I# 0) (I# 3)
+expression: |
+  Results (map ord plain) (map ord withNul) (map ord unicode) terminator prefixLength
+status: pass
+reason: string literals unpack from NUL-terminated Addr# literals, with NUL and non-ASCII characters encoded as modified UTF-8
