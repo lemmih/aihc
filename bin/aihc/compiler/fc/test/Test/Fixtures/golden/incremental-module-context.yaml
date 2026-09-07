@@ -79,10 +79,6 @@ expected: |-
 
   pub val 3.vunwrap :: 2.tBox 4.→ 1.tToken
    = λ(x : 2.tBox).
-    let {
-        value : 1.tToken =
-            x ▷ axiom-co 2.$ax$Box
-    } in
-        value
+    x ▷ axiom-co 2.$ax$Box
 status: pass
 reason: An incremental FC context retains imported type and newtype facts.

@@ -39,10 +39,6 @@ expected: |-
     $d0
 
   pub val 1.vcallUse :: 1.tBool
-   = let {
-      $ipflag : 1.tBool =
-          1.vTrue
-  } in
-      1.vuseParam $ipflag
+   = 1.vuseParam 1.vTrue
 status: pass
 reason: an implicit parameter is a plain value argument, and a let binding supplies it

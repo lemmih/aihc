@@ -69,10 +69,6 @@ expected: |-
   pub val 2.vuse :: ∀(b : 3.tType). b 3.→ b
    = Λ(b : 3.tType).
     λ(x : b).
-      let {
-          $ipmessage : 1.tMessage =
-              1.vMessage
-      } in
-          1.vfailure @(3.vBoxedRep 3.vLifted) @b $ipmessage
+      1.vfailure @(3.vBoxedRep 3.vLifted) @b 1.vMessage
 status: pass
 reason: an imported representation-polymorphic function with an implicit parameter keeps the body representation on its evidence arrow

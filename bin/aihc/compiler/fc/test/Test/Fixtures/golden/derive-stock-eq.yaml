@@ -14,7 +14,7 @@ modules:
 
   sameTree :: Eq a => Tree a -> Tree a -> Bool
   sameTree = (==)
-expected: |
+expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Classes
   scope 3 = "aihc-prim" GHC.Types
@@ -60,16 +60,12 @@ expected: |
               1.vBranch (a1 : 1.tTree a) (a2 : 1.tTree a) →
                   case y as (_scrut{1} : 1.tTree a) return (3.tBool) of {
                       1.vBranch (b1 : 1.tTree a) (b2 : 1.tTree a) →
-                          let {
-                              _case : 3.tBool =
-                                  2.v== @(1.tTree a) (1.v$fEqTreea @a $d0) a1 b1
-                          } in
-                              case _case as (_scrut{2} : 3.tBool) return (3.tBool) of {
-                                  3.vTrue →
-                                      2.v== @(1.tTree a) (1.v$fEqTreea @a $d0) a2 b2;
-                                  3.vFalse →
-                                      3.vFalse
-                              };
+                          case 2.v== @(1.tTree a) (1.v$fEqTreea @a $d0) a1 b1 as (_scrut{2} : 3.tBool) return (3.tBool) of {
+                              3.vTrue →
+                                  2.v== @(1.tTree a) (1.v$fEqTreea @a $d0) a2 b2;
+                              3.vFalse →
+                                  3.vFalse
+                          };
                       _ →
                           3.vFalse
                   };

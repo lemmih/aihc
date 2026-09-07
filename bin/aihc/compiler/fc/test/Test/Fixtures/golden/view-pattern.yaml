@@ -42,15 +42,11 @@ expected: |-
 
   pub val 1.visFalse :: 1.tBool 2.→ 1.tBool
    = λ(x : 1.tBool).
-    let {
-        _pat : 1.tBool =
-            1.vnot x
-    } in
-        case _pat as (_scrut : 1.tBool) return (1.tBool) of {
-            1.vTrue →
-                1.vTrue;
-            _ →
-                1.vFalse
-        }
+    case 1.vnot x as (_scrut : 1.tBool) return (1.tBool) of {
+        1.vTrue →
+            1.vTrue;
+        _ →
+            1.vFalse
+    }
 status: pass
 reason: A view pattern binds the function result and matches it with the later rows as the failure.

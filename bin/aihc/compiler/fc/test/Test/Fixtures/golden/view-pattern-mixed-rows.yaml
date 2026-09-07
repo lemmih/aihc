@@ -79,25 +79,17 @@ expected: |-
    = λ(x : 1.tShape).
     let {
         _fail : 1.tLabel =
-            let {
-                _pat : 1.tBool =
-                    1.visRound x
-            } in
-                case _pat as (_scrut : 1.tBool) return (1.tLabel) of {
-                    1.vTrue →
-                        1.vB;
-                    _ →
-                        let {
-                            _pat{1} : 1.tBool =
-                                1.vflag x
-                        } in
-                            case _pat{1} as (_scrut{1} : 1.tBool) return (1.tLabel) of {
-                                1.vTrue →
-                                    1.vC;
-                                _ →
-                                    1.vD
-                            }
-                }
+            case 1.visRound x as (_scrut : 1.tBool) return (1.tLabel) of {
+                1.vTrue →
+                    1.vB;
+                _ →
+                    case 1.vflag x as (_scrut{1} : 1.tBool) return (1.tLabel) of {
+                        1.vTrue →
+                            1.vC;
+                        _ →
+                            1.vD
+                    }
+            }
     } in
         case x as (_scrut : 1.tShape) return (1.tLabel) of {
             1.vCircle (_pat : 1.tBool) →
@@ -113,19 +105,11 @@ expected: |-
 
   pub val 1.vguarded :: 1.tShape 2.→ 1.tLabel
    = λ(x : 1.tShape).
-    let {
-        _guard_pat : 1.tShape =
-            x
-    } in
-        let {
-            _pat : 1.tBool =
-                1.vflag _guard_pat
-        } in
-            case _pat as (_do_scrut : 1.tBool) return (1.tLabel) of {
-                1.vTrue →
-                    1.vA;
-                _ →
-                    1.vB
-            }
+    case 1.vflag x as (_do_scrut : 1.tBool) return (1.tLabel) of {
+        1.vTrue →
+            1.vA;
+        _ →
+            1.vB
+    }
 status: pass
 reason: View pattern rows between constructor rows share one failure binding.

@@ -52,10 +52,6 @@ expected: |-
         foreign {prim 2.vraise# :: ∀(r{1} : 3.tRuntimeRep) (a{1} : 3.tType) (b : 3.tTYPE r{1}). FUN @3.tLiftedRep @r{1} a{1} b} @r @1.tMessage @a $d0
 
   pub val 1.vuse :: 1.tBool
-   = let {
-      $ipmessage : 1.tMessage =
-          1.vMessage
-  } in
-      1.vfailure @(3.vBoxedRep 3.vLifted) @1.tBool $ipmessage
+   = 1.vfailure @(3.vBoxedRep 3.vLifted) @1.tBool 1.vMessage
 status: pass
 reason: the evidence arrow of an implicit parameter returns a representation-polymorphic body

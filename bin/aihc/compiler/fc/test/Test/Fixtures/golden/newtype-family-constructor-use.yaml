@@ -46,10 +46,6 @@ expected: |-
 
   pub val 1.vunwrap :: 1.tWrapped 1.tUnit 2.→ 1.tUnit
    = λ(x : 1.tWrapped 1.tUnit).
-    let {
-        value : 1.tUnit =
-            x ▷ trans (axiom-co 1.$ax$Wrapped$WrappedUnit) (axiom-co 1.$ax$R$Wrapped$WrappedUnit)
-    } in
-        value
+    x ▷ trans (axiom-co 1.$ax$Wrapped$WrappedUnit) (axiom-co 1.$ax$R$Wrapped$WrappedUnit)
 status: pass
 reason: A newtype family instance has no constructor in System FC. The desugarer casts with the representation axiom and the family axiom.

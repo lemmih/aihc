@@ -43,17 +43,13 @@ expected: |-
 
   pub val 1.vunit :: 5.tUnit
    = let {
-      _pat_rhs : 6.tInt =
-          4.vfromInteger @6.tInt 4.v$fNumInt (3.vIS 10#6.vIntRep)
+      n# : 2.tInt# =
+          case 4.vfromInteger @6.tInt 4.v$fNumInt (3.vIS 10#6.vIntRep) as (_do_scrut : 6.tInt) return (2.tInt#) of {
+              6.vI# (n# : 2.tInt#) →
+                  n#
+          }
   } in
-      let {
-          n# : 2.tInt# =
-              case _pat_rhs as (_do_scrut : 6.tInt) return (2.tInt#) of {
-                  6.vI# (n# : 2.tInt#) →
-                      n#
-              }
-      } in
-          5.v()
+      5.v()
 
 status: pass
 reason: a local constructor pattern binding lowers its bound field
