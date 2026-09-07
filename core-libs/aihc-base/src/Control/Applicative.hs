@@ -1,3 +1,5 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PolyKinds #-}
 
 module Control.Applicative
@@ -32,9 +34,7 @@ instance (Monoid a) => Applicative (Const a) where
   Const left <*> Const right = Const (left `mappend` right)
 
 newtype ZipList a = ZipList {getZipList :: [a]}
-
-instance Functor ZipList where
-  fmap f (ZipList values) = ZipList (mapZipList f values)
+  deriving newtype (Functor)
 
 instance Applicative ZipList where
   pure value = ZipList (repeatZipList value)
@@ -53,10 +53,6 @@ infixl 3 <|>
 
 prepend :: a -> [a] -> [a]
 prepend value values = value : values
-
-mapZipList :: (a -> b) -> [a] -> [b]
-mapZipList _ [] = []
-mapZipList f (value : values) = f value : mapZipList f values
 
 repeatZipList :: a -> [a]
 repeatZipList value = value : repeatZipList value

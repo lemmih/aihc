@@ -1,0 +1,46 @@
+annotated:
+- |-
+  module GHC.Prim.String where
+  import GHC.Types (Char)
+  class IsString a where
+        └─ t GHC.Prim.String
+    fromString :: [Char] -> a
+    │             │└─ t GHC.Types
+    │             └─ t Builtin []
+    └─ v GHC.Prim.String
+- |-
+  module GHC.Types (List (..), Char) where
+  data List a = [] | a : [a]
+       │        │      │ └─ t Builtin []
+       │        │      └─ v GHC.Types
+       │        └─ v Builtin []
+       └─ t GHC.Types
+  infixr 5 :
+  data Char
+       └─ t GHC.Types
+- |-
+  {-# LANGUAGE OverloadedStrings #-}
+  module Main where
+  import GHC.Prim.String (IsString (..))
+  greeting = "hi"
+  └─ v Main  └─ v GHC.Prim.String
+extensions:
+- OverloadedStrings
+modules:
+- |
+  module GHC.Types (List (..), Char) where
+  data List a = [] | a : [a]
+  infixr 5 :
+  data Char
+- |
+  module GHC.Prim.String where
+  import GHC.Types (Char)
+  class IsString a where
+    fromString :: [Char] -> a
+- |
+  {-# LANGUAGE OverloadedStrings #-}
+  module Main where
+  import GHC.Prim.String (IsString (..))
+  greeting = "hi"
+reason: OverloadedStrings resolves a string literal to the built-in fromString
+status: pass

@@ -134,11 +134,3 @@ newtype CUShort = CUShort Word16
 
 newtype CWchar = CWchar Int32
   deriving newtype (Eq, Ord, Enum, Bounded, Num, Real, Integral)
-
--- | A local list map keeps this module free of a Data.List import.
-mapList :: (a -> b) -> [a] -> [b]
-mapList _ [] = []
-mapList convert (value : values) = convert value : mapList convert values
-
--- Each C integer type is a newtype over the Haskell type that matches its
--- platform width, so every class below simply forwards to that type.

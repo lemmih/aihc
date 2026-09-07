@@ -26,7 +26,7 @@ modules:
     result :: Maybe Int
     result = runQ (pure 1 >>= \_ -> pure 2)
 output: |
-  (Just 2)
+  Just (I# 2)
 expression: result
-status: xfail
+status: pass
 reason: evaluates a rank-N newtype whose field has a class constraint

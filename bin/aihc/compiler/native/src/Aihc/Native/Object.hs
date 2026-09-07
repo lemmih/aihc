@@ -33,11 +33,13 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
+import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Word (Word32, Word64, Word8)
 
 data SectionRole
@@ -239,8 +241,25 @@ layoutDraft draft = do
           ]
       kept = Map.keysSet (Map.filterWithKey (\name _ -> name `Set.member` globals || name `Set.member` relocated) definitions)
       names = Set.toAscList (kept <> relocated <> globals)
-      symbols = map (makeSymbol definitions) names
-      table = Map.fromDistinctAscList (zip names [0 ..])
+      -- A name that this object defines and does not export is read by
+      -- nothing: only the relocations beside it name it, and they name it by
+      -- position. The text it was given upstream is dead weight, and
+      -- generated code has one such name per entry function, per info table,
+      -- and per enter stub, which is most of the string table of a library
+      -- object. Number them instead. An exported or undefined name keeps its
+      -- text, because that is what another object matches against.
+      privateLabels =
+        Map.fromList
+          ( zip
+              [name | name <- names, name `Set.notMember` globals, name `Map.member` definitions]
+              [".L" <> T.pack (show index) | index <- [0 :: Int ..]]
+          )
+      emitted name = Map.findWithDefault name name privateLabels
+      -- 'imageSymbols' ascends by the name each symbol is written under, so
+      -- the order follows the label rather than the name it replaced.
+      ordered = sortOn fst [(emitted name, name) | name <- names]
+      symbols = [makeSymbol definitions label name | (label, name) <- ordered]
+      table = Map.fromList (zip (map snd ordered) [0 ..])
   sections <- mapM (resolveSection globals definitions table) firstPass
   pure Image {imageSections = sections, imageSymbols = symbols}
   where
@@ -253,10 +272,10 @@ layoutDraft draft = do
               laidLabels = reverse (sectionLabelsRev section),
               laidFixups = reverse (sectionFixupsRev section)
             }
-    makeSymbol definitions name =
+    makeSymbol definitions label name =
       case Map.lookup name definitions of
-        Just (role, offset) -> Symbol name (name `Set.member` draftGlobals draft) (Just role) offset
-        Nothing -> Symbol name True Nothing 0
+        Just (role, offset) -> Symbol label (name `Set.member` draftGlobals draft) (Just role) offset
+        Nothing -> Symbol label True Nothing 0
 
 data LaidSection = LaidSection
   { laidRole :: !SectionRole,

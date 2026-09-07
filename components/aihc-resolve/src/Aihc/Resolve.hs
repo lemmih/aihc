@@ -775,7 +775,7 @@ resolveExpr expr =
       maybe (resolveFractionalLiteral expr) (`resolvePrimitiveLiteralTypeName` expr) (primitiveFloatTypeName floatType)
     EChar {} -> pure expr
     ECharHash {} -> resolvePrimitiveLiteralTypeName "Char#" expr
-    EString {} -> pure expr
+    EString {} -> resolveStringLiteral expr
     EStringHash {} -> resolvePrimitiveLiteralTypeName "Addr#" expr
     EOverloadedLabel {} -> pure expr
     EIf cond trueBranch falseBranch -> do
@@ -883,6 +883,18 @@ resolveIntegerLiteral expr = do
 resolveFractionalLiteral :: Expr -> ResolveM Expr
 resolveFractionalLiteral = annotateSyntaxTerm "fromRational"
 
+-- | OverloadedStrings applies fromString to a String literal.
+--
+-- The argument type comes from the type of the method, so the literal gets
+-- only the fromString term. Without the extension a string literal keeps
+-- its [Char] type and gets no annotation.
+resolveStringLiteral :: Expr -> ResolveM Expr
+resolveStringLiteral expr = do
+  info <- currentModuleInfo
+  if OverloadedStrings `elem` moduleInfoExtensions info
+    then annotateSyntaxTerm "fromString" expr
+    else pure expr
+
 -- | The resolution of the Integer type in the built-in scope.
 --
 -- The result is 'Nothing' when the built-in scope does not have Integer.
@@ -973,6 +985,7 @@ annotateRebindableIf expr = do
 -- | Annotate a literal pattern with the names that the type checker needs.
 --
 -- An overloaded integer pattern gets the syntax terms that compare it.
+-- A string pattern gets them only under OverloadedStrings.
 -- A primitive literal pattern gets the resolution of its primitive type.
 annotatePatternLiteral :: Pattern -> Literal -> ResolveM Pattern
 annotatePatternLiteral pat lit = do
@@ -990,6 +1003,13 @@ annotatePatternLiteral pat lit = do
         LitFloat _ TFractional _ -> do
           methodAnns <- mapM (syntaxTermAnnotation sp) (overloadedPatternMethods "fromRational")
           pure (foldr (PAnn . mkAnnotation) pat methodAnns)
+        LitString _ _ -> do
+          info <- currentModuleInfo
+          if OverloadedStrings `elem` moduleInfoExtensions info
+            then do
+              methodAnns <- mapM (syntaxTermAnnotation sp) (overloadedPatternMethods "fromString")
+              pure (foldr (PAnn . mkAnnotation) pat methodAnns)
+            else pure pat
         _ -> pure pat
   where
     -- A negated literal pattern also negates the converted literal.
@@ -1025,6 +1045,7 @@ builtinSyntaxTerm info name =
     builtinSyntaxTermNames =
       [ "fromInteger",
         "fromRational",
+        "fromString",
         "negate",
         "==",
         ">>=",

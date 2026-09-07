@@ -1,0 +1,58 @@
+---
+extensions:
+- OverloadedStrings
+modules:
+- |
+  {-# LANGUAGE OverloadedStrings #-}
+  module Test where
+
+  import GHC.Prim.Base (String)
+  import GHC.Prim.String (IsString (..))
+
+  newtype Name = Name String
+
+  instance IsString Name where
+    fromString = Name
+
+  greeting :: Name
+  greeting = "hi"
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.CString
+  scope 3 = "aihc-prim" GHC.Prim
+  scope 4 = "aihc-prim" GHC.Prim.String
+  scope 5 = "aihc-prim" GHC.Types
+
+  import headers
+    4.t$Dict$IsString :: ∀(a : 5.tType). 5.tType;
+    3.tAddr# :: 5.tTYPE 5.vAddrRep;
+    5.tChar :: 5.tType;
+    5.tLevity :: 5.tType;
+    5.tLiftedRep :: 5.tRuntimeRep;
+    5.tRuntimeRep :: 5.tType;
+    5.tTYPE :: ∀(rep : 5.tRuntimeRep). 5.tType;
+    5.tType :: 5.tType;
+    5.t[] :: ∀(a : 5.tType). 5.tType;
+    4.v$Dict$IsString :: ∀(a : 5.tType). (5.t[] 5.tChar 5.→ a) 5.→ 4.t$Dict$IsString a;
+    5.vAddrRep :: 5.tRuntimeRep;
+    5.vBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
+    5.vLifted :: 5.tLevity;
+    4.vfromString :: ∀(a : 5.tType). 4.t$Dict$IsString a 5.→ 5.t[] 5.tChar 5.→ a;
+    2.vunpackCString# :: FUN @5.vAddrRep @5.tLiftedRep 3.tAddr# (5.t[] 5.tChar)
+
+  import synonyms
+    5.tLiftedRep = 5.vBoxedRep 5.vLifted;
+    5.tType = 5.tTYPE 5.tLiftedRep
+
+  pub type 1.tName :: 5.tType {}
+
+  axiom 1.$ax$Name : 1.tName ~R 5.t[] 5.tChar
+
+  pub val 1.v$fIsStringName :: 4.t$Dict$IsString 1.tName
+   = 4.v$Dict$IsString @1.tName (λ(_newtype : 5.t[] 5.tChar).
+    _newtype ▷ sym (axiom-co 1.$ax$Name))
+
+  pub val 1.vgreeting :: 1.tName
+   = 4.vfromString @1.tName 1.v$fIsStringName (2.vunpackCString# "hi"#5.vAddrRep)
+status: pass
+reason: OverloadedStrings applies the resolved fromString to the ordinary string literal.

@@ -63,6 +63,7 @@ import Aihc.Tc.Annotations
     TcNewtypeInstance (..),
     TcNewtypeMethod (..),
     TcPatSynAnnotation (..),
+    renderTcType,
   )
 import Aihc.Tc.Evidence qualified as Ev
 import Aihc.Tc.Solve.Dict (matchTypes)
@@ -687,6 +688,7 @@ desugarForeign foreignPlan foreignDecl =
   case Syn.foreignCallConv foreignDecl of
     Syn.CPrim -> do
       _ <- validatePrimitiveSeqOrigin foreignDecl
+      validatePrimitiveType foreignDecl
       pure []
     Syn.CCall -> do
       unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC does not accept foreign exports")
@@ -777,10 +779,84 @@ validatePrimitiveSeqOrigin foreignDecl =
     then do
       moduleOrigin <- gets vsModuleOrigin
       primitivePackage <- gets (cePrimPackage . vsConvertEnv)
-      unless (moduleOrigin == (primitivePackage, "GHC.Prim")) $
+      unless (moduleOrigin == (primitivePackage, primitiveModuleName)) $
         failValue "System FC accepts a foreign primitive named seq only in the configured GHC.Prim module"
       pure True
     else pure False
+
+-- | The module that declares the type of every primitive.
+primitiveModuleName :: Text
+primitiveModuleName = "GHC.Prim"
+
+-- | A @foreign import prim@ selects its primitive by name alone, so a
+-- declaration that gives the primitive a different type lowers to a call
+-- that no evaluator or backend can honour. The configured GHC.Prim module
+-- declares the type of every primitive, so a redeclaration elsewhere must
+-- repeat that type. A name GHC.Prim does not declare stays unchecked here;
+-- the evaluators and backends reject the unknown primitive.
+validatePrimitiveType :: Syn.ForeignDecl -> ValueM ()
+validatePrimitiveType foreignDecl = do
+  moduleOrigin <- gets vsModuleOrigin
+  primitivePackage <- gets (cePrimPackage . vsConvertEnv)
+  types <- gets vsBindingTypes
+  let name = Syn.unqualifiedNameText (Syn.foreignName foreignDecl)
+      (package, moduleName') = moduleOrigin
+      canonical = Map.lookup (TcTermGlobal primitivePackage primitiveModuleName name) types
+      declared = Map.lookup (TcTermGlobal package moduleName' name) types
+  unless (moduleOrigin == (primitivePackage, primitiveModuleName)) $
+    case (canonical, declared) of
+      (Just canonicalType, Just declaredType) ->
+        unless (alphaEqTcTypes canonicalType declaredType) $
+          failValue
+            ( "foreign import prim "
+                <> T.unpack name
+                <> " must repeat the type of "
+                <> T.unpack primitiveModuleName
+                <> "."
+                <> T.unpack name
+                <> ": expected "
+                <> renderTcType canonicalType
+                <> ", got "
+                <> renderTcType declaredType
+            )
+      _ -> pure ()
+
+-- | Whether two checked types are equal up to the names of the type
+-- variables they bind. Kinds and contexts take part in the comparison.
+alphaEqTcTypes :: TcType -> TcType -> Bool
+alphaEqTcTypes = go Map.empty
+  where
+    go bound left right =
+      case (left, right) of
+        (TcTyVar leftVar, TcTyVar rightVar) ->
+          case Map.lookup (tvUnique leftVar) bound of
+            Just unique -> unique == tvUnique rightVar
+            Nothing -> tvUnique leftVar == tvUnique rightVar
+        (TcMetaTv leftUnique, TcMetaTv rightUnique) -> leftUnique == rightUnique
+        (TcTyCon leftTyCon leftArguments, TcTyCon rightTyCon rightArguments) ->
+          leftTyCon == rightTyCon && goAll bound leftArguments rightArguments
+        (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
+          go bound leftArgument rightArgument && go bound leftResult rightResult
+        (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
+          go bound leftFunction rightFunction && go bound leftArgument rightArgument
+        (TcForAllTy leftVar leftBody, TcForAllTy rightVar rightBody) ->
+          go bound (tvKind leftVar) (tvKind rightVar)
+            && go (Map.insert (tvUnique leftVar) (tvUnique rightVar) bound) leftBody rightBody
+        (TcQualTy leftPredicates leftBody, TcQualTy rightPredicates rightBody) ->
+          length leftPredicates == length rightPredicates
+            && and (zipWith (goPred bound) leftPredicates rightPredicates)
+            && go bound leftBody rightBody
+        _ -> False
+    goAll bound left right = length left == length right && and (zipWith (go bound) left right)
+    goPred bound left right =
+      case (left, right) of
+        (ClassPred leftTyCon leftArguments, ClassPred rightTyCon rightArguments) ->
+          leftTyCon == rightTyCon && goAll bound leftArguments rightArguments
+        (EqPred leftLeft leftRight, EqPred rightLeft rightRight) ->
+          go bound leftLeft rightLeft && go bound leftRight rightRight
+        (IParamPred leftName leftType, IParamPred rightName rightType) ->
+          leftName == rightName && go bound leftType rightType
+        _ -> left == right
 
 foreignImportPlanDependencies :: TcType -> TcForeignImportAnnotation -> ValueM [ForeignImportDependency]
 foreignImportPlanDependencies ty plan = do
@@ -1667,8 +1743,8 @@ overloadedPatternFailure resultType arguments = do
     [] -> failValue "overloaded literal match has no argument"
 
 -- | The test of an overloaded literal pattern. The literal converts with
--- fromInteger or fromRational, and the equality method compares it with
--- the scrutinee.
+-- fromInteger, fromRational or fromString, and the equality method compares
+-- it with the scrutinee.
 desugarOverloadedLiteralPatternTest :: Expr -> Syn.Pattern -> ValueM Expr
 desugarOverloadedLiteralPatternTest scrutinee pattern' = do
   (value, negative) <-
@@ -1682,6 +1758,8 @@ desugarOverloadedLiteralPatternTest scrutinee pattern' = do
         ExApp <$> desugarPatternMethod "fromInteger" pattern' <*> desugarIntegerLiteral integer
       OverloadedRational rational ->
         ExApp <$> desugarPatternMethod "fromRational" pattern' <*> desugarRationalLiteral rational
+      OverloadedString string ->
+        ExApp <$> desugarPatternMethod "fromString" pattern' <*> desugarStringValue string
   patternValue <-
     if negative
       then (`ExApp` positive) <$> desugarPatternMethod "negate" pattern'
@@ -1732,29 +1810,37 @@ patternOccurrence target = go Nothing
 data OverloadedLiteral
   = OverloadedInteger Integer
   | OverloadedRational Rational
+  | OverloadedString Text
 
 isOverloadedLiteralPattern :: Syn.Pattern -> Bool
 isOverloadedLiteralPattern = isJust . overloadedPatternValue
 
 -- | The literal of an overloaded literal pattern, with a flag for a negated literal.
 overloadedPatternValue :: Syn.Pattern -> Maybe (OverloadedLiteral, Bool)
-overloadedPatternValue pattern' =
-  case pattern' of
-    Syn.PAnn _ inner -> overloadedPatternValue inner
-    Syn.PParen inner -> overloadedPatternValue inner
-    Syn.PStrict inner -> overloadedPatternValue inner
-    Syn.PIrrefutable inner -> overloadedPatternValue inner
-    Syn.PAs _ inner -> overloadedPatternValue inner
-    Syn.PTypeSig inner _ -> overloadedPatternValue inner
-    Syn.PLit literal -> (,False) <$> overloadedLiteralValue literal
-    Syn.PNegLit literal -> (,True) <$> overloadedLiteralValue literal
-    _ -> Nothing
+overloadedPatternValue pattern' = go pattern'
+  where
+    -- OverloadedStrings converts a string pattern with fromString. Without
+    -- the extension the resolver leaves the pattern alone and its characters
+    -- match one by one.
+    overloadedString = isJust (patternOccurrence "fromString" pattern')
+    go inner' =
+      case inner' of
+        Syn.PAnn _ inner -> go inner
+        Syn.PParen inner -> go inner
+        Syn.PStrict inner -> go inner
+        Syn.PIrrefutable inner -> go inner
+        Syn.PAs _ inner -> go inner
+        Syn.PTypeSig inner _ -> go inner
+        Syn.PLit literal -> (,False) <$> overloadedLiteralValue overloadedString literal
+        Syn.PNegLit literal -> (,True) <$> overloadedLiteralValue overloadedString literal
+        _ -> Nothing
 
-overloadedLiteralValue :: Syn.Literal -> Maybe OverloadedLiteral
-overloadedLiteralValue literal =
+overloadedLiteralValue :: Bool -> Syn.Literal -> Maybe OverloadedLiteral
+overloadedLiteralValue overloadedString literal =
   case Syn.peelLiteralAnn literal of
     Syn.LitInt value Syn.TInteger _ -> Just (OverloadedInteger value)
     Syn.LitFloat value Syn.TFractional _ -> Just (OverloadedRational value)
+    Syn.LitString value _ | overloadedString -> Just (OverloadedString value)
     _ -> Nothing
 
 desugarDataPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
@@ -2365,6 +2451,11 @@ desugarAnnotatedExpr annotation inner = do
             resolutionNamespace resolution == ResolutionNamespaceTerm,
             resolutionIdentifier resolution == IdentifierNamed "fromRational" ->
               desugarOverloadedRational annotation resolution value
+        Syn.EAnn resolutionAnnotation (Syn.EString value _)
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            resolutionNamespace resolution == ResolutionNamespaceTerm,
+            resolutionIdentifier resolution == IdentifierNamed "fromString" ->
+              desugarOverloadedString annotation resolution value
         Syn.EAnn resolutionAnnotation (Syn.EIf condition thenExpression elseExpression)
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             isIfThenElseResolution resolution ->
@@ -3851,6 +3942,16 @@ desugarOverloadedInteger annotation resolution value = do
 --
 -- The Rational is the ratio of the numerator and the denominator of the
 -- literal. Both are Integer literals.
+-- | An overloaded string literal applies fromString to a String.
+--
+-- The argument type is the String of the method, so the literal is the
+-- ordinary [Char] desugaring.
+desugarOverloadedString :: TcAnnotation -> ResolutionAnnotation -> Text -> ValueM Expr
+desugarOverloadedString annotation resolution value = do
+  fromStringExpression <- desugarResolvedOccurrence annotation resolution
+  string <- desugarStringValue value
+  pure (ExApp fromStringExpression string)
+
 desugarOverloadedRational :: TcAnnotation -> ResolutionAnnotation -> Rational -> ValueM Expr
 desugarOverloadedRational annotation resolution value = do
   fromRationalExpression <- desugarResolvedOccurrence annotation resolution

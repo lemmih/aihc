@@ -1294,7 +1294,7 @@ writePackageInstanceArtifact verbose storePath typeHashes providers interface = 
   verbose ("Write package instances: " <> path)
 
 wiredTypeModules :: [Text]
-wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Tuple", "GHC.Types"]
+wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Tuple", "GHC.Types"]
 
 -- | Modules whose names generated code refers to, but whose order the
 -- dependency graph must not fix: a derived @Read@ instance calls the reader
@@ -1315,7 +1315,7 @@ builtinFunctionScope currentPackage dependencyExports packageModules =
   where
     allExports = collectModuleExportsWithDeps dependencyExports packageModules `Map.union` dependencyExports
     lookupBuiltin name = lookupImportedModule currentPackage Nothing name allExports
-    builtinFunctionModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real"]
+    builtinFunctionModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String"]
 
 measureTime :: IO a -> IO (a, Word64)
 measureTime action = do

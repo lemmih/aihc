@@ -1,11 +1,14 @@
 extensions:
+  - ExplicitForAll
   - ForeignFunctionInterface
   - GHCForeignImportPrim
+  - KindSignatures
   - MagicHash
 modules:
   - |
     module Test where
-    foreign import prim unsafeCoerce# :: a -> b
+    import GHC.Types (RuntimeRep, TYPE)
+    foreign import prim unsafeCoerce# :: forall (q :: RuntimeRep) (r :: RuntimeRep) (a :: TYPE q) (b :: TYPE r). a -> b
     unsafeCoerce :: a -> b
     unsafeCoerce = unsafeCoerce#
 expected: |-
@@ -29,6 +32,6 @@ expected: |-
    = Λ(a : 2.tType).
     Λ(b : 2.tType).
       λ(_foreign_argument : a).
-        foreign {prim 1.vunsafeCoerce# :: ∀(a{1} : 2.tType) (b{1} : 2.tType). a{1} 2.→ b{1}} @a @b _foreign_argument
+        foreign {prim 1.vunsafeCoerce# :: ∀(q : 2.tRuntimeRep) (r : 2.tRuntimeRep) (a{1} : 2.tTYPE q) (b{1} : 2.tTYPE r). FUN @q @r a{1} b{1}} @(2.vBoxedRep 2.vLifted) @(2.vBoxedRep 2.vLifted) @a @b _foreign_argument
 status: pass
 reason: A signed polymorphic alias uses its type lambda binders in the right-hand side.
