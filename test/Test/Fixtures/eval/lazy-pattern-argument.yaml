@@ -1,0 +1,32 @@
+modules:
+  - |
+    module Test where
+
+    data Pair a b = Pair a b
+
+    ignored :: Pair Int Bool -> Int
+    ignored ~(Pair _ _) = 7
+
+    selected :: Pair Int Bool -> Int
+    selected ~(Pair value _) = value
+
+    named :: Pair Int Bool -> (Int, Bool)
+    named all@(~(Pair value flag)) = case all of Pair _ _ -> (value, flag)
+
+    scrutinised :: Pair Int Bool -> Bool
+    scrutinised pair = case pair of ~(Pair _ flag) -> flag
+
+    guarded :: Bool -> Pair Int Bool -> Int
+    guarded True ~(Pair value _) = value
+    guarded False _ = 0
+output: |
+  ((I# 7),(I# 3),(I# 3),True,(I# 0))
+expression: |
+  ( ignored (error "the argument is never forced")
+  , selected (Pair 3 True)
+  , fst (named (Pair 3 True))
+  , scrutinised (Pair 3 True)
+  , guarded False (error "the argument is never forced")
+  )
+status: pass
+reason: a lazy pattern binds its variables to selector thunks and never forces its argument
