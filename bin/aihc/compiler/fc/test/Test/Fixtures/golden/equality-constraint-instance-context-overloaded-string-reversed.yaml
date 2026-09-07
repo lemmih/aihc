@@ -11,7 +11,7 @@ modules:
   fromL = DL
   class IsStr a where
     fromStr :: [Char] -> a
-  instance (a ~ Char) => IsStr (DL a) where
+  instance (Char ~ a) => IsStr (DL a) where
     fromStr = fromL
 status: pass
 reason: An instance equality supplies evidence for the method argument and result.

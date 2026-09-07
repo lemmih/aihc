@@ -1648,8 +1648,9 @@ solveInstanceBodyConstraints givens results = do
       impls = concat implsList
   solveBodyConstraintsWithGivens givens cts impls
 
+-- Keep the givens available after metavariable assignments and during decomposition.
 solveBodyConstraintsWithGivens :: [Pred] -> [Ct] -> [Implication] -> TcM ()
-solveBodyConstraintsWithGivens givens cts impls = do
+solveBodyConstraintsWithGivens givens cts impls = withGivenPredicates givens $ do
   implications <- mapM addOuterGivens impls
   residual <- filterM (fmap not . solveGivenEquality givens) cts
   solveResult <- solveWithImpls residual implications
