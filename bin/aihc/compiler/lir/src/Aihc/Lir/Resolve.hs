@@ -12,6 +12,7 @@ module Aihc.Lir.Resolve
     expandIncludes,
     loadModule,
     resolveConstants,
+    unresolvedConstant,
   )
 where
 
@@ -147,3 +148,10 @@ resolveConstants (Module items) = Module [resolveItem item | item <- items, not 
       case value of
         OperandLiteral (LitSymbol symbol) | Just constant <- Map.lookup symbol constants -> OperandLiteral (LitInt constant)
         _ -> value
+
+-- | The linter rejects a reference to an undefined constant and
+-- 'resolveConstants' substitutes every defined one, so a backend that meets
+-- a reference after both is looking at a bug in this pipeline, not at a
+-- module a user can fix.
+unresolvedConstant :: Symbol -> a
+unresolvedConstant symbol = error ("Lir constant " <> T.unpack (renderDoc (prettySymbol symbol)) <> " reached a backend unresolved")

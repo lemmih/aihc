@@ -38,7 +38,7 @@ where
 import Aihc.Amd64.Assemble
 import Aihc.Lir.Lint (LintError, lintModule)
 import Aihc.Lir.RegAlloc (Allocation (..), Registers (..), allocateRegistersFor, readCounts)
-import Aihc.Lir.Resolve (resolveConstants)
+import Aihc.Lir.Resolve (resolveConstants, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Aihc.Native.Object (SectionRole (..))
 import Control.Monad (forM, when, zipWithM)
@@ -92,8 +92,8 @@ compileLirStatements lirModule =
         )
     compileItems = do
       functionStatements <- concat <$> zipWithM (compileFunction signatures) [0 ..] [function | ItemFunction function <- items]
-      dataStatements <- lift (concat <$> traverse compileData [dataItem | ItemData dataItem <- items])
-      let globalStatements = concatMap compileGlobal [global | ItemGlobal global <- items]
+      let dataStatements = concatMap compileData [dataItem | ItemData dataItem <- items]
+          globalStatements = concatMap compileGlobal [global | ItemGlobal global <- items]
       trapStatements <- renderTraps
       pure (functionStatements <> trapStatements <> dataStatements <> globalStatements <> [amd64Section NoExecuteStackSection])
 
@@ -173,37 +173,31 @@ renderTraps = do
 
 -- Data
 
--- | The linter and 'resolveConstants' leave no constant reference behind, so
--- one is an error here rather than a value.
-compileData :: DataItem -> Either Amd64LirError [Amd64Statement]
-compileData dataItem = do
-  fields <- concat <$> traverse field (dataFields dataItem)
-  pure
-    ( [ amd64Section (if dataMutable dataItem then DataSection else ReadOnlySection),
-        amd64Align (log2 (dataAlignment dataItem))
-      ]
-        <> [amd64Global symbol | dataLinkage dataItem == Export]
-        <> [amd64Label symbol]
-        <> fields
-    )
+compileData :: DataItem -> [Amd64Statement]
+compileData dataItem =
+  [ amd64Section (if dataMutable dataItem then DataSection else ReadOnlySection),
+    amd64Align (log2 (dataAlignment dataItem))
+  ]
+    <> [amd64Global symbol | dataLinkage dataItem == Export]
+    <> [amd64Label symbol]
+    <> concatMap field (dataFields dataItem)
   where
     symbol = lirSymbol (dataName dataItem)
     field dataField =
       case dataField of
-        DataInt ty value -> pure [amd64Bytes (littleEndian (typeBytes ty) (fromInteger value))]
-        DataIntConstant _ constant -> unresolved constant
-        DataFloat F32 value -> pure [amd64Bytes (littleEndian 4 (fromIntegral (castFloatToWord32 (double2Float value))))]
-        DataFloat _ value -> pure [amd64Bytes (littleEndian 8 (castDoubleToWord64 value))]
-        DataSymbol target 0 -> pure [amd64QuadSymbol (lirSymbol target)]
-        DataSymbol target addend -> pure [amd64QuadSymbolAddend (lirSymbol target) (fromInteger addend)]
-        DataNull -> pure [amd64Quad 0]
-        DataWord value -> pure [amd64Bytes (littleEndian 8 (fromInteger value))]
-        DataWordConstant constant -> unresolved constant
-        DataCode Nothing -> pure [amd64Quad 0]
-        DataCode (Just target) -> pure [amd64QuadSymbol (lirSymbol target)]
-        DataBytes bytes -> pure [amd64Bytes bytes]
-        DataZero count -> pure [amd64Bytes (BS.replicate (fromInteger count) 0)]
-    unresolved constant = Left (Amd64LirUnsupported ("unknown constant " <> unSymbol constant))
+        DataIntConstant _ constant -> unresolvedConstant constant
+        DataInt ty value -> [amd64Bytes (littleEndian (typeBytes ty) (fromInteger value))]
+        DataFloat F32 value -> [amd64Bytes (littleEndian 4 (fromIntegral (castFloatToWord32 (double2Float value))))]
+        DataFloat _ value -> [amd64Bytes (littleEndian 8 (castDoubleToWord64 value))]
+        DataSymbol target 0 -> [amd64QuadSymbol (lirSymbol target)]
+        DataSymbol target addend -> [amd64QuadSymbolAddend (lirSymbol target) (fromInteger addend)]
+        DataNull -> [amd64Quad 0]
+        DataWordConstant constant -> unresolvedConstant constant
+        DataWord value -> [amd64Bytes (littleEndian 8 (fromInteger value))]
+        DataCode Nothing -> [amd64Quad 0]
+        DataCode (Just target) -> [amd64QuadSymbol (lirSymbol target)]
+        DataBytes bytes -> [amd64Bytes bytes]
+        DataZero count -> [amd64Bytes (BS.replicate (fromInteger count) 0)]
 
 -- | A global is one word in the data section of its module.
 compileGlobal :: Global -> [Amd64Statement]

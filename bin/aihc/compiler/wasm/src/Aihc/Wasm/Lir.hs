@@ -25,7 +25,7 @@ module Aihc.Wasm.Lir
 where
 
 import Aihc.Lir.Lint (LintError, lintModule)
-import Aihc.Lir.Resolve (resolveConstants)
+import Aihc.Lir.Resolve (resolveConstants, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Control.Monad (forM_, unless, when)
 import Control.Monad.Trans.Class (lift)
@@ -55,13 +55,12 @@ compileLirModule lirModule =
       let items = userItems <> [ItemFunction helper | usesWideMultiply, helper <- wideHelpers]
           ctx = moduleContext items
       (functions, final) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) initialState
-      dataLines <- concat <$> traverse (renderData ctx) [dataItem | ItemData dataItem <- items]
       let traps = Map.toAscList (moduleTraps final)
       pure
         ( T.unlines
             ( header ctx items (moduleUsesStack final)
                 <> concat functions
-                <> dataLines
+                <> concatMap (renderData ctx) [dataItem | ItemData dataItem <- items]
                 <> concatMap (renderGlobal ctx) [global | ItemGlobal global <- items]
                 <> concat
                   [ renderBytes (trapMessageSymbol index) (Text.encodeUtf8 message)
@@ -174,41 +173,35 @@ header ctx items usesStack =
 
 -- Data
 
--- | The linter and 'resolveConstants' leave no constant reference behind, so
--- one is an error here rather than a value.
-renderData :: Ctx -> DataItem -> Either WasmLirError [Text]
-renderData ctx dataItem = do
-  fields <- traverse field (dataFields dataItem)
-  pure
-    ( [ "\t.type\t" <> name <> ",@object",
-        "\t.section\t" <> (if dataMutable dataItem then ".data." else ".rodata.") <> name <> ",\"\",@"
-      ]
-        <> ["\t.hidden\t" <> name | dataLinkage dataItem == Export]
-        <> ["\t.globl\t" <> name | dataLinkage dataItem == Export]
-        <> ["\t.p2align\t" <> tshow (log2 (dataAlignment dataItem)) <> ", 0x0" | dataAlignment dataItem > 1]
-        <> [name <> ":"]
-        <> concatMap fst fields
-        <> ["\t.size\t" <> name <> ", " <> tshow (sum (map snd fields)), ""]
-    )
+renderData :: Ctx -> DataItem -> [Text]
+renderData ctx dataItem =
+  [ "\t.type\t" <> name <> ",@object",
+    "\t.section\t" <> (if dataMutable dataItem then ".data." else ".rodata.") <> name <> ",\"\",@"
+  ]
+    <> ["\t.hidden\t" <> name | dataLinkage dataItem == Export]
+    <> ["\t.globl\t" <> name | dataLinkage dataItem == Export]
+    <> ["\t.p2align\t" <> tshow (log2 (dataAlignment dataItem)) <> ", 0x0" | dataAlignment dataItem > 1]
+    <> [name <> ":"]
+    <> concatMap (fst . field) (dataFields dataItem)
+    <> ["\t.size\t" <> name <> ", " <> tshow (sum (map (snd . field) (dataFields dataItem))), ""]
   where
     name = symbolText ctx (dataName dataItem)
-    field :: DataField -> Either WasmLirError ([Text], Int)
+    field :: DataField -> ([Text], Int)
     field dataField =
       case dataField of
-        DataInt ty value -> pure (["\t.int" <> tshow (8 * typeBytes ty) <> "\t" <> renderInteger (typeBytes ty) value], typeBytes ty)
-        DataIntConstant _ constant -> unresolved constant
-        DataFloat F32 value -> pure (["\t.int32\t" <> tshow (castFloatToWord32 (double2Float value))], 4)
-        DataFloat _ value -> pure (["\t.int64\t" <> tshow (castDoubleToWord64 value)], 8)
-        DataSymbol target 0 -> pure (["\t.int32\t" <> symbolText ctx target], 4)
-        DataSymbol target addend -> pure (["\t.int32\t" <> symbolText ctx target <> (if addend < 0 then "-" <> tshow (negate addend) else "+" <> tshow addend)], 4)
-        DataNull -> pure (["\t.int32\t0"], 4)
-        DataWord value -> pure (["\t.int32\t" <> renderInteger 4 value], 4)
-        DataWordConstant constant -> unresolved constant
-        DataCode Nothing -> pure (["\t.int32\t0"], 4)
-        DataCode (Just target) -> pure (["\t.int32\t" <> symbolText ctx target], 4)
-        DataBytes bytes -> pure (["\t.ascii\t\"" <> escapeBytes bytes <> "\"" | not (BS.null bytes)], BS.length bytes)
-        DataZero count -> pure (["\t.skip\t" <> tshow count | count > 0], fromInteger count)
-    unresolved constant = Left (WasmLirUnsupported ("unknown constant " <> unSymbol constant))
+        DataIntConstant _ constant -> unresolvedConstant constant
+        DataInt ty value -> (["\t.int" <> tshow (8 * typeBytes ty) <> "\t" <> renderInteger (typeBytes ty) value], typeBytes ty)
+        DataFloat F32 value -> (["\t.int32\t" <> tshow (castFloatToWord32 (double2Float value))], 4)
+        DataFloat _ value -> (["\t.int64\t" <> tshow (castDoubleToWord64 value)], 8)
+        DataSymbol target 0 -> (["\t.int32\t" <> symbolText ctx target], 4)
+        DataSymbol target addend -> (["\t.int32\t" <> symbolText ctx target <> (if addend < 0 then "-" <> tshow (negate addend) else "+" <> tshow addend)], 4)
+        DataNull -> (["\t.int32\t0"], 4)
+        DataWordConstant constant -> unresolvedConstant constant
+        DataWord value -> (["\t.int32\t" <> renderInteger 4 value], 4)
+        DataCode Nothing -> (["\t.int32\t0"], 4)
+        DataCode (Just target) -> (["\t.int32\t" <> symbolText ctx target], 4)
+        DataBytes bytes -> (["\t.ascii\t\"" <> escapeBytes bytes <> "\"" | not (BS.null bytes)], BS.length bytes)
+        DataZero count -> (["\t.skip\t" <> tshow count | count > 0], fromInteger count)
 
 -- | A read-only byte object with a local symbol.
 renderBytes :: Text -> BS.ByteString -> [Text]

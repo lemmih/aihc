@@ -34,7 +34,7 @@ where
 import Aihc.Arm64.Assemble
 import Aihc.Lir.Lint (LintError, lintModule)
 import Aihc.Lir.RegAlloc (Allocation (..), Registers (..), allocateRegistersFor, readCounts)
-import Aihc.Lir.Resolve (resolveConstants)
+import Aihc.Lir.Resolve (resolveConstants, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Aihc.Native.Object (SectionRole (..))
 import Control.Monad (forM, when, zipWithM)
@@ -84,8 +84,8 @@ compileLirStatements lirModule =
         )
     compileItems = do
       functionStatements <- concat <$> zipWithM (compileFunction signatures) [0 ..] [function | ItemFunction function <- items]
-      dataStatements <- lift (concat <$> traverse compileData [dataItem | ItemData dataItem <- items])
-      let globalStatements = concatMap compileGlobal [global | ItemGlobal global <- items]
+      let dataStatements = concatMap compileData [dataItem | ItemData dataItem <- items]
+          globalStatements = concatMap compileGlobal [global | ItemGlobal global <- items]
       trapStatements <- renderTraps
       pure (functionStatements <> trapStatements <> dataStatements <> globalStatements)
 
@@ -163,37 +163,31 @@ renderTraps = do
 
 -- Data
 
--- | The linter and 'resolveConstants' leave no constant reference behind, so
--- one is an error here rather than a value.
-compileData :: DataItem -> Either Arm64LirError [Arm64Statement]
-compileData dataItem = do
-  fields <- concat <$> traverse field (dataFields dataItem)
-  pure
-    ( [ arm64Section (if dataMutable dataItem then DataSection else ReadOnlySection),
-        arm64Align (log2 (dataAlignment dataItem))
-      ]
-        <> [arm64Global symbol | dataLinkage dataItem == Export]
-        <> [arm64Label symbol]
-        <> fields
-    )
+compileData :: DataItem -> [Arm64Statement]
+compileData dataItem =
+  [ arm64Section (if dataMutable dataItem then DataSection else ReadOnlySection),
+    arm64Align (log2 (dataAlignment dataItem))
+  ]
+    <> [arm64Global symbol | dataLinkage dataItem == Export]
+    <> [arm64Label symbol]
+    <> concatMap field (dataFields dataItem)
   where
     symbol = lirSymbol (dataName dataItem)
     field dataField =
       case dataField of
-        DataInt ty value -> pure [arm64Word (typeBytes ty) (fromInteger value)]
-        DataIntConstant _ constant -> unresolved constant
-        DataFloat F32 value -> pure [arm64Word 4 (fromIntegral (castFloatToWord32 (double2Float value)))]
-        DataFloat _ value -> pure [arm64Word 8 (castDoubleToWord64 value)]
-        DataSymbol target 0 -> pure [arm64QuadSymbol (lirSymbol target)]
-        DataSymbol target addend -> pure [arm64QuadSymbolAddend (lirSymbol target) (fromInteger addend)]
-        DataNull -> pure [arm64Quad 0]
-        DataWord value -> pure [arm64Word 8 (fromInteger value)]
-        DataWordConstant constant -> unresolved constant
-        DataCode Nothing -> pure [arm64Quad 0]
-        DataCode (Just target) -> pure [arm64QuadSymbol (lirSymbol target)]
-        DataBytes bytes -> pure [arm64Bytes bytes]
-        DataZero count -> pure [arm64Bytes (BS.replicate (fromInteger count) 0)]
-    unresolved constant = Left (Arm64LirUnsupported ("unknown constant " <> unSymbol constant))
+        DataIntConstant _ constant -> unresolvedConstant constant
+        DataInt ty value -> [arm64Word (typeBytes ty) (fromInteger value)]
+        DataFloat F32 value -> [arm64Word 4 (fromIntegral (castFloatToWord32 (double2Float value)))]
+        DataFloat _ value -> [arm64Word 8 (castDoubleToWord64 value)]
+        DataSymbol target 0 -> [arm64QuadSymbol (lirSymbol target)]
+        DataSymbol target addend -> [arm64QuadSymbolAddend (lirSymbol target) (fromInteger addend)]
+        DataNull -> [arm64Quad 0]
+        DataWordConstant constant -> unresolvedConstant constant
+        DataWord value -> [arm64Word 8 (fromInteger value)]
+        DataCode Nothing -> [arm64Quad 0]
+        DataCode (Just target) -> [arm64QuadSymbol (lirSymbol target)]
+        DataBytes bytes -> [arm64Bytes bytes]
+        DataZero count -> [arm64Bytes (BS.replicate (fromInteger count) 0)]
 
 -- | A global is one word in the data section of its module.
 compileGlobal :: Global -> [Arm64Statement]
