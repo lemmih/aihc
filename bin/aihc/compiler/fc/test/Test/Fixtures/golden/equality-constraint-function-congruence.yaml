@@ -8,5 +8,5 @@ modules:
   cast :: (a ~ b) => (a -> a) -> b -> b
   cast f = f
   result = cast (\x -> x) On
-status: xfail
-reason: Equality lifts through function arguments and results. AIHC still lacks complete equality support.
+status: pass
+reason: Equality lifts through function arguments and results.

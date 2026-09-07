@@ -604,6 +604,8 @@ lintNominalCoercion env proof =
     CoRefl _ -> Right ()
     CoSym inner -> lintNominalCoercion env inner
     CoTrans left right -> lintNominalCoercion env left >> lintNominalCoercion env right
+    CoApp function argument -> lintNominalCoercion env function >> lintNominalCoercion env argument
+    CoFun domain range -> lintNominalCoercion env domain >> lintNominalCoercion env range
     CoTyConApp _ arguments -> mapM_ (lintNominalCoercion env) arguments
     CoAxiom name _ ->
       case Map.lookup name (teAxioms env) of
@@ -629,6 +631,34 @@ coercionEndpoints env coercion =
       (middleRight, to) <- coercionEndpoints env right
       unless (typesEqual env middleLeft middleRight) (Left (TypeMismatch "coercion transitivity" middleLeft middleRight))
       Right (from, to)
+    CoApp function argument -> do
+      lintNominalCoercion env function
+      lintNominalCoercion env argument
+      (leftFunction, rightFunction) <- coercionEndpoints env function
+      (leftArgument, rightArgument) <- coercionEndpoints env argument
+      let left = TyApp leftFunction leftArgument
+          right = TyApp rightFunction rightArgument
+      leftKind <- lintType env left
+      rightKind <- lintType env right
+      unless (typesEqual env leftKind rightKind) (Left (KindMismatch "application coercion" leftKind rightKind))
+      Right (left, right)
+    CoFun domain range -> do
+      lintNominalCoercion env domain
+      lintNominalCoercion env range
+      (leftDomain, rightDomain) <- coercionEndpoints env domain
+      (leftRange, rightRange) <- coercionEndpoints env range
+      left <- functionEndpoint leftDomain leftRange
+      right <- functionEndpoint rightDomain rightRange
+      Right (left, right)
+      where
+        functionEndpoint argument result = do
+          _ <- lintType env argument
+          _ <- lintType env result
+          argumentRep <- maybe (Left (LintFailure "function coercion domain has no runtime representation")) Right (repOf env argument)
+          resultRep <- maybe (Left (LintFailure "function coercion range has no runtime representation")) Right (repOf env result)
+          let ty = TyFun argumentRep resultRep argument result
+          _ <- lintType env ty
+          Right ty
     CoTyConApp name arguments -> do
       header <- case lookupHeaderType env name of
         Nothing -> Left (UnboundName name)

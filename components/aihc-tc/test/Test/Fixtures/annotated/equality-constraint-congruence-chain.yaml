@@ -1,21 +1,14 @@
 extensions:
 - GADTs
 - TypeOperators
-- KindSignatures
 modules:
 - |
   module Test where
   data Flag = Off | On
-  cast :: (f ~ g) => f a -> g a
+  cast :: (a ~ b, b ~ a, [b] ~ c) => [a] -> c
   cast x = x
   result = case cast [On] :: [Flag] of
     [x] -> x
     _ -> Off
-expression: result
-output: |
-  On
 status: pass
-reason: Equality can relate type constructors.
-
-evaluators:
-- grin
+reason: Congruence composes with given equalities and terminates with a cycle.

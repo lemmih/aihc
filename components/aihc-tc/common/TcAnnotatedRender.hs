@@ -264,6 +264,8 @@ renderCoercion coercion =
     Refl ty -> "refl " <> renderTcType ty
     Sym co -> "sym (" <> renderCoercion co <> ")"
     Trans left right -> "trans (" <> renderCoercion left <> ") (" <> renderCoercion right <> ")"
+    AppCo function argument -> "app (" <> renderCoercion function <> ") (" <> renderCoercion argument <> ")"
+    FunCo domain range -> "fun (" <> renderCoercion domain <> ") (" <> renderCoercion range <> ")"
     TyConAppCo tyCon args -> T.unpack (tyConName tyCon) <> " " <> unwords (map renderCoercion args)
     AxiomInstCo key tys -> show key <> renderTypeArgs tys
 

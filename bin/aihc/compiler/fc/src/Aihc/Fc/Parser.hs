@@ -465,6 +465,8 @@ coercion =
     [ CoRefl <$> (keyword "refl" *> typeAtom),
       CoSym <$> (keyword "sym" *> parens coercion),
       CoTrans <$> (keyword "trans" *> parens coercion) <*> parens coercion,
+      CoApp <$> (keyword "app-co" *> parens coercion) <*> parens coercion,
+      CoFun <$> (keyword "fun-co" *> parens coercion) <*> parens coercion,
       CoTyConApp <$> (keyword "tycon-co" *> topNameWithSort) <*> MP.many (parens coercion),
       CoAxiom <$> (keyword "axiom-co" *> topNameWithSort) <*> MP.many (symbol "@" *> typeAtom),
       CoVar <$> localName

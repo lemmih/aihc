@@ -13,12 +13,12 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Congruence (proveGivenEquality)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe, mapMaybe)
 
 -- | Preserve a proof from the current signature or pattern scope.
 solveGivenEquality :: [Pred] -> Ct -> TcM Bool
@@ -27,7 +27,8 @@ solveGivenEquality givens ct = case ctPred ct of
     left' <- zonkType left
     right' <- zonkType right
     predicates <- mapM zonkGiven givens
-    case prove predicates [] left' right' of
+    result <- proveGivenEquality predicates left' right'
+    case result of
       Just proof -> do
         bindEvidence (ctEvVar ct) (EvCoercion proof)
         pure True
@@ -36,20 +37,6 @@ solveGivenEquality givens ct = case ctPred ct of
   where
     zonkGiven (EqPred left right) = EqPred <$> zonkType left <*> zonkType right
     zonkGiven predicate = pure predicate
-
-    prove predicates visited left right
-      | left == right = Just (Refl left)
-      | left `elem` visited = Nothing
-      | otherwise = listToMaybe (mapMaybe follow (edges predicates left))
-      where
-        follow (next, proof) = Trans proof <$> prove predicates (left : visited) next right
-
-    edges predicates source = concatMap edge predicates
-      where
-        edge predicate@(EqPred left right) =
-          [(right, GivenCo predicate) | left == source]
-            <> [(left, Sym (GivenCo predicate)) | right == source]
-        edge _ = []
 
 -- | Result of attempting to solve an equality constraint.
 data EqResult
@@ -142,10 +129,12 @@ solveDecomposed ct witness pairs = do
     Nothing -> do
       bindEvidence (ctEvVar ct) (EvCoercion (Refl witness))
       pure EqSolved
+    Just EqStuck {} -> pure (EqStuck ct)
     Just result -> pure result
   where
-    solvePair (left, right) =
-      solveEquality (ct {ctPred = EqPred left right})
+    solvePair (left, right) = do
+      evidence <- freshEvVar
+      solveEquality (ct {ctPred = EqPred left right, ctEvVar = evidence})
 
 firstUnsolved :: [EqResult] -> Maybe EqResult
 firstUnsolved [] = Nothing

@@ -339,6 +339,16 @@ coercionEndpoints env coercion =
       (left, middle) <- coercionEndpoints env first
       (middle', right) <- coercionEndpoints env second
       if typesEqual env middle middle' then Just (left, right) else Nothing
+    CoApp function argument -> do
+      (leftFunction, rightFunction) <- coercionEndpoints env function
+      (leftArgument, rightArgument) <- coercionEndpoints env argument
+      pure (TyApp leftFunction leftArgument, TyApp rightFunction rightArgument)
+    CoFun domain range -> do
+      (leftDomain, rightDomain) <- coercionEndpoints env domain
+      (leftRange, rightRange) <- coercionEndpoints env range
+      left <- TyFun <$> repOf env leftDomain <*> repOf env leftRange <*> pure leftDomain <*> pure leftRange
+      right <- TyFun <$> repOf env rightDomain <*> repOf env rightRange <*> pure rightDomain <*> pure rightRange
+      pure (left, right)
     CoTyConApp name arguments -> do
       endpoints <- traverse (coercionEndpoints env) arguments
       pure (foldl TyApp (TyCon name) (map fst endpoints), foldl TyApp (TyCon name) (map snd endpoints))
