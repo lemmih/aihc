@@ -17,7 +17,7 @@ module Test.Lir.AsmSuite
   )
 where
 
-import Aihc.Lir (Module, parseModule, renderParseError)
+import Aihc.Lir (Module, expandIncludes, parseModule, renderLoadError, renderParseError)
 import Data.List (sort)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -47,7 +47,8 @@ tests backend = do
 fixtureTest :: AsmBackend -> FilePath -> FilePath -> TestTree
 fixtureTest backend directory name = testCase name $ do
   source <- TIO.readFile (directory </> name)
-  lirModule <- either (assertFailure . renderParseError) pure (parseModule source)
+  parsed <- either (assertFailure . renderParseError) pure (parseModule source)
+  lirModule <- either (assertFailure . renderLoadError) pure =<< expandIncludes TIO.readFile (directory </> name) parsed
   actual <- either (assertFailure . ("backend failed: " <>)) pure (asmBackendRender backend lirModule)
   let goldenPath = directory </> dropExtension name <> asmBackendExtension backend
   accept <- lookupEnv "AIHC_ACCEPT_ASM"

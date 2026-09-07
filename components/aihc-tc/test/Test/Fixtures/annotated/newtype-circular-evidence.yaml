@@ -1,0 +1,29 @@
+annotated:
+- |-
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Main where
+  class C a where
+  └─ class methods: c ∷ ∀ a. (C a) ⇒ a → a
+    c :: a -> a
+  newtype A = A B deriving C
+  │       │   │            └─ error: unsolved constraint C B
+  │       │   └─ type: B → A
+  │       └─ type: Type
+  └─ deriving plans: newtype C A [context: infer] [methods: c]
+  newtype B = B A deriving C
+  │       │   │            └─ error: unsolved constraint C A
+  │       │   └─ type: A → B
+  │       └─ type: Type
+  └─ deriving plans: newtype C B [context: infer] [methods: c]
+extensions:
+- GeneralizedNewtypeDeriving
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Main where
+  class C a where
+    c :: a -> a
+  newtype A = A B deriving C
+  newtype B = B A deriving C
+reason: reject circular representation evidence
+status: pass

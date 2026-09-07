@@ -14,8 +14,7 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: A higher-rank argument can require equality evidence. AIHC still lacks complete equality support.
+status: pass
 
 evaluators:
 - grin

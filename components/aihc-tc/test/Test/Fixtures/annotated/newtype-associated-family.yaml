@@ -1,0 +1,26 @@
+annotated:
+- |-
+  {-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies, UndecidableInstances #-}
+  module Main where
+  class Has a where
+  └─ class methods:
+    type Item a
+         └─ type: Type → Type
+  newtype N a = N a deriving Has
+  │       │     │            └─ $fHasNa ∷ ∀ a. () ⇒ Has (N a) [associated types: Item (N a) = Item a]
+  │       │     └─ type: ∀ a. a → N a
+  │       └─ type: Type → Type
+  └─ deriving plans: newtype Has (N a) [context: ()]
+extensions:
+- UndecidableInstances
+- GeneralizedNewtypeDeriving
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies, UndecidableInstances #-}
+  module Main where
+  class Has a where
+    type Item a
+  newtype N a = N a deriving Has
+reason: forward an associated type without a representation dictionary requirement
+status: pass

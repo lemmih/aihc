@@ -28,7 +28,7 @@ import Aihc.Testing.RuntimeArchive (cachedRuntimeArchive)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
-import Control.Monad (forM, forM_, when)
+import Control.Monad (forM, forM_, when, (<=<))
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
 import Data.ByteString.Lazy qualified as BL
 import Data.List (sort)
@@ -75,9 +75,7 @@ tests backend = do
   names <- sort . filter ((== ".lir") . takeExtension) <$> listDirectory directory
   snapshots <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory snapshotDirectory
   plan <- runtimePlan (backendTarget backend) RuntimeGcSemispace
-  runtimeModules <- forM (runtimeLirSources plan) $ \source -> do
-    text <- TIO.readFile source
-    either (assertFailure . renderParseError) pure (parseModule text)
+  runtimeModules <- mapM (either (assertFailure . renderLoadError) pure <=< loadModule) (runtimeLirSources plan)
   let runtimeExports = Map.fromList [(functionName function, functionSignature function) | runtimeModule <- runtimeModules, ItemFunction function <- moduleItems runtimeModule, functionLinkage function == Export]
   pure
     ( testGroup
@@ -123,7 +121,8 @@ compileUnit backend lirModule = either (assertFailure . ("backend failed: " <>))
 fixtureTest :: NativeBackend -> FilePath -> FilePath -> TestTree
 fixtureTest backend directory name = testCase name $ do
   source <- TIO.readFile (directory </> name)
-  lirModule <- either (assertFailure . renderParseError) pure (parseModule source)
+  parsed <- either (assertFailure . renderParseError) pure (parseModule source)
+  lirModule <- either (assertFailure . renderLoadError) pure =<< expandIncludes TIO.readFile (directory </> name) parsed
   let resultTypes = concat [functionResults function | ItemFunction function <- moduleItems lirModule, functionName function == Symbol "main"]
       wrapped = Module (moduleItems lirModule <> [ItemFunction (testWrapper resultTypes)])
   output <- compileUnit backend wrapped

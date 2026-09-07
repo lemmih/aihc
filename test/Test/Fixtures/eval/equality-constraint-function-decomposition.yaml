@@ -1,0 +1,17 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  cast :: ((a -> Flag) ~ (b -> Flag)) => a -> b
+  cast x = x
+  result = cast On :: Flag
+expression: result
+output: |
+  On
+status: pass
+
+evaluators:
+- grin

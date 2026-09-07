@@ -4,6 +4,11 @@
 ; Heap slots have eight bytes on every target.
 ; C accessors isolate the pointer-sized info tables and scheduler records.
 
+include "aihc_constants.lir"
+
+const @WORD_BITS = 64
+const @WORD_HIGH_BIT = 63
+
 extern func @aihc_lir_info_kind(ptr) -> i64 cc c
 extern func @aihc_lir_info_arity(ptr) -> i64 cc c
 extern func @aihc_lir_info_count(ptr) -> i64 cc c
@@ -30,12 +35,16 @@ loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
   %kind = call @aihc_lir_info_kind(%header)
-  switch i64 %kind {
-    2 -> thunk
-    4 -> indirection
-    5 -> blackhole
-    default -> ready
-  }
+  %is_thunk = eq i64 %kind, @AIHC_OBJECT_THUNK
+  br %is_thunk, thunk, check_indirection
+
+check_indirection:
+  %is_indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
+  br %is_indirection, indirection, check_blackhole
+
+check_blackhole:
+  %is_blackhole = eq i64 %kind, @AIHC_OBJECT_BLACKHOLE
+  br %is_blackhole, blackhole, ready
 
 thunk:
   call @aihc_begin_blackhole(%machine, %current)
@@ -83,12 +92,16 @@ dispatch:
   %continuation = ptr.from_int %continuation_word
   %value = load i64 [%slots + 24] align 8
   %count = load i64 [%slots + 32] align 8
-  switch i64 %kind {
-    1 -> apply
-    2 -> continue
-    3 -> raise
-    default -> invalid
-  }
+  %is_apply = eq i64 %kind, @AIHC_RESUME_APPLY
+  br %is_apply, apply, check_continue
+
+check_continue:
+  %is_continue = eq i64 %kind, @AIHC_RESUME_CONTINUE
+  br %is_continue, continue, check_raise
+
+check_raise:
+  %is_raise = eq i64 %kind, @AIHC_RESUME_RAISE
+  br %is_raise, raise, invalid
 
 apply:
   switch i64 %count {
@@ -127,16 +140,16 @@ invalid:
 
 export func @aihc_lir_quotrem2(%high: i64, %low: i64, %divisor: i64) -> (i64, i64) {
 entry:
-  jump loop(%high, %low, 0, 64)
+  jump loop(%high, %low, 0, @WORD_BITS)
 
 loop(%h: i64, %l: i64, %q: i64, %n: i64):
   %done = eq i64 %n, 0
   br %done, finish(%q, %h), step
 
 step:
-  %top = shr.u i64 %h, 63
+  %top = shr.u i64 %h, @WORD_HIGH_BIT
   %top_set = ne i64 %top, 0
-  %carry = shr.u i64 %l, 63
+  %carry = shr.u i64 %l, @WORD_HIGH_BIT
   %shifted_high = shl i64 %h, 1
   %next_high = or i64 %shifted_high, %carry
   %next_low = shl i64 %l, 1
@@ -181,7 +194,7 @@ loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
   %kind = call @aihc_lir_info_kind(%header)
-  %indirection = eq i64 %kind, 4
+  %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, enter
 
 indirection:
@@ -202,7 +215,7 @@ loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
   %kind = call @aihc_lir_info_kind(%header)
-  %indirection = eq i64 %kind, 4
+  %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, enter
 
 indirection:
@@ -223,7 +236,7 @@ loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
   %kind = call @aihc_lir_info_kind(%header)
-  %indirection = eq i64 %kind, 4
+  %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, enter
 
 indirection:
@@ -247,7 +260,7 @@ loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
   %kind = call @aihc_lir_info_kind(%header)
-  %indirection = eq i64 %kind, 4
+  %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, apply
 
 indirection:
@@ -257,7 +270,7 @@ indirection:
 
 apply:
   %arity = call @aihc_lir_info_arity(%header)
-  %closure = eq i64 %kind, 1
+  %closure = eq i64 %kind, @AIHC_OBJECT_CLOSURE
   %saturated = eq i64 %arity, 1
   %fast = and i1 %closure, %saturated
   br %fast, fast, slow
@@ -283,7 +296,7 @@ loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
   %kind = call @aihc_lir_info_kind(%header)
-  %indirection = eq i64 %kind, 4
+  %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, apply
 
 indirection:
@@ -293,7 +306,7 @@ indirection:
 
 apply:
   %arity = call @aihc_lir_info_arity(%header)
-  %closure = eq i64 %kind, 1
+  %closure = eq i64 %kind, @AIHC_OBJECT_CLOSURE
   %saturated = eq i64 %arity, 1
   %fast = and i1 %closure, %saturated
   br %fast, fast, slow
@@ -320,7 +333,7 @@ loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
   %kind = call @aihc_lir_info_kind(%header)
-  %indirection = eq i64 %kind, 4
+  %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, apply
 
 indirection:
@@ -330,7 +343,7 @@ indirection:
 
 apply:
   %arity = call @aihc_lir_info_arity(%header)
-  %closure = eq i64 %kind, 1
+  %closure = eq i64 %kind, @AIHC_OBJECT_CLOSURE
   %saturated = eq i64 %arity, 1
   %fast = and i1 %closure, %saturated
   br %fast, fast, slow
@@ -358,7 +371,7 @@ loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
   %kind = call @aihc_lir_info_kind(%header)
-  %indirection = eq i64 %kind, 4
+  %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, check
 
 indirection:
@@ -372,7 +385,7 @@ check:
   br %has_next, count, word
 
 count:
-  %kind_is_partial = eq i64 %kind, 3
+  %kind_is_partial = eq i64 %kind, @AIHC_OBJECT_PARTIAL_CONSTRUCTOR
   br %kind_is_partial, partial_count, info_count
 
 partial_count:
@@ -406,7 +419,7 @@ loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
   %kind = call @aihc_lir_info_kind(%header)
-  %indirection = eq i64 %kind, 4
+  %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, check
 
 indirection:
@@ -420,7 +433,7 @@ check:
   br %has_next, count, word
 
 count:
-  %kind_is_partial = eq i64 %kind, 3
+  %kind_is_partial = eq i64 %kind, @AIHC_OBJECT_PARTIAL_CONSTRUCTOR
   br %kind_is_partial, partial_count, info_count
 
 partial_count:

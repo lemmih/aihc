@@ -43,7 +43,7 @@ import Aihc.Tc.Annotations
     TcDerivingStrategy (..),
     TcDictBinderAnnotation (..),
   )
-import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy)
+import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy, defaultStockFallback)
 import Aihc.Tc.Env (ClassInfo (..), DataTypeInfo, TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, surfacePredToPred, takeVisibleArgumentKinds, tcTypeKind, unifyKinds)
@@ -157,11 +157,12 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvE
               targetKind <- defaultKindMetas (tvKind targetClassVar)
               targetType <- attachedTargetType classSpan targetInfo params targetKind
               checkedStrategy <- checkDerivingStrategy extensions targetFlavor className (ciOrigin classInfo) tvEnv targetKind classSpan strategy
+              fallback <- defaultStockFallback className (ciOrigin classInfo) strategy checkedStrategy
               methods <- derivingClassMethods classInfo
               let headTypes = checkedArguments <> [targetType]
                   strategyTypes = case checkedStrategy of TcDerivingVia viaType -> [viaType]; _ -> []
                   quantified = filter (\param -> any (typeMentionsTyVar (paramTyVar param)) (headTypes <> strategyTypes)) params
-              pure (Just (mkDerivingPlan classSpan checkedStrategy classInfo (map paramTyVar quantified) headTypes dataType TcDerivingInferContext methods))
+              pure (Just ((mkDerivingPlan classSpan checkedStrategy classInfo (map paramTyVar quantified) headTypes dataType TcDerivingInferContext methods) {tcDerivingStockFallback = fallback}))
 
 attachedTargetType :: SourceSpan -> TyConInfo -> [ParamInfo] -> TcType -> TcM TcType
 attachedTargetType sourceSpan targetInfo params expectedKind = do
@@ -230,10 +231,11 @@ checkStandaloneDerivingPlan extensions derivingDecl =
               tyVars <- mapM (defaultTyVarKinds . paramTyVar) params
               headTypes <- mapM defaultTypeKinds checkedHead
               context <- mapM defaultPredKinds checkedContext
+              fallback <- defaultStockFallback className (ciOrigin classInfo) (standaloneDerivingStrategy derivingDecl) checkedStrategy
               strategy <- defaultDerivingStrategyKinds checkedStrategy
               methods <- derivingClassMethods classInfo
               dataType <- standaloneTargetDataType headTypes
-              pure (Just (mkDerivingPlan classSpan strategy classInfo tyVars headTypes dataType (TcDerivingExplicitContext context) methods))
+              pure (Just ((mkDerivingPlan classSpan strategy classInfo tyVars headTypes dataType (TcDerivingExplicitContext context) methods) {tcDerivingStockFallback = fallback}))
   where
     implicitParam name = do
       rawTyVar <- freshSkolemTv name
@@ -246,6 +248,7 @@ mkDerivingPlan sourceSpan strategy classInfo tyVars headTypes dataType context m
   TcDerivingPlan
     { tcDerivingSourceSpan = sourceSpan,
       tcDerivingStrategy = strategy,
+      tcDerivingStockFallback = False,
       tcDerivingClassName = className,
       tcDerivingClassTyCon = ciTyCon classInfo,
       tcDerivingClassOrigin = ciOrigin classInfo,

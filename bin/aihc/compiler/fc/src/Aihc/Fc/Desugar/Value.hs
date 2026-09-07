@@ -60,6 +60,8 @@ import Aihc.Tc.Annotations
     TcForeignTarget (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
+    TcNewtypeInstance (..),
+    TcNewtypeMethod (..),
     TcPatSynAnnotation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
@@ -77,6 +79,7 @@ import Aihc.Tc.Types
     isUnliftedTypeInEnv,
     mkTyConWithOrigin,
     runtimeRepOfTypeInEnv,
+    tvKind,
     tvUnique,
     tyConModuleName,
     tyConName,
@@ -988,18 +991,27 @@ desugarInstance :: TcInstanceAnnotation -> Syn.InstanceDecl -> ValueM Decl
 desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars annotation) $ do
   let methods = Map.fromListWith appendMatches (instanceMethods instanceDecl)
   contextDictionaries <- zipWithM makeContextDictionary [0 :: Int ..] (tcInstanceContextDicts annotation)
-  fields <- withDictionaries contextDictionaries $ do
-    superClasses <- mapM (desugarEvidence . snd) (tcInstanceSuperClasses annotation)
-    methodFields <- mapM (desugarInstanceMethod annotation contextDictionaries methods) (tcInstanceMethodOrder annotation)
-    pure (superClasses <> methodFields)
+  dictionaryBody <- withDictionaries contextDictionaries $ do
+    case tcInstanceNewtype annotation of
+      Just derived
+        | Just proof <- tcNewtypeDictionaryCast derived,
+          Just evidence <- tcNewtypeEvidence derived -> do
+            body <- desugarEvidence evidence
+            withCoercion proof (pure . ExCast body)
+      derived -> do
+        superClasses <- mapM (desugarEvidence . snd) (tcInstanceSuperClasses annotation)
+        methodFields <- case derived of
+          Nothing -> mapM (desugarInstanceMethod annotation contextDictionaries methods) (tcInstanceMethodOrder annotation)
+          Just body -> mapM (desugarNewtypeMethod annotation body) (tcNewtypeMethods body)
+        headTypes <- convertTyConApplicationArguments (tcInstanceClassTyCon annotation) (tcInstanceHeadTypes annotation)
+        let constructor = foldl ExTyApp (ExVar (classDictConName (tcInstanceClassTyCon annotation))) headTypes
+        pure (foldl ExApp constructor (superClasses <> methodFields))
   _ <- freshUnique
   _ <- freshUnique
   typeBinders <- convertTypeBinders (tcInstanceTyVars annotation)
-  headTypes <- convertTyConApplicationArguments (tcInstanceClassTyCon annotation) (tcInstanceHeadTypes annotation)
   dictionaryType <- convertCheckedType (tcInstanceDictType annotation)
   let dictionaryBinders = map dictionaryBinder contextDictionaries
-      constructor = foldl ExTyApp (ExVar (classDictConName (tcInstanceClassTyCon annotation))) headTypes
-      body = foldr ExTyLam (foldr ExLam (foldl ExApp constructor fields) dictionaryBinders) typeBinders
+      body = foldr ExTyLam (foldr ExLam dictionaryBody dictionaryBinders) typeBinders
   moduleOrigin <- gets vsModuleOrigin
   pure
     ( DeclVal
@@ -1014,6 +1026,25 @@ desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars an
     )
   where
     appendMatches (newType, newMatches) (_, oldMatches) = (newType, oldMatches <> newMatches)
+
+-- | Select a representation field without a reference to a public method.
+desugarNewtypeMethod :: TcInstanceAnnotation -> TcNewtypeInstance -> TcNewtypeMethod -> ValueM Expr
+desugarNewtypeMethod annotation derived method = withTypeVariables (tcNewtypeMethodTyVars method) $ do
+  typeBinders <- convertTypeBinders (tcNewtypeMethodTyVars method)
+  extraTypes <- mapM (convertCheckedType . TcTyVar) (tcNewtypeMethodTyVars method)
+  dictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] (tcNewtypeMethodPredicates method)
+  evidence <- maybe (failValue "newtype method lacks representation evidence") desugarEvidence (tcNewtypeEvidence derived)
+  let classTyCon = tcInstanceClassTyCon annotation
+  sourceBinder <- freshBinder "$newtype_source" (TcTyCon classTyCon (tcNewtypeHeadTypes derived))
+  fields <- zipWithM (freshIndexedBinder "$newtype_field") [0 :: Int ..] (tcNewtypeFieldTypes derived)
+  selected <- case drop (tcNewtypeMethodIndex method) fields of
+    field : _ -> pure field
+    [] -> failValue "newtype method index is outside the dictionary layout"
+  let projection = ExCase evidence sourceBinder (binderType selected) [Alt (AltData (classDictConName classTyCon)) [] fields (ExVar (binderName selected))]
+      instantiated = foldl ExTyApp projection extraTypes
+      applied = foldl ExApp instantiated (map (ExVar . binderName) dictionaries)
+  cast <- withCoercion (tcNewtypeMethodCoercion method) (pure . ExCast applied)
+  pure (foldr ExTyLam (foldr ExLam cast dictionaries) typeBinders)
 
 desugarInstanceMethod :: TcInstanceAnnotation -> [Dictionary] -> Map Text (TcType, [Syn.Match]) -> Text -> ValueM Expr
 desugarInstanceMethod annotation dictionaries methods methodName =
@@ -2096,7 +2127,7 @@ desugarRhsWithFailure resultType failure rhs = do
         Syn.UnguardedRhs anns _ _ -> anns
         Syn.GuardedRhss anns _ _ -> anns
       proofs = [proof | TcCastAnnotation proof <- mapMaybe Syn.fromAnnotation annotations]
-  foldM (\expression proof -> ExCast expression <$> convertCoercion proof) body proofs
+  foldM (\expression proof -> withCoercion proof (pure . ExCast expression)) body proofs
 
 desugarRhsBodyWithFailure :: TcType -> Maybe Expr -> Syn.Rhs Syn.Expr -> ValueM Expr
 desugarRhsBodyWithFailure resultType failure rhs =
@@ -2365,6 +2396,21 @@ annotatedVariable expression =
     Syn.EVar name -> Just name
     _ -> Nothing
 
+-- | Preserve each checked binder kind at a type application.
+convertOccurrenceTypeArguments :: Syn.Name -> [TcType] -> ValueM [Type]
+convertOccurrenceTypeArguments _ [] = pure []
+convertOccurrenceTypeArguments name arguments = do
+  declaredType <- lookupBindingType =<< requiredNameTermKey name
+  env <- gets vsConvertEnv
+  liftEither (convertArguments env declaredType arguments)
+  where
+    convertArguments _ _ [] = Right []
+    convertArguments env (TcForAllTy variable body) (argument : rest) = do
+      converted <- convertTypeWithExpectedKind env (Just (tvKind variable)) argument
+      let substitution = Map.singleton (tvUnique variable) argument
+      (converted :) <$> convertArguments env (applySubst substitution body) rest
+    convertArguments env _ remaining = mapM (convertType env) remaining
+
 localOccurrenceTypeArguments :: Syn.Name -> TcAnnotation -> ValueM [TcType]
 localOccurrenceTypeArguments name annotation
   | not (null (tcAnnTypeArgs annotation)) = pure (tcAnnTypeArgs annotation)
@@ -2391,7 +2437,7 @@ desugarInfixOperator operator = do
       desugarStrictConstructor operator annotation strictFlags
     (Nothing, Just annotation) -> do
       variable <- resolvedTermName operator
-      types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
+      types <- convertOccurrenceTypeArguments operator (tcAnnTypeArgs annotation)
       evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
       desugarTermReference variable types evidence (seqTermArgumentTypes annotation)
     (Nothing, Nothing) -> do
@@ -2444,7 +2490,7 @@ desugarVariable maybeAnnotation name = do
         Nothing -> desugarTermReference variable [] [] []
         Just annotation -> do
           inferredTypes <- localOccurrenceTypeArguments name annotation
-          types <- mapM convertCheckedType inferredTypes
+          types <- convertOccurrenceTypeArguments name inferredTypes
           evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
           desugarTermReference variable types evidence (seqTermArgumentTypes annotation)
   where
@@ -2545,7 +2591,7 @@ desugarStrictConstructor name annotation strictFlags = do
     else do
       constructor <- resolvedTermName name
       inferredTypes <- localOccurrenceTypeArguments name annotation
-      types <- mapM convertCheckedType inferredTypes
+      types <- convertOccurrenceTypeArguments name inferredTypes
       evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
       fields <- mapM (freshBinder "_strict_field") fieldTypes
       convertedResult <- convertCheckedType resultType
@@ -2676,7 +2722,8 @@ convertTyConApplicationArguments :: TyCon -> [TcType] -> ValueM [Type]
 convertTyConApplicationArguments tyCon arguments = do
   env <- gets vsConvertEnv
   invisibleArguments <- liftEither (invisibleKindArgs env tyCon arguments Nothing)
-  visibleArguments <- mapM convertCheckedType arguments
+  kinds <- liftEither (visibleArgumentKinds env tyCon arguments Nothing)
+  visibleArguments <- liftEither (zipWithM (convertTypeWithExpectedKind env . Just) kinds arguments)
   pure (invisibleArguments <> visibleArguments)
 
 -- | Desugar a lambda-case into ordinary function equations.
@@ -3481,14 +3528,16 @@ desugarEvidence evidence =
           package = PackageId packageName
           name = Name dictionaryName SortValue (OriginTop package moduleName')
       pure (foldl ExApp (foldl ExTyApp (ExVar name) convertedTypes) evidenceArguments)
-    Ev.EvCoercion coercion -> ExCoercion <$> convertCoercion coercion
+    Ev.EvCoercion coercion -> withCoercion coercion (pure . ExCoercion)
     Ev.EvSuperClass _ _ _ fieldTypes fieldIndex -> do
       resultPredicateType <-
         case drop fieldIndex fieldTypes of
           fieldType : _ -> pure fieldType
           [] -> failValue "superclass field type index is outside the dictionary layout"
       shareSuperClass evidence resultPredicateType (desugarSuperClass evidence)
-    Ev.EvCast inner coercion -> ExCast <$> desugarEvidence inner <*> convertCoercion coercion
+    Ev.EvCast inner coercion -> do
+      expression <- desugarEvidence inner
+      withCoercion coercion (pure . ExCast expression)
     Ev.EvTypeable origin ty arguments -> desugarTypeableEvidence origin ty arguments
     Ev.EvTypeLam variable body ->
       withoutEvidenceScope (ExTyLam <$> convertTypeBinder variable <*> desugarEvidence body)
@@ -3613,7 +3662,8 @@ desugarTypeableEvidence origin ty argumentEvidence = do
   representation <- desugarTypeRepresentation origin ty argumentRepresentations
   convertedType <- convertCheckedType ty
   proxyName <- typeableName origin "Data.Proxy" "Proxy" SortTypeConstructor
-  let proxyType = TyApp (TyCon proxyName) convertedType
+  proxyArguments <- typeableTypeArguments proxyName ty
+  let proxyType = foldl TyApp (TyCon proxyName) proxyArguments
   proxyBinder <- freshBinderFromType "$typeable_proxy" proxyType
   valueBinder <- freshBinderFromType "$typeable_value" convertedType
   dictionaryConstructor <- typeableName origin "Type.Reflection" "$Dict$Typeable" SortDataConstructor
@@ -3630,14 +3680,14 @@ desugarTypeableArgument origin ty evidence = do
   selector <- typeableName origin "Type.Reflection" "typeRep" SortValue
   someTypeRepConstructor <- typeableName origin "Type.Reflection" "SomeTypeRep" SortDataConstructor
   proxyConstructor <- typeableName origin "Data.Proxy" "Proxy" SortDataConstructor
-  let proxy = ExTyApp (ExVar proxyConstructor) convertedType
+  proxyArguments <- typeableTypeArguments proxyConstructor ty
+  let proxy = foldl ExTyApp (ExVar proxyConstructor) proxyArguments
       typeRepValue = ExApp (ExApp (ExTyApp (ExVar selector) convertedType) dictionary) proxy
   pure (ExApp (ExTyApp (ExVar someTypeRepConstructor) convertedType) typeRepValue)
 
 desugarTypeRepresentation :: Maybe (Text, Text) -> TcType -> [Expr] -> ValueM Expr
 desugarTypeRepresentation origin ty arguments = do
   (typeName, _) <- typeableTypeView ty
-  convertedType <- convertCheckedType ty
   someTypeRepName <- typeableName origin "Type.Reflection" "SomeTypeRep" SortTypeConstructor
   typeRepConstructor <- typeableName origin "Type.Reflection" "TypeRep" SortDataConstructor
   tyConAxiom <- typeableName origin "Type.Reflection" "$ax$TyCon" SortAxiom
@@ -3653,7 +3703,8 @@ desugarTypeRepresentation origin ty arguments = do
   nameList <- desugarFcList charType typeNameChars
   argumentList <- desugarFcList someTypeRepType arguments
   let tyCon = ExCast nameList (CoSym (CoAxiom tyConAxiom []))
-  pure (ExApp (ExApp (ExTyApp (ExVar typeRepConstructor) convertedType) tyCon) argumentList)
+  typeArguments <- typeableTypeArguments typeRepConstructor ty
+  pure (ExApp (ExApp (foldl ExTyApp (ExVar typeRepConstructor) typeArguments) tyCon) argumentList)
 
 desugarFcList :: Type -> [Expr] -> ValueM Expr
 desugarFcList elementType elements = do
@@ -3675,6 +3726,13 @@ typeableName origin fallbackModule name sort =
       let selectedModule = if fallbackModule == "Type.Reflection" then moduleName' else fallbackModule
        in pure (Name name sort (OriginTop (PackageId packageName) selectedModule))
     Nothing -> failValue ("Typeable evidence has no origin for " <> T.unpack name)
+
+-- | Use the checked kind scheme of a Typeable support type.
+typeableTypeArguments :: Name -> TcType -> ValueM [Type]
+typeableTypeArguments name argument = case nameOrigin name of
+  OriginTop package moduleName' ->
+    convertTyConApplicationArguments (mkTyConWithOrigin package moduleName' (nameText name) 1) [argument]
+  _ -> failValue "Typeable support type has no module origin"
 
 typeableTypeView :: TcType -> ValueM (Text, [TcType])
 typeableTypeView ty =
@@ -3759,25 +3817,48 @@ desugarIntegerLiteral value = do
     maxInt = 9223372036854775807
     minInt = -9223372036854775808
 
-convertCoercion :: Ev.Coercion -> ValueM Coercion
+-- | Give dictionary evidence a local binder before the cast.
+withCoercion :: Ev.Coercion -> (Coercion -> ValueM Expr) -> ValueM Expr
+withCoercion proof use = do
+  (converted, bindings) <- convertCoercion proof
+  body <- use converted
+  pure (foldr ExLet body bindings)
+
+convertCoercion :: Ev.Coercion -> ValueM (Coercion, [Bind])
 convertCoercion coercion =
   case coercion of
+    Ev.EvidenceCo predicate evidence -> do
+      expression <- desugarEvidence evidence
+      binder <- freshDictionaryBinder "$co" 0 predicate
+      pure (CoVar (binderName binder), [Bind binder expression])
     Ev.GivenCo predicate -> do
       dictionaries <- gets vsDictionaries
       case Map.lookup (predicateKey predicate) dictionaries of
-        Just binder -> pure (CoVar (binderName binder))
+        Just binder -> pure (CoVar (binderName binder), [])
         Nothing -> failValue ("missing given equality for " <> show predicate)
-    Ev.CoVar (Ev.EvVar unique) -> pure (CoVar (Name "c" SortValue (OriginLocal unique)))
-    Ev.Refl ty -> CoRefl <$> convertCheckedType ty
-    Ev.Sym inner -> CoSym <$> convertCoercion inner
-    Ev.Trans left right -> CoTrans <$> convertCoercion left <*> convertCoercion right
-    Ev.AppCo function argument -> CoApp <$> convertCoercion function <*> convertCoercion argument
-    Ev.FunCo domain range -> CoFun <$> convertCoercion domain <*> convertCoercion range
-    Ev.TyConAppCo tyCon arguments -> do
+    Ev.CoVar (Ev.EvVar unique) -> pure (CoVar (Name "c" SortValue (OriginLocal unique)), [])
+    Ev.Refl ty -> (,[]) . CoRefl <$> convertCheckedType ty
+    Ev.Sym inner -> unary CoSym inner
+    Ev.Trans left right -> binary CoTrans left right
+    Ev.NthCo index proof -> unary (CoNth index) proof
+    Ev.AppCo function argument -> binary CoApp function argument
+    Ev.FunCo domain range -> binary CoFun domain range
+    Ev.TyConAppCo tyCon types arguments -> do
       env <- gets vsConvertEnv
-      CoTyConApp (tyConNameFc env tyCon) <$> mapM convertCoercion arguments
-    Ev.AxiomInstCo key arguments ->
-      CoAxiom (lookupAxiomName key) <$> mapM convertCheckedType arguments
+      kinds <- liftEither (invisibleKindArgs env tyCon types Nothing)
+      converted <- mapM convertCoercion arguments
+      pure (CoTyConApp (tyConNameFc env tyCon) (map CoRefl kinds <> map fst converted), concatMap snd converted)
+    Ev.AxiomInstCo key arguments -> do
+      converted <- mapM convertCheckedType arguments
+      pure (CoAxiom (lookupAxiomName key) converted, [])
+  where
+    unary constructor proof = do
+      (converted, bindings) <- convertCoercion proof
+      pure (constructor converted, bindings)
+    binary constructor left right = do
+      (leftProof, leftBindings) <- convertCoercion left
+      (rightProof, rightBindings) <- convertCoercion right
+      pure (constructor leftProof rightProof, leftBindings <> rightBindings)
 
 resolvedTermName :: Syn.Name -> ValueM Name
 resolvedTermName sourceName =

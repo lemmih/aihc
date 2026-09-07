@@ -1,0 +1,29 @@
+; expect: 6, 42, 1
+; Named constants: an included file and a local definition. A reference
+; stands where an integer literal does, in a data field and in an operand.
+
+include "../include/object-kinds.lir"
+
+const @ANSWER = 42
+const @NEGATIVE = -1
+
+data @info align 8 = { word @OBJECT_ARRAY, word @FRAME_NONE }
+
+data @answers align 8 = { i64 @ANSWER, i8 @NEGATIVE }
+
+func @main() -> (i64, i64, i1) {
+entry:
+  ; Constant word values fit in 32 bits on every target.
+  %kind_word = load i32 [@info] align 4
+  %kind = zext i32 %kind_word to i64
+  %answer = load i64 [@answers] align 8
+  %negative = load i8 [@answers + 8] align 1
+  %is_array = eq i64 %kind, @OBJECT_ARRAY
+  %is_node = eq i64 %kind, @OBJECT_NODE
+  %minus = eq i8 %negative, @NEGATIVE
+  %both = and i1 %is_array, %minus
+  %none = or i1 %is_node, 0
+  %flag = xor i1 %both, %none
+  %sum = add i64 %answer, @FRAME_NONE
+  return %kind, %sum, %flag
+}

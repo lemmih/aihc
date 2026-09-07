@@ -1,0 +1,21 @@
+extensions:
+- UndecidableInstances
+- GeneralizedNewtypeDeriving
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies, UndecidableInstances #-}
+  module Test where
+  class Has a where
+    type Item a
+    item :: a -> Item a
+  instance Has Int where
+    type Item Int = Bool
+    item _ = True
+  newtype N = N Int deriving Has
+  result :: Bool
+  result = item (N 4)
+expression: result
+output: 'True'
+status: pass
+reason: preserve an associated type equation in a method cast

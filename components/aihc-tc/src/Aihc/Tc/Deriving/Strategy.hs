@@ -6,6 +6,7 @@
 -- Haskell-level strategy.
 module Aihc.Tc.Deriving.Strategy
   ( checkDerivingStrategy,
+    defaultStockFallback,
   )
 where
 
@@ -22,6 +23,7 @@ import Aihc.Tc.Kind (TvKindEnv, checkSurfaceType)
 import Aihc.Tc.Monad (TcM, emitError, emitWarning, getDerivingReferences)
 import Aihc.Tc.Types (TcType)
 import Control.Monad (unless, when)
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -46,22 +48,30 @@ checkDerivingStrategy extensions targetFlavor className classOrigin tvEnv target
       requireDerivingExtension extensions DerivingViaExtension "via deriving" sourceSpan
       TcDerivingVia <$> checkSurfaceType tvEnv viaType targetKind
 
+-- | These default strategies can use stock when newtype derivation fails.
+defaultStockFallback :: Text -> Maybe (Text, Text) -> Maybe DerivingStrategy -> TcDerivingStrategy -> TcM Bool
+defaultStockFallback className origin requested selected = do
+  classes <- derivingStockClasses <$> getDerivingReferences
+  pure (isNothing requested && selected == TcDerivingNewtype && isStockClass classes className origin && className `elem` ["Functor", "Foldable", "Enum"])
+
 selectDefaultDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Bool -> SourceSpan -> TcM TcDerivingStrategy
-selectDefaultDerivingStrategy extensions targetFlavor className isStock sourceSpan =
-  case (isStock, stockDerivingRequirement className) of
-    (True, Just requiredExtension)
-      | maybe True (`elem` extensions) requiredExtension -> pure TcDerivingStock
-    _
-      | DeriveAnyClass `elem` extensions -> do
-          when (targetFlavor == NewtypeTyCon && GeneralizedNewtypeDeriving `elem` extensions) $
-            emitWarning sourceSpan (OtherError (derivingDefaultsWarning className))
-          pure TcDerivingAnyclass
-      | targetFlavor == NewtypeTyCon,
-        GeneralizedNewtypeDeriving `elem` extensions ->
-          pure TcDerivingNewtype
-      | otherwise -> do
-          emitError sourceSpan (OtherError (defaultStrategyError targetFlavor className))
-          pure TcDerivingStock
+selectDefaultDerivingStrategy extensions targetFlavor className isStock sourceSpan
+  | isStock, targetFlavor == NewtypeTyCon, className `elem` ["Eq", "Ord", "Ix", "Bounded"] = pure TcDerivingNewtype
+  | isStock, targetFlavor == NewtypeTyCon, GeneralizedNewtypeDeriving `elem` extensions, className `elem` ["Functor", "Foldable", "Enum"] = pure TcDerivingNewtype
+  | otherwise = case (isStock, stockDerivingRequirement className) of
+      (True, Just requiredExtension)
+        | maybe True (`elem` extensions) requiredExtension -> pure TcDerivingStock
+      _
+        | DeriveAnyClass `elem` extensions -> do
+            when (targetFlavor == NewtypeTyCon && GeneralizedNewtypeDeriving `elem` extensions) $
+              emitWarning sourceSpan (OtherError (derivingDefaultsWarning className))
+            pure TcDerivingAnyclass
+        | targetFlavor == NewtypeTyCon,
+          GeneralizedNewtypeDeriving `elem` extensions ->
+            pure TcDerivingNewtype
+        | otherwise -> do
+            emitError sourceSpan (OtherError (defaultStrategyError targetFlavor className))
+            pure TcDerivingStock
 
 checkStockDeriving :: [Extension] -> Text -> Bool -> SourceSpan -> TcM ()
 checkStockDeriving extensions className isStock sourceSpan

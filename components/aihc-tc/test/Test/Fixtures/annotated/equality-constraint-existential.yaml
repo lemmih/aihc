@@ -11,5 +11,4 @@ modules:
   unbox (Box x) = x
   result = unbox (Box On)
 status: pass
-reason: An existential constructor preserves equality evidence for its field. AIHC cannot resolve
-  the equality class.
+reason: Equality evidence remains valid through type checks.

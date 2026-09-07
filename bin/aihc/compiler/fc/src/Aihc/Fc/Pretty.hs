@@ -434,6 +434,7 @@ prettyCoercion scopes coercion =
     CoSym inner -> "sym " <> parens (prettyCoercion scopes inner)
     CoTrans left right -> "trans " <> parens (prettyCoercion scopes left) <+> parens (prettyCoercion scopes right)
     CoApp function argument -> "app-co " <> parens (prettyCoercion scopes function) <+> parens (prettyCoercion scopes argument)
+    CoNth index proof -> "nth-co " <> pretty index <+> parens (prettyCoercion scopes proof)
     CoFun domain range -> "fun-co " <> parens (prettyCoercion scopes domain) <+> parens (prettyCoercion scopes range)
     CoTyConApp name arguments ->
       hsep ("tycon-co" : prettyName scopes name : map (parens . prettyCoercion scopes) arguments)

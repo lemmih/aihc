@@ -4,6 +4,7 @@ extensions:
 - ScopedTypeVariables
 modules:
 - |
+  {-# LANGUAGE ScopedTypeVariables #-}
   module Test where
   data Flag = Off | On
   cast :: forall a b. (a ~ b) => a -> b
@@ -15,8 +16,7 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: A local signature can use the outer equality constraint. AIHC still lacks complete equality support.
+status: pass
 
 evaluators:
 - grin

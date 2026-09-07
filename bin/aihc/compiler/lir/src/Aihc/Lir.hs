@@ -10,6 +10,11 @@ module Aihc.Lir
     LintError (..),
     lintModule,
     renderLintError,
+    LoadError (..),
+    renderLoadError,
+    expandIncludes,
+    loadModule,
+    resolveConstants,
     Value (..),
     InterpretError (..),
     runFunction,
@@ -23,4 +28,5 @@ import Aihc.Lir.Interpret
 import Aihc.Lir.Lint
 import Aihc.Lir.Parser
 import Aihc.Lir.Pretty (prettyModule, renderModule)
+import Aihc.Lir.Resolve
 import Aihc.Lir.Syntax

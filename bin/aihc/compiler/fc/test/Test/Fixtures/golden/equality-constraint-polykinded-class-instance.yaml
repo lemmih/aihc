@@ -1,0 +1,24 @@
+extensions:
+- DataKinds
+- ScopedTypeVariables
+- GADTs
+- TypeOperators
+- PolyKinds
+- KindSignatures
+- FlexibleInstances
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Test where
+  import GHC.Types (Type)
+  data Flag = Off | On
+  data Proxy a = Proxy
+  class Tag (f :: Type -> Type) where
+    tag :: f a -> Flag
+  instance Tag Proxy where
+    tag _ = On
+  cast :: forall k (a :: k) (b :: k). (a ~ b) => Proxy a -> Proxy b
+  cast x = x
+  result = case cast (Proxy :: Proxy 'On) :: Proxy 'On of
+    Proxy -> tag (Proxy :: Proxy Flag)
+status: pass

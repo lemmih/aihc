@@ -823,7 +823,12 @@ matchConstructorResult variables result scrutinee =
   case result of
     TcTyVar variable
       | tvUnique variable `Set.member` variables ->
-          pure (Map.singleton (tvUnique variable) scrutinee)
+          do
+            kinds <-
+              if Set.null (typeTyVars (tvKind variable) `Set.intersection` variables)
+                then pure Map.empty
+                else tcTypeKind scrutinee >>= matchConstructorResult variables (tvKind variable)
+            pure (Map.insert (tvUnique variable) scrutinee kinds)
     _ -> do
       children <- decomposeNominalEquality result scrutinee
       case children of
@@ -833,7 +838,7 @@ matchConstructorResult variables result scrutinee =
 typeTyVars :: TcType -> Set.Set Unique
 typeTyVars ty =
   case ty of
-    TcTyVar tyVar -> Set.singleton (tvUnique tyVar)
+    TcTyVar tyVar -> Set.insert (tvUnique tyVar) (typeTyVars (tvKind tyVar))
     TcMetaTv {} -> Set.empty
     TcTyCon _ arguments -> Set.unions (map typeTyVars arguments)
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result

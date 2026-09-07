@@ -1,0 +1,33 @@
+; The constants the runtime units share. See the "Constants" section of
+; docs/lir.md. A unit takes them with
+;
+;   include "aihc_constants.lir"
+;
+; This file holds nothing but constants, so every unit can include it.
+
+; Object kinds, the object_kind field of an info table. AIHC_OBJECT_RUNTIME
+; is an object the runtime allocates outside the managed heap: a byte array,
+; an MVar, or a stable name.
+const @AIHC_OBJECT_NODE = 0
+const @AIHC_OBJECT_CLOSURE = 1
+const @AIHC_OBJECT_THUNK = 2
+const @AIHC_OBJECT_PARTIAL_CONSTRUCTOR = 3
+const @AIHC_OBJECT_INDIRECTION = 4
+const @AIHC_OBJECT_BLACKHOLE = 5
+const @AIHC_OBJECT_ARRAY = 6
+const @AIHC_OBJECT_THREAD = 7
+const @AIHC_OBJECT_RUNTIME = 8
+
+; Frame kinds, the frame_kind field of an info table.
+const @AIHC_FRAME_NONE = 0
+const @AIHC_FRAME_NORMAL = 1
+const @AIHC_FRAME_CATCH = 2
+const @AIHC_FRAME_UPDATE = 3
+const @AIHC_FRAME_RESTORE_MASK = 4
+const @AIHC_FRAME_STOP = 5
+
+; Scheduler resumption kinds, the kind field of AihcResume.
+const @AIHC_RESUME_NONE = 0
+const @AIHC_RESUME_APPLY = 1
+const @AIHC_RESUME_CONTINUE = 2
+const @AIHC_RESUME_RAISE = 3

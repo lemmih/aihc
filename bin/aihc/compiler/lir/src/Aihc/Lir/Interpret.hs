@@ -11,6 +11,7 @@ module Aihc.Lir.Interpret
 where
 
 import Aihc.Lir.Pretty (prettySymbol, renderDoc)
+import Aihc.Lir.Resolve (resolveConstants)
 import Aihc.Lir.Syntax
 import Control.Monad (foldM, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -90,7 +91,7 @@ failure = lift . Left . InterpretFailure
 -- | Execute a function of the module with the given arguments.
 runFunction :: Module -> Symbol -> [Value] -> Either InterpretError [Value]
 runFunction lirModule entry arguments = do
-  (program, machine) <- buildProgram lirModule
+  (program, machine) <- buildProgram (resolveConstants lirModule)
   evalStateT (callFunction program entry arguments) machine
 
 -- Program setup
@@ -147,10 +148,12 @@ fieldSize :: DataField -> Word64
 fieldSize field =
   case field of
     DataInt ty _ -> typeBytes ty
+    DataIntConstant ty _ -> typeBytes ty
     DataFloat ty _ -> typeBytes ty
     DataSymbol _ _ -> 8
     DataNull -> 8
     DataWord _ -> 8
+    DataWordConstant _ -> 8
     DataCode _ -> 8
     DataBytes bytes -> fromIntegral (BS.length bytes)
     DataZero count -> fromInteger count
@@ -166,14 +169,17 @@ writeData addresses memory (dataItem, address) = do
     fieldBytes field =
       case field of
         DataInt ty value -> pure (littleEndian (typeBytes ty) (fromInteger value))
+        DataIntConstant _ symbol -> unresolved symbol
         DataFloat ty value -> pure (encodeValue ty (floatValue ty value))
         DataSymbol symbol addend -> symbolBytes symbol addend
         DataNull -> pure (replicate 8 0)
         DataWord value -> pure (littleEndian 8 (fromInteger value))
+        DataWordConstant symbol -> unresolved symbol
         DataCode Nothing -> pure (replicate 8 0)
         DataCode (Just symbol) -> symbolBytes symbol 0
         DataBytes bytes -> pure (BS.unpack bytes)
         DataZero count -> pure (replicate (fromInteger count) 0)
+    unresolved symbol = Left (InterpretFailure ("unknown constant " <> renderSymbol symbol))
     symbolBytes symbol addend =
       case Map.lookup symbol addresses of
         Nothing -> Left (InterpretFailure ("unknown symbol " <> renderSymbol symbol))

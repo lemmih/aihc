@@ -11,8 +11,7 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: List equality gives equality of the element types. AIHC still lacks complete equality support.
+status: pass
 
 evaluators:
 - grin

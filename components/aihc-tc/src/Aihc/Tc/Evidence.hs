@@ -81,7 +81,7 @@ data EvBinding = EvBinding
 -- | Coercions for type equality evidence.
 --
 -- The solver preserves nominal evidence through symmetry, transitivity,
--- and congruence. Pattern projections and quantified coercions require further work.
+-- and congruence. Argument projections retain their source proof.
 data Coercion
   = -- | Coercion variable.
     CoVar !EvVar
@@ -93,12 +93,16 @@ data Coercion
     Sym !Coercion
   | -- | Transitivity: @Trans co1 co2 : t1 ~ t3@.
     Trans !Coercion !Coercion
-  | -- | Lift through type constructor: @T co1 ... con@.
-    TyConAppCo !TyCon ![Coercion]
+  | -- | Lift through a type constructor. The argument types determine implicit kind arguments.
+    TyConAppCo !TyCon ![TcType] ![Coercion]
   | -- | Congruence for a type application.
     AppCo !Coercion !Coercion
   | -- | Congruence for a function domain and range.
     FunCo !Coercion !Coercion
+  | -- | Project a nominal argument. Zero selects the last argument.
+    NthCo !Int !Coercion
+  | -- | Equality evidence from a dictionary field.
+    EvidenceCo !Pred !EvTerm
   | -- | Type family / newtype axiom instantiation (future).
     AxiomInstCo !TcAxiomKey ![TcType]
   deriving (Eq, Ord, Show, Read)

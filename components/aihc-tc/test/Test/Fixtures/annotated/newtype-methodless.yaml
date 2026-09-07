@@ -1,0 +1,25 @@
+annotated:
+- |-
+  {-# LANGUAGE GeneralizedNewtypeDeriving, DerivingStrategies #-}
+  module Main where
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  class Empty a where
+  └─ class methods:
+  newtype N = N Unit deriving newtype Empty
+  │       │   └─ type: () → N         └─ $fEmptyN ∷ () ⇒ Empty N
+  │       └─ type: Type
+  └─ deriving plans: newtype Empty N [context: ()]
+extensions:
+- GeneralizedNewtypeDeriving
+- DerivingStrategies
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, DerivingStrategies #-}
+  module Main where
+  data Unit = Unit
+  class Empty a where
+  newtype N = N Unit deriving newtype Empty
+reason: methodless derivation needs no representation instance
+status: pass

@@ -1,0 +1,34 @@
+annotated:
+- |-
+  module GHC.Prim.Base where
+  class Functor f where
+  └─ class methods: fmap ∷ ∀ f a b. (Functor f) ⇒ (a → b) → f a → f b
+    fmap :: (a -> b) -> f a -> f b
+- |-
+  {-# LANGUAGE GeneralizedNewtypeDeriving, DeriveFunctor #-}
+  module Main where
+  import GHC.Prim.Base (Functor)
+  data Box a = Box a
+       │       └─ type: ∀ a. a → Box a
+       └─ type: Type → Type
+  newtype N a = N (Box a) deriving Functor
+  │       │     │                  └─ warning: stock deriving of Functor is not supported yet; no instance is generated
+  │       │     └─ type: ∀ a. Box a → N a
+  │       └─ type: Type → Type
+  └─ deriving plans: stock Functor N [context: infer] [methods: fmap]
+extensions:
+- GeneralizedNewtypeDeriving
+- DeriveFunctor
+modules:
+- |
+  module GHC.Prim.Base where
+  class Functor f where
+    fmap :: (a -> b) -> f a -> f b
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, DeriveFunctor #-}
+  module Main where
+  import GHC.Prim.Base (Functor)
+  data Box a = Box a
+  newtype N a = N (Box a) deriving Functor
+reason: use the stock plan when default newtype context inference fails
+status: pass

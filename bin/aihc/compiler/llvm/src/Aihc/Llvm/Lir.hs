@@ -15,6 +15,7 @@ module Aihc.Llvm.Lir
 where
 
 import Aihc.Lir.Lint (LintError, lintModule)
+import Aihc.Lir.Resolve (resolveConstants, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Control.Monad (forM, forM_)
 import Control.Monad.Trans.Class (lift)
@@ -38,7 +39,7 @@ data LlvmLirError
 
 -- | Lint the module, then render it.
 compileLirModule :: Module -> Either LlvmLirError Text
-compileLirModule lirModule@(Module items) =
+compileLirModule lirModule =
   case lintModule lirModule of
     [] -> do
       (functions, traps) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) Map.empty
@@ -59,6 +60,7 @@ compileLirModule lirModule@(Module items) =
         )
     errors -> Left (LlvmLirLintErrors errors)
   where
+    Module items = resolveConstants lirModule
     ctx =
       Ctx
         { ctxSignatures =
@@ -135,12 +137,14 @@ renderData dataItem =
     fields = map renderField (dataFields dataItem)
     renderField field =
       case field of
+        DataIntConstant _ constant -> unresolvedConstant constant
         DataInt I1 value -> ("i8", tshow (value .&. 1))
         DataInt ty value -> (renderType ty, renderInteger ty value)
         DataFloat ty value -> (renderType ty, renderFloat ty value)
         DataSymbol target 0 -> ("ptr", renderSymbol target)
         DataSymbol target addend -> ("ptr", "getelementptr (i8, ptr " <> renderSymbol target <> ", i64 " <> tshow addend <> ")")
         DataNull -> ("ptr", "null")
+        DataWordConstant constant -> unresolvedConstant constant
         DataWord value -> ("i64", tshow value)
         DataCode Nothing -> ("ptr", "null")
         DataCode (Just target) -> ("ptr", renderSymbol target)

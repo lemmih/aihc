@@ -20,6 +20,7 @@ module Aihc.Fc.TypeOf
     reduceType,
     typesEqual,
     coercionEndpoints,
+    projectNominalArgument,
     applyRepresentationalAxiom,
   )
 where
@@ -343,6 +344,9 @@ coercionEndpoints env coercion =
       (leftFunction, rightFunction) <- coercionEndpoints env function
       (leftArgument, rightArgument) <- coercionEndpoints env argument
       pure (TyApp leftFunction leftArgument, TyApp rightFunction rightArgument)
+    CoNth index proof -> do
+      endpoints <- coercionEndpoints env proof
+      projectNominalArgument env index endpoints
     CoFun domain range -> do
       (leftDomain, rightDomain) <- coercionEndpoints env domain
       (leftRange, rightRange) <- coercionEndpoints env range
@@ -361,6 +365,28 @@ coercionEndpoints env coercion =
            in Just (substTypes substitution (axiomLeft declaration), substTypes substitution (axiomRight declaration))
   where
     swap (left, right) = (right, left)
+
+-- | Project equal nominal arguments from the same outer constructor.
+-- Zero selects the last argument, after any implicit kind arguments.
+projectNominalArgument :: TypeEnv -> Int -> (Type, Type) -> Maybe (Type, Type)
+projectNominalArgument env index (left, right)
+  | index < 0 = Nothing
+  | otherwise = case (left, right) of
+      (TyFun _ _ leftDomain leftRange, TyFun _ _ rightDomain rightRange) ->
+        select [leftDomain, leftRange] [rightDomain, rightRange]
+      _ -> case (spine [] left, spine [] right) of
+        ((TyCon leftHead, leftArgs), (TyCon rightHead, rightArgs))
+          | leftHead == rightHead,
+            leftHead `Map.notMember` teFamilyAxioms env ->
+              select leftArgs rightArgs
+        _ -> Nothing
+  where
+    select leftArgs rightArgs
+      | length leftArgs == length rightArgs && index < length leftArgs =
+          Just (reverse leftArgs !! index, reverse rightArgs !! index)
+      | otherwise = Nothing
+    spine args (TyApp function argument) = spine (argument : args) function
+    spine args headType = (headType, args)
 
 applyRepresentationalAxiom :: TypeEnv -> AxiomDecl -> Type -> Maybe Type
 applyRepresentationalAxiom env declaration source

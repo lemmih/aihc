@@ -15,8 +15,7 @@ modules:
 expression: result
 output: |
   On
-status: xfail
-reason: An equality superclass permits a cast. AIHC still lacks complete equality support.
+status: pass
 
 evaluators:
 - grin

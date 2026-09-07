@@ -41,13 +41,14 @@ fixtureRoot = do
 
 data Fixture = Fixture
   { fixtureName :: !String,
+    fixturePath :: !FilePath,
     fixtureSource :: !Text
   }
 
 loadFixtures :: FilePath -> IO [Fixture]
 loadFixtures directory = do
   names <- sort . filter ((== ".lir") . takeExtension) <$> listDirectory directory
-  mapM (\name -> Fixture name <$> TIO.readFile (directory </> name)) names
+  mapM (\name -> Fixture name (directory </> name) <$> TIO.readFile (directory </> name)) names
 
 -- | The values of every header comment @; key: value@.
 headerValues :: Text -> Text -> [Text]
@@ -63,7 +64,7 @@ parseFixture fixture =
       case parseModule (renderModule lirModule) of
         Left err -> assertFailure ("pretty-printer output does not parse:\n" <> renderParseError err)
         Right reparsed -> assertEqual "pretty-printer round-trip" lirModule reparsed
-      pure lirModule
+      either (assertFailure . renderLoadError) pure =<< expandIncludes TIO.readFile (fixturePath fixture) lirModule
 
 -- | A module that declares an extern function, which the backends link and
 -- this interpreter cannot call (see @docs/lir.md@). Such a fixture is still
