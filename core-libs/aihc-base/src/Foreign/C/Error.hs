@@ -1,3 +1,6 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 -- | C error numbers and their IO error forms. The runtime reports POSIX
 -- error numbers, so the constants use the values that Linux and macOS
 -- share. The runtime has no thread-local @errno@, so the operations that
@@ -53,9 +56,7 @@ import GHC.Real (fromIntegral)
 import GHC.Show (Show (..))
 
 newtype Errno = Errno CInt
-
-instance Eq Errno where
-  Errno left == Errno right = left == right
+  deriving newtype (Eq)
 
 eOK, ePERM, eNOENT, eSRCH, eINTR, eIO, eNXIO, e2BIG, eNOEXEC, eBADF, eCHILD, eNOMEM, eACCES, eFAULT, eBUSY, eEXIST, eXDEV, eNODEV, eNOTDIR, eISDIR, eINVAL, eNFILE, eMFILE, eNOTTY, eFBIG, eNOSPC, eSPIPE, eROFS, eMLINK, ePIPE, eDOM, eRANGE :: Errno
 eOK = Errno 0

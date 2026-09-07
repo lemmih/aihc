@@ -1,3 +1,5 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
@@ -11,7 +13,6 @@ module GHC.IORef
   )
 where
 
-import Data.Bool (not)
 import Data.Kind (Type)
 import GHC.IO (IO (..))
 import GHC.Internal.Classes (Eq (..))
@@ -21,6 +22,7 @@ import GHC.STRef (STRef (..))
 -- | A mutable variable in the 'IO' monad. The representation deliberately
 -- shares the 'STRef' boundary used by @base@.
 newtype IORef (a :: Type) = IORef (STRef RealWorld a)
+  deriving newtype (Eq)
 
 -- | Build a new 'IORef'.
 newIORef :: a -> IO (IORef a)
@@ -43,8 +45,3 @@ writeIORef (IORef (STRef reference)) value =
         case writeMutVar# reference value state of
           nextState -> (# nextState, () #)
     )
-
--- Pointer equality, matching @base@ and 'STRef'.
-instance Eq (IORef a) where
-  IORef left == IORef right = left == right
-  left /= right = not (left == right)
