@@ -1,8 +1,9 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
--- | The 'Show' class. This module does not import "Prelude" so that the
--- exception types can use it.
+-- | The instances of the 'Show' class and the helpers they share. The class
+-- itself lives in "GHC.Prim.Show". This module does not import "Prelude" so
+-- that the exception types can use it.
 module GHC.Show
   ( Show (..),
     ShowS,
@@ -28,19 +29,9 @@ import GHC.Internal.Classes (Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
 import GHC.Prim (Word#, chr#, eqWord#, int16ToInt#, int2Word#, int32ToInt#, int64ToInt#, int8ToInt#, minusWord#, quotRemWord#, word16ToWord#, word2Int#, word32ToWord#, word64ToWord#, word8ToWord#, (+#), (<#))
+import GHC.Prim.Show (Show (..), ShowS)
 import GHC.Types (Char (..))
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
-
-type ShowS = String -> String
-
-class Show a where
-  showsPrec :: Int -> a -> ShowS
-  show :: a -> String
-  showList :: [a] -> ShowS
-
-  showsPrec _ value suffix = show value ++ suffix
-  show value = showsPrec (I# 0#) value []
-  showList = showListWith shows
 
 shows :: (Show a) => a -> ShowS
 shows = showsPrec (I# 0#)

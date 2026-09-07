@@ -15,15 +15,18 @@
 -- generated @Read@ code refers to therefore lives here: the precedence
 -- parser, the lexer, and the four combinators that read a constructor.
 --
--- The @Read@ class itself stays in @GHC.Internal.Read@, next to its
--- instances. A derived instance finds its methods through the class, and
--- the type checker reads the module of the class from the deriving plan,
--- so this module holds no class of its own.
+-- The @Read@ class is here too. The type checker recognizes a stock class
+-- by its package, module and name, and it may name the prim package only,
+-- so every class that stock deriving writes code for is declared in this
+-- package. The helpers and the instances stay in @GHC.Internal.Read@.
 --
 -- The code below uses primitive comparisons instead of @Eq@ and @Ord@,
 -- because the instances for @Char@ and @Int@ belong to the base library.
 module GHC.Prim.Read
-  ( -- * Precedence parser
+  ( -- * The class
+    Read (..),
+
+    -- * Precedence parser
     ReadS,
     Prec,
     ReadPrec,
@@ -635,3 +638,26 @@ orBool False value = value
 appendList :: [a] -> [a] -> [a]
 appendList [] suffix = suffix
 appendList (value : values) suffix = value : appendList values suffix
+
+-- | Parse a value from a string.
+--
+-- Only @readPrec@ has no default, so a derived instance writes that method
+-- alone. The two list defaults must not call each other.
+class Read a where
+  readsPrec :: Int -> ReadS a
+  readList :: ReadS [a]
+  readPrec :: ReadPrec a
+  readListPrec :: ReadPrec [a]
+
+  readsPrec = readPrec_to_S readPrec
+
+  -- The list default reads through 'readPrec' rather than through
+  -- 'readListPrec'. GHC does the same, so an instance that gives only
+  -- 'readPrec' still reads a list. The two defaults must not call each
+  -- other.
+  readList = readPrec_to_S (list readPrec) minPrec
+  readPrec = readS_to_Prec readsPrec
+  readListPrec = readS_to_Prec defaultReadListParser
+
+defaultReadListParser :: (Read a) => Prec -> ReadS [a]
+defaultReadListParser _ = readList

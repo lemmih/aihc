@@ -44,12 +44,8 @@ import GHC.Prim
     (-#),
     (<#),
   )
-import GHC.Prim.Enum (Enum (..))
+import GHC.Prim.Enum (Bounded (..), Enum (..))
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
-
-class Bounded a where
-  minBound :: a
-  maxBound :: a
 
 boundedEnumFrom :: (Enum a, Bounded a) => a -> [a]
 boundedEnumFrom value = enumFromTo value maxBound

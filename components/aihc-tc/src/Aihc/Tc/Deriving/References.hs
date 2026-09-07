@@ -86,10 +86,19 @@ data DerivingReferences = DerivingReferences
     derivingLexemeSymbol :: !DerivingReference,
     -- | The @Punc@ lexeme constructor, for punctuation.
     derivingLexemePunc :: !DerivingReference,
-    -- | The classes GHC's stock deriving mechanisms know about, as the
-    -- module that defines each and its name. A class elsewhere with the
-    -- same name is not stock.
-    derivingStockClasses :: ![(Text, Text)]
+    -- | The classes that stock deriving writes code for, as the package
+    -- and module that define each and its name. All three must agree, so a
+    -- user module that repeats a core-library module name does not make
+    -- its own class stock. Every entry names the primitive package,
+    -- because each of these classes is declared there.
+    derivingStockClasses :: ![(PackageId, Text, Text)],
+    -- | The remaining stock classes of GHC, as the module that defines each
+    -- and its name. The generator writes no code for them: it reports that
+    -- stock deriving of the class is not supported and produces no
+    -- instance. A wrong match therefore cannot produce wrong code, so these
+    -- entries need no package and the table stays free of base-library
+    -- package identities.
+    derivingRecognizedClasses :: ![(Text, Text)]
   }
   deriving (Eq, Show)
 
@@ -122,25 +131,34 @@ defaultDerivingReferences prim =
       derivingLexemeIdent = term prim readModule NameConId "Ident",
       derivingLexemeSymbol = term prim readModule NameConId "Symbol",
       derivingLexemePunc = term prim readModule NameConId "Punc",
-      derivingStockClasses = coreStockClasses
+      derivingStockClasses = coreStockClasses prim,
+      derivingRecognizedClasses = coreRecognizedClasses
     }
   where
     readModule = "GHC.Prim.Read"
     term package moduleName nameType name =
       DerivingReference package moduleName name nameType ResolutionNamespaceTerm
 
--- | The stock classes of the aihc core libraries, where they are defined.
--- GHC keeps the same list as known-key names.
-coreStockClasses :: [(Text, Text)]
-coreStockClasses =
-  [ ("GHC.Classes", "Eq"),
-    ("GHC.Classes", "Ord"),
-    ("GHC.Prim.Enum", "Enum"),
-    ("GHC.Enum", "Bounded"),
-    ("GHC.Show", "Show"),
-    ("GHC.Internal.Read", "Read"),
-    ("GHC.Ix", "Ix"),
-    ("GHC.Prim.Base", "Functor"),
+-- | The stock classes that the aihc core libraries declare in the primitive
+-- package, where each is defined. GHC keeps the same list as known-key
+-- names, which carry a unit id; the package here plays that part.
+coreStockClasses :: PackageId -> [(PackageId, Text, Text)]
+coreStockClasses prim =
+  [ (prim, "GHC.Classes", "Eq"),
+    (prim, "GHC.Classes", "Ord"),
+    (prim, "GHC.Prim.Enum", "Enum"),
+    (prim, "GHC.Prim.Enum", "Bounded"),
+    (prim, "GHC.Prim.Show", "Show"),
+    (prim, "GHC.Prim.Read", "Read"),
+    (prim, "GHC.Prim.Base", "Functor")
+  ]
+
+-- | The stock classes of GHC that the core libraries declare outside the
+-- primitive package. The generator writes no code for them, so they carry
+-- no package.
+coreRecognizedClasses :: [(Text, Text)]
+coreRecognizedClasses =
+  [ ("GHC.Ix", "Ix"),
     ("GHC.Internal.Foldable", "Foldable"),
     ("GHC.Internal.Traversable", "Traversable"),
     ("Data.Data", "Data"),

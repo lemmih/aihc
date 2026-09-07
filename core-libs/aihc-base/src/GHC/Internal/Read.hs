@@ -1,10 +1,10 @@
--- | The 'Read' class, its helpers, and the instances of the types that the
+-- | The helpers of the 'Read' class and the instances of the types that the
 -- primitive package and this module define.
 --
--- 'Prelude' re-exports the class. The class cannot live in 'Prelude'
--- itself, because the instances need 'Prelude' names such as 'Ratio'; a
--- module that imported only 'Prelude' would then see the class without its
--- instances.
+-- The class itself lives in "GHC.Prim.Read", and 'Prelude' re-exports it.
+-- The class cannot live in 'Prelude', because the instances need 'Prelude'
+-- names such as 'Ratio'; a module that imported only 'Prelude' would then
+-- see the class without its instances.
 module GHC.Internal.Read
   ( Read (..),
     readListDefault,
@@ -23,7 +23,7 @@ import GHC.Internal.Integer (Integer)
 import GHC.Num (Num (..))
 import GHC.Prim.Read
   ( Lexeme (..),
-    Prec,
+    Read (..),
     ReadPrec,
     ReadS,
     expectP,
@@ -44,29 +44,6 @@ import GHC.Prim.Read
   )
 import GHC.Real (Integral, Ratio, (%))
 import GHC.Types (Bool (..), Char, Ordering (..))
-
--- | Parse a value from a string.
---
--- The class and its instances share one module, so that any module which
--- can name 'Read' can also solve its instances.
-class Read a where
-  readsPrec :: Int -> ReadS a
-  readList :: ReadS [a]
-  readPrec :: ReadPrec a
-  readListPrec :: ReadPrec [a]
-
-  readsPrec = readPrec_to_S readPrec
-
-  -- The list default reads through 'readPrec' rather than through
-  -- 'readListPrec'. GHC does the same, so an instance that gives only
-  -- 'readPrec' still reads a list. The two defaults must not call each
-  -- other.
-  readList = readPrec_to_S (list readPrec) minPrec
-  readPrec = readS_to_Prec readsPrec
-  readListPrec = readS_to_Prec defaultReadListParser
-
-defaultReadListParser :: (Read a) => Prec -> ReadS [a]
-defaultReadListParser _ = readList
 
 readListDefault :: (Read a) => ReadS [a]
 readListDefault = readPrec_to_S readListPrec minPrec

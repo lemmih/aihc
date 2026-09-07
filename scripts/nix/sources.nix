@@ -59,6 +59,8 @@ in rec {
       "components/aihc-tc/"
       "core-libs/aihc-prim/src/GHC/Classes.hs"
       "core-libs/aihc-prim/src/GHC/Prim.hs"
+      "core-libs/aihc-prim/src/GHC/Prim/Base.hs"
+      "core-libs/aihc-prim/src/GHC/Prim/IO.hs"
       "core-libs/aihc-prim/src/GHC/Tuple.hs"
       "core-libs/aihc-prim/src/GHC/Types.hs"
     ] [

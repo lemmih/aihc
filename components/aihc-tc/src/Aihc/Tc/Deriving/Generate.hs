@@ -57,6 +57,7 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Deriving.Context (isSupportedStockClass, newtypeRepresentation, stockFieldTypes)
 import Aihc.Tc.Deriving.References
+import Aihc.Tc.Deriving.Strategy (isGeneratedStockClass)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataConSourceForm (..), DataTypeInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
@@ -156,6 +157,12 @@ generatePlan references origin sourceDecl plan =
         TcDerivingAnyclass -> Right ()
         TcDerivingNewtype -> Right ()
         TcDerivingStock
+          -- The class must be the one the configuration names, package
+          -- included. A user class that repeats a core-library module name
+          -- reaches here after the strategy check reported it, and the
+          -- generator must not write method bodies for it.
+          | not (isGeneratedStockClass references (tcDerivingClassName plan) (tcDerivingClassOrigin plan)) ->
+              Left ("stock deriving of " <> className <> " is not available for a class outside the core libraries")
           | isSupportedStockClass (tcDerivingClassName plan) -> Right ()
           | otherwise -> Left ("stock deriving of " <> className <> " is not supported yet; no instance is generated")
         TcDerivingVia {} -> Left ("deriving via is not supported yet; no instance is generated for " <> className)

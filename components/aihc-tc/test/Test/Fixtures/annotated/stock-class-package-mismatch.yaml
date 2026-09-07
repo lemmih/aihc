@@ -1,0 +1,37 @@
+annotated:
+- |-
+  module GHC.Prim.Show where
+  class Show a where
+  └─ class methods: showsPrec ∷ ∀ a. (Show a) ⇒ a → a
+    showsPrec :: a -> a
+- |-
+  {-# LANGUAGE DerivingStrategies #-}
+  module Main where
+  import GHC.Prim.Show (Show (..))
+  data Colour = Redish
+       │        └─ type: Colour
+       └─ type: Type
+    deriving Show
+             └─ error: cannot select a deriving strategy for Show; enable DeriveAnyClass, or use an explicit strategy
+  data Amber = Amber
+       │       └─ type: Amber
+       └─ type: Type
+    deriving stock Show
+                   └─ error: stock deriving requires a standard class
+extensions:
+- DerivingStrategies
+modules:
+- |
+  module GHC.Prim.Show where
+  class Show a where
+    showsPrec :: a -> a
+- |
+  {-# LANGUAGE DerivingStrategies #-}
+  module Main where
+  import GHC.Prim.Show (Show (..))
+  data Colour = Redish
+    deriving Show
+  data Amber = Amber
+    deriving stock Show
+reason: a class of another package is not stock, even when its module name and its class name repeat those of a core-library class
+status: pass

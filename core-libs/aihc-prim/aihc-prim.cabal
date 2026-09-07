@@ -25,6 +25,7 @@ library
     GHC.Prim.PtrEq
     GHC.Prim.Read
     GHC.Prim.Real
+    GHC.Prim.Show
     GHC.Prim.Unicode
     GHC.PrimopWrappers
     GHC.Tuple
