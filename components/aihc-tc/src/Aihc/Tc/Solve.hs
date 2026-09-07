@@ -23,9 +23,10 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Canonicalize
+import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Dict (DictResult (..), reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
-import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reducePredFamilies)
+import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyInertSet)
 import Aihc.Tc.Solve.Worklist
 import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique, mkAppTy)
@@ -98,14 +99,13 @@ partitionProgress stuckCts = do
 -- | Process a single constraint from the worklist.
 processConstraint :: Ct -> WorkList -> InertSet -> TcM SolveResult
 processConstraint ct wl inerts = do
-  isFamily <- isTypeFamilyTyCon
   predicate <- zonkPred (ctPred ct) >>= reducePredFamilies
   case predicate of
     -- Keep the parent evidence variable for the complete equality.
     EqPred {} -> do
       (wl', inerts') <- processEq (wl, inerts) (ct {ctPred = predicate})
       solveLoop wl' inerts'
-    _ -> processCanonical wl inerts (canonicalize isFamily (ct {ctPred = predicate}))
+    _ -> processCanonical wl inerts (canonicalize (ct {ctPred = predicate}))
 
 processCanonical :: WorkList -> InertSet -> CanonResult -> TcM SolveResult
 processCanonical wl inerts result = case result of
@@ -181,18 +181,16 @@ canonicalizeGiven ct = case ctPred ct of
   EqPred t1 t2 -> do
     t1' <- zonkType t1
     t2' <- zonkType t2
-    pure (decomposeEq t1' t2')
+    decomposeEq t1' t2'
   _ -> pure []
   where
     decomposeEq t1 t2
-      | t1 == t2 = []
-    decomposeEq (TcTyCon tc1 args1) (TcTyCon tc2 args2)
-      | tc1 == tc2,
-        length args1 == length args2 =
-          concatMap (uncurry decomposeEq) (zip args1 args2)
-    decomposeEq (TcFunTy a1 b1) (TcFunTy a2 b2) =
-      decomposeEq a1 a2 ++ decomposeEq b1 b2
-    decomposeEq t1 t2 = [(t1, t2)]
+      | t1 == t2 = pure []
+      | otherwise = do
+          children <- decomposeNominalEquality t1 t2
+          case children of
+            Just pairs -> concat <$> mapM (uncurry decomposeEq) pairs
+            Nothing -> pure [(t1, t2)]
 
 -- | Apply a list of given equalities as a substitution to a type.
 -- Each given @(lhs, rhs)@ rewrites occurrences of @lhs@ with @rhs@.

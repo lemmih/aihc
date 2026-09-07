@@ -21,12 +21,12 @@ The TC, FC, and GRIN fixtures use the project libraries without a substitute equ
 
 All ten resolver fixtures pass.
 Equality syntax uses the exported `GHC.Types` identity without an explicit import.
-The current fixture counts include three additional TC cases and one additional case in each downstream stage.
+The current fixture counts include seven additional TC cases and one additional case in each downstream stage.
 
 | Stage | PASS | XFAIL |
 | --- | ---: | ---: |
 | Resolve | 10 | 0 |
-| TC | 25 | 10 |
+| TC | 27 | 12 |
 | FC | 15 | 12 |
 | GRIN evaluation | 17 | 10 |
 
@@ -34,10 +34,11 @@ The additional positive fixtures test a user class named `~` and transitivity wi
 GHC 9.12.4 accepts both programs.
 The reversed-order program returns `On`.
 
-The additional negative TC fixture uses a GADT with a non-injective family equality.
-GHC 9.12.4 rejects its cast.
-AIHC currently accepts this invalid program, so the fixture has XFAIL status.
-GADT index refinement still requires a separate correction.
+Two additional negative TC fixtures use GADTs with non-injective family equalities.
+One fixture puts the family applications inside list types.
+GHC 9.12.4 and AIHC reject both casts.
+Constructor instantiation preserves the indices from the scrutinee.
+All TC decomposition paths use the same nominal rules.
 
 The closed-family and explicit GADT programs pass evaluation but still fail their FC assertions.
 An evaluation result does not establish valid FC evidence.

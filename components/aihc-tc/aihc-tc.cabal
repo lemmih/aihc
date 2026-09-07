@@ -40,6 +40,7 @@ library
     Aihc.Tc.Monad
     Aihc.Tc.Solve
     Aihc.Tc.Solve.Canonicalize
+    Aihc.Tc.Solve.Decompose
     Aihc.Tc.Solve.Defaulting
     Aihc.Tc.Solve.Dict
     Aihc.Tc.Solve.Equality
