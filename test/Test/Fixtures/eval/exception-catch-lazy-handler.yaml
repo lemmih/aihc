@@ -16,5 +16,4 @@ output: |
 expression: |
   case catch# successful failingHandler realWorld# of
     (# _, x #) -> x
-status: xfail
-reason: catch# does not evaluate its handler unless the protected action raises
+status: pass

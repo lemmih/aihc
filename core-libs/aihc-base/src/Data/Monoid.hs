@@ -1,3 +1,7 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
+
 module Data.Monoid
   ( Monoid (..),
     (<>),
@@ -87,5 +91,4 @@ instance (Ord a, Bounded a) => Monoid (Min a) where
 instance (Ord a, Bounded a) => Monoid (Max a) where
   mempty = Max minBound
 
-instance (Monoid m) => Monoid (WrappedMonoid m) where
-  mempty = WrapMonoid mempty
+deriving newtype instance (Monoid m) => Monoid (WrappedMonoid m)
