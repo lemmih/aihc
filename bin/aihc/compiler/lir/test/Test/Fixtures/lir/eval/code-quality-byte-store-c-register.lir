@@ -1,0 +1,17 @@
+; expect: 37
+; reason: The byte store must use SIL, which requires a REX prefix.
+; The third C argument sets RDX to zero, so DH cannot equal the expected byte.
+
+func @store_byte(%pointer: ptr, %value: i8, %zero: i64) -> i8 cc c {
+entry:
+  store i8 %value, [%pointer] align 1
+  %result = load i8 [%pointer] align 1
+  return %result
+}
+
+func @main() -> i8 {
+entry:
+  %pointer = stack.alloc 8 align 8
+  %result = call @store_byte(%pointer, 37, 0)
+  return %result
+}

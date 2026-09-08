@@ -1,0 +1,7 @@
+; expect-trap: invalid float to integer conversion
+
+func @main() -> i64 {
+entry:
+  %value = ftoi.s f64 -9223372036854777856.0 to i64
+  return %value
+}

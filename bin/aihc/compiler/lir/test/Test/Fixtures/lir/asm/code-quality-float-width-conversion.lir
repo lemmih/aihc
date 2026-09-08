@@ -1,0 +1,6 @@
+func @main(%value: f32, %wide: f64) -> (f64, f32) {
+entry:
+  %result = fpext f32 %value to f64
+  %narrow = fptrunc f64 %wide to f32
+  return %result, %narrow
+}

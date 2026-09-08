@@ -14,6 +14,7 @@ module Aihc.Llvm.Lir
   )
 where
 
+import Aihc.Lir.Convert (integerConversionBounds)
 import Aihc.Lir.Lint (LintError, lintModule)
 import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
@@ -647,19 +648,16 @@ compileInstruction ctx (Instruction results operation) =
           emit (renderVar flag <> " = extractvalue {" <> llvmType <> ", i1} " <> pair <> ", 1")
         _ -> unsupported "carry operation result count"
 
-    -- NaN and values outside the range of the target trap. The bounds are
-    -- powers of two, so they are exact in both float widths.
+    -- Reject NaN and values whose truncation is outside the integer range.
     floatRangeChecks signed from value to = do
-      let bits = typeBits to
-          lower = if signed then negate (2 ^^ (bits - 1)) else -1 :: Double
-          upper = if signed then 2 ^^ (bits - 1) else 2 ^^ bits :: Double
+      let (lower, excludeLower, upper) = integerConversionBounds signed from to
           operand = renderOperand from value
           floatType = renderType from
       isNan <- fresh
       emit (isNan <> " = fcmp uno " <> floatType <> " " <> operand <> ", " <> operand)
       trapWhen isNan "invalid float to integer conversion"
       tooLow <- fresh
-      emit (tooLow <> " = fcmp " <> (if signed then "olt" else "ole") <> " " <> floatType <> " " <> operand <> ", " <> renderFloat from lower)
+      emit (tooLow <> " = fcmp " <> (if excludeLower then "ole" else "olt") <> " " <> floatType <> " " <> operand <> ", " <> renderFloat from lower)
       trapWhen tooLow "invalid float to integer conversion"
       tooHigh <- fresh
       emit (tooHigh <> " = fcmp oge " <> floatType <> " " <> operand <> ", " <> renderFloat from upper)
