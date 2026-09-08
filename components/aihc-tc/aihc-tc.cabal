@@ -94,49 +94,6 @@ library fuzz
   ghc-options: -Wall
   default-language: GHC2021
 
-executable tc-progress
-  main-is: Main.hs
-  hs-source-dirs:
-    app/tc-progress
-    common
-    test
-
-  other-modules:
-    TcAnnotatedGolden
-    TcAnnotatedRender
-    Test.Tc.Interface
-    Test.Tc.Properties
-    Test.Tc.Suite
-    Test.Tc.Traverse
-
-  build-depends:
-    aeson,
-    aihc-parser,
-    aihc-resolve,
-    aihc-tc,
-    aihc-testing,
-    base >=4.16 && <5,
-    bytestring,
-    containers,
-    directory,
-    filepath,
-    hedgehog,
-    prettyprinter,
-    stm,
-    tasty,
-    tasty-hedgehog,
-    tasty-hunit,
-    text,
-    yaml,
-
-  ghc-options:
-    -Wall
-    -threaded
-    -rtsopts
-    "-with-rtsopts=-N -M10G"
-
-  default-language: GHC2021
-
 test-suite spec
   type: exitcode-stdio-1.0
   hs-source-dirs:

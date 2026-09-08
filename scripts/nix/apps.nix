@@ -5,7 +5,7 @@
   hsPkgs = mkHsPkgs pkgs;
   resolveProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve-tooling-common "resolve-progress";
   resolveExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve-tooling-common "resolve-extension-progress";
-  tcProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-progress";
+  tcProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc-tooling-common "tc-progress";
   aihcDevExe = pkgs.lib.getExe' hsPkgs.aihc "aihc-dev";
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
   unicode = import ./unicode.nix {inherit pkgs;};

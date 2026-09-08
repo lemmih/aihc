@@ -1,0 +1,66 @@
+cabal-version: 3.8
+name: aihc-tc-tooling-common
+version: 0.1.0.0
+build-type: Simple
+license: Unlicense
+author: David Himmelstrup
+maintainer: lemmih@gmail.com
+category: Development
+synopsis: Internal type checker tooling support for aihc
+description:
+  Internal type checker test and developer tooling support for the aihc
+  workspace. The test tree of the aihc-tc @spec@ suite is exposed here so that
+  developer tools can report on it without duplicating it.
+
+library
+  hs-source-dirs:
+    ../../components/aihc-tc/common
+    ../../components/aihc-tc/test
+
+  exposed-modules:
+    TcAnnotatedGolden
+    TcAnnotatedRender
+    Test.Tc.Interface
+    Test.Tc.Properties
+    Test.Tc.Suite
+    Test.Tc.Traverse
+
+  build-depends:
+    aeson,
+    aihc-parser,
+    aihc-resolve,
+    aihc-tc,
+    aihc-testing,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    hedgehog,
+    prettyprinter,
+    tasty,
+    tasty-hedgehog,
+    tasty-hunit,
+    text,
+    yaml,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+executable tc-progress
+  main-is: Main.hs
+  hs-source-dirs: app/tc-progress
+  build-depends:
+    aihc-tc-tooling-common,
+    base >=4.16 && <5,
+    containers,
+    stm,
+    tasty,
+
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    "-with-rtsopts=-N -M10G"
+
+  default-language: GHC2021
