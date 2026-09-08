@@ -226,7 +226,7 @@ convertNonSynonymTypeWithKinds tvEnv ty =
     TBuiltinCon builtin promotion ->
       inferBuiltinTypeConstructor builtin promotion
     TStar {} ->
-      knownType "GHC.Types" "Type" KType
+      knownType tcWiringTypeTyCon KType
     TApp f a -> do
       (fTy, fKind) <- convertSurfaceTypeWithKinds tvEnv f
       (aTy, aKind) <- convertSurfaceTypeWithKinds tvEnv a
@@ -256,8 +256,8 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       let arity = length tys
           resultKind = KTYPE (SumRep (map runtimeRepOrLifted argumentKinds))
           tyConKind' = foldr KFun resultKind argumentKinds
-          name = "(#" <> bars (arity - 1) <> "#)"
-      tyCon <- mkKnownTyCon "GHC.Types" name arity tyConKind'
+      wiring <- getWiring
+      tyCon <- mkWiredTyCon (tcWiringUnboxedSumTyCon wiring arity) tyConKind'
       pure (TcTyCon tyCon tys, resultKind)
     TList _ [arg] ->
       convertListType tvEnv arg
@@ -303,8 +303,8 @@ convertDataConstructorList tvEnv arguments = do
   argumentTypes <- mapM (\argument -> checkSurfaceType tvEnv argument elementKind) arguments
   resultKind <- listType elementKind
   let consKind = TcFunTy elementKind (TcFunTy resultKind resultKind)
-  nilTyCon <- mkKnownDataCon "GHC.Types" "[]" 0 resultKind
-  consTyCon <- mkKnownDataCon "GHC.Types" ":" 2 consKind
+  nilTyCon <- wiredTyCon tcWiringNilDataCon resultKind
+  consTyCon <- wiredTyCon tcWiringConsDataCon consKind
   let nil = TcTyCon nilTyCon []
       cons field rest = TcTyCon consTyCon [field, rest]
   pure (foldr cons nil argumentTypes, resultKind)
@@ -458,23 +458,26 @@ inferTypeVariable tvEnv name =
 inferTypeConstructor :: Name -> TcM (TcType, TcType)
 inferTypeConstructor name = do
   mInfo <- lookupResolvedTyCon name
+  wiring <- getWiring
+  let typeTyCon' = tcWiringTypeTyCon wiring
+      constraintTyCon' = tcWiringConstraintTyCon wiring
+      isWired wired info =
+        tyConModuleName (tciTyCon info) == tyConModuleName wired
+          && tciName info == tyConName wired
   case mInfo of
     Just info
-      | tyConModuleName (tciTyCon info) == "GHC.Types",
-        tciName info == "Type" ->
-          knownType "GHC.Types" "Type" KType
+      | isWired typeTyCon' info ->
+          knownType tcWiringTypeTyCon KType
     Just info
-      | tyConModuleName (tciTyCon info) == "GHC.Types",
-        tciName info == "Constraint" ->
-          knownType "GHC.Types" "Constraint" KType
+      | isWired constraintTyCon' info ->
+          knownType tcWiringConstraintTyCon KType
     Just info -> do
       kind <- instantiateTyConKind info
       pure (TcTyCon (tciTyCon info) [], kind)
-    Nothing ->
-      case nameText name of
-        "Type" -> knownType "GHC.Types" "Type" KType
-        "Constraint" -> knownType "GHC.Types" "Constraint" KType
-        _ -> inferUnknownType
+    Nothing
+      | nameText name == tyConName typeTyCon' -> knownType tcWiringTypeTyCon KType
+      | nameText name == tyConName constraintTyCon' -> knownType tcWiringConstraintTyCon KType
+      | otherwise -> inferUnknownType
 
 instantiateTyConKind :: TyConInfo -> TcM TcType
 instantiateTyConKind info = do
@@ -492,11 +495,10 @@ inferBuiltinTypeConstructor builtin promotion =
       | promoted -> do
           -- @\'[]@ has kind @[k]@.
           resultKind <- listType =<< freshKindMeta
-          tyCon <- mkKnownDataCon "GHC.Types" "[]" 0 resultKind
+          tyCon <- wiredTyCon tcWiringNilDataCon resultKind
           pure (TcTyCon tyCon [], resultKind)
       | otherwise -> do
-          maybeInfo <- lookupTyCon "[]"
-          tyCon <- maybe (mkKnownTyCon "GHC.Types" "[]" 1 (KFun KType KType)) (pure . tciTyCon) maybeInfo
+          tyCon <- lookupWiredTyCon tcWiringListTyCon (KFun KType KType)
           pure (TcTyCon tyCon [], KFun KType KType)
     BuiltinCons
       | promoted -> do
@@ -504,11 +506,11 @@ inferBuiltinTypeConstructor builtin promotion =
           elementKind <- freshKindMeta
           listKind <- listType elementKind
           let kind = KFun elementKind (KFun listKind listKind)
-          tyCon <- mkKnownDataCon "GHC.Types" ":" 2 kind
+          tyCon <- wiredTyCon tcWiringConsDataCon kind
           pure (TcTyCon tyCon [], kind)
       | otherwise -> do
           let kind = KFun KType (KFun (listTypeKind KType) (listTypeKind KType))
-          tyCon <- mkKnownDataCon "GHC.Types" ":" 2 kind
+          tyCon <- wiredTyCon tcWiringConsDataCon kind
           pure (TcTyCon tyCon [], kind)
     BuiltinTuple flavor arity
       | promoted -> do
@@ -534,27 +536,23 @@ inferBuiltinTypeConstructor builtin promotion =
           knownWiredType wired kind
     BuiltinArrow -> do
       let kind = KFun KType (KFun KType KType)
-      tyCon <- mkKnownTyCon "GHC.Types" "(->)" 2 kind
+      tyCon <- wiredTyCon tcWiringArrowTyCon kind
       pure (TcTyCon tyCon [], kind)
   where
     promoted = promotion == Promoted
 
-knownType :: Text -> Text -> TcType -> TcM (TcType, TcType)
-knownType moduleName name = knownTypeWithArity moduleName name 0
-
-knownTypeWithArity :: Text -> Text -> Int -> TcType -> TcM (TcType, TcType)
-knownTypeWithArity moduleName name arity kind = do
-  maybeInfo <- lookupTyCon name
-  tyCon <- maybe (mkKnownTyCon moduleName name arity kind) (pure . tciTyCon) maybeInfo
-  pure (TcTyCon tyCon [], kind)
-
 -- | A type constructor whose identity comes from the wiring tables. A
 -- declaration of the same name in scope takes precedence, as it does for
 -- every other built-in syntactic form.
+knownType :: (TcWiring -> TyCon) -> TcType -> TcM (TcType, TcType)
+knownType select kind = do
+  tyCon <- lookupWiredTyCon select kind
+  pure (TcTyCon tyCon [], kind)
+
+-- | The same, for an identity already taken from the wiring.
 knownWiredType :: TyCon -> TcType -> TcM (TcType, TcType)
 knownWiredType wired kind = do
-  maybeInfo <- lookupTyCon (tyConName wired)
-  tyCon <- maybe (mkWiredTyCon wired kind) (pure . tciTyCon) maybeInfo
+  tyCon <- lookupWiredTyConIdentity wired kind
   pure (TcTyCon tyCon [], kind)
 
 inferUnknownType :: TcM (TcType, TcType)
@@ -824,8 +822,7 @@ applyType f arg = TcAppTy f arg
 
 listType :: TcType -> TcM TcType
 listType ty = do
-  maybeInfo <- lookupTyCon "[]"
-  tyCon <- maybe (mkKnownTyCon "GHC.Types" "[]" 1 (KFun KType KType)) (pure . tciTyCon) maybeInfo
+  tyCon <- lookupWiredTyCon tcWiringListTyCon (KFun KType KType)
   pure (TcTyCon tyCon [ty])
 
 listTypeKind :: TcType -> TcType
@@ -961,8 +958,3 @@ takeClassArgKinds n kind
       case kind of
         KFun arg rest -> arg : takeClassArgKinds (n - 1) rest
         _ -> replicate n KType
-
-bars :: Int -> Text
-bars n
-  | n <= 0 = ""
-  | otherwise = mconcat (replicate n "|")

@@ -1358,7 +1358,8 @@ primitiveForeignTypes =
 
 primitiveMarshal :: TcType -> [Text] -> Text -> TcForeignAbiType -> TcM TcForeignMarshal
 primitiveMarshal sourceType constructors primitiveName abiType = do
-  primitiveTyCon <- mkKnownTyCon "GHC.Prim" primitiveName 0 typeKindType
+  wiring <- getWiring
+  primitiveTyCon <- mkWiredTyCon (tcWiringPrimitiveTyCon wiring primitiveName) typeKindType
   pure
     TcForeignMarshal
       { tcForeignSourceType = sourceType,
@@ -3055,10 +3056,11 @@ predeclareTypeLevelDataConstructors declaration =
           arity = length fields
       mapM_ (predeclareName parent arity) names
     predeclareName parent arity name = do
-      let isListConstructor =
-            tyConModuleName parent == "GHC.Types"
-              && tyConName parent == "[]"
-              && name `elem` ["[]", ":"]
+      listTyCon' <- wiredTyConIdentity tcWiringListTyCon
+      isListConstructor <-
+        if tyConModuleName parent == tyConModuleName listTyCon' && tyConName parent == tyConName listTyCon'
+          then isWiredListDataConName name
+          else pure False
       kindScheme <-
         if isListConstructor
           then listDataConstructorKind name
@@ -3089,8 +3091,9 @@ registerClassDecl origin classDecl = do
   let classBinder = binderHeadName (classDeclHead classDecl)
       className = unqualifiedNameText classBinder
       params = binderHeadParams (classDeclHead classDecl)
+  poly <- isImplicitlyKindPolymorphicClass origin className
   kindParams <-
-    if isTemplateHaskellLift origin className || (snd origin == "GHC.Types" && className == "~")
+    if poly
       then implicitBinderKindParams params
       else pure []
   let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
@@ -3279,13 +3282,17 @@ typeArguments ty =
     TcAppTy function argument -> typeArguments function <> [argument]
     _ -> []
 
--- | The @Lift@ class lives in aihc-internal, the standin for ghc-internal,
--- as it does in GHC 9.12 and later.
-isTemplateHaskellLift :: (Text, Text) -> Text -> Bool
-isTemplateHaskellLift (packageId, moduleName') className =
-  "aihc-internal-" `T.isPrefixOf` packageId
-    && moduleName' == "GHC.Internal.TH.Lift"
-    && className == "Lift"
+-- | Whether the parameters of a class take implicit kind parameters: the
+-- Template Haskell @Lift@ class that the wiring names, and the nominal
+-- equality constraint.
+isImplicitlyKindPolymorphicClass :: (Text, Text) -> Text -> TcM Bool
+isImplicitlyKindPolymorphicClass origin className = do
+  wiring <- getWiring
+  let equality = tcWiringEqualityTyCon wiring
+  pure
+    ( tcWiringIsLiftClass wiring origin className
+        || (snd origin == tyConModuleName equality && className == tyConName equality)
+    )
 
 registerClassItem :: Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
 registerClassItem classPred classTvEnv classTyVars item =
@@ -3364,7 +3371,7 @@ registerInstanceDecl origin instanceDecl =
 predType :: Pred -> TcM TcType
 predType (ClassPred classTyCon args) = pure (TcTyCon classTyCon args)
 predType (EqPred left right) = do
-  equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
+  equalityTyCon <- wiredTyCon tcWiringEqualityTyCon (KFun KType (KFun KType KConstraint))
   pure (TcTyCon equalityTyCon [left, right])
 predType (IParamPred name payload) = implicitParamType name payload
 predType (QuantifiedPred variables antecedents consequent) = do
@@ -3861,8 +3868,9 @@ registerTypeLevelDataCon constructor = do
       arity = length fieldTypes
       (packageId, moduleName') = dciOrigin constructor
       dataConTyCon = mkTyConWithNamespace ResolutionNamespaceTerm packageId moduleName' name arity
+  isListConstructor <- isWiredListDataCon moduleName' name
   kindScheme <-
-    if moduleName' == "GHC.Types" && name `elem` ["[]", ":"]
+    if isListConstructor
       then listDataConstructorKind name
       else
         pure
@@ -3880,26 +3888,40 @@ registerTypeLevelDataCon constructor = do
             tciFlavor = DataTyCon,
             tciTypeSynonym = Nothing
           }
-  if moduleName' == "GHC.Types" && name `elem` ["[]", ":"]
+  if isListConstructor
     then replaceTyConEnvPermanent info
     else storeTyConInfo info
 
+-- | Whether a data constructor of the given name is one of the wired list
+-- constructors, the empty list or the cons.
+isWiredListDataConName :: Text -> TcM Bool
+isWiredListDataConName name = do
+  wiring <- getWiring
+  pure (name `elem` [tyConName (tcWiringNilDataCon wiring), tyConName (tcWiringConsDataCon wiring)])
+
+-- | The same, for a constructor declared in a named module.
+isWiredListDataCon :: Text -> Text -> TcM Bool
+isWiredListDataCon moduleName' name = do
+  listTyCon' <- wiredTyConIdentity tcWiringListTyCon
+  if moduleName' == tyConModuleName listTyCon'
+    then isWiredListDataConName name
+    else pure False
+
 listDataConstructorKind :: Text -> TcM TypeScheme
 listDataConstructorKind name = do
+  nilName <- tyConName <$> wiredTyConIdentity tcWiringNilDataCon
   rawElementKind <- freshSkolemTv "k"
   let elementKindVar = setTyVarKind KType rawElementKind
       elementKind = TcTyVar elementKindVar
   resultKind <- listTypeForKind elementKind
-  let body =
-        case name of
-          "[]" -> resultKind
-          _ -> TcFunTy elementKind (TcFunTy resultKind resultKind)
+  let body
+        | name == nilName = resultKind
+        | otherwise = TcFunTy elementKind (TcFunTy resultKind resultKind)
   pure (ForAll [elementKindVar] [] body)
 
 listTypeForKind :: TcType -> TcM TcType
 listTypeForKind elementKind = do
-  maybeList <- lookupTyCon "[]"
-  listTyCon <- maybe (mkKnownTyCon "GHC.Types" "[]" 1 (TcFunTy KType KType)) (pure . tciTyCon) maybeList
+  listTyCon <- listTyConOfWiring
   pure (TcTyCon listTyCon [elementKind])
 
 registerRecordSelectors :: (Text, Text) -> [DataConInfo] -> TcM [TcBindingResult]

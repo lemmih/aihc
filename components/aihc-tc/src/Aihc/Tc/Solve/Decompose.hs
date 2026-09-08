@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Structural rules for nominal equality.
 module Aihc.Tc.Solve.Decompose
   ( decomposeNominalEquality,
@@ -46,4 +44,4 @@ decomposeNominalEquality rawLeft rawRight = do
       pure (Just [(leftFunction, rightFunction), (leftArgument, rightArgument)])
     decompose _ _ = pure Nothing
 
-    arrowTyCon = mkKnownTyCon "GHC.Types" "(->)" 2 (KFun KType (KFun KType KType))
+    arrowTyCon = wiredTyCon tcWiringArrowTyCon (KFun KType (KFun KType KType))

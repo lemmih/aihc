@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Congruence closure with explicit nominal evidence.
 module Aihc.Tc.Solve.Congruence
   ( proveGivenEquality,
@@ -32,7 +30,7 @@ proveGivenEquality predicates left right
       if null equalities then pure Nothing else prove equalities
   where
     prove equalities = do
-      arrow <- mkKnownTyCon "GHC.Types" "(->)" 2 (KFun KType (KFun KType KType))
+      arrow <- wiredTyCon tcWiringArrowTyCon (KFun KType (KFun KType KType))
       let graph = List.foldl' addGiven Map.empty equalities
           vertices = Set.toList (Set.unions (map (subterms arrow) (left : right : concat [[a, b] | (a, b, _) <- equalities])))
           pairs = [(a, b) | a : rest <- List.tails vertices, b <- rest]
