@@ -39,6 +39,7 @@ run_cmd() {
 
 resolve_cmd="${RESOLVE_PROGRESS_CMD:-nix run .#resolve-progress}"
 resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#resolve-extension-progress -- --markdown}"
+tc_cmd="${TC_PROGRESS_CMD:-nix run .#tc-progress}"
 core_libs_progress_cmd="${CORE_LIBS_PROGRESS_CMD:-nix run .#aihc-dev -- core-libs-progress}"
 line_counts_cmd="${LINE_COUNTS_CMD:-nix run .#line-counts}"
 
@@ -50,11 +51,13 @@ trap cleanup EXIT
 
 resolve_out="$tmpdir/resolve-progress.txt"
 resolve_extension_out="$tmpdir/resolve-extension-progress.md"
+tc_out="$tmpdir/tc-progress.txt"
 core_libs_progress_out="$tmpdir/core-libs-progress.txt"
 line_counts_out="$tmpdir/line-counts.txt"
 
 run_cmd "$resolve_cmd" >"$resolve_out"
 run_cmd "$resolve_extension_markdown_cmd" | sed -n '/^# Name Resolver Extension Support Status/,$p' >"$resolve_extension_out"
+run_cmd "$tc_cmd" >"$tc_out"
 run_cmd "$core_libs_progress_cmd" >"$core_libs_progress_out"
 run_cmd "$line_counts_cmd" >"$line_counts_out"
 
@@ -131,6 +134,14 @@ resolve_total="${resolve_vals[4]}"
 resolve_implemented="${resolve_vals[5]}"
 resolve_complete="${resolve_vals[6]}"
 
+tc_vals=($(parse_progress "$tc_out")) || {
+	echo "update-generated-content.sh: could not parse tc-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
+	exit 2
+}
+tc_total="${tc_vals[4]}"
+tc_implemented="${tc_vals[5]}"
+tc_complete="${tc_vals[6]}"
+
 ghc_prim_vals=($(parse_core_libs_progress "$core_libs_progress_out" "GHC_PRIM")) || {
 	echo "update-generated-content.sh: could not parse core-libs-progress output for GHC_PRIM (expected 'GHC_PRIM N M PCT' line on stdout)." >&2
 	exit 2
@@ -148,11 +159,16 @@ base_total="${base_vals[1]}"
 base_complete="${base_vals[2]}"
 
 resolve_circles="$(progress_circles "$resolve_complete")"
+tc_circles="$(progress_circles "$tc_complete")"
 ghc_prim_circles="$(progress_circles "$ghc_prim_complete")"
 base_circles="$(progress_circles "$base_complete")"
 
 cat >"$tmpdir/readme-root-resolve.txt" <<EOF2
 \`${resolve_implemented}/${resolve_total}\` (\`${resolve_complete}%\`) ${resolve_circles}
+EOF2
+
+cat >"$tmpdir/readme-root-tc.txt" <<EOF2
+\`${tc_implemented}/${tc_total}\` (\`${tc_complete}%\`) ${tc_circles}
 EOF2
 
 cat >"$tmpdir/readme-root-ghc-prim.txt" <<EOF2
@@ -280,6 +296,7 @@ else
 	fi
 fi
 
+replace_marker_inline README.md "tc-progress" "$tmpdir/readme-root-tc.txt"
 replace_marker_inline README.md "resolve-progress" "$tmpdir/readme-root-resolve.txt"
 replace_marker_inline README.md "ghc-prim-progress" "$tmpdir/readme-root-ghc-prim.txt"
 replace_marker_inline README.md "base-progress" "$tmpdir/readme-root-base.txt"
