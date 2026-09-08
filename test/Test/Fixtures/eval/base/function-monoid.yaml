@@ -1,0 +1,26 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    first :: String -> String -> [(Int, String)]
+    first name rest = [(length name, rest)]
+
+    second :: String -> String -> [(Int, String)]
+    second name rest = [(length rest, name)]
+
+    combined :: String -> String -> [(Int, String)]
+    combined = first `mappend` second
+
+    results :: (Bool, Bool, Bool, Bool)
+    results =
+      ( combined "abc" "de" == [(3, "de"), (2, "abc")],
+        (mempty :: String -> String -> [(Int, String)]) undefined undefined == [],
+        mconcat [first, second] "abc" "de" == combined "abc" "de",
+        mconcat ([] :: [String -> String -> [(Int, String)]]) "abc" "de" == []
+      )
+expression: results
+output: |
+  (True,True,True,True)
+status: pass
+reason: Function Monoid instances combine results and provide an empty result without evaluation of the arguments
