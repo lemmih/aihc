@@ -118,6 +118,9 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
 solveMetaEq :: Ct -> Unique -> TcType -> TcM EqResult
 solveMetaEq ct u ty
   | occursIn u ty = pure (EqError ct)
+  -- A meta-variable stands for a monotype. Binding it to a polytype
+  -- would let inference guess an impredicative instantiation.
+  | isPolyType ty = pure (EqError ct)
   | otherwise = do
       declaredKind <- readMetaTvKind u
       solvedKind <- tcTypeKind ty

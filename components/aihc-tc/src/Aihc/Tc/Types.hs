@@ -9,6 +9,7 @@ module Aihc.Tc.Types
     tvKind,
     setTyVarKind,
     TcType (..),
+    isPolyType,
     TcTypeKey,
     TcAxiomKey (..),
     TcKindEnv,
@@ -178,6 +179,15 @@ data TcType
 
 data TypeScheme = ForAll ![TyVarId] ![Pred] !TcType
   deriving (Eq, Ord, Show, Read)
+
+-- | Whether a type is a polytype: a leading quantifier or context. A
+-- meta-variable never stands for a polytype, so an argument of such a
+-- type is checked against it rather than inferred. A quantifier nested
+-- under an arrow or a constructor does not make a type a polytype.
+isPolyType :: TcType -> Bool
+isPolyType TcForAllTy {} = True
+isPolyType TcQualTy {} = True
+isPolyType _ = False
 
 typeSchemeBody :: TypeScheme -> TcType
 typeSchemeBody (ForAll _ _ body) = body
