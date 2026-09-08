@@ -444,6 +444,7 @@
       ];
     } ''
       cd "$src"
+      export GHCRTS=-N4
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       store="$TMPDIR/store"
