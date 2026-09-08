@@ -159,7 +159,6 @@
     )
     backends
   );
-  exampleCompilationMatrix = _exampleName: compilationMatrix;
   wasip3CompilationModes = _exampleName: compilationModes;
 
   renderExampleTest = {
@@ -535,25 +534,6 @@
       test -n "$(find "$out" -type f -name 'entry.a' -print -quit)"
     '';
 
-  # Merge per-target toolchains into the single store the tests pass to
-  # --store. The copy is real rather than a symlink forest because consumers
-  # copy the store and install into the copy, which a tree of links into the
-  # read-only Nix store would not survive.
-  mkExampleToolchain = name: targets:
-    pkgs.runCommand name {} ''
-      mkdir -p "$out"
-      ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          cp -R --no-preserve=mode ${exampleToolchainFor target}/. "$out/"
-        '')
-        targets}
-    '';
-
-  # The example and Hackage-install tests compile for the ordinary backends;
-  # only the wasip3 suite needs the wasm toolchain, and giving it one of its own
-  # keeps it from waiting on the slower native target.
-  exampleToolchain = mkExampleToolchain "aihc-example-toolchain" backends;
-  wasip3Toolchain = exampleToolchainFor "wasm32-wasip3";
-
   hackage = import ./hackage-packages.nix;
   hackageInstallTargets = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
   exampleExtraHackagePackages = {
@@ -564,63 +544,85 @@
   findHackagePackage = name:
     pkgs.lib.findFirst (package: package.name == name) (throw "missing Hackage package ${name}") hackage.packages;
 
-  # Install a Hackage package into a copy of the example toolchain store so
-  # the core libraries are reused instead of installed again.
-  mkHackageInstallTest = package: let
+  # Retain one package store per target. Dependent checks reuse this output.
+  hackageStoreFor = target: package: let
     src = hackage.fetchPackage pkgs package;
     dependencies = package.dependencies or [];
-    targets = package.targets or hackageInstallTargets;
+    # Reuse registered dependencies with the same source and version.
+    reusableDependencies = builtins.filter (entry:
+      builtins.any (dependency:
+        entry.name
+        == dependency.name
+        && entry.version == dependency.version
+        && entry.hash == dependency.hash)
+      dependencies)
+    hackage.packages;
     lintFlag = pkgs.lib.optionalString (package.lint or true) "--lint";
-    # The package and its Hackage dependencies sit next to each other in one
-    # workspace. The install finds a dependency as a sibling directory, so
-    # it does not download it.
     linkWorkspaceEntry = entry: ''
       ln -sfn ${hackage.fetchPackage pkgs entry} "$workspace/${entry.name}"
     '';
   in
-    pkgs.runCommand "aihc-hackage-install-${package.name}-${package.version}" {
+    pkgs.runCommand "aihc-hackage-install-${package.name}-${package.version}-${target}" {
       nativeBuildInputs = [
         pkgs.findutils
         pkgs.llvmPackages.bintools
         pkgs.llvmPackages.clang
+        pkgs.llvmPackages.clang-unwrapped
+        pkgs.wasm-tools
+        pkgs.wit-bindgen
+        wasmLd
       ];
     } ''
       set -euo pipefail
       export GHCRTS=-N1
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
+      export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+      export AIHC_WASM_SYSROOT=${wasmSysroot}
       coreLibsRoot="$TMPDIR/aihc-core-libs-root"
       mkdir -p "$coreLibsRoot"
       ln -sfn ${sources.coreLibrariesSrc pkgs}/core-libs "$coreLibsRoot/core-libs"
       export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
-      store="$TMPDIR/store"
-      cp -R --no-preserve=mode ${exampleToolchain} "$store"
+      cp -R --no-preserve=mode ${exampleToolchainFor target} "$out"
+      ${pkgs.lib.concatMapStringsSep "\n" (dependency: ''
+          cp -R --no-preserve=mode ${hackageStoreFor target dependency}/. "$out/"
+        '')
+        reusableDependencies}
       workspace="$TMPDIR/workspace"
       mkdir -p "$workspace"
       ln -sfn ${src} "$workspace/${package.name}"
       ${pkgs.lib.concatMapStrings linkWorkspaceEntry dependencies}
 
-      ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          install_output=$(${aihcExe} install "$workspace/${package.name}" --store "$store" ${lintFlag} --target ${target})
-          printf '%s\n' "$install_output"
-          test -s "''${install_output#store: }/lib/lib${package.name}.a"
-        '')
-        targets}
-
-      test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
-      touch "$out"
+      install_output=$(${aihcExe} install "$workspace/${package.name}" --store "$out" ${lintFlag} --target ${target})
+      printf '%s\n' "$install_output"
+      test -s "''${install_output#store: }/lib/lib${package.name}.a"
+      test -z "$(find "$out" -type f -name 'core.bad' -print -quit)"
     '';
 
-  hackageInstallCases =
-    map (package: {
-      name = "${package.name}-${package.version}";
-      path = mkHackageInstallTest package;
-    })
-    hackage.packages;
+  hackageInstallCases = pkgs.lib.concatMap (package:
+    map (target: {
+      name = "${package.name}-${package.version}-${target}";
+      path = hackageStoreFor target package;
+    }) (package.targets or hackageInstallTargets))
+  hackage.packages;
 
-  # Every listed Hackage package gets one installation test per host target.
+  # Each package and target has an independent installation check.
   hackageInstallTests = assert hackage.packages != [];
     pkgs.linkFarm "aihc-hackage-install-tests" hackageInstallCases;
+
+  exampleStoreFor = target: exampleName: let
+    extraNames = exampleExtraHackagePackages.${exampleName} or [];
+  in
+    if extraNames == []
+    then exampleToolchainFor target
+    else
+      pkgs.runCommand "aihc-example-store-${exampleName}-${target}" {} ''
+        mkdir -p "$out"
+        ${pkgs.lib.concatMapStringsSep "\n" (name: ''
+            cp -R --no-preserve=mode ${hackageStoreFor target (findHackagePackage name)}/. "$out/"
+          '')
+          extraNames}
+      '';
 
   exampleTestInputs = [
     pkgs.coreutils
@@ -662,12 +664,12 @@
       ${pkgs.lib.concatMapStringsSep "\n" installExtraForTarget targets}
     '';
 
-  mkExampleTest = exampleName: let
+  mkExampleTest = exampleName: target: let
     extraNames = exampleExtraHackagePackages.${exampleName} or [];
     packageFlags =
       pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames;
   in
-    mkSourceCheck "aihc-example-${exampleName}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
+    mkSourceCheck "aihc-example-${exampleName}-${target}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
       set -euo pipefail
       export GHCRTS=-N1
       export LANG=C.UTF-8
@@ -685,21 +687,18 @@
         exit 1
       fi
 
-      ${mkExampleExtraInstall {
-          toolchain = exampleToolchain;
-          targets = backends;
-        }
-        exampleName}
-      ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest (exampleCompilationMatrix exampleName)}
+      store=${exampleStoreFor target exampleName}
+      ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest (builtins.filter (entry: entry.backend == target) compilationMatrix)}
       touch "$out"
     '';
 
-  exampleCases =
-    map (exampleName: {
-      name = exampleName;
-      path = mkExampleTest exampleName;
+  exampleCases = pkgs.lib.concatMap (exampleName:
+    map (target: {
+      name = "${exampleName}-${target}";
+      path = mkExampleTest exampleName target;
     })
-    exampleNames;
+    backends)
+  exampleNames;
 
   mkGhcExampleTest = exampleName:
     mkSourceCheck "aihc-ghc-example-${exampleName}" (sources.exampleSrc exampleName pkgs) [pkgs.coreutils pkgs.diffutils (projectHsPackages pkgs).ghc] ''
@@ -850,11 +849,7 @@
         exit 1
       fi
 
-      ${mkExampleExtraInstall {
-          toolchain = wasip3Toolchain;
-          targets = ["wasm32-wasip3"];
-        }
-        exampleName}
+      store=${exampleStoreFor "wasm32-wasip3" exampleName}
       ${pkgs.lib.concatMapStringsSep "\n" renderWasip3ExampleTest (wasip3CompilationModes exampleName)}
 
       touch "$out"
