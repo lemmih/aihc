@@ -120,3 +120,6 @@ instance Monoid Ordering where
 
 instance (Semigroup b) => Semigroup (a -> b) where
   (left <> right) value = left value <> right value
+
+instance (Monoid b) => Monoid (a -> b) where
+  mempty _ = mempty
