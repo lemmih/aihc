@@ -1427,8 +1427,10 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
       dictName <- lookupInstanceDictName origin classNameText headTys
       classInfo <- lookupClassNamed className
       info <- maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure classInfo
-      let classSubstitution =
-            Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip (ciTyVars info) headTys]
+      headKinds <- mapM tcTypeKind headTys
+      let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (ciTyVars info)) headKinds)
+          classSubstitution =
+            Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip (ciTyVars info) headTys] <> kindSubstitution
           superClassTypes = map (applySubst classSubstitution) (ciSuperClassTypes info)
           defaults = ciDefaultMethods info
       superClasses <- mapM constraintTypePred superClassTypes
@@ -1443,12 +1445,19 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
             ]
       defaultMethodEvidence <-
         sequence
-          [ (methodName,) <$> mapM (solveInstanceSuperClass classNameText context) predicates
+          [ do
+              ForAll _ methodPredicates methodBody <- methodExpectedScheme info headTys methodName
+              let signatureSubstitution =
+                    fromMaybe Map.empty (matchTypes [applySubst classSubstitution signatureBody] [methodBody])
+                  predicates =
+                    filter
+                      (not . isPredicateOfClass (ciTyCon info))
+                      (map (applySubstPred signatureSubstitution . applySubstPred classSubstitution) signaturePredicates)
+              (methodName,) <$> mapM (solveInstanceSuperClass classNameText (context <> methodPredicates)) predicates
           | methodName <- defaults,
             methodName `notElem` definedMethods,
             isNothing newtypePlan,
-            Just (ForAll _ signaturePredicates _) <- [lookup methodName (ciDefaultSignatures info)],
-            let predicates = filter (not . isPredicateOfClass (ciTyCon info)) (map (applySubstPred classSubstitution) signaturePredicates)
+            Just (ForAll _ signaturePredicates signatureBody) <- [lookup methodName (ciDefaultSignatures info)]
           ]
       contextDicts <- mapM predDictBinder context
       superClassBinders <- mapM predDictBinder superClasses
@@ -1474,7 +1483,16 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
           associatedEquations = mapMaybe explicitEquation (instanceDeclTypeFamilyInsts instanceDecl) <> defaultEquations
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon info) headTys)) tvIds
           methodOrder = map fst (ciMethods info)
-          classMethods = zipWith (classMethodFromInfo info) [0 :: Int ..] (ciMethods info)
+          specializeVariable variable = setTyVarKind (applySubst kindSubstitution (tvKind variable)) variable
+          classTyVars = map specializeVariable (ciTyVars info)
+          specializeKinds (name, ForAll variables predicates body) =
+            ( name,
+              ForAll
+                [specializeVariable variable | variable <- variables, Map.notMember (tvUnique variable) kindSubstitution]
+                (map (applySubstPred kindSubstitution) predicates)
+                (applySubst kindSubstitution body)
+            )
+          classMethods = zipWith (classMethodFromInfo info {ciTyVars = classTyVars}) [0 :: Int ..] (map specializeKinds (ciMethods info))
           instAnn =
             TcInstanceAnnotation
               { tcInstanceDictName = dictName,
@@ -1482,7 +1500,7 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
                 tcInstanceClassTyCon = ciTyCon info,
                 tcInstanceTyVars = tvIds,
                 tcInstanceHeadTypes = headTys,
-                tcInstanceClassTyVars = ciTyVars info,
+                tcInstanceClassTyVars = classTyVars,
                 tcInstanceClassOrigin = ciOrigin info,
                 tcInstanceClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes info),
                 tcInstanceClassMethods = classMethods,

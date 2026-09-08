@@ -19,8 +19,17 @@ litInt n = litE (integerL n)
 typedLitInt :: (Quote m) => Integer -> Code m Integer
 typedLitInt = unsafeCodeCoerce . litInt
 
+newtype TypedOnly = TypedOnly Integer
+
+instance Lift TypedOnly where
+  liftTyped (TypedOnly n) = unsafeCodeCoerce (pure (AppE (ConE (mkName "TypedOnly")) (LitE (IntegerL n))))
+
 main :: IO ()
 main = do
+  lifted <- runQ (lift (TypedOnly 37))
+  if lifted == AppE (ConE (mkName "TypedOnly")) (LitE (IntegerL 37))
+    then pure ()
+    else error "default lift returned an incorrect expression"
   expression <- runQ (litInt 42)
   if expression == LitE (IntegerL 42)
     then pure ()
