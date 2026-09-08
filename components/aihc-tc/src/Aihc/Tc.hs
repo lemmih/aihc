@@ -91,7 +91,10 @@ module Aihc.Tc
     TyConFlavor (..),
     TyConInfo (..),
     Unique (..),
-    typeKindType,
+    TcKinds (..),
+    typeKind,
+    liftedRep,
+    mkTcKinds,
     typeKindInEnv,
     runtimeRepOfTypeInEnv,
     isUnliftedTypeInEnv,
@@ -148,6 +151,7 @@ import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
+import Aihc.Tc.Wiring (mkTcKinds)
 import Aihc.Tc.Zonk (finalizeDiagnostics, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((<=<))
@@ -407,12 +411,12 @@ typecheckExprM expr = do
   zonkType ty
 
 -- | Top-level bindings recovered from a type-checked module's annotations.
-tcModuleBindings :: Module -> [TcBindingResult]
+tcModuleBindings :: TcKinds -> Module -> [TcBindingResult]
 tcModuleBindings =
   moduleBindings
 
 -- | Class instances recovered from a type-checked module's annotations.
-tcModuleInstances :: Module -> [InstanceInfo]
+tcModuleInstances :: TcKinds -> Module -> [InstanceInfo]
 tcModuleInstances =
   moduleInstances
 

@@ -83,8 +83,9 @@ declDerivedInstances references origin decl =
     DeclAnn annotation inner -> do
       own <-
         case fromAnnotation @TcDerivingAnnotation annotation of
-          Just derivingAnnotation ->
-            catMaybes <$> mapM (generatePlan references origin (peelDeclAnn inner)) (tcDerivingPlans derivingAnnotation)
+          Just derivingAnnotation -> do
+            kinds <- getKinds
+            catMaybes <$> mapM (generatePlan kinds references origin (peelDeclAnn inner)) (tcDerivingPlans derivingAnnotation)
           Nothing -> pure []
       rest <- declDerivedInstances references origin inner
       pure (own <> rest)
@@ -93,14 +94,15 @@ declDerivedInstances references origin decl =
 -- | The generation context of one plan.
 data Gen = Gen
   { genSpan :: !SourceSpan,
+    genKinds :: !TcKinds,
     genReferences :: !DerivingReferences,
     genPlan :: !TcDerivingPlan,
     -- | Package and module of the class, where its methods live.
     genClassOrigin :: !(Text, Text)
   }
 
-generatePlan :: DerivingReferences -> (Text, Text) -> Decl -> TcDerivingPlan -> TcM (Maybe Decl)
-generatePlan references origin sourceDecl plan =
+generatePlan :: TcKinds -> DerivingReferences -> (Text, Text) -> Decl -> TcDerivingPlan -> TcM (Maybe Decl)
+generatePlan kinds references origin sourceDecl plan =
   case supportedStrategy of
     Left message -> do
       emitWarning (tcDerivingSourceSpan plan) (OtherError message)
@@ -141,6 +143,7 @@ generatePlan references origin sourceDecl plan =
     gen =
       Gen
         { genSpan = tcDerivingSourceSpan plan,
+          genKinds = kinds,
           genReferences = references,
           genPlan = plan,
           genClassOrigin = fromMaybe origin (tcDerivingClassOrigin plan)
@@ -173,8 +176,8 @@ generatePlan references origin sourceDecl plan =
         DeclStandaloneDeriving derivingDecl ->
           Just (standaloneDerivingForall derivingDecl, standaloneDerivingContext derivingDecl, standaloneDerivingHead derivingDecl)
         _ -> do
-          surfaceContext <- mapM (surfacePred (genSpan gen)) context
-          headArguments <- mapM (surfaceType (genSpan gen)) (tcDerivingHeadTypes plan)
+          surfaceContext <- mapM (surfacePred kinds (genSpan gen)) context
+          headArguments <- mapM (surfaceType kinds (genSpan gen)) (tcDerivingHeadTypes plan)
           pure ([], surfaceContext, foldl TApp (TCon (tyConNameSyntax (genSpan gen) (tcDerivingClassTyCon plan)) Unpromoted) headArguments)
 
 -- | The method equations of a plan, or 'Nothing' after reporting why the
@@ -184,11 +187,11 @@ generateItems gen =
   case tcDerivingStrategy plan of
     TcDerivingAnyclass -> pure (Just [])
     TcDerivingNewtype ->
-      case newtypeRepresentation plan of
+      case newtypeRepresentation (genKinds gen) plan of
         Left message -> failWith message
         Right representation -> associatedItems gen representation
     TcDerivingStock ->
-      case (stockFieldTypes plan, tcDerivingDataType plan) of
+      case (stockFieldTypes (genKinds gen) plan, tcDerivingDataType plan) of
         (Left message, _) -> failWith message
         (Right _, Just dataType) ->
           let constructors = dtiConstructors dataType
@@ -576,7 +579,7 @@ associatedItems gen representation = do
             let sourceHeads = init heads <> [representation]
                 left = TcTyCon (atiTyCon associated) [heads !! position | position <- positions]
                 right = TcTyCon (atiTyCon associated) [sourceHeads !! position | position <- positions]
-            case (surfaceType (genSpan gen) left, surfaceType (genSpan gen) right) of
+            case (surfaceType (genKinds gen) (genSpan gen) left, surfaceType (genKinds gen) (genSpan gen) right) of
               (Just lhs, Just rhs) -> pure (Just (InstanceItemTypeFamilyInst (TypeFamilyInst [] TypeHeadPrefix lhs rhs)))
               _ -> reject
       where
@@ -739,22 +742,22 @@ isSymbolic text =
 
 -- | The checked type as the source syntax that the instance checker reads
 -- back, or 'Nothing' for a type without a source form.
-surfaceType :: SourceSpan -> TcType -> Maybe Type
-surfaceType sp ty =
+surfaceType :: TcKinds -> SourceSpan -> TcType -> Maybe Type
+surfaceType kinds sp ty =
   case ty of
     TcTyVar tyVar -> Just (TVar (mkUnqualifiedName NameVarId (tvName tyVar)))
-    TcFunTy argument result -> TFun ArrowUnrestricted <$> surfaceType sp argument <*> surfaceType sp result
-    TcAppTy function argument -> TApp <$> surfaceType sp function <*> surfaceType sp argument
+    TcFunTy argument result -> TFun ArrowUnrestricted <$> surfaceType kinds sp argument <*> surfaceType kinds sp result
+    TcAppTy function argument -> TApp <$> surfaceType kinds sp function <*> surfaceType kinds sp argument
     TcTyCon tyCon [argument, result]
-      | isArrowTyCon tyCon -> TFun ArrowUnrestricted <$> surfaceType sp argument <*> surfaceType sp result
+      | isArrowTyCon kinds tyCon -> TFun ArrowUnrestricted <$> surfaceType kinds sp argument <*> surfaceType kinds sp result
     TcTyCon tyCon arguments
       | tyConNamespace tyCon == ResolutionNamespaceType ->
-          foldl TApp (TCon (tyConNameSyntax sp tyCon) Unpromoted) <$> mapM (surfaceType sp) arguments
+          foldl TApp (TCon (tyConNameSyntax sp tyCon) Unpromoted) <$> mapM (surfaceType kinds sp) arguments
     _ -> Nothing
 
-surfacePred :: SourceSpan -> Pred -> Maybe Type
-surfacePred sp predicate =
+surfacePred :: TcKinds -> SourceSpan -> Pred -> Maybe Type
+surfacePred kinds sp predicate =
   case predicate of
     ClassPred classTyCon arguments ->
-      foldl TApp (TCon (tyConNameSyntax sp classTyCon) Unpromoted) <$> mapM (surfaceType sp) arguments
+      foldl TApp (TCon (tyConNameSyntax sp classTyCon) Unpromoted) <$> mapM (surfaceType kinds sp) arguments
     _ -> Nothing

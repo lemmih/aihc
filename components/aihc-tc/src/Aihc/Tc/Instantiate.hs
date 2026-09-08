@@ -33,12 +33,13 @@ instantiate scheme = do
 
 instantiateWithArgs :: TypeScheme -> TcM Instantiation
 instantiateWithArgs (ForAll tvs preds body) = do
+  kinds <- getKinds
   -- Allocate in binder order so later binder kinds can refer to earlier
   -- instantiations (for example @b :: TYPE r@).
-  subst <- foldM extendSubst Map.empty tvs
-  let substTy = applySubst subst
+  subst <- foldM (extendSubst kinds) Map.empty tvs
+  let substTy = applySubst kinds subst
       body' = substTy body
-      preds' = map (applySubstPred subst) preds
+      preds' = map (applySubstPred kinds subst) preds
       typeArgs = map (substTy . TcTyVar) tvs
   pure
     Instantiation
@@ -47,6 +48,6 @@ instantiateWithArgs (ForAll tvs preds body) = do
         instPreds = preds'
       }
   where
-    extendSubst subst tv = do
-      meta <- freshMetaTvOfKind (applySubst subst (tvKind tv))
+    extendSubst kinds subst tv = do
+      meta <- freshMetaTvOfKind (applySubst kinds subst (tvKind tv))
       pure (Map.insert (tvUnique tv) meta subst)

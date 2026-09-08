@@ -16,7 +16,7 @@ module Aihc.Tc.Solve.Family
 where
 
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
-import Aihc.Tc.Monad (TcM, getTyConEnv, getTypeFamilyInstances, lookupTyConByIdentity)
+import Aihc.Tc.Monad (TcM, getKinds, getTyConEnv, getTypeFamilyInstances, lookupTyConByIdentity)
 import Aihc.Tc.Types
 import Control.Monad (foldM)
 import Data.List (sortOn)
@@ -36,9 +36,10 @@ reduceTypeFamilies ty =
       reduceHead (TcTyCon tyCon arguments')
     TcFunTy argument result -> TcFunTy <$> reduceTypeFamilies argument <*> reduceTypeFamilies result
     TcAppTy function argument -> do
+      kinds <- getKinds
       function' <- reduceTypeFamilies function
       argument' <- reduceTypeFamilies argument
-      reduceHead (applyType function' argument')
+      reduceHead (applyType kinds function' argument')
     TcForAllTy tyVar body -> TcForAllTy tyVar <$> reduceTypeFamilies body
     TcQualTy predicates body -> TcQualTy <$> mapM reducePredFamilies predicates <*> reduceTypeFamilies body
     _ -> pure ty
@@ -100,9 +101,10 @@ reduceHead ty =
           | tciFlavor info == TypeFamilyTyCon,
             length arguments >= tciArity info -> do
               let (familyArguments, extraArguments) = splitAt (tciArity info) arguments
+              kinds <- getKinds
               equations <- familyEquations tyCon
-              case firstEquation equations familyArguments of
-                Just reduced -> reduceTypeFamilies (foldl applyType reduced extraArguments)
+              case firstEquation kinds equations familyArguments of
+                Just reduced -> reduceTypeFamilies (foldl (applyType kinds) reduced extraArguments)
                 Nothing -> pure ty
         _ -> pure ty
     _ -> pure ty
@@ -125,19 +127,19 @@ axiomIndex info =
 -- | The right-hand side of the first equation that matches. In a closed
 -- family, an earlier equation that could still match after the meta
 -- variables are solved blocks the later equations.
-firstEquation :: [TypeFamilyInstanceInfo] -> [TcType] -> Maybe TcType
-firstEquation equations arguments =
+firstEquation :: TcKinds -> [TypeFamilyInstanceInfo] -> [TcType] -> Maybe TcType
+firstEquation kinds equations arguments =
   case equations of
     [] -> Nothing
     equation : rest ->
       case equationArguments equation of
         Just patterns
           | Just substitution <- matchTypes patterns arguments ->
-              Just (applySubst substitution (tfiiRight equation))
+              Just (applySubst kinds substitution (tfiiRight equation))
           | tfiiClosed equation,
             and (zipWith couldUnify patterns arguments) ->
               Nothing
-        _ -> firstEquation rest arguments
+        _ -> firstEquation kinds rest arguments
 
 equationArguments :: TypeFamilyInstanceInfo -> Maybe [TcType]
 equationArguments info =
@@ -161,9 +163,9 @@ couldUnify patternType target =
       couldUnify function targetFunction && couldUnify argument targetArgument
     _ -> patternType == target
 
-applyType :: TcType -> TcType -> TcType
-applyType (TcTyCon tyCon arguments) argument = mkTyConApp tyCon (arguments <> [argument])
-applyType function argument = TcAppTy function argument
+applyType :: TcKinds -> TcType -> TcType -> TcType
+applyType kinds (TcTyCon tyCon arguments) argument = mkTyConApp kinds tyCon (arguments <> [argument])
+applyType _ function argument = TcAppTy function argument
 
 -- | Match pattern types against target types. The type variables of the
 -- patterns are the pattern variables.

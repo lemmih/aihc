@@ -59,6 +59,7 @@ solveCoercible = go [] False
         Right () -> True
         _ -> False
     representation (TcTyCon constructor arguments) = do
+      kinds <- getKinds
       info <- lookupDataType constructor
       case info of
         Just dataType
@@ -70,7 +71,7 @@ solveCoercible = go [] False
               visible <- isTermVisible (TcTermGlobal package moduleName' (dciName con))
               pure
                 ( if visible
-                    then Just (applySubst (Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments)) (dcfiType field))
+                    then Just (applySubst kinds (Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments)) (dcfiType field))
                     else Nothing
                 )
         _ -> pure Nothing
@@ -102,8 +103,9 @@ representationParameter visited constructor index
     checkConstructor parameter expected con
       | null (dciTheta con),
         null (dciExTyVars con),
-        Just substitution <- matchTypes [dciResTy con] [expected] =
-          and <$> mapM (representationPosition next parameter . applySubst substitution . dcfiType) (dciFields con)
+        Just substitution <- matchTypes [dciResTy con] [expected] = do
+          kinds <- getKinds
+          and <$> mapM (representationPosition next parameter . applySubst kinds substitution . dcfiType) (dciFields con)
       | otherwise = pure False
 
 representationPosition :: [(TyCon, Int)] -> TyVarId -> TcType -> TcM Bool

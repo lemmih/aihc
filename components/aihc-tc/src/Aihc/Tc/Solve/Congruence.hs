@@ -30,7 +30,8 @@ proveGivenEquality predicates left right
       if null equalities then pure Nothing else prove equalities
   where
     prove equalities = do
-      arrow <- wiredTyCon tcWiringArrowTyCon (KFun KType (KFun KType KType))
+      kinds <- getKinds
+      arrow <- wiredTyCon tcWiringArrowTyCon (KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds)))
       let graph = List.foldl' addGiven Map.empty equalities
           vertices = Set.toList (Set.unions (map (subterms arrow) (left : right : concat [[a, b] | (a, b, _) <- equalities])))
           pairs = [(a, b) | a : rest <- List.tails vertices, b <- rest]
@@ -63,9 +64,10 @@ givenEqualities visited (predicate, evidence) = case predicate of
         case maybeInfo of
           Nothing -> pure []
           Just info -> do
+            kinds <- getKinds
             let substitution = Map.fromList (zip (map tvUnique (ciTyVars info)) arguments)
-                fields = classFieldTypes info substitution
-                supers = map (constraintTypeToPred . applySubst substitution) (ciSuperClassTypes info)
+                fields = classFieldTypes kinds info substitution
+                supers = map (constraintTypeToPred kinds . applySubst kinds substitution) (ciSuperClassTypes info)
             concat
               <$> traverse
                 (\(index, super) -> givenEqualities (tyCon : visited) (super, EvSuperClass evidence (ciOrigin info) predicate fields index))

@@ -23,7 +23,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..))
-import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, wiredTyCon)
+import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getKinds, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, wiredTyCon)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible)
 import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
@@ -129,9 +129,10 @@ solveDictWithGivensVisited visited givens ct
               case classInfo of
                 Nothing -> pure Nothing
                 Just info -> do
+                  kinds <- getKinds
                   let substitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
-                      fieldTypes = classFieldTypes info substitution
-                  case traverse (constraintTypeToPred . applySubst substitution) (ciSuperClassTypes info) of
+                      fieldTypes = classFieldTypes kinds info substitution
+                  case traverse (constraintTypeToPred kinds . applySubst kinds substitution) (ciSuperClassTypes info) of
                     Just superClasses -> searchSuperClasses (sourceClass : classVisited) solveVisited sourceEvidence (ciOrigin info) sourcePredicate fieldTypes target 0 superClasses
                     Nothing -> pure Nothing
         _ -> pure Nothing
@@ -156,8 +157,9 @@ solveDictWithGivensVisited visited givens ct
           case matchTypes (iiHead instanceInfo) args of
             Nothing -> tryInstances visited' className args rest
             Just subst -> do
-              let context = map (applySubstPred subst) (iiContext instanceInfo)
-                  typeArgs = map (applySubst subst . TcTyVar) (iiTyVars instanceInfo)
+              kinds <- getKinds
+              let context = map (applySubstPred kinds subst) (iiContext instanceInfo)
+                  typeArgs = map (applySubst kinds subst . TcTyVar) (iiTyVars instanceInfo)
               contextEvidence <- mapM (solveSubPred visited') context
               case sequence contextEvidence of
                 Just evidence -> do
@@ -191,9 +193,10 @@ solveDictWithGivensVisited visited givens ct
             Nothing -> pure (DictStuck ct)
 
     solveQuantifiedWanted visited' localGivens (QuantifiedPred variables antecedents consequent) = do
+      kinds <- getKinds
       (freshVariables, substitution) <- freshQuantifiedVariables variables
-      let instantiatedAntecedents = map (applySubstPred substitution) antecedents
-          instantiatedConsequent = applySubstPred substitution consequent
+      let instantiatedAntecedents = map (applySubstPred kinds substitution) antecedents
+          instantiatedConsequent = applySubstPred kinds substitution consequent
       consequenceVariable <- freshEvVar
       result <-
         solveDictWithGivensVisited
@@ -225,8 +228,9 @@ solveDictWithGivensVisited visited givens ct
     useQuantifiedEvidence _ _ _ _ = pure Nothing
 
     applyQuantifiedEvidence visited' source variables antecedents substitution = do
+      kinds <- getKinds
       let typeArguments = map (\variable -> Map.findWithDefault (TcTyVar variable) (tvUnique variable) substitution) variables
-          instantiatedAntecedents = map (applySubstPred substitution) antecedents
+          instantiatedAntecedents = map (applySubstPred kinds substitution) antecedents
       antecedentEvidence <- mapM (solveSubPred visited') instantiatedAntecedents
       pure $ do
         evidence <- sequence antecedentEvidence
@@ -244,13 +248,14 @@ solveDictWithGivensVisited visited givens ct
                   case classInfo of
                     Nothing -> pure Nothing
                     Just info -> do
+                      kinds <- getKinds
                       let classSubstitution =
                             Map.fromList
                               [ (tvUnique variable, argument)
                               | (variable, argument) <- zip (ciTyVars info) sourceArguments
                               ]
-                          fieldTypes = classFieldTypes info classSubstitution
-                      case traverse (constraintTypeToPred . applySubst classSubstitution) (ciSuperClassTypes info) of
+                          fieldTypes = classFieldTypes kinds info classSubstitution
+                      case traverse (constraintTypeToPred kinds . applySubst kinds classSubstitution) (ciSuperClassTypes info) of
                         Nothing -> pure Nothing
                         Just superClasses ->
                           searchQuantifiedSuperClasses
@@ -268,6 +273,7 @@ solveDictWithGivensVisited visited givens ct
 
     searchQuantifiedSuperClasses _ _ _ _ _ _ _ _ _ [] = pure Nothing
     searchQuantifiedSuperClasses visited' target variables build sourcePredicate classVisited sourceOrigin fieldTypes index (superClass : rest) = do
+      kinds <- getKinds
       let project substitution = do
             source <- build substitution
             pure $ do
@@ -276,8 +282,8 @@ solveDictWithGivensVisited visited givens ct
                 ( EvSuperClass
                     sourceEvidence
                     sourceOrigin
-                    (applySubstPred substitution sourcePredicate)
-                    (map (applySubst substitution) fieldTypes)
+                    (applySubstPred kinds substitution sourcePredicate)
+                    (map (applySubst kinds substitution) fieldTypes)
                     index
                 )
       result <-
@@ -305,8 +311,9 @@ solveDictWithGivensVisited visited givens ct
     freshQuantifiedVariables = foldM freshOne ([], Map.empty)
       where
         freshOne (variables, substitution) variable = do
+          kinds <- getKinds
           fresh <- freshSkolemTv (tvName variable)
-          let kind = applySubst substitution (tvKind variable)
+          let kind = applySubst kinds substitution (tvKind variable)
               freshVariable = setTyVarKind kind fresh
           pure (variables <> [freshVariable], Map.insert (tvUnique variable) (TcTyVar freshVariable) substitution)
 
@@ -314,7 +321,8 @@ solveDictWithGivensVisited visited givens ct
       case predicate of
         ClassPred classTyCon arguments -> pure (TcTyCon classTyCon arguments)
         EqPred left right -> do
-          equalityTyCon <- wiredTyCon tcWiringEqualityTyCon (KFun KType (KFun KType KConstraint))
+          kinds <- getKinds
+          equalityTyCon <- wiredTyCon tcWiringEqualityTyCon (KFun (typeKind kinds) (KFun (typeKind kinds) (constraintKind kinds)))
           pure (TcTyCon equalityTyCon [left, right])
         IParamPred name payload -> implicitParamType name payload
         QuantifiedPred variables antecedents consequent -> do
@@ -333,14 +341,14 @@ typeableArguments ty =
     TcQualTy {} -> Nothing
     TcAppTy {} -> Nothing
 
-classFieldTypes :: ClassInfo -> Map Unique TcType -> [TcType]
-classFieldTypes classInfo substitution =
-  map (applySubst substitution) (ciSuperClassTypes classInfo)
-    <> map (methodFieldType classInfo substitution . snd) (ciMethods classInfo)
+classFieldTypes :: TcKinds -> ClassInfo -> Map Unique TcType -> [TcType]
+classFieldTypes kinds classInfo substitution =
+  map (applySubst kinds substitution) (ciSuperClassTypes classInfo)
+    <> map (methodFieldType kinds classInfo substitution . snd) (ciMethods classInfo)
 
-methodFieldType :: ClassInfo -> Map Unique TcType -> TypeScheme -> TcType
-methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
-  applySubst substitution $
+methodFieldType :: TcKinds -> ClassInfo -> Map Unique TcType -> TypeScheme -> TcType
+methodFieldType kinds classInfo substitution (ForAll typeVariables predicates body) =
+  applySubst kinds substitution $
     foldr TcForAllTy qualifiedBody extraTypeVariables
   where
     classVariables = ciTyVars classInfo

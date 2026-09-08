@@ -42,7 +42,7 @@ import Aihc.Parser.Syntax
     parseExtensionName,
   )
 import Aihc.Parser.Syntax qualified as Surface
-import Aihc.Prim.Wiring (primTcConfig)
+import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve
   ( ModuleExports,
     Package (..),
@@ -56,7 +56,7 @@ import Aihc.Resolve
     unionScope,
     unnamedPackage,
   )
-import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), diagKind, emptyTcInterface, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
+import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, diagKind, emptyTcInterface, mkTcKinds, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
 import Control.Exception (evaluate)
 import Control.Monad (forM, unless)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -294,6 +294,10 @@ compileEvalCase env tc = do
 evalTcConfig :: TcConfig
 evalTcConfig = primTcConfig primPackageId
 
+-- | The kind vocabulary of the fixture compiler.
+evalKinds :: TcKinds
+evalKinds = mkTcKinds (primTcWiring primPackageId)
+
 -- | How to desugar each module, by module name.
 --
 -- Two packages could in principle bring the same module name; the desugared
@@ -302,8 +306,8 @@ evalTcConfig = primTcConfig primPackageId
 desugarConfigsByModule :: ModuleExports -> [(Package, Surface.Module)] -> Map.Map Text Fc.DesugarConfig
 desugarConfigsByModule exports packageModules =
   Map.fromListWith
-    (\_ _ -> Fc.allPublicDesugarConfig primPackageId)
-    [ (moduleKeyOf modu, Fc.moduleDesugarConfig primPackageId package (moduleKeyOf modu) exports)
+    (\_ _ -> Fc.allPublicDesugarConfig evalKinds primPackageId)
+    [ (moduleKeyOf modu, Fc.moduleDesugarConfig evalKinds primPackageId package (moduleKeyOf modu) exports)
     | (package, modu) <- packageModules
     ]
 
@@ -312,7 +316,7 @@ moduleKeyOf = fromMaybe "Main" . Surface.moduleName
 
 evalDesugarConfig :: Map.Map Text Fc.DesugarConfig -> Surface.Module -> Fc.DesugarConfig
 evalDesugarConfig configs modu =
-  Map.findWithDefault (Fc.allPublicDesugarConfig primPackageId) (moduleKeyOf modu) configs
+  Map.findWithDefault (Fc.allPublicDesugarConfig evalKinds primPackageId) (moduleKeyOf modu) configs
 
 primPackageId :: PackageId
 primPackageId = PackageId "aihc-prim"
@@ -435,7 +439,7 @@ renderTcErrorKind errorKind =
 
 moduleGroupBindings :: [Module] -> [TcBindingResult]
 moduleGroupBindings =
-  concatMap tcModuleBindings
+  concatMap (tcModuleBindings evalKinds)
 
 -- | Typecheck the core library modules, which must arrive in dependency
 -- order. The wired-in modules are checked first as one group.

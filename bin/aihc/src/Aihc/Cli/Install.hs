@@ -58,7 +58,7 @@ import Aihc.Parser.Syntax
     moduleName,
   )
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Prim.Wiring (primTcConfig)
+import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve
   ( ModuleExports,
     ModuleKey (..),
@@ -89,6 +89,7 @@ import Aihc.Tc
     TcDiagnostic (..),
     TcErrorKind (..),
     TcInterface (..),
+    TcKinds,
     TcSeverity (..),
     TcTermKey (..),
     TcType (..),
@@ -97,6 +98,7 @@ import Aihc.Tc
     TypeFamilyInstanceInfo (..),
     TypeScheme (..),
     mergeTcInterfaces,
+    mkTcKinds,
     renderPred,
     renderTcType,
     tcInterfaceClasses,
@@ -624,6 +626,11 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
         compiledWritten = Set.unions (map typeUnitWritten typeResults),
         compiledReused = Set.unions (map typeUnitReused typeResults)
       }
+
+-- | The kind vocabulary of the aihc core libraries, given the identity of
+-- the primitive package.
+primKinds :: PackageId -> TcKinds
+primKinds = mkTcKinds . primTcWiring
 
 packagePrimIdentity :: Package -> ModuleExports -> PackageId
 packagePrimIdentity resolvePackage dependencyExports =
@@ -1203,7 +1210,7 @@ runTypeUnit context runtimes runtime = do
         let (checkedModules, _) = initialChecked
             desugarConfigs =
               Map.fromList
-                [ (name, Fc.moduleDesugarConfig primIdentity resolvePackage name (resolveUnitExports resolvedOutput))
+                [ (name, Fc.moduleDesugarConfig (primKinds primIdentity) primIdentity resolvePackage name (resolveUnitExports resolvedOutput))
                 | name <- unitNames
                 ]
         pure (Just (PendingCompile checkedModules desugarConfigs))
@@ -1348,11 +1355,12 @@ renderBackendPhaseTotals timings =
 compileCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO BackendPhaseTimings
 compileCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
   (splitModules, desugarNs) <- measureTime $ do
-    let bindings = concatMap tcModuleBindings checkedModules
+    let kinds = primKinds primIdentity
+        bindings = concatMap (tcModuleBindings kinds) checkedModules
         moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
         -- A module the resolver did not report on keeps every name public.
         desugarConfig name =
-          Map.findWithDefault (Fc.allPublicDesugarConfig primIdentity) name desugarConfigs
+          Map.findWithDefault (Fc.allPublicDesugarConfig kinds primIdentity) name desugarConfigs
         desugarResults =
           [ Fc.desugarModuleFc (desugarConfig name) bindings interface checked
           | (name, checked) <- zip moduleNames checkedModules
