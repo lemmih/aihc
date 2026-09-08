@@ -1,0 +1,28 @@
+extensions:
+  - ExtendedLiterals
+  - ForeignFunctionInterface
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Exts (Word64 (..))
+    import GHC.Prim (raise#)
+
+    foreign import ccall unsafe strchr :: Addr# -> Int32# -> Addr#
+    foreign import ccall unsafe strlen :: Addr# -> Word64#
+
+    data Suffix = Suffix Addr#
+    data Result = Result Word64
+
+    suffix :: Suffix
+    suffix = Suffix (strchr "abc"# 98#Int32)
+
+    result :: Result
+    result = case suffix of
+      Suffix address -> Result (W64# (strlen address))
+output: ""
+exception: Result (W64# 2)
+expression: raise# result
+status: pass
+reason: A foreign interior pointer must remain valid until the interpreter renders an exception.

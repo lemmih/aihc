@@ -13,7 +13,7 @@ where
 
 import Aihc.Grin.Snapshot
 import Aihc.Grin.Syntax
-import Control.Exception (SomeException, displayException, try)
+import Control.Exception (SomeException, bracket, displayException, mask_, onException, try)
 import Control.Monad (when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
@@ -21,7 +21,7 @@ import Control.Monad.Trans.State.Strict (State, StateT, execState, get, gets, mo
 import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
@@ -33,7 +33,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Word (Word16, Word32, Word64, Word8)
 import Foreign.LibFFI (Arg, RetType, argCDouble, argCFloat, argInt16, argInt32, argInt64, argInt8, argPtr, argWord16, argWord32, argWord64, argWord8, callFFI, retCDouble, retCFloat, retInt16, retInt32, retInt64, retInt8, retPtr, retVoid, retWord16, retWord32, retWord64, retWord8)
-import Foreign.Marshal.Alloc (mallocBytes)
+import Foreign.Marshal.Alloc (free, mallocBytes)
 import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
 import Foreign.Marshal.Utils (copyBytes, fillBytes)
 import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, alignPtr, castFunPtrToPtr, castPtr, intPtrToPtr, minusPtr, plusPtr, ptrToIntPtr)
@@ -175,7 +175,8 @@ data Machine = Machine
     machineMVars :: !(IntMap GrinMVarState),
     machineNextMVar :: !Int,
     machineRunQueue :: !(Seq ThreadAction),
-    machineStreams :: !ProgramStreams
+    machineStreams :: !ProgramStreams,
+    machineAllocations :: !(IORef [Ptr ()])
   }
 
 -- | The standard streams of the interpreted program.
@@ -236,8 +237,7 @@ interpretProgramIoBinding = interpretProgramBindingWith runIOValue
 -- reachable heap. Snapshotting reads cells but never enters a thunk or forces
 -- a location; only 'GrinEval' nodes executed by the function may do that.
 interpretProgramFunctionSnapshot :: ProgramStreams -> FunctionName -> GrinProgram -> IO (Either InterpretError HeapSnapshot)
-interpretProgramFunctionSnapshot streams functionName program = do
-  let machine = initialMachine streams program
+interpretProgramFunctionSnapshot streams functionName program = withMachine streams program $ \machine -> do
   (result, finalMachine) <- runStateT (runExceptT (callFunction functionName [])) machine
   pure $
     case result of
@@ -246,8 +246,7 @@ interpretProgramFunctionSnapshot streams functionName program = do
       Left (EvalRaised exception) -> Left (InterpretRaisedException (T.pack (show exception)))
 
 interpretProgramBindingWith :: (RuntimeValue -> EvalM RuntimeValue) -> ProgramStreams -> Text -> GrinProgram -> IO (Either InterpretError Text)
-interpretProgramBindingWith enterValue streams name program = do
-  let machine = initialMachine streams program
+interpretProgramBindingWith enterValue streams name program = withMachine streams program $ \machine -> do
   (result, finalMachine) <- runStateT (runExceptT action) machine
   case result of
     Right rendered -> pure (Right rendered)
@@ -269,11 +268,21 @@ interpretProgramBindingWith enterValue streams name program = do
       result <- enterValue forced
       renderRawValueM result
 
-initialMachine :: ProgramStreams -> GrinProgram -> Machine
-initialMachine streams program =
+-- | Retain raw allocation owners until the result or exception is rendered.
+-- An address can refer to an interior byte, so the scope frees only raw owners.
+withMachine :: ProgramStreams -> GrinProgram -> (Machine -> IO value) -> IO value
+withMachine streams program action =
+  bracket (newIORef []) release $ \allocations ->
+    action (initialMachine streams program allocations)
+  where
+    release allocations = readIORef allocations >>= mapM_ free
+
+initialMachine :: ProgramStreams -> GrinProgram -> IORef [Ptr ()] -> Machine
+initialMachine streams program allocations =
   Machine
     { machineProgram = program,
       machineStreams = streams,
+      machineAllocations = allocations,
       machineFunctions =
         Map.fromList
           [ (grinFunctionName function, function)
@@ -1209,10 +1218,19 @@ evalPrimitive "copyAddrToByteArray#" [source, value, offset, byteCount] = do
 evalPrimitive name arguments =
   throwInterpret (InterpretPrimitiveArity name (length arguments))
 
+-- | Register each allocation before an asynchronous exception can reach it.
+allocateOwnedBuffer :: IO (Ptr value) -> EvalM (Ptr value)
+allocateOwnedBuffer allocate = do
+  allocations <- getsMachine machineAllocations
+  liftEvalIO $ mask_ $ do
+    pointer <- allocate
+    modifyIORef' allocations (castPtr pointer :) `onException` free pointer
+    pure pointer
+
 allocateByteArray :: Text -> Bool -> Int -> Integer -> EvalM GrinByteArray
 allocateByteArray symbol pinned alignment requestedSize = do
   size <- checkedByteArraySize symbol requestedSize
-  raw <- liftEvalIO (mallocBytes (max 1 size + alignment - 1))
+  raw <- allocateOwnedBuffer (mallocBytes (max 1 size + alignment - 1))
   let contents = alignPtr raw alignment
   liftEvalIO (fillBytes contents 0 size)
   sizeReference <- liftEvalIO (newIORef size)
@@ -1326,7 +1344,7 @@ evalIntPrimitive :: Text -> (Integer -> Integer -> Integer) -> RuntimeValue -> R
 evalIntPrimitive name operation left right = do
   leftInt <- expectIntPrimitiveArgument name left
   rightInt <- expectIntPrimitiveArgument name right
-  pure [RuntimeLit (GrinLitInt IntRep (operation leftInt rightInt))]
+  pure [intRuntimeValue (operation leftInt rightInt)]
 
 evalIntCarryPrimitive :: Text -> (Integer -> Integer -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
 evalIntCarryPrimitive name operation left right = do
@@ -1842,7 +1860,7 @@ marshalForeignArgument symbol foreignType argument =
     GrinForeignAddr ->
       case argument of
         RuntimeLit (GrinLitAddr value) -> do
-          pointer <- liftEvalIO (newArray0 0 (BS.unpack value))
+          pointer <- allocateOwnedBuffer (newArray0 0 (BS.unpack value))
           pure (argPtr pointer)
         RuntimeAddress pointer -> pure (argPtr pointer)
         other -> throwInterpret (InterpretForeignTypeError symbol other)
