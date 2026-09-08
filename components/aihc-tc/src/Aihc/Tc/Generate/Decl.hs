@@ -3063,8 +3063,7 @@ predeclareTypeLevelDataConstructors declaration =
               (tyConModuleName parent)
               name
               arity
-      wiredKindScheme <- wiredDataConKindScheme dataConTyCon
-      kindScheme <- maybe (ForAll [] [] <$> freshKindMeta) pure wiredKindScheme
+      kindScheme <- ForAll [] [] <$> freshKindMeta
       storeTyConInfo
         TyConInfo
           { tciName = name,
@@ -3862,15 +3861,11 @@ registerTypeLevelDataCon constructor = do
       arity = length fieldTypes
       (packageId, moduleName') = dciOrigin constructor
       dataConTyCon = mkTyConWithNamespace ResolutionNamespaceTerm packageId moduleName' name arity
-  wiredKindScheme <- wiredDataConKindScheme dataConTyCon
   let kindScheme =
-        fromMaybe
-          ( ForAll
-              (dciUnivTyVars constructor <> dciExTyVars constructor)
-              (dciTheta constructor)
-              (foldr TcFunTy (dciResTy constructor) fieldTypes)
-          )
-          wiredKindScheme
+        ForAll
+          (dciUnivTyVars constructor <> dciExTyVars constructor)
+          (dciTheta constructor)
+          (foldr TcFunTy (dciResTy constructor) fieldTypes)
       info =
         TyConInfo
           { tciName = name,
@@ -3880,9 +3875,7 @@ registerTypeLevelDataCon constructor = do
             tciFlavor = DataTyCon,
             tciTypeSynonym = Nothing
           }
-  case wiredKindScheme of
-    Just {} -> replaceTyConEnvPermanent info
-    Nothing -> storeTyConInfo info
+  storeTyConInfo info
 
 registerRecordSelectors :: (Text, Text) -> [DataConInfo] -> TcM [TcBindingResult]
 registerRecordSelectors origin constructors =

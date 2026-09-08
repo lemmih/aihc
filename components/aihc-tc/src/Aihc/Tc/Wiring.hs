@@ -20,7 +20,7 @@ module Aihc.Tc.Wiring
 where
 
 import Aihc.Parser.Syntax (TupleFlavor (..))
-import Aihc.Tc.Types (TcType, TyCon)
+import Aihc.Tc.Types (TyCon)
 import Data.Text (Text)
 
 -- | The type constructors of the built-in syntactic forms, and the names
@@ -72,13 +72,7 @@ data TcWiring = TcWiring
     tcWiringApplyOperator :: (Text, Text),
     -- | The Template Haskell @Lift@ class, as a module name and a class
     -- name. Its parameters take implicit kind parameters.
-    tcWiringLiftClass :: (Text, Text),
-    -- | The data constructors whose kind the type checker cannot infer
-    -- from their declaration, with the kind of each. Promoted into a
-    -- type, the empty list has kind @[k]@ and the cons @k -> [k] -> [k]@;
-    -- the argument of each entry is a variable standing for that @k@,
-    -- which the type checker quantifies over.
-    tcWiringDataConKinds :: [(TyCon, TcType -> TcType)]
+    tcWiringLiftClass :: (Text, Text)
   }
 
 -- | The tables are functions, so a wiring shows as its name alone. The

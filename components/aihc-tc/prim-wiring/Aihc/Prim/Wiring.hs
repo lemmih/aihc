@@ -28,7 +28,6 @@ import Aihc.Tc
   ( DerivingReference (..),
     DerivingReferences (..),
     TcConfig,
-    TcType (..),
     TcWiring (..),
     TyCon,
     mkTcConfig,
@@ -62,9 +61,9 @@ primTcWiring prim =
       tcWiringUnboxedTupleDataCon = unboxedTuple ResolutionNamespaceTerm,
       tcWiringUnboxedSumTyCon = \arity ->
         types ResolutionNamespaceType (unboxedSumTyConName arity) arity,
-      tcWiringListTyCon = listTyCon,
-      tcWiringNilDataCon = nilDataCon,
-      tcWiringConsDataCon = consDataCon,
+      tcWiringListTyCon = types ResolutionNamespaceType "[]" 1,
+      tcWiringNilDataCon = types ResolutionNamespaceTerm "[]" 0,
+      tcWiringConsDataCon = types ResolutionNamespaceTerm ":" 2,
       tcWiringArrowTyCon = types ResolutionNamespaceType "(->)" 2,
       tcWiringTypeTyCon = types ResolutionNamespaceType "Type" 0,
       tcWiringConstraintTyCon = types ResolutionNamespaceType "Constraint" 0,
@@ -77,17 +76,9 @@ primTcWiring prim =
       tcWiringPrimitiveTyCon = \name ->
         tyCon ResolutionNamespaceType "GHC.Prim" name 0,
       tcWiringApplyOperator = ("GHC.Base", "$"),
-      tcWiringLiftClass = ("GHC.Internal.TH.Lift", "Lift"),
-      tcWiringDataConKinds =
-        [ (nilDataCon, listOf),
-          (consDataCon, \elementKind -> TcFunTy elementKind (TcFunTy (listOf elementKind) (listOf elementKind)))
-        ]
+      tcWiringLiftClass = ("GHC.Internal.TH.Lift", "Lift")
     }
   where
-    listTyCon = types ResolutionNamespaceType "[]" 1
-    nilDataCon = types ResolutionNamespaceTerm "[]" 0
-    consDataCon = types ResolutionNamespaceTerm ":" 2
-    listOf elementKind = TcTyCon listTyCon [elementKind]
     boxedTuple namespace arity =
       tyCon namespace "GHC.Tuple" (boxedTupleTyConName arity) arity
     unboxedTuple namespace arity =
