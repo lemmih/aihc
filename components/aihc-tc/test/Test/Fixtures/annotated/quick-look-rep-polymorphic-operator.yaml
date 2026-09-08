@@ -1,0 +1,77 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, KindSignatures, PolyKinds #-}
+  module Ops where
+  import GHC.Types (TYPE, RuntimeRep, Type)
+  ($) :: forall (r :: RuntimeRep) (a :: Type) (b :: TYPE r). (a -> b) -> a -> b
+  ($) f x = f x
+  │   │ └─ type: a
+  │   └─ type: a → b
+  └─ type: ∀ r a b. (a → b) → a → b
+  infixr 0 $
+- |-
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  import Ops (($))
+  data Range = Range
+       │       └─ type: Range
+       └─ type: Type
+  data Signal a = Done a | Full
+       │          │        └─ type: ∀ a. Signal a
+       │          └─ type: ∀ a. a → Signal a
+       └─ type: Type → Type
+  type Step a = Range -> Signal a
+       └─ type: Type → Type
+  newtype B1 = B1 (forall r. Step r -> Step r)
+          │    └─ type: (∀ r. (Range → Signal r) → Range → Signal r) → B1
+          └─ type: Type
+  builder1 :: (forall r. Step r -> Step r) -> B1
+  builder1 = B1
+  └─ type: (∀ r. (Range → Signal r) → Range → Signal r) → B1
+  useSyn :: B1
+  useSyn = builder1 $ \k br -> k br
+  └─ type: B1       │ │││ └─ type: Range
+                    │ │└─ type: Range → Signal r
+                    │ └─ type: (Range → Signal r) → Range → Signal r
+                    │ └─ type: ∀ r. (Range → Signal r) → Range → Signal r
+                    └─ type: ((∀ r. (Range → Signal r) → Range → Signal r) → B1) → (∀ r. (Range → Signal r) → Range → Signal r) → B1; type-args: 'BoxedRep 'Lifted, ∀ r. (Range → Signal r) → Range → Signal r, B1
+  newtype B2 = B2 (forall r. (Range -> Signal r) -> Range -> Signal r)
+          │    └─ type: (∀ r. (Range → Signal r) → Range → Signal r) → B2
+          └─ type: Type
+  useCtor :: B2
+  useCtor = B2 $ \k br -> k br
+  └─ type: B2  │ │││ └─ type: Range
+               │ │└─ type: Range → Signal r
+               │ └─ type: (Range → Signal r) → Range → Signal r
+               │ └─ type: ∀ r. (Range → Signal r) → Range → Signal r
+               └─ type: ((∀ r. (Range → Signal r) → Range → Signal r) → B2) → (∀ r. (Range → Signal r) → Range → Signal r) → B2; type-args: 'BoxedRep 'Lifted, ∀ r. (Range → Signal r) → Range → Signal r, B2
+extensions:
+- RankNTypes
+- KindSignatures
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE RankNTypes, KindSignatures, PolyKinds #-}
+  module Ops where
+  import GHC.Types (TYPE, RuntimeRep, Type)
+  ($) :: forall (r :: RuntimeRep) (a :: Type) (b :: TYPE r). (a -> b) -> a -> b
+  ($) f x = f x
+  infixr 0 $
+- |
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  import Ops (($))
+  data Range = Range
+  data Signal a = Done a | Full
+  type Step a = Range -> Signal a
+  newtype B1 = B1 (forall r. Step r -> Step r)
+  builder1 :: (forall r. Step r -> Step r) -> B1
+  builder1 = B1
+  useSyn :: B1
+  useSyn = builder1 $ \k br -> k br
+  newtype B2 = B2 (forall r. (Range -> Signal r) -> Range -> Signal r)
+  useCtor :: B2
+  useCtor = B2 $ \k br -> k br
+reason: the application operator with the representation-polymorphic signature
+  of GHC.Base quick-looks like any operator
+status: pass

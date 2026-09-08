@@ -16,7 +16,7 @@ module Aihc.Tc.QuickLook
   )
 where
 
-import Aihc.Tc.Kind (tcTypeKind)
+import Aihc.Tc.Kind (tcTypeKind, zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (reduceTypeFamilies)
@@ -63,11 +63,13 @@ quickLookUnify instantiationVariables = go
 
     -- A binding must respect the occurs check and the declared kind. When
     -- the kinds do not agree the binding is skipped; the ordinary solver
-    -- reports the mismatch.
+    -- reports the mismatch. The kinds are zonked as kinds first, which
+    -- gives a wired-in constructor its configured identity, so a kind from
+    -- an installed interface compares equal to the wired-in kind.
     bind unique ty =
       unless (unique `elem` metaVariables ty) $ do
-        declaredKind <- readMetaTvKind unique
-        solvedKind <- tcTypeKind ty
+        declaredKind <- readMetaTvKind unique >>= zonkKind
+        solvedKind <- tcTypeKind ty >>= zonkKind
         kindResult <- unifyTypes declaredKind solvedKind
         case kindResult of
           Right () -> writeMetaTv unique ty
