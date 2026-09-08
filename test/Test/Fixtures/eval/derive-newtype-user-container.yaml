@@ -1,0 +1,22 @@
+extensions:
+  - DerivingStrategies
+  - GeneralizedNewtypeDeriving
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, GeneralizedNewtypeDeriving #-}
+    module Test where
+
+    data Box a = Box a
+    class Boxed a where
+      box :: a -> Box a
+    instance Boxed Int where
+      box = Box
+    newtype N = N Int
+      deriving newtype Boxed
+    result :: Bool
+    result = case box (N 7) of
+      Box (N value) -> value == 7
+expression: result
+output: 'True'
+status: pass
+reason: method casts lift through the representation parameter of a user data type

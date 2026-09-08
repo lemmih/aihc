@@ -13,12 +13,11 @@ module Aihc.Tc.Wiring
   ( TcWiring (..),
     tupleTyCon,
     tupleDataCon,
-    isBoxedTupleTyCon,
   )
 where
 
 import Aihc.Parser.Syntax (TupleFlavor (..))
-import Aihc.Tc.Types (TyCon, tyConArity)
+import Aihc.Tc.Types (TyCon)
 
 -- | The type constructors of the built-in syntactic forms.
 data TcWiring = TcWiring
@@ -52,10 +51,3 @@ tupleDataCon wiring flavor =
   case flavor of
     Boxed -> tcWiringBoxedTupleDataCon wiring
     Unboxed -> tcWiringUnboxedTupleDataCon wiring
-
--- | Whether a type constructor is the boxed tuple of its own arity. The
--- comparison is on the whole identity, so a user type that repeats the name
--- is not a tuple.
-isBoxedTupleTyCon :: TcWiring -> TyCon -> Bool
-isBoxedTupleTyCon wiring tyCon =
-  tyCon == tcWiringBoxedTupleTyCon wiring (tyConArity tyCon)

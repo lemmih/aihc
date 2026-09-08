@@ -1,14 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Check representation constraints before FC conversion.
-module Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible) where
+module Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, isRepresentationParameter) where
 
 import Aihc.Tc.Env
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
-import Aihc.Tc.Wiring (isBoxedTupleTyCon)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Reader (asks)
@@ -80,6 +79,11 @@ solveCoercible = go [] False
         _ -> pure Nothing
     representation _ = pure Nothing
 
+-- | Whether one parameter of a type constructor holds its representation role.
+-- Newtype deriving lifts coercions through such parameters.
+isRepresentationParameter :: TyCon -> Int -> TcM Bool
+isRepresentationParameter = representationParameter []
+
 -- | A parameter can change representation only through representation positions.
 -- Recursive data types use the same parameter check at each occurrence.
 representationParameter :: [(TyCon, Int)] -> TyCon -> Int -> TcM Bool
@@ -95,7 +99,7 @@ representationParameter visited constructor index
                   expected = TcTyCon constructor (map TcTyVar (dtiTyVars dataType))
               and <$> mapM (checkConstructor parameter expected) (dtiConstructors dataType)
           | otherwise -> pure False
-        Nothing -> builtinRepresentation constructor
+        Nothing -> pure False
   where
     next = (constructor, index) : visited
     checkConstructor parameter expected con
@@ -104,16 +108,6 @@ representationParameter visited constructor index
         Just substitution <- matchTypes [dciResTy con] [expected] =
           and <$> mapM (representationPosition next parameter . applySubst substitution . dcfiType) (dciFields con)
       | otherwise = pure False
-
-builtinRepresentation :: TyCon -> TcM Bool
-builtinRepresentation constructor
-  | tyConModuleName constructor == "GHC.Types" && tyConName constructor == "[]" = do
-      let arity = tyConArity constructor
-      expected <- mkKnownTyCon (tyConModuleName constructor) (tyConName constructor) arity (foldr KFun KType (replicate arity KType))
-      pure (constructor == expected)
-  | otherwise = do
-      wiring <- getWiring
-      pure (isBoxedTupleTyCon wiring constructor)
 
 representationPosition :: [(TyCon, Int)] -> TyVarId -> TcType -> TcM Bool
 representationPosition visited variable ty = case ty of

@@ -10,9 +10,9 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (tcTypeKind)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Coercible (isRepresentationParameter)
 import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Types
-import Aihc.Tc.Wiring (isBoxedTupleTyCon)
 import Control.Monad (zipWithM)
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
@@ -69,7 +69,7 @@ checkNewtypeInstance origin solve methodScheme original info context annotation 
       EvDictApp function argument -> mentionsSelf function || mentionsSelf argument
       _ -> False
 
--- | Only wired-in containers have trusted roles until interface roles exist.
+-- | Coercions lift through representation parameters, as roles permit.
 newtypeCoercion :: [TypeFamilyInstanceInfo] -> DataTypeInfo -> TcType -> TcType -> TcM (Maybe Coercion)
 newtypeCoercion equations dataType rawSource rawTarget = go (normalize rawSource) (normalize rawTarget)
   where
@@ -97,12 +97,10 @@ newtypeCoercion equations dataType rawSource rawTarget = go (normalize rawSource
         TcTyCon targetConstructor targetArguments <- target,
         sourceConstructor == targetConstructor,
         length sourceArguments == length targetArguments = do
-          trusted <- trustedContainer sourceConstructor
-          if trusted
-            then do
-              proofs <- sequence <$> zipWithM go sourceArguments targetArguments
-              pure (TyConAppCo sourceConstructor sourceArguments <$> proofs)
-            else pure (familyProof source target)
+          proofs <- sequence <$> zipWithM (argumentProof sourceConstructor) [0 ..] (zip sourceArguments targetArguments)
+          case proofs of
+            Just coercions -> pure (Just (TyConAppCo sourceConstructor sourceArguments coercions))
+            Nothing -> pure (familyProof source target)
       | otherwise = pure (familyProof source target)
     familyProof source target = case [ Sym (AxiomInstCo (typeFamilyAxiomKey equation) arguments)
                                      | equation <- equations,
@@ -112,21 +110,13 @@ newtypeCoercion equations dataType rawSource rawTarget = go (normalize rawSource
                                      ] of
       proof : _ -> Just proof
       [] -> Nothing
-    -- A boxed tuple or a list carries its parameters representationally,
-    -- so a coercion under one is sound. The tuples come from the wiring
-    -- tables; the list is still named here.
-    trustedContainer constructor = do
-      wiring <- getWiring
-      if isBoxedTupleTyCon wiring constructor
-        then pure True
-        else trustedList constructor
-    trustedList constructor
-      | tyConModuleName constructor == "GHC.Types",
-        tyConName constructor == "[]" = do
-          let arity = tyConArity constructor
-          expected <- mkKnownTyCon "GHC.Types" "[]" arity (foldr KFun KType (replicate arity KType))
-          pure (constructor == expected)
-      | otherwise = pure False
+    -- A representation parameter carries an argument coercion. A nominal one
+    -- admits only the argument it already has.
+    argumentProof constructor index (sourceArgument, targetArgument) = do
+      representational <- isRepresentationParameter constructor index
+      if representational
+        then go sourceArgument targetArgument
+        else pure (if sourceArgument == targetArgument then Just (Refl sourceArgument) else Nothing)
     normalize ty = case ty of
       TcAppTy function argument -> case normalize function of
         TcTyCon constructor arguments -> TcTyCon constructor (arguments <> [normalize argument])
