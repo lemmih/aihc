@@ -24,43 +24,13 @@ module Aihc.Tc.Types
     mkTyConWithOrigin,
     mkTyConWithNamespace,
     TypeScheme (..),
-    typeTyCon,
-    constraintTyCon,
-    runtimeRepTyCon,
-    levityTyCon,
-    vecCountTyCon,
-    vecElemTyCon,
     typeKindInEnv,
-    constraintKind,
     runtimeRepKind,
-    levityKind,
-    vecCountKind,
-    vecElemKind,
-    mkTYPEKind,
-    boxedRep,
-    tupleRep,
-    sumRep,
-    vecRep,
     liftedRep,
-    unliftedRep,
-    intRep,
-    int8Rep,
-    int16Rep,
-    int32Rep,
-    int64Rep,
-    wordRep,
-    word8Rep,
-    word16Rep,
-    word32Rep,
-    word64Rep,
-    addrRep,
-    floatRep,
-    doubleRep,
     typeKindType,
     runtimeRepFromKind,
     isFixedRuntimeRep,
     runtimeRepOfTypeInEnv,
-    isLiftedTypeInEnv,
     isUnliftedTypeInEnv,
     pattern KTYPE,
     pattern KConstraint,
@@ -279,21 +249,14 @@ primTypeCon = mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types"
 primDataCon :: Text -> Int -> TyCon
 primDataCon = mkTyConWithNamespace ResolutionNamespaceTerm (PackageId "aihc-prim") "GHC.Types"
 
-typeTyCon, constraintTyCon, runtimeRepTyCon, levityTyCon, vecCountTyCon, vecElemTyCon :: TyCon
-typeTyCon = primTypeCon "Type" 0
+constraintTyCon, runtimeRepTyCon :: TyCon
 constraintTyCon = primTypeCon "Constraint" 0
 runtimeRepTyCon = primTypeCon "RuntimeRep" 0
-levityTyCon = primTypeCon "Levity" 0
-vecCountTyCon = primTypeCon "VecCount" 0
-vecElemTyCon = primTypeCon "VecElem" 0
 
-typeKindType, constraintKind, runtimeRepKind, levityKind, vecCountKind, vecElemKind :: TcType
+typeKindType, constraintKind, runtimeRepKind :: TcType
 typeKindType = mkTYPEKind liftedRep
 constraintKind = TcTyCon constraintTyCon []
 runtimeRepKind = TcTyCon runtimeRepTyCon []
-levityKind = TcTyCon levityTyCon []
-vecCountKind = TcTyCon vecCountTyCon []
-vecElemKind = TcTyCon vecElemTyCon []
 
 mkTYPEKind :: TcType -> TcType
 mkTYPEKind representation = TcTyCon (primTypeCon "TYPE" 1) [representation]
@@ -301,10 +264,11 @@ mkTYPEKind representation = TcTyCon (primTypeCon "TYPE" 1) [representation]
 nullaryRep :: Text -> TcType
 nullaryRep name = TcTyCon (primDataCon name 0) []
 
-liftedRep, unliftedRep, intRep, int8Rep, int16Rep, int32Rep, int64Rep :: TcType
-wordRep, word8Rep, word16Rep, word32Rep, word64Rep, addrRep, floatRep, doubleRep :: TcType
+liftedRep :: TcType
 liftedRep = boxedRep (TcTyCon (primDataCon "Lifted" 0) [])
-unliftedRep = boxedRep (TcTyCon (primDataCon "Unlifted" 0) [])
+
+intRep, int8Rep, int16Rep, int32Rep, int64Rep :: TcType
+wordRep, word8Rep, word16Rep, word32Rep, word64Rep, addrRep :: TcType
 intRep = nullaryRep "IntRep"
 int8Rep = nullaryRep "Int8Rep"
 int16Rep = nullaryRep "Int16Rep"
@@ -323,10 +287,6 @@ word64Rep = nullaryRep "Word64Rep"
 
 addrRep = nullaryRep "AddrRep"
 
-floatRep = nullaryRep "FloatRep"
-
-doubleRep = nullaryRep "DoubleRep"
-
 boxedRep :: TcType -> TcType
 boxedRep levity = TcTyCon (primDataCon "BoxedRep" 1) [levity]
 
@@ -335,9 +295,6 @@ tupleRep fields = TcTyCon (primDataCon "TupleRep" 1) [dataConstructorList fields
 
 sumRep :: [TcType] -> TcType
 sumRep fields = TcTyCon (primDataCon "SumRep" 1) [dataConstructorList fields]
-
-vecRep :: TcType -> TcType -> TcType
-vecRep count element = TcTyCon (primDataCon "VecRep" 2) [count, element]
 
 dataConstructorList :: [TcType] -> TcType
 dataConstructorList = foldr cons nil
@@ -451,12 +408,6 @@ typeKindInEnv kindEnv = go
 runtimeRepOfTypeInEnv :: TcKindEnv -> TcType -> Either String TcType
 runtimeRepOfTypeInEnv kindEnv ty = typeKindInEnv kindEnv ty >>= runtimeRepFromKind
 
-isLiftedTypeInEnv :: TcKindEnv -> TcType -> Bool
-isLiftedTypeInEnv kindEnv ty =
-  case runtimeRepOfTypeInEnv kindEnv ty of
-    Right representation -> matchesLiftedRuntimeRep representation
-    Left _ -> False
-
 isUnliftedTypeInEnv :: TcKindEnv -> TcType -> Bool
 isUnliftedTypeInEnv kindEnv ty =
   case runtimeRepOfTypeInEnv kindEnv ty of
@@ -501,10 +452,10 @@ pattern KTYPE representation <- (matchTYPEKind -> Just representation)
 
 pattern KConstraint, KRuntimeRep, KLevity, KVecCount, KVecElem, KType :: TcType
 pattern KConstraint <- (matchesNullary ResolutionNamespaceType "Constraint" -> True) where KConstraint = constraintKind
-pattern KRuntimeRep <- (matchesNullary ResolutionNamespaceType "RuntimeRep" -> True) where KRuntimeRep = runtimeRepKind
-pattern KLevity <- (matchesNullary ResolutionNamespaceType "Levity" -> True) where KLevity = levityKind
-pattern KVecCount <- (matchesNullary ResolutionNamespaceType "VecCount" -> True) where KVecCount = vecCountKind
-pattern KVecElem <- (matchesNullary ResolutionNamespaceType "VecElem" -> True) where KVecElem = vecElemKind
+pattern KRuntimeRep <- (matchesNullary ResolutionNamespaceType "RuntimeRep" -> True)
+pattern KLevity <- (matchesNullary ResolutionNamespaceType "Levity" -> True)
+pattern KVecCount <- (matchesNullary ResolutionNamespaceType "VecCount" -> True)
+pattern KVecElem <- (matchesNullary ResolutionNamespaceType "VecElem" -> True)
 pattern KType <- (matchesLiftedTypeKind -> True) where KType = typeKindType
 
 pattern KFun :: TcType -> TcType -> TcType
@@ -535,8 +486,6 @@ matchesLiftedRuntimeRep representation =
 
 pattern BoxedRep :: TcType -> TcType
 pattern BoxedRep levity <- (matchUnaryRep "BoxedRep" -> Just levity)
-  where
-    BoxedRep levity = boxedRep levity
 
 pattern TupleRep :: [TcType] -> TcType
 pattern TupleRep fields <- (matchListRep "TupleRep" -> Just fields)
@@ -550,16 +499,10 @@ pattern SumRep fields <- (matchListRep "SumRep" -> Just fields)
 
 pattern VecRep :: TcType -> TcType -> TcType
 pattern VecRep count element <- (matchBinaryRep "VecRep" -> Just (count, element))
-  where
-    VecRep count element = vecRep count element
 
 pattern Lifted, Unlifted :: TcType
 pattern Lifted <- (matchesNullary ResolutionNamespaceTerm "Lifted" -> True)
-  where
-    Lifted = TcTyCon (primDataCon "Lifted" 0) []
 pattern Unlifted <- (matchesNullary ResolutionNamespaceTerm "Unlifted" -> True)
-  where
-    Unlifted = TcTyCon (primDataCon "Unlifted" 0) []
 
 pattern IntRep, Int8Rep, Int16Rep, Int32Rep, Int64Rep :: TcType
 
@@ -589,9 +532,9 @@ pattern Word64Rep <- (matchesNullary ResolutionNamespaceTerm "Word64Rep" -> True
 
 pattern AddrRep <- (matchesNullary ResolutionNamespaceTerm "AddrRep" -> True) where AddrRep = addrRep
 
-pattern FloatRep <- (matchesNullary ResolutionNamespaceTerm "FloatRep" -> True) where FloatRep = floatRep
+pattern FloatRep <- (matchesNullary ResolutionNamespaceTerm "FloatRep" -> True)
 
-pattern DoubleRep <- (matchesNullary ResolutionNamespaceTerm "DoubleRep" -> True) where DoubleRep = doubleRep
+pattern DoubleRep <- (matchesNullary ResolutionNamespaceTerm "DoubleRep" -> True)
 
 matchUnaryRep :: Text -> TcType -> Maybe TcType
 matchUnaryRep expected (TcTyCon tyCon [argument])
