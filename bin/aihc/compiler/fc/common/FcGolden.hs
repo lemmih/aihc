@@ -25,11 +25,13 @@ import Aihc.Parser.Syntax
     parseLanguageEdition,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Prim.Wiring (primTcConfig)
+import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import Aihc.Tc
   ( TcInterface,
+    TcKinds,
     emptyTcInterface,
+    mkTcKinds,
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
@@ -210,7 +212,7 @@ renderFcCase tc =
                             collectModuleExportsWithDeps (supportScopes primitiveSupport) (fixtureModules modules)
                           fixtureResults =
                             map
-                              (\checked -> desugarModuleFc (desugarConfig fixturePackage fixtureExports checked) (tcModuleBindings checked) availableInterface checked)
+                              (\checked -> desugarModuleFc (desugarConfig fixturePackage fixtureExports checked) (tcModuleBindings fixtureKinds checked) availableInterface checked)
                               fixtureTcResults
                       if all dsSuccess fixtureResults
                         then lintAndRenderResults fixtureResults
@@ -260,7 +262,7 @@ preparePrimitiveSupport primitiveModules =
                   (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface (primTcConfig (PackageId "aihc-prim")) emptyTcInterface primitiveAsts
                in if all tcModuleSuccess primitiveTcResults
                     then
-                      let primitiveBindings = concatMap tcModuleBindings primitiveTcResults
+                      let primitiveBindings = concatMap (tcModuleBindings fixtureKinds) primitiveTcResults
                           primitiveResults =
                             map
                               (\checked -> desugarModuleFc (desugarConfig primitivePackage exports checked) primitiveBindings tcInterface checked)
@@ -308,9 +310,13 @@ fixtureBuiltinScope modules =
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
     builtinFunctionModules = ["GHC.Prim", "GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String"]
 
+-- | The kind vocabulary of the fixture compiler.
+fixtureKinds :: TcKinds
+fixtureKinds = mkTcKinds (primTcWiring (PackageId "aihc-prim"))
+
 desugarConfig :: Package -> ModuleExports -> Module -> DesugarConfig
 desugarConfig package exports modu =
-  moduleDesugarConfig (PackageId "aihc-prim") package (fromMaybe "Main" (moduleName modu)) exports
+  moduleDesugarConfig fixtureKinds (PackageId "aihc-prim") package (fromMaybe "Main" (moduleName modu)) exports
 
 parsePrimitiveModule :: FilePath -> Text -> Either String Module
 parsePrimitiveModule sourceName input =

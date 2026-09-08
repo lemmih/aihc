@@ -12,7 +12,7 @@ module Test.Tc.Properties
 where
 
 import Aihc.Parser.Syntax (Type (TStar))
-import Aihc.Prim.Wiring (primTcConfig)
+import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve (PackageId (PackageId))
 import Aihc.Tc
   ( ClassInfo (..),
@@ -24,6 +24,7 @@ import Aihc.Tc
     TyConFlavor (..),
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
+    mkTcKinds,
     tcInterfaceFromLists,
   )
 import Aihc.Tc.Kind (convertSurfaceTypeWithKinds)
@@ -64,8 +65,8 @@ genInterface = do
   firstTerm <- optionalEntry (TcTermGlobal packageId moduleName "value", ForAll [] [] ty)
   secondTerm <- optionalEntry (TcTermGlobal packageId moduleName "another", ForAll [] [] ty)
   let tcInterfaceTerms = firstTerm <> secondTerm
-  tcInterfaceTyCons <- optionalEntry (TyConInfo "T" 0 tyCon (ForAll [] [] KType) DataTyCon Nothing)
-  tcInterfaceDataTypes <- optionalEntry (DataTypeInfo "T" tyCon [] KType DataTyCon [] [])
+  tcInterfaceTyCons <- optionalEntry (TyConInfo "T" 0 tyCon (ForAll [] [] testTypeKind) DataTyCon Nothing)
+  tcInterfaceDataTypes <- optionalEntry (DataTypeInfo "T" tyCon [] testTypeKind DataTyCon [] [])
   tcInterfaceClasses <- optionalEntry (ClassInfo "C" classTyCon (Just ("pkg", moduleName)) [] [] [] [] [] [] [])
   tcInterfaceInstances <- optionalEntry (InstanceInfo "C" "$fC" ("pkg", moduleName) ty [] [] [])
   tcInterfaceDataFamilyInstances <- optionalEntry (DataFamilyInstanceInfo "F" ty [] tyCon "$axF" [] False)
@@ -75,12 +76,19 @@ genInterface = do
 optionalEntry :: value -> Gen [value]
 optionalEntry value = Gen.element [[], [value]]
 
+-- | The kind vocabulary of the test compiler.
+testKinds :: TcKinds
+testKinds = mkTcKinds (primTcWiring (PackageId "test-ghc-prim"))
+
+testTypeKind :: TcType
+testTypeKind = typeKind testKinds
+
 -- | A lifted kind uses the ordinary Type constructor.
 prop_kindEncodingUsesType :: Property
 prop_kindEncodingUsesType = property $ do
-  let expected = KType
-  KType === expected
-  ForAll [] [] KType === ForAll [] [] expected
+  let expected = testTypeKind
+  testTypeKind === expected
+  ForAll [] [] testTypeKind === ForAll [] [] expected
 
 -- | A source star becomes the canonical GHC.Types.Type constructor.
 prop_starUsesType :: Property
@@ -89,7 +97,7 @@ prop_starUsesType = property $
     Right ((actual, kind), _) -> do
       let expected = TcTyCon (mkTyConWithOrigin (PackageId "test-ghc-prim") "GHC.Types" "Type" 0) []
       actual === expected
-      kind === KType
+      kind === testTypeKind
     Left err -> fail (show err)
 
 -- | Zonking a fully-zonked type is a no-op.

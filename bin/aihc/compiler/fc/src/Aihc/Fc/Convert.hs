@@ -40,6 +40,7 @@ import Aihc.Tc.Types
   ( Pred (..),
     TcAxiomKey (..),
     TcKindEnv,
+    TcKinds,
     TcType (..),
     TcTypeKey,
     TyCon,
@@ -47,7 +48,6 @@ import Aihc.Tc.Types
     TypeScheme (..),
     Unique (..),
     applySubst,
-    liftedRep,
     runtimeRepFromKind,
     tvKind,
     tyConKey,
@@ -95,6 +95,8 @@ import Data.Text qualified as T
 
 data ConvertEnv = ConvertEnv
   { cePrimPackage :: PackageId,
+    -- | The kind vocabulary of the compiler that produced these types.
+    ceKinds :: TcKinds,
     ceTyVars :: Map Unique TyVarId,
     ceKindEnv :: TcKindEnv,
     ceClassTyCons :: Set TcTypeKey,
@@ -104,10 +106,11 @@ data ConvertEnv = ConvertEnv
     ceExportedNames :: !(Maybe (Set (ResolutionNamespace, Text)))
   }
 
-emptyConvertEnv :: PackageId -> ConvertEnv
-emptyConvertEnv package =
+emptyConvertEnv :: TcKinds -> PackageId -> ConvertEnv
+emptyConvertEnv kinds package =
   ConvertEnv
     { cePrimPackage = package,
+      ceKinds = kinds,
       ceTyVars = Map.empty,
       ceKindEnv = Map.empty,
       ceClassTyCons = Set.empty,
@@ -155,8 +158,12 @@ withKindEnv kindEnv env = env {ceKindEnv = kindEnv <> ceKindEnv env}
 convertKind :: ConvertEnv -> TcType -> Either String Type
 convertKind env kind =
   case kind of
+    -- Match the lifted representation rather than comparing against a
+    -- built one: the type checker builds it under a placeholder identity,
+    -- so the two are equal only when the primitive package happens to be
+    -- named the same as the placeholder.
     KTYPE runtimeRep
-      | runtimeRep == liftedRep -> Right (typeSynonym (cePrimPackage env))
+      | BoxedRep Lifted <- runtimeRep -> Right (typeSynonym (cePrimPackage env))
       | otherwise -> TyApp (TyCon (typeConstructor (cePrimPackage env))) <$> convertRep env runtimeRep
     KConstraint -> Right (TyCon (constraintName (cePrimPackage env)))
     KRuntimeRep -> Right (TyCon (runtimeRepConstructor (cePrimPackage env)))
@@ -226,14 +233,14 @@ convertTypeWithExpectedKind :: ConvertEnv -> Maybe TcType -> TcType -> Either St
 convertTypeWithExpectedKind env expectedKind ty =
   case ty of
     -- A saturated application of the arrow constructor is the function type.
-    _ | Just (argument, result) <- saturatedArrowApplication ty -> convertTypeWithExpectedKind env expectedKind (TcFunTy argument result)
+    _ | Just (argument, result) <- saturatedArrowApplication (ceKinds env) ty -> convertTypeWithExpectedKind env expectedKind (TcFunTy argument result)
     TcTyVar tyVar -> Right (tyVarType tyVar)
     TcMetaTv {} -> Left "type still has a meta variable"
     -- The constraint type of an implicit parameter is the type of its value.
     TcTyCon tyCon [payload]
       | Tc.isImplicitParamTyConName (Tc.tyConName tyCon) -> convertType env payload
     TcTyCon tyCon [left, right]
-      | Tc.isEqualityTyCon tyCon -> convertPred env (EqPred left right)
+      | Tc.isEqualityTyCon (ceKinds env) tyCon -> convertPred env (EqPred left right)
     TcTyCon tyCon arguments -> do
       kindArgs <- invisibleKindArgs env tyCon arguments expectedKind
       argumentKinds <- visibleArgumentKinds env tyCon arguments expectedKind
@@ -277,15 +284,15 @@ convertPred env predicate =
 
 -- | The argument and result of a saturated application of the arrow
 -- constructor, in any of its forms.
-saturatedArrowApplication :: TcType -> Maybe (TcType, TcType)
-saturatedArrowApplication ty =
+saturatedArrowApplication :: TcKinds -> TcType -> Maybe (TcType, TcType)
+saturatedArrowApplication kinds ty =
   case ty of
     TcAppTy (TcAppTy (TcTyCon tyCon []) argument) result
-      | Tc.isArrowTyCon tyCon -> Just (argument, result)
+      | Tc.isArrowTyCon kinds tyCon -> Just (argument, result)
     TcAppTy (TcTyCon tyCon [argument]) result
-      | Tc.isArrowTyCon tyCon -> Just (argument, result)
+      | Tc.isArrowTyCon kinds tyCon -> Just (argument, result)
     TcTyCon tyCon [argument, result]
-      | Tc.isArrowTyCon tyCon -> Just (argument, result)
+      | Tc.isArrowTyCon kinds tyCon -> Just (argument, result)
     _ -> Nothing
 
 typeRep :: ConvertEnv -> TcType -> Either String Type
@@ -299,7 +306,7 @@ typeRep env ty = do
         Right converted -> Right converted
 
 typeKindInEnv :: ConvertEnv -> TcType -> Either String TcType
-typeKindInEnv env = Tc.typeKindInEnv (ceKindEnv env)
+typeKindInEnv env = Tc.typeKindInEnv (ceKinds env) (ceKindEnv env)
 
 -- | The evidence arrows of a qualified type.
 --
@@ -393,10 +400,10 @@ kindSubst env tyCon arguments expectedKind = do
     go quantifiedUniques substitution (KFun formal result) (argument : rest) =
       case typeKindInEnv env argument of
         Right argumentKind ->
-          let found = matchKind quantifiedUniques (applySubst substitution formal) argumentKind
-           in go quantifiedUniques (substitution <> found) (applySubst found result) rest
+          let found = matchKind quantifiedUniques (applySubst (ceKinds env) substitution formal) argumentKind
+           in go quantifiedUniques (substitution <> found) (applySubst (ceKinds env) found result) rest
         Left _ -> go quantifiedUniques substitution result rest
-    go _ substitution kind _ = (substitution, applySubst substitution kind)
+    go _ substitution kind _ = (substitution, applySubst (ceKinds env) substitution kind)
 
     matchKind quantifiedUniques (TcTyVar tyVar) actual
       | tvUnique tyVar `elem` quantifiedUniques = Map.singleton (tvUnique tyVar) actual
@@ -414,7 +421,7 @@ visibleArgumentKinds :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Eithe
 visibleArgumentKinds env tyCon arguments expectedKind = do
   ForAll _ _ resultKind <- kindScheme env tyCon
   substitution <- kindSubst env tyCon arguments expectedKind
-  pure (takeArgumentKinds (applySubst substitution resultKind))
+  pure (takeArgumentKinds (applySubst (ceKinds env) substitution resultKind))
   where
     takeArgumentKinds (KFun argument result) = argument : takeArgumentKinds result
     takeArgumentKinds _ = []

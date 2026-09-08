@@ -16,7 +16,7 @@ module Aihc.Tc.Generalize
 where
 
 import Aihc.Tc.Kind (defaultKindMetas)
-import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, freshSkolemTv, getTermEnv, readMetaTv, readMetaTvKind, writeMetaTv)
+import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, freshSkolemTv, getKinds, getTermEnv, readMetaTv, readMetaTvKind, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (forM_, void)
@@ -74,11 +74,12 @@ generalizeGroupAndCommitIgnoring ignoredKeys bindings = do
   let bindingMetaVars = [nubOrd (collectMetaVars ty ++ concatMap predMetaVars preds) | (ty, preds) <- zonked']
       uniqueMetaVars = filter (`notElem` envMetaVars) (nubOrd (concat bindingMetaVars))
   mapM_ defaultMetaKind uniqueMetaVars
+  kinds <- getKinds
   tvs <- metaVarsToTyVars uniqueMetaVars
   let subst = zip uniqueMetaVars (map TcTyVar tvs)
   forM_ subst (uncurry writeMetaTv)
   pure
-    [ ForAll [tv | (unique, tv) <- zip uniqueMetaVars tvs, unique `elem` metaVars] (map (substMetasPred subst) preds) (substMetas subst ty)
+    [ ForAll [tv | (unique, tv) <- zip uniqueMetaVars tvs, unique `elem` metaVars] (map (substMetasPred kinds subst) preds) (substMetas kinds subst ty)
     | ((ty, preds), metaVars) <- zip zonked' bindingMetaVars
     ]
   where
@@ -103,8 +104,9 @@ generalizeIgnoringWithSubst ignoredKeys ty preds = do
   -- sequentially starting from 'a'.
   tvs <- metaVarsToTyVars uniqueMetaVars
   let subst = zip uniqueMetaVars (map TcTyVar tvs)
-  let quantifiedTy = substMetas subst ty''
-  let quantifiedPreds = map (substMetasPred subst) preds''
+  kinds <- getKinds
+  let quantifiedTy = substMetas kinds subst ty''
+  let quantifiedPreds = map (substMetasPred kinds subst) preds''
   pure (ForAll tvs quantifiedPreds quantifiedTy, subst)
 
 -- | Solve every RuntimeRep meta-variable that quantification would capture.
@@ -126,9 +128,10 @@ defaultRuntimeRepMetas envMetaVars ty preds = do
       case solution of
         Just {} -> pure ()
         Nothing -> do
+          kinds <- getKinds
           kind <- zonkType =<< readMetaTvKind unique
           case kind of
-            KRuntimeRep -> writeMetaTv unique liftedRep
+            KRuntimeRep -> writeMetaTv unique (liftedRep kinds)
             _ -> pure ()
 
 -- | The meta-variables reachable from a set of roots, following the kind of
@@ -198,8 +201,8 @@ defaultMetaKind unique = do
   void (defaultKindMetas kind)
 
 -- | Substitute meta-variables with their corresponding type variables.
-substMetas :: [(Unique, TcType)] -> TcType -> TcType
-substMetas subst = go
+substMetas :: TcKinds -> [(Unique, TcType)] -> TcType -> TcType
+substMetas kinds subst = go
   where
     go (TcMetaTv u) = case lookup u subst of
       Just ty -> ty
@@ -208,19 +211,19 @@ substMetas subst = go
     go (TcTyCon tc args) = TcTyCon tc (map go args)
     go (TcFunTy a b) = TcFunTy (go a) (go b)
     go (TcForAllTy tv body) = TcForAllTy tv (go body)
-    go (TcQualTy ps body) = TcQualTy (map (substMetasPred subst) ps) (go body)
-    go (TcAppTy f a) = mkAppTy (go f) (go a)
+    go (TcQualTy ps body) = TcQualTy (map (substMetasPred kinds subst) ps) (go body)
+    go (TcAppTy f a) = mkAppTy kinds (go f) (go a)
 
 -- | Substitute meta-variables in a predicate.
-substMetasPred :: [(Unique, TcType)] -> Pred -> Pred
-substMetasPred subst (ClassPred cls args) = ClassPred cls (map (substMetas subst) args)
-substMetasPred subst (EqPred a b) = EqPred (substMetas subst a) (substMetas subst b)
-substMetasPred subst (IParamPred name payload) = IParamPred name (substMetas subst payload)
-substMetasPred subst (QuantifiedPred variables antecedents consequent) =
+substMetasPred :: TcKinds -> [(Unique, TcType)] -> Pred -> Pred
+substMetasPred kinds subst (ClassPred cls args) = ClassPred cls (map (substMetas kinds subst) args)
+substMetasPred kinds subst (EqPred a b) = EqPred (substMetas kinds subst a) (substMetas kinds subst b)
+substMetasPred kinds subst (IParamPred name payload) = IParamPred name (substMetas kinds subst payload)
+substMetasPred kinds subst (QuantifiedPred variables antecedents consequent) =
   QuantifiedPred
-    (map (\variable -> setTyVarKind (substMetas subst (tvKind variable)) variable) variables)
-    (map (substMetasPred subst) antecedents)
-    (substMetasPred subst consequent)
+    (map (\variable -> setTyVarKind (substMetas kinds subst (tvKind variable)) variable) variables)
+    (map (substMetasPred kinds subst) antecedents)
+    (substMetasPred kinds subst consequent)
 
 -- | Zonk a predicate (local copy to avoid circular imports).
 zonkPred :: Pred -> TcM Pred

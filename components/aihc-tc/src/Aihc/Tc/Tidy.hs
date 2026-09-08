@@ -26,40 +26,40 @@ import Data.Text qualified as T
 type TidyEnv = Map Unique TyVarId
 
 -- | Rename the meta-variables of one diagnostic to display names.
-tidyDiagnostic :: TcDiagnostic -> TcDiagnostic
-tidyDiagnostic diagnostic =
-  diagnostic {diagKind = tidyErrorKind (diagKind diagnostic)}
+tidyDiagnostic :: TcKinds -> TcDiagnostic -> TcDiagnostic
+tidyDiagnostic kinds diagnostic =
+  diagnostic {diagKind = tidyErrorKind kinds (diagKind diagnostic)}
 
 -- | Rename the meta-variables of one error kind to display names.
-tidyErrorKind :: TcErrorKind -> TcErrorKind
-tidyErrorKind kind =
+tidyErrorKind :: TcKinds -> TcErrorKind -> TcErrorKind
+tidyErrorKind kinds kind =
   case kind of
     UnificationError left right origin provenance ->
-      let env = mkTidyEnv (provenanceTypes provenance ++ [left, right]) []
+      let env = mkTidyEnv kinds (provenanceTypes provenance ++ [left, right]) []
        in UnificationError (tidyTypeWith env left) (tidyTypeWith env right) origin (tidyProvenance env <$> provenance)
     OccursCheckError variable ty ->
-      let env = mkTidyEnv [variable, ty] []
+      let env = mkTidyEnv kinds [variable, ty] []
        in OccursCheckError (tidyTypeWith env variable) (tidyTypeWith env ty)
     KindMismatch expected actual ->
-      let env = mkTidyEnv [expected, actual] []
+      let env = mkTidyEnv kinds [expected, actual] []
        in KindMismatch (tidyTypeWith env expected) (tidyTypeWith env actual)
     UnsolvedWanted predicate origin ->
-      let env = mkTidyEnv [] [predicate]
+      let env = mkTidyEnv kinds [] [predicate]
        in UnsolvedWanted (tidyPredWith env predicate) origin
     TopLevelUnliftedBinding name ty ->
-      TopLevelUnliftedBinding name (tidyType ty)
+      TopLevelUnliftedBinding name (tidyType kinds ty)
     RepresentationPolymorphicFunctionArgument name ty ->
-      RepresentationPolymorphicFunctionArgument name (tidyType ty)
+      RepresentationPolymorphicFunctionArgument name (tidyType kinds ty)
     UnboundVariable {} -> kind
     OtherError {} -> kind
 
 -- | Rename the meta-variables of some types with one shared name supply.
-tidyTypes :: [TcType] -> [TcType]
-tidyTypes types = map (tidyTypeWith (mkTidyEnv types [])) types
+tidyTypes :: TcKinds -> [TcType] -> [TcType]
+tidyTypes kinds types = map (tidyTypeWith (mkTidyEnv kinds types [])) types
 
 -- | Rename the meta-variables of one type.
-tidyType :: TcType -> TcType
-tidyType ty = tidyTypeWith (mkTidyEnv [ty] []) ty
+tidyType :: TcKinds -> TcType -> TcType
+tidyType kinds ty = tidyTypeWith (mkTidyEnv kinds [ty] []) ty
 
 provenanceTypes :: Maybe EqProvenance -> [TcType]
 provenanceTypes provenance =
@@ -76,13 +76,17 @@ tidyProvenance env provenance =
   where
     tidyTrace trace = trace {typeTraceType = tidyTypeWith env (typeTraceType trace)}
 
-mkTidyEnv :: [TcType] -> [Pred] -> TidyEnv
-mkTidyEnv types predicates =
-  Map.fromList (zip metas (zipWith TyVarId freshNames metas))
+mkTidyEnv :: TcKinds -> [TcType] -> [Pred] -> TidyEnv
+mkTidyEnv kinds types predicates =
+  Map.fromList (zip metas (zipWith displayVariable freshNames metas))
   where
     metas = orderedNub (concatMap typeMetas types ++ concatMap predMetas predicates)
     usedNames = Set.fromList (concatMap typeNames types ++ concatMap predNames predicates)
     freshNames = filter (`Set.notMember` usedNames) [T.pack ('t' : show n) | n <- [0 :: Int ..]]
+    -- A display variable stands for an unsolved meta, whose kind the
+    -- diagnostic does not show. It still needs one, so give it the kind of
+    -- an ordinary type.
+    displayVariable name unique = mkTyVarId name unique (typeKind kinds)
 
 orderedNub :: [Unique] -> [Unique]
 orderedNub = go Set.empty
@@ -140,7 +144,9 @@ tidyTypeWith env ty =
     TcFunTy argument result -> TcFunTy (tidyTypeWith env argument) (tidyTypeWith env result)
     TcForAllTy tv body -> TcForAllTy tv (tidyTypeWith env body)
     TcQualTy preds body -> TcQualTy (map (tidyPredWith env) preds) (tidyTypeWith env body)
-    TcAppTy function argument -> mkAppTy (tidyTypeWith env function) (tidyTypeWith env argument)
+    -- Renaming a meta cannot saturate an arrow that the type did not
+    -- already have saturated, so this rebuilds rather than renormalises.
+    TcAppTy function argument -> TcAppTy (tidyTypeWith env function) (tidyTypeWith env argument)
 
 tidyPredWith :: TidyEnv -> Pred -> Pred
 tidyPredWith env predicate =

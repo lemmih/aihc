@@ -44,4 +44,6 @@ decomposeNominalEquality rawLeft rawRight = do
       pure (Just [(leftFunction, rightFunction), (leftArgument, rightArgument)])
     decompose _ _ = pure Nothing
 
-    arrowTyCon = wiredTyCon tcWiringArrowTyCon (KFun KType (KFun KType KType))
+    arrowTyCon = do
+      kinds <- getKinds
+      wiredTyCon tcWiringArrowTyCon (KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds)))

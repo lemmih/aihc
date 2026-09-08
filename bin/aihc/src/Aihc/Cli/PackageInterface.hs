@@ -22,7 +22,7 @@ where
 import Aihc.Parser.Syntax (qualifyName, unqualifiedNameFromText)
 import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), PackageId (..), ResolvedName (..), Scope (..))
 import Aihc.Tc (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), renderTcType, tvKind)
-import Aihc.Tc.Types (setTyVarKind)
+import Aihc.Tc.Types (mkTyVarId, setTyVarKind)
 import Control.Monad (when)
 import Data.Aeson ((.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
@@ -107,7 +107,7 @@ data PackageInterfaceBinding = PackageInterfaceBinding
   deriving (Eq, Show)
 
 packageInterfaceSchemaVersion :: Int
-packageInterfaceSchemaVersion = 3
+packageInterfaceSchemaVersion = 4
 
 instance Aeson.ToJSON PackageInterface where
   toJSON interface =
@@ -351,7 +351,10 @@ tcTypeValue ty =
       Aeson.object
         [ "tag" .= ("var" :: Text),
           "name" .= tvName tv,
-          "unique" .= uniqueValue (tvUnique tv)
+          "unique" .= uniqueValue (tvUnique tv),
+          -- An occurrence carries its kind as a binder does. The reader
+          -- knows no kind vocabulary, so it has nothing to default to.
+          "kind" .= tcTypeValue (tvKind tv)
         ]
     TcMetaTv unique ->
       Aeson.object
@@ -420,7 +423,10 @@ parseTcTypeJson =
 
 parseTyVarObject :: AesonTypes.Object -> AesonTypes.Parser TyVarId
 parseTyVarObject obj =
-  TyVarId <$> obj .: "name" <*> (Unique <$> obj .: "unique")
+  mkTyVarId
+    <$> obj .: "name"
+    <*> (Unique <$> obj .: "unique")
+    <*> (obj .: "kind" >>= parseTcTypeJson)
 
 parseTyVarValue :: Aeson.Value -> AesonTypes.Parser TyVarId
 parseTyVarValue =
