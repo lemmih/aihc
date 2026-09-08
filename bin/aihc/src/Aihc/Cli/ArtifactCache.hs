@@ -2,7 +2,7 @@ module Aihc.Cli.ArtifactCache
   ( hashChunks,
     compilerBuildIdentity,
     executableIdentity,
-    sourceTreeHash,
+    sourceFilesHash,
     restoreArtifacts,
     publishArtifacts,
   )
@@ -16,11 +16,12 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
-import Data.List (isPrefixOf, sort)
+import Data.List (nub, sort)
 import Data.Map.Strict qualified as Map
-import Data.Set qualified as Set
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Numeric (showHex)
-import System.Directory (canonicalizePath, copyFile, createDirectory, createDirectoryIfMissing, doesDirectoryExist, findExecutable, listDirectory, removeDirectoryRecursive, removeFile, renameDirectory)
+import System.Directory (canonicalizePath, copyFile, createDirectory, createDirectoryIfMissing, doesDirectoryExist, findExecutable, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getExecutablePath)
 import System.FilePath (makeRelative, takeDirectory, (</>))
 import System.IO (hClose, openBinaryTempFile)
@@ -49,40 +50,18 @@ executableIdentity command = do
   modifyMVar executableHashes $ \hashes -> case Map.lookup path hashes of
     Just digest -> pure (hashes, digest)
     Nothing -> do
-      digest <-
-        if "/nix/store/" `isPrefixOf` path
-          then pure (hashChunks [BS8.pack path])
-          else concatMap hex . BS.unpack . SHA256.hashlazy <$> BL.readFile path
+      digest <- concatMap hex . BS.unpack . SHA256.hashlazy <$> BL.readFile path
       pure (Map.insert path digest hashes, digest)
   where
     hex byte = let value = showHex byte "" in replicate (2 - length value) '0' <> value
 
-sourceTreeHash :: [FilePath] -> FilePath -> IO String
-sourceTreeHash excluded root = do
-  excludedPaths <- mapM canonicalizePath excluded
-  files <- walk excludedPaths Set.empty root
-  chunks <- forM files $ \path -> do
+sourceFilesHash :: FilePath -> [FilePath] -> IO String
+sourceFilesHash root files = do
+  chunks <- forM (sort (nub files)) $ \path -> do
     bytes <- BS.readFile path
     digest <- evaluate (SHA256.hash bytes)
-    pure [BS8.pack (makeRelative root path), digest]
+    pure [TE.encodeUtf8 (T.pack (makeRelative root path)), digest]
   pure (hashChunks (concat chunks))
-  where
-    walk excludedPaths parents directory = do
-      canonical <- canonicalizePath directory
-      if canonical `elem` excludedPaths
-        then pure []
-        else do
-          unless (canonical `Set.notMember` parents) (ioError (userError "Cyclic source directory"))
-          names <- sort <$> listDirectory directory
-          fmap concat . forM names $ \name -> do
-            let path = directory </> name
-            isDirectory <- doesDirectoryExist path
-            if isDirectory
-              then
-                if name `elem` [".git", "dist", "dist-newstyle", ".stack-work", ".aihc-cache"]
-                  then pure []
-                  else walk excludedPaths (Set.insert canonical parents) path
-              else pure [path]
 
 -- Check every output before a cache entry supplies artifacts.
 restoreArtifacts :: FilePath -> FilePath -> [FilePath] -> IO Bool

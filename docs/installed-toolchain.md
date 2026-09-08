@@ -98,7 +98,8 @@ A source change creates a new installed build.
 Previous builds remain available to their dependent packages.
 The most recent install selects the active build for that package version and target.
 
-The separate `.build-cache` directory retains module artifacts across source changes.
+Library installs retain module artifacts in the separate `.build-cache` directory.
+Executable builds retain module artifacts in their build directory.
 The compiler checks each dependency-cycle unit before it reuses its type interfaces and backend outputs.
 A changed interface invalidates dependent units.
 A changed implementation can preserve dependent artifacts when its interface stays the same.
@@ -110,8 +111,10 @@ Dependencies still use their normal cache checks.
 Code and no-code installs use separate package keys.
 The artifact format version remains separate from compiler identity.
 
-Nix executables use their resolved store paths as compiler identities.
-Other executables use content hashes, once per process.
+All executables use content hashes, once per process.
 The cache does not require Git metadata.
 Source checks use file contents, not timestamps.
-The source scan excludes the artifact store and standard build directories.
+The source set contains the Cabal file and the selected Haskell and C source files.
+The cache reads these files directly.
+It does not scan source directories or classify build directories.
+Unselected files do not affect the package key.

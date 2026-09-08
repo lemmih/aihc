@@ -125,7 +125,7 @@ runBuildExe options = do
   let compileConfig =
         ModuleCompileConfig
           { compileBuildIdentity = buildIdentity,
-            compileCacheRoot = Just (storeRoot </> ".build-cache"),
+            compileCacheRoot = Just (buildRoot </> "artifacts"),
             compileKeepCore = False,
             compileKeepGrin = False,
             compileKeepNative = False,

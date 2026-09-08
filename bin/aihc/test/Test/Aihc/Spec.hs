@@ -35,11 +35,14 @@ import System.Directory
     getCurrentDirectory,
     getFileSize,
     getModificationTime,
+    getPermissions,
     getTemporaryDirectory,
     listDirectory,
     removeDirectoryRecursive,
     removeFile,
     setModificationTime,
+    setOwnerWritable,
+    setPermissions,
     withCurrentDirectory,
   )
 import System.Environment (lookupEnv)
@@ -169,7 +172,11 @@ test_buildExeSourceDirectories getStore =
         unusedType = basePackage </> "Data" </> "Bool" </> "type.cbor"
     resolveBytes <- BS.readFile unusedResolve
     BS.writeFile unusedResolve "invalid unused resolve interface"
-    withCurrentDirectory root (runBuildExe options)
+    let storeCache = storeRoot </> ".build-cache"
+    createDirectoryIfMissing True storeCache
+    bracket (getPermissions storeCache) (setPermissions storeCache) $ \permissions -> do
+      setPermissions storeCache (setOwnerWritable False permissions)
+      withCurrentDirectory root (runBuildExe options)
     assertFileExists (root </> ".aihc-cache" </> nativeTargetStoreDirectory target </> "Main" </> "Main.o")
     assertFileDoesNotExist (root </> ".aihc-cache" </> nativeTargetStoreDirectory target </> "GHC" </> "Base" </> "GHC.Base.o")
     let customBuildRoot = root </> "custom-build-root"
@@ -334,6 +341,12 @@ test_installIncremental getStore = do
     assertEqual "initial modules" ["A", "B", "C"] (sort (installWrittenModules first))
     unchanged <- install options
     assertEqual "unchanged package" (installStorePath first) (installStorePath unchanged)
+    copyFile (fixture </> "Extra.hs") (root </> "src" </> "Extra.hs")
+    unrelated <- install options
+    assertEqual "unselected source does not change the package" (installStorePath first) (installStorePath unrelated)
+    removeFile (root </> "src" </> "Extra.hs")
+    withoutUnrelated <- install options
+    assertEqual "unselected source removal does not change the package" (installStorePath first) (installStorePath withoutUnrelated)
     originalTime <- getModificationTime (root </> "src" </> "A.hs")
     originalSize <- getFileSize (root </> "src" </> "A.hs")
     copyFile (fixture </> "implementation/A.hs") (root </> "src" </> "A.hs")
@@ -362,7 +375,7 @@ test_installIncremental getStore = do
     cachedObjects <- listNamedFiles (store </> ".build-cache") "C.o"
     assertBool "module cache contains the independent object" (not (null cachedObjects))
     forM_ cachedObjects $ \path -> BS.writeFile path "invalid object"
-    copyFile (fixture </> "Extra.hs") (root </> "Extra.hs")
+    removeDirectoryRecursive (installStorePath withCode)
     repaired <- install options
     assertEqual "corrupt module cache rebuilds the module" ["C"] (installWrittenModules repaired)
     assertEqual "valid module cache remains available" ["A", "B"] (sort (installReusedModules repaired))

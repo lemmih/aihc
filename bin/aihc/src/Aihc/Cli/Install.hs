@@ -12,7 +12,7 @@ module Aihc.Cli.Install
   )
 where
 
-import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashChunks, publishArtifacts, restoreArtifacts, sourceTreeHash)
+import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashChunks, publishArtifacts, restoreArtifacts, sourceFilesHash)
 import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeSourceExtension)
 import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
@@ -129,7 +129,7 @@ import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
-import Data.List (intercalate, isPrefixOf, isSuffixOf, nub, sortOn)
+import Data.List (intercalate, isSuffixOf, nub, sortOn)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe)
@@ -140,7 +140,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Data.Word (Word64)
 import Distribution.Package qualified as CabalPackage
-import Distribution.PackageDescription (package, packageDescription)
+import Distribution.PackageDescription (GenericPackageDescription, package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
@@ -150,10 +150,10 @@ import GHC.Clock (getMonotonicTimeNSec)
 import Paths_aihc (getDataFileName)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
-import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory, renameFile)
+import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory, renameFile)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
-import System.FilePath (addTrailingPathSeparator, dropExtension, makeRelative, takeDirectory, takeFileName, (<.>), (</>))
+import System.FilePath (dropExtension, makeRelative, takeDirectory, takeFileName, (<.>), (</>))
 import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stdout)
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 
@@ -426,9 +426,37 @@ installPackagePlan config reinstall storeRoot plan = do
   dependencies <- mapM (installPackagePlan config False storeRoot) (planDependencyPlans plan)
   installPackage config reinstall storeRoot dependencies (planSourcePath plan)
 
+data PackageInputs = PackageInputs
+  { inputCabalFile :: !FilePath,
+    inputDescription :: !GenericPackageDescription,
+    inputSources :: ![HackageCabal.FileInfo],
+    inputCCompileInfo :: !HackageCabal.CCompileInfo
+  }
+
+readPackageInputs :: ModuleCompileConfig -> FilePath -> IO PackageInputs
+readPackageInputs config root = do
+  cabalFiles <- HackageUtil.findCabalFiles root
+  cabalFile <- case cabalFiles of
+    [] -> ioError (userError ("No .cabal file found under " <> root))
+    files -> pure (HackageUtil.chooseBestCabalFile root files)
+  cabalBytes <- BS.readFile cabalFile
+  gpd <- case runParseResult (parseGenericPackageDescription cabalBytes) of
+    (_, Right value) -> pure value
+    (_, Left (_, errors)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errors))
+  let (targetOs, targetArch) = cabalPlatformForTarget (compileTarget config)
+  files <- HackageCabal.collectLibraryFilesFor targetOs targetArch gpd root
+  pure
+    PackageInputs
+      { inputCabalFile = cabalFile,
+        inputDescription = gpd,
+        inputSources = files,
+        inputCCompileInfo = HackageCabal.collectLibraryCCompileInfoFor targetOs targetArch gpd root
+      }
+
 installPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> FilePath -> IO InstalledPackage
 installPackage config reinstall storeRoot dependencies root = do
-  (packageDirectory, unitIdentity) <- packageStoreDirectory config storeRoot dependencies root
+  inputs <- readPackageInputs config root
+  (packageDirectory, unitIdentity) <- packageStoreDirectory config dependencies root inputs
   let storePath = storeRoot </> packageDirectory
   exists <- doesDirectoryExist storePath
   if exists && not reinstall
@@ -440,12 +468,12 @@ installPackage config reinstall storeRoot dependencies root = do
       bracket
         (createTemporaryStoreRoot storeRoot packageDirectory)
         removeTemporaryStoreRoot
-        (buildAndPublish packageDirectory unitIdentity storePath)
+        (buildAndPublish inputs packageDirectory unitIdentity storePath)
   where
-    buildAndPublish packageDirectory unitIdentity storePath temporaryRoot = do
+    buildAndPublish inputs packageDirectory unitIdentity storePath temporaryRoot = do
       let buildConfig = if reinstall then config {compileCacheRoot = Nothing} else config
-      built <- installPackageDirect buildConfig packageDirectory unitIdentity temporaryRoot dependencies root
-      (currentDirectory, _) <- packageStoreDirectory config storeRoot dependencies root
+      built <- installPackageDirect buildConfig packageDirectory unitIdentity temporaryRoot dependencies root inputs
+      (currentDirectory, _) <- packageStoreDirectory config dependencies root inputs
       unless (currentDirectory == packageDirectory) (ioError (userError "Package inputs changed during the build. Install the package again."))
       exists <- doesDirectoryExist storePath
       when (exists && reinstall) (removeDirectoryRecursive storePath)
@@ -462,22 +490,14 @@ installPackage config reinstall storeRoot dependencies root = do
               loadInstalledPackage Set.empty storePath
             else throwIO (err :: IOException)
 
-installPackageDirect :: ModuleCompileConfig -> FilePath -> Text -> FilePath -> [InstalledPackage] -> FilePath -> IO InstalledPackage
-installPackageDirect config packageDirectory unitIdentity storeRoot dependencies root = do
+installPackageDirect :: ModuleCompileConfig -> FilePath -> Text -> FilePath -> [InstalledPackage] -> FilePath -> PackageInputs -> IO InstalledPackage
+installPackageDirect config packageDirectory unitIdentity storeRoot dependencies root inputs = do
   let target = compileTarget config
       verbose = compileVerbose config
   verbose ("Read Cabal package: " <> root)
-  cabalFiles <- HackageUtil.findCabalFiles root
-  cabalFile <- case cabalFiles of
-    [] -> ioError (userError ("No .cabal file found under " <> root))
-    files -> pure (HackageUtil.chooseBestCabalFile root files)
-  cabalBytes <- BS.readFile cabalFile
-  gpd <- case runParseResult (parseGenericPackageDescription cabalBytes) of
-    (_, Right value) -> pure value
-    (_, Left (_, errors)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errors))
-  let (targetOs, targetArch) = cabalPlatformForTarget target
-  files <- HackageCabal.collectLibraryFilesFor targetOs targetArch gpd root
-  let cCompileInfo = HackageCabal.collectLibraryCCompileInfoFor targetOs targetArch gpd root
+  let gpd = inputDescription inputs
+      files = inputSources inputs
+      cCompileInfo = inputCCompileInfo inputs
   let packageId = package (packageDescription gpd)
       packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
@@ -650,41 +670,19 @@ packagePrimIdentity resolvePackage dependencyExports =
             dependencyName == "aihc-prim"
           ]
 
-packageStoreDirectory :: ModuleCompileConfig -> FilePath -> [InstalledPackage] -> FilePath -> IO (FilePath, Text)
-packageStoreDirectory config storeRoot dependencies root = do
-  cabalFiles <- HackageUtil.findCabalFiles root
-  cabalFile <- case cabalFiles of
-    [] -> ioError (userError ("No .cabal file found under " <> root))
-    files -> pure (HackageUtil.chooseBestCabalFile root files)
-  cabalBytes <- BS.readFile cabalFile
-  gpd <- case runParseResult (parseGenericPackageDescription cabalBytes) of
-    (_, Right value) -> pure value
-    (_, Left (_, errors)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errors))
+packageStoreDirectory :: ModuleCompileConfig -> [InstalledPackage] -> FilePath -> PackageInputs -> IO (FilePath, Text)
+packageStoreDirectory config dependencies root inputs = do
+  let gpd = inputDescription inputs
+      cabalFile = inputCabalFile inputs
+      files = inputSources inputs
+      cInputs = inputCCompileInfo inputs
   let packageId = package (packageDescription gpd)
       packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
       dependencyIdentities = sortOn id (map (T.pack . takeFileName . installStorePath . installedResult) dependencies)
       unitIdentity = packageNameText <> "-" <> packageVersionText <> "-" <> T.pack compilerBuildIdentity
-  let (targetOs, targetArch) = cabalPlatformForTarget (compileTarget config)
-      cInputs = HackageCabal.collectLibraryCCompileInfoFor targetOs targetArch gpd root
-  files <- HackageCabal.collectLibraryFilesFor targetOs targetArch gpd root
-  canonicalRoot <- canonicalizePath root
-  let outsideRoot path = do
-        canonical <- canonicalizePath path
-        pure (canonical /= canonicalRoot && not (addTrailingPathSeparator canonicalRoot `isPrefixOf` canonical))
-      inputPaths = nub (map HackageCabal.fileInfoPath files <> concatMap HackageCabal.fileInfoIncludeDirs files <> HackageCabal.cCompileSources cInputs <> HackageCabal.cCompileIncludeDirs cInputs)
-  externalPaths <- filterM outsideRoot inputPaths
-  externalHashes <- forM (sortOn id externalPaths) $ \path -> do
-    directory <- doesDirectoryExist path
-    digest <-
-      if directory
-        then sourceTreeHash [takeDirectory storeRoot] path
-        else do
-          exists <- doesFileExist path
-          if exists then stableHash . pure <$> BS.readFile path else pure "absent"
-    pure (T.pack (show (path, digest)))
-  sourceHash <- sourceTreeHash [takeDirectory storeRoot] root
-  let packageHash = stableHash (map TE.encodeUtf8 (packageArtifactFormatVersion : T.pack (compileOptionsKey config) : T.pack sourceHash : dependencyIdentities <> externalHashes))
+  sourceHash <- sourceFilesHash root (cabalFile : map HackageCabal.fileInfoPath files <> HackageCabal.cCompileSources cInputs)
+  let packageHash = stableHash (map TE.encodeUtf8 (packageArtifactFormatVersion : T.pack (compileOptionsKey config) : T.pack sourceHash : dependencyIdentities))
   pure (T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash, unitIdentity)
 
 packageActiveName :: FilePath -> FilePath
@@ -710,11 +708,16 @@ buildEnvironmentIdentity target = do
   archiver <- backendArchiver target
   compilerHash <- executableIdentity compiler
   archiverHash <- executableIdentity archiver
-  header <- getDataFileName "compiler/native/runtime/include/HsFFI.h"
-  resourcesHash <- sourceTreeHash [] (takeDirectory (takeDirectory header))
-  environment <- getEnvironment
-  let relevant (name, _) = any (`isPrefixOf` name) ["AIHC_", "NIX_"] || name `elem` ["SDKROOT", "CPATH", "C_INCLUDE_PATH", "LIBRARY_PATH", "MACOSX_DEPLOYMENT_TARGET"]
-  pure (stableHash (map BS8.pack [compilerBuildIdentity, compilerHash, archiverHash, resourcesHash, show arguments, show (sortOn fst (filter relevant environment))]))
+  headers <-
+    mapM
+      getDataFileName
+      [ "compiler/native/runtime/include/HsFFI.h",
+        "compiler/native/runtime/include/MachDeps.h",
+        "compiler/native/runtime/include/ghcplatform.h"
+      ]
+  headerHash <- stableHash <$> mapM BS.readFile headers
+  sysrootArguments <- wasmSysrootIncludeArguments target
+  pure (stableHash (map BS8.pack [compilerBuildIdentity, compilerHash, archiverHash, headerHash, show arguments, show sysrootArguments]))
 
 compileOptionsKey :: ModuleCompileConfig -> String
 compileOptionsKey config =
