@@ -75,7 +75,6 @@ primTcWiring prim =
         tyCon ResolutionNamespaceType "GHC.Classes" name 1,
       tcWiringPrimitiveTyCon = \name ->
         tyCon ResolutionNamespaceType "GHC.Prim" name 0,
-      tcWiringApplyOperator = ("GHC.Base", "$"),
       tcWiringLiftClass = ("GHC.Internal.TH.Lift", "Lift")
     }
   where

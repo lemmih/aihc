@@ -66,10 +66,6 @@ data TcWiring = TcWiring
     -- | An unlifted primitive type of one name, such as @Int#@. A foreign
     -- declaration marshals through these.
     tcWiringPrimitiveTyCon :: Text -> TyCon,
-    -- | The application operator, as a module name and a term name. It is
-    -- typed like an application rather than like a function, so that a
-    -- higher-rank argument needs no impredicative instantiation.
-    tcWiringApplyOperator :: (Text, Text),
     -- | The Template Haskell @Lift@ class, as a module name and a class
     -- name. Its parameters take implicit kind parameters.
     tcWiringLiftClass :: (Text, Text)
