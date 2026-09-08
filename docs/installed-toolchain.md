@@ -114,7 +114,9 @@ Dependencies still use their normal cache checks.
 Code and no-code builds use separate artifact cache keys and build fingerprints.
 The artifact format version remains separate from compiler identity.
 
-The Cabal build hook generates a compiler identity from declared source files, runtime files, dependency library contents, and build options.
+The Cabal build hook uses the current Git commit hash as the compiler identity.
+If Git or a commit is absent, the compiler identity is empty.
+Uncommitted compiler changes do not change this identity.
 The compiled program contains this identity as a pure constant.
 The identity requires no runtime executable path or filesystem access.
 The compiler uses the package main library because Cabal custom builds do not support named libraries.

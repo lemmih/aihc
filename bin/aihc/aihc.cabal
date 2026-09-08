@@ -89,10 +89,9 @@ custom-setup
   setup-depends:
     Cabal >=3.14 && <3.17,
     base >=4.16 && <5,
-    bytestring,
-    cryptohash-sha256,
     directory,
     filepath,
+    process,
 
 library
   exposed-modules:
