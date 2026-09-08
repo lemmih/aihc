@@ -15,7 +15,7 @@ module Control.Applicative
   )
 where
 
-import Data.Monoid (Monoid (..))
+import Data.Semigroup.Internal (Monoid (..))
 import Prelude (Applicative (..), Functor (..), Maybe (..), (++), (<$>))
 
 liftA :: (Applicative f) => (a -> b) -> f a -> f b
