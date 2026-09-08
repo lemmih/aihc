@@ -150,7 +150,7 @@ import GHC.Clock (getMonotonicTimeNSec)
 import Paths_aihc (getDataFileName)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
-import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory, renameFile)
+import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, makeRelative, takeDirectory, takeFileName, (<.>), (</>))
@@ -178,6 +178,7 @@ data InstalledPackage = InstalledPackage
   { installedResult :: !InstallResult,
     installedName :: !Text,
     installedVersion :: !Text,
+    installedBuildFingerprint :: !Text,
     installedExports :: !ModuleExports,
     installedTypes :: !(Map.Map Text TcInterface),
     installedScopeHashes :: !(Map.Map Text Text),
@@ -356,10 +357,12 @@ installWith output options = do
   let verbose message = when (installVerbose options) (hPutStrLn output message)
       printTimings message = when (installPrintTimings options) (hPutStrLn output message)
   root <- resolveInstallTarget (installPackageTarget options)
-  buildIdentity <- buildEnvironmentIdentity target
   let fallbackResolver = networkDependencyResolver
       resolver = localDependencyResolverWithFallback fallbackResolver root
-      config =
+  spec <- packageSpecFromSource root
+  plan <- buildPackagePlanWithResolver resolver spec
+  buildIdentity <- buildEnvironmentIdentity target
+  let config =
         ModuleCompileConfig
           { compileBuildIdentity = buildIdentity,
             compileCacheRoot = Just (storeRoot </> ".build-cache"),
@@ -373,8 +376,6 @@ installWith output options = do
             compilePrintTimings = printTimings,
             compileUseColor = useColor
           }
-  spec <- packageSpecFromSource root
-  plan <- buildPackagePlanWithResolver resolver spec
   installedResult <$> installPackagePlan config (installReinstall options) targetStoreRoot plan
 
 -- | Turn the install argument into a local package directory.
@@ -456,42 +457,46 @@ readPackageInputs config root = do
 installPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> FilePath -> IO InstalledPackage
 installPackage config reinstall storeRoot dependencies root = do
   inputs <- readPackageInputs config root
-  (packageDirectory, unitIdentity) <- packageStoreDirectory config dependencies root inputs
+  (packageDirectory, unitIdentity, fingerprint) <- packageBuildInputs config dependencies root inputs
   let storePath = storeRoot </> packageDirectory
-  exists <- doesDirectoryExist storePath
-  if exists && not reinstall
-    then do
-      activatePackage storeRoot (T.pack (packageActiveName packageDirectory)) packageDirectory
-      loadInstalledPackage Set.empty storePath
+  previous <- readBuildFingerprint storePath
+  if previous == Just fingerprint && not reinstall
+    then loadInstalledPackage Set.empty storePath
     else do
       createDirectoryIfMissing True storeRoot
       bracket
         (createTemporaryStoreRoot storeRoot packageDirectory)
         removeTemporaryStoreRoot
-        (buildAndPublish inputs packageDirectory unitIdentity storePath)
+        (buildAndPublish inputs packageDirectory unitIdentity fingerprint storePath)
   where
-    buildAndPublish inputs packageDirectory unitIdentity storePath temporaryRoot = do
+    buildAndPublish inputs packageDirectory unitIdentity fingerprint storePath temporaryRoot = do
       let buildConfig = if reinstall then config {compileCacheRoot = Nothing} else config
-      built <- installPackageDirect buildConfig packageDirectory unitIdentity temporaryRoot dependencies root inputs
-      (currentDirectory, _) <- packageStoreDirectory config dependencies root inputs
-      unless (currentDirectory == packageDirectory) (ioError (userError "Package inputs changed during the build. Install the package again."))
+      built <- installPackageDirect buildConfig packageDirectory unitIdentity fingerprint temporaryRoot dependencies root inputs
+      (_, _, currentFingerprint) <- packageBuildInputs config dependencies root inputs
+      unless (currentFingerprint == fingerprint) (ioError (userError "Package inputs changed during the build. Install the package again."))
+      BS8.writeFile (buildFingerprintPath (installStorePath (installedResult built))) (BS8.pack fingerprint)
       exists <- doesDirectoryExist storePath
-      when (exists && reinstall) (removeDirectoryRecursive storePath)
+      when exists (removeDirectoryRecursive storePath)
       publishResult <- try (renameDirectory (installStorePath (installedResult built)) storePath)
       case publishResult of
-        Right () -> do
-          activatePackage storeRoot (T.pack (packageActiveName packageDirectory)) packageDirectory
-          pure (setInstalledStorePath storePath built)
+        Right () -> pure (setInstalledStorePath storePath built)
         Left err -> do
-          published <- doesDirectoryExist storePath
-          if published
-            then do
-              activatePackage storeRoot (T.pack (packageActiveName packageDirectory)) packageDirectory
-              loadInstalledPackage Set.empty storePath
+          published <- readBuildFingerprint storePath
+          if published == Just fingerprint
+            then loadInstalledPackage Set.empty storePath
             else throwIO (err :: IOException)
 
-installPackageDirect :: ModuleCompileConfig -> FilePath -> Text -> FilePath -> [InstalledPackage] -> FilePath -> PackageInputs -> IO InstalledPackage
-installPackageDirect config packageDirectory unitIdentity storeRoot dependencies root inputs = do
+buildFingerprintPath :: FilePath -> FilePath
+buildFingerprintPath storePath = storePath </> "build-inputs.hash"
+
+readBuildFingerprint :: FilePath -> IO (Maybe String)
+readBuildFingerprint storePath = do
+  let path = buildFingerprintPath storePath
+  exists <- doesFileExist path
+  if exists then Just . BS8.unpack <$> BS.readFile path else pure Nothing
+
+installPackageDirect :: ModuleCompileConfig -> FilePath -> Text -> String -> FilePath -> [InstalledPackage] -> FilePath -> PackageInputs -> IO InstalledPackage
+installPackageDirect config packageDirectory unitIdentity fingerprint storeRoot dependencies root inputs = do
   let target = compileTarget config
       verbose = compileVerbose config
   verbose ("Read Cabal package: " <> root)
@@ -546,6 +551,7 @@ installPackageDirect config packageDirectory unitIdentity storeRoot dependencies
       { installedResult = InstallResult storePath (Set.toAscList written) (Set.toAscList reused),
         installedName = packageNameText,
         installedVersion = packageVersionText,
+        installedBuildFingerprint = T.pack fingerprint,
         installedExports = ownExports,
         installedTypes = Map.restrictKeys allTypes exposedNames,
         installedScopeHashes = Map.restrictKeys allScopeHashes exposedNames,
@@ -670,8 +676,8 @@ packagePrimIdentity resolvePackage dependencyExports =
             dependencyName == "aihc-prim"
           ]
 
-packageStoreDirectory :: ModuleCompileConfig -> [InstalledPackage] -> FilePath -> PackageInputs -> IO (FilePath, Text)
-packageStoreDirectory config dependencies root inputs = do
+packageBuildInputs :: ModuleCompileConfig -> [InstalledPackage] -> FilePath -> PackageInputs -> IO (FilePath, Text, String)
+packageBuildInputs config dependencies root inputs = do
   let gpd = inputDescription inputs
       cabalFile = inputCabalFile inputs
       files = inputSources inputs
@@ -679,32 +685,15 @@ packageStoreDirectory config dependencies root inputs = do
   let packageId = package (packageDescription gpd)
       packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
-      dependencyIdentities = sortOn id (map (T.pack . takeFileName . installStorePath . installedResult) dependencies)
-      unitIdentity = packageNameText <> "-" <> packageVersionText <> "-" <> T.pack compilerBuildIdentity
+      dependencyBuilds = sortOn id [(T.pack (takeFileName (installStorePath (installedResult dependency))), installedBuildFingerprint dependency) | dependency <- dependencies]
+      unitIdentity = packageNameText <> "-" <> packageVersionText
   sourceHash <- sourceFilesHash root (cabalFile : map HackageCabal.fileInfoPath files <> HackageCabal.cCompileSources cInputs)
   cSysrootArguments <-
     if compileNoCode config || null (HackageCabal.cCompileSources cInputs)
       then pure []
       else wasmSysrootIncludeArguments (compileTarget config)
-  let packageHash = stableHash (map TE.encodeUtf8 (packageArtifactFormatVersion : T.pack (compileOptionsKey config) : T.pack sourceHash : T.pack (show cSysrootArguments) : dependencyIdentities))
-  pure (T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash, unitIdentity)
-
-packageActiveName :: FilePath -> FilePath
-packageActiveName directory = reverse (drop 1 (dropWhile (/= '-') (reverse directory)))
-
-activatePackage :: FilePath -> Text -> FilePath -> IO ()
-activatePackage storeRoot unitIdentity directory = do
-  let activeRoot = takeDirectory storeRoot </> ".active" </> takeFileName storeRoot
-  createDirectoryIfMissing True activeRoot
-  bracket (openBinaryTempFile activeRoot ".tmp-") cleanup $ \(path, handle) -> do
-    BS8.hPutStr handle (BS8.pack directory)
-    hClose handle
-    renameFile path (activeRoot </> T.unpack unitIdentity)
-  where
-    cleanup (path, handle) = do
-      hClose handle
-      exists <- doesFileExist path
-      when exists (removeFile path)
+  let packageHash = stableHash (map TE.encodeUtf8 (packageArtifactFormatVersion : T.pack (compileOptionsKey config) : T.pack sourceHash : T.pack (show cSysrootArguments) : concatMap (\(identity, fingerprint) -> [identity, fingerprint]) dependencyBuilds))
+  pure (T.unpack unitIdentity, unitIdentity, packageHash)
 
 buildEnvironmentIdentity :: NativeTarget -> IO String
 buildEnvironmentIdentity target = do
@@ -779,6 +768,7 @@ loadInstalledPackage :: Set.Set (Maybe Text, Text) -> FilePath -> IO InstalledPa
 loadInstalledPackage requirements storePath = do
   manifestResult <- readPackageManifest (packageManifestPath storePath)
   manifest <- either (ioError . userError . ("Invalid installed package manifest: " <>)) pure manifestResult
+  fingerprint <- readBuildFingerprint storePath
   let selectedModules = filter (moduleRequired manifest) (packageManifestModules manifest)
   entries <- mapM loadModule selectedModules
   (instanceFacts', instanceProviders) <-
@@ -795,6 +785,7 @@ loadInstalledPackage requirements storePath = do
       { installedResult = InstallResult storePath [] (packageManifestModules manifest),
         installedName = packageManifestName manifest,
         installedVersion = packageManifestVersion manifest,
+        installedBuildFingerprint = maybe (packageManifestIdentity manifest) T.pack fingerprint,
         installedExports = exports,
         installedTypes = types,
         installedScopeHashes = scopeHashes,

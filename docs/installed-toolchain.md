@@ -46,9 +46,10 @@ aihc compile Main.hs \
 
 There is no special core-library installation mechanism: `aihc-base` and
 `aihc-prim` are ordinary packages, with the latter installed through the
-former's package dependency. The store contains content-addressed library
-interfaces and whole-program bodies, target-specific library archives, and
-runtime archives keyed by target and garbage collector. An incomplete store is
+former's package dependency. The store contains installed library interfaces,
+whole-program bodies, and library archives for each target.
+Each target has one installed entry per package name and version.
+Runtime archives use keys for the target and garbage collector. An incomplete store is
 an error; application compilation never fills in missing artifacts by rebuilding
 source dependencies.
 
@@ -92,11 +93,13 @@ links and runs the bundles on macOS.
 
 ## Artifact reuse
 
-`aihc install` checks package contents before it reuses an installed build.
-The package key includes source contents, dependency build identities, compiler identity, target, and build options.
-A source change creates a new installed build.
-Previous builds remain available to their dependent packages.
-The most recent install selects the active build for that package version and target.
+`aihc install` resolves the complete package plan before it reads build fingerprints or module caches.
+Package identities contain the selected package name and version.
+Source changes and build options do not change these identities or the selected dependencies.
+A separate build fingerprint includes source contents, dependency build fingerprints, compiler identity, target, and build options.
+A matching fingerprint permits reuse of the installed outputs.
+After a successful rebuild, installation replaces the outputs for the selected package.
+Cached artifacts never supply package candidates or select dependency versions.
 
 Library installs retain module artifacts in the separate `.build-cache` directory.
 Executable builds retain module artifacts in their build directory.
@@ -108,7 +111,7 @@ It rebuilds the package archive and its C sources.
 
 `--reinstall` bypasses module reuse for the specified package.
 Dependencies still use their normal cache checks.
-Code and no-code installs use separate package keys.
+Code and no-code builds use separate artifact cache keys and build fingerprints.
 The artifact format version remains separate from compiler identity.
 
 The Cabal build hook generates a compiler identity from declared source files, runtime files, dependency library contents, and build options.
@@ -123,4 +126,4 @@ Source checks use file contents, not timestamps.
 The source set contains the Cabal file and the selected Haskell and C source files.
 The cache reads these files directly.
 It does not scan source directories or classify build directories.
-Unselected files do not affect the package key.
+Unselected files do not affect the build fingerprint.
