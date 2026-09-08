@@ -101,18 +101,10 @@
             addCheckSettings drv old
             // {
               testTargets = [suite];
-              # Tasty defaults to one worker per processor and raises the RTS
-              # capability count to match. The eval fixtures allocate several
-              # gigabytes each, so on a 32-thread runner that many concurrent
-              # tests saturate memory bandwidth and the parallel GC: every
-              # fixture took ~30 s instead of ~2 s. Eight workers keep the
-              # machine busy without the collapse. The capability count is
-              # pinned to match, otherwise the -N default still runs one
-              # parallel-GC thread per processor. The RTS statistics stay in
-              # the log to keep an eye on GC time and capability counts, and
-              # successes stay hidden because fixtures that capture stdout
-              # would otherwise capture tasty's own progress output.
-              testFlags = (addHiddenSuccesses old).testFlags ++ ["--num-threads" "8" "+RTS" "-N8" "-A32m" "-s" "-RTS"];
+              # Four test workers leave processors available for package builds.
+              # Keep the capability count equal to the test worker count.
+              # Record garbage collection statistics for CI performance checks.
+              testFlags = (addHiddenSuccesses old).testFlags ++ ["--num-threads" "4" "+RTS" "-N4" "-A32m" "-s" "-RTS"];
               # The C toolchain is only needed while the tests run. Adding it to
               # testToolDepends would append --extra-include-dirs/--extra-lib-dirs
               # to the configure flags, which changes GHC's flag hash and forces a
@@ -444,7 +436,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N4
+      export GHCRTS=-N2
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       store="$TMPDIR/store"
@@ -493,7 +485,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N4
+      export GHCRTS=-N2
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -553,7 +545,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N4
+      export GHCRTS=-N2
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -582,14 +574,14 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N4
+      export GHCRTS=-N2
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       export AIHC_WASM_SYSROOT=${wasmSysroot}
       cp -R --no-preserve=mode ${exampleToolchainFor target} "$out"
-      ${aihcExe} install --reinstall core-libs/aihc-internal --store "$out" --lint --target ${target}
-      ${aihcExe} install --reinstall core-libs/aihc-template-haskell --store "$out" --lint --target ${target}
+      ${aihcExe} install --reinstall --print-timings core-libs/aihc-internal --store "$out" --lint --target ${target}
+      ${aihcExe} install --reinstall --print-timings core-libs/aihc-template-haskell --store "$out" --lint --target ${target}
       test -n "$(find "$out" -type f -name 'libaihc-template-haskell.a' -print -quit)"
       test -z "$(find "$out" -type f -name 'core.bad' -print -quit)"
     '';
@@ -634,7 +626,7 @@
       ];
     } ''
       set -euo pipefail
-      export GHCRTS=-N4
+      export GHCRTS=-N2
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
