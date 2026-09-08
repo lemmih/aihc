@@ -42,7 +42,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), PatSynDirection (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..), EvVar)
-import Aihc.Tc.Generate.Bind (boolTyCon, inferGuardedRhss, inferLocalDecls, inferRhsWithLocals)
+import Aihc.Tc.Generate.Bind (inferGuardedRhss, inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Generate.Record (constructorNameSyntax, lookupRecordConstructor, orderRecordFields, recordFieldLabel, recordUpdateConstructors, synthesizedRecordLocal)
@@ -116,7 +116,7 @@ inferExprAt ambient expr = case expr of
   EFloat {} ->
     abortTc "fractional literal is missing its resolver type annotation"
   EChar _ _ ->
-    literalResult expr (resolvedType "Char")
+    literalResult expr charType
   ECharHash {} ->
     abortTc "primitive character literal is missing its resolver type annotation"
   EString _ _ ->
@@ -604,16 +604,18 @@ instantiateFunctionType sp fun funTy = do
       pure (annotatePendingExprAt sp pending fun, instantiated, cts)
     else pure (fun, funTy, [])
 
--- | Whether an operator is the application operator of GHC.Base. GHC types
--- @f $ x@ like the application @f x@, so a higher-rank or representation
+-- | Whether an operator is the wired application operator. It is typed
+-- like the application @f x@, so a higher-rank or representation
 -- polymorphic argument works without impredicative instantiation.
 isApplicationOperator :: Name -> TcM Bool
-isApplicationOperator op
-  | nameText op /= "$" = pure False
-  | otherwise = do
+isApplicationOperator op = do
+  (applyModule, applyName) <- tcWiringApplyOperator <$> getWiring
+  if nameText op /= applyName
+    then pure False
+    else do
       key <- resolvedTermKey op
       pure $ case key of
-        TcTermGlobal _ moduleName' "$" -> moduleName' == "GHC.Base"
+        TcTermGlobal _ moduleName' name' -> moduleName' == applyModule && name' == applyName
         _ -> False
 
 checkHigherRankArgument :: SourceSpan -> TcType -> Expr -> TcM (Expr, [Ct])
@@ -845,7 +847,7 @@ inferIf sp cond thenE elseE = do
   (elseE', elseTy, elseCts) <- inferExpr elseE
   resultTy <- freshMetaTv
   condEv <- freshEvVar
-  expectedBoolTy <- boolTyCon
+  expectedBoolTy <- boolType
   let condCt = mkWantedCt (EqPred condTy expectedBoolTy) condEv (AppOrigin sp) sp
   thenEv <- freshEvVar
   elseEv <- freshEvVar
@@ -942,7 +944,7 @@ inferTuple sp flavor elems = do
 
 inferList :: SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
 inferList sp elems = do
-  nilInstantiation <- instantiateListConstructor sp "[]"
+  nilInstantiation <- instantiateListConstructor sp tcWiringNilDataCon
   nilCts <- mapM (predToCt sp "[]") (instPreds nilInstantiation)
   case elems of
     [] -> do
@@ -951,7 +953,7 @@ inferList sp elems = do
       pure (annotatePendingExprAt sp pending (EList []), listTy, nilCts)
     _ -> do
       results <- mapM inferElem elems
-      consInstantiation <- instantiateListConstructor sp ":"
+      consInstantiation <- instantiateListConstructor sp tcWiringConsDataCon
       consPredicateCts <- mapM (predToCt sp ":") (instPreds consInstantiation)
       case instType consInstantiation of
         TcFunTy sourceElemTy (TcFunTy sourceTailTy sourceResultTy) -> do
@@ -967,7 +969,7 @@ inferList sp elems = do
           elementEqualityCts <- mapM (elementEqualityCt firstElemSp firstElemTy) (drop 1 results)
           let constructorCts = nilCts <> consPredicateCts <> [firstConstructorCt, nilConstructorCt, resultConstructorCt]
           pure (annotatePendingExprAt sp pending (EList elems'), sourceResultTy, elemCts <> elementEqualityCts <> constructorCts)
-        _ -> abortTc "GHC.Types list cons constructor has an invalid type"
+        _ -> abortTc "the wired list cons constructor has an invalid type"
   where
     inferElem elemExpr = do
       (elemExpr', elemTy, elemCts) <- inferExpr elemExpr
@@ -1063,16 +1065,17 @@ inferArithSeqForm arithSeq =
       (second', secondTy, secondCts) <- inferExpr second
       pure (constructor first' second', [firstTy, secondTy], firstCts <> secondCts)
 
-instantiateListConstructor :: SourceSpan -> Text -> TcM Instantiation
-instantiateListConstructor sp name = do
-  sourceBinder <- lookupTerm name
-  maybeBinder <- maybe (lookupKnownTerm "GHC.Types" name) (pure . Just) sourceBinder
+instantiateListConstructor :: SourceSpan -> (TcWiring -> TyCon) -> TcM Instantiation
+instantiateListConstructor sp select = do
+  wired <- wiredTyConIdentity select
+  maybeBinder <- lookupWiredTerm wired
+  let name = tyConName wired
   case maybeBinder of
     Just (TcIdBinder scheme _) -> instantiateWithArgs scheme
     Just TcMonoIdBinder {} ->
-      abortTc ("GHC.Types list constructor is monomorphic at " <> show sp <> ": " <> show name)
+      abortTc ("the wired list constructor is monomorphic at " <> show sp <> ": " <> show name)
     Nothing ->
-      abortTc ("GHC.Types list constructor is missing at " <> show sp <> ": " <> show name)
+      abortTc ("the wired list constructor is missing at " <> show sp <> ": " <> show name)
 
 inferListComp :: SourceSpan -> Expr -> [CompStmt] -> TcM (Expr, TcType, [Ct])
 inferListComp sp body quals = do
@@ -1106,7 +1109,7 @@ inferListComp sp body quals = do
         CompGuard guard -> do
           (guard', guardTy, guardCts) <- inferExpr guard
           ev <- freshEvVar
-          expectedBoolTy <- boolTyCon
+          expectedBoolTy <- boolType
           let guardSp = exprSpan guard `orSourceSpan` ambient
               guardCt = mkWantedCt (EqPred guardTy expectedBoolTy) ev (AppOrigin guardSp) guardSp
           (rest', body', bodyTy, bodyCts) <- inferCompQuals listTyCon' ambient rest action
@@ -1128,9 +1131,7 @@ inferListComp sp body quals = do
       inferCompQuals listTyCon' ambient rest action
 
 resolvedListTyCon :: TcM TyCon
-resolvedListTyCon = do
-  maybeInfo <- lookupTyCon "[]"
-  maybe (mkKnownTyCon "GHC.Types" "[]" 1 (KFun KType KType)) (pure . tciTyCon) maybeInfo
+resolvedListTyCon = listTyConOfWiring
 
 inferDo :: SourceSpan -> DoFlavor -> [DoStmt Expr] -> TcM (Expr, TcType, [Ct])
 inferDo sp flavor stmts =
@@ -1322,14 +1323,8 @@ nameToText n = case nameQualifier n of
   Nothing -> nameText n
   Just q -> q <> "." <> nameText n
 
-resolvedType :: Text -> TcM TcType
-resolvedType name = do
-  maybeInfo <- lookupTyCon name
-  tyCon <- maybe (mkKnownTyCon "GHC.Types" name 0 typeKindType) (pure . tciTyCon) maybeInfo
-  pure (TcTyCon tyCon [])
-
 stringTyCon :: TcM TcType
 stringTyCon = do
   listTyCon <- resolvedListTyCon
-  charType <- resolvedType "Char"
-  pure (TcTyCon listTyCon [charType])
+  elementType <- charType
+  pure (TcTyCon listTyCon [elementType])

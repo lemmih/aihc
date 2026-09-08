@@ -149,7 +149,6 @@ import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
-import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (finalizeDiagnostics, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((<=<))

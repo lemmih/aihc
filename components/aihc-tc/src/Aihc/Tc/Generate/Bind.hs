@@ -8,7 +8,6 @@ module Aihc.Tc.Generate.Bind
     inferLocalDecls,
     inferRhsWithLocals,
     inferGuardedRhss,
-    boolTyCon,
     collectRawSigs,
     sigToScheme,
     skolemize,
@@ -47,7 +46,6 @@ import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNames
 import Aihc.Resolve.Generic (everything, everywhereM)
 import Aihc.Tc.Annotations (annotateRhsCast, pendingAnnotation)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Generalize (environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Pattern
@@ -392,7 +390,7 @@ inferGuardQualifiers inferExpr sp resultTy qualifiers rest =
         [] -> pure ([], result, cts)
     GuardExpr condition : more -> do
       (condition', conditionTy, conditionCts) <- inferExpr condition
-      boolTy <- boolTyCon
+      boolTy <- boolType
       ev <- freshEvVar
       let conditionCt = mkWantedCt (EqPred conditionTy boolTy) ev (AppOrigin sp) sp
       (more', result, cts) <- inferGuardQualifiers inferExpr sp resultTy more rest
@@ -410,14 +408,6 @@ inferGuardQualifiers inferExpr sp resultTy qualifiers rest =
           (more', result, cts) <- inferGuardQualifiers inferExpr sp resultTy more rest
           pure ((more', result), resultTy, cts)
       pure (GuardLet decls' : more', result, cts)
-
--- | The 'Bool' type that guards and conditions have.
-boolTyCon :: TcM TcType
-boolTyCon = do
-  maybeInfo <- lookupTyCon "Bool"
-  case maybeInfo of
-    Just info -> pure (TcTyCon (tciTyCon info) [])
-    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Bool" 0 typeKindType <*> pure []
 
 placeholderFor :: Map TcTermKey TypeScheme -> UnqualifiedName -> TcM (UnqualifiedName, TcTermKey, TcType)
 placeholderFor sigs name = do

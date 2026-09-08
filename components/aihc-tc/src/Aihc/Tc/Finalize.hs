@@ -8,7 +8,7 @@ module Aihc.Tc.Finalize
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Module, fromAnnotation, mkAnnotation)
+import Aihc.Parser.Syntax (Annotation, Module, TupleFlavor (..), fromAnnotation, mkAnnotation)
 import Aihc.Resolve.Traverse (traverseAnnotations)
 import Aihc.Tc.Annotations
   ( PendingTcAnnotation (..),
@@ -102,7 +102,7 @@ defaultUnsolvedAnnotationMetas annotation =
           kind <- defaultKindMetas =<< readMetaTvKind meta
           case kind of
             KType -> do
-              unitTyCon <- mkKnownTyCon "GHC.Tuple" "Unit" 0 KType
+              unitTyCon <- flip mkWiredTyCon KType =<< wiredTupleTyCon Boxed 0
               writeMetaTv meta (TcTyCon unitTyCon [])
             _ ->
               abortTc

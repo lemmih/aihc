@@ -1,10 +1,7 @@
 annotated:
 - |-
   module Test where
-  data Bool = True | False
-       │      │      └─ type: Bool
-       │      └─ type: Bool
-       └─ type: Type
+  import GHC.Types (Bool (..))
   f x | True = x
   │ └─ type: a
   └─ type: ∀ a. a → a
@@ -12,7 +9,7 @@ extensions: []
 modules:
 - |
   module Test where
-  data Bool = True | False
+  import GHC.Types (Bool (..))
   f x | True = x
 reason: a boolean guard leaves the guarded equation's argument fully polymorphic
 status: pass
