@@ -1320,7 +1320,7 @@ lowerLiteral env literal =
 lowerForeignCall :: Fc.Name -> Fc.CCallSpec -> GrinForeignCall
 lowerForeignCall name specification =
   GrinForeignCall
-    { grinForeignCallName = Fc.nameText name,
+    { grinForeignCallName = stableGlobalName name,
       grinForeignCallSymbol = Fc.ccallSymbol specification,
       grinForeignCallTarget = lowerForeignTarget (Fc.ccallTarget specification),
       grinForeignCallSignature =

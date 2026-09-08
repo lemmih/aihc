@@ -3,13 +3,13 @@ expected: |-
 
   constructor 1.Ptr [AddrRep]
 
-  foreign putsAddress = address "puts" :: () -> addr ! pure
+  foreign 1.putsAddress = address "puts" :: () -> addr ! pure
 
   global 1.address = (F$address_thunk)
 
   $address_thunk -> BoxedRep Lifted =
     foreign_result :: AddrRep <-
-      foreign-call putsAddress = address "puts" :: () -> addr ! pure with
+      foreign-call 1.putsAddress = address "puts" :: () -> addr ! pure with
     store (C1.Ptr (foreign_result :: AddrRep))
 extensions:
 - ForeignFunctionInterface

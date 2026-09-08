@@ -20,7 +20,7 @@ module Aihc.Grin.Cps
   )
 where
 
-import Aihc.Grin.Analysis (freeExprVars)
+import Aihc.Grin.Analysis (freeExprVars, maximumProgramVarUnique)
 import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
 import Control.Monad.Trans.Class (lift)
@@ -427,74 +427,6 @@ varsRuntimeRep vars =
     [runtimeRep] -> runtimeRep
     runtimeReps -> TupleRep runtimeReps
 
-maximumProgramVarUnique :: GrinProgram -> Int
-maximumProgramVarUnique program =
-  maximum
-    ( 0
-        : map (grinVarUnique . fst) (grinPrimitives program)
-          <> concatMap bindingUniques (grinGlobals program)
-          <> concatMap functionUniques (grinFunctions program)
-    )
-  where
-    bindingUniques (_, node) = nodeUniques node
-    functionUniques function =
-      map grinVarUnique (grinFunctionParameters function)
-        <> exprUniques (grinFunctionBody function)
-
-exprUniques :: GrinExpr -> [Int]
-exprUniques expression =
-  case expression of
-    GrinConstant values -> concatMap valueUniques values
-    GrinBind vars valueExpression body ->
-      map grinVarUnique vars <> exprUniques valueExpression <> exprUniques body
-    GrinStore node -> nodeUniques node
-    GrinEnsureHeap requiredWords roots -> valueUniques requiredWords <> concatMap valueUniques roots
-    GrinStoreUnchecked node -> nodeUniques node
-    GrinStoreRec bindings body ->
-      concatMap (\(var, node) -> grinVarUnique var : nodeUniques node) bindings
-        <> exprUniques body
-    GrinStoreRecUnchecked bindings body ->
-      concatMap (\(var, node) -> grinVarUnique var : nodeUniques node) bindings
-        <> exprUniques body
-    GrinUpdate pointer value -> valueUniques pointer <> valueUniques value
-    GrinUpdateBlackhole pointer value -> valueUniques pointer <> valueUniques value
-    GrinEval _ value -> valueUniques value
-    GrinCpsEval _ value continuation updateContinuation ->
-      valueUniques value <> valueUniques continuation <> valueUniques updateContinuation
-    GrinCall _ _ arguments -> concatMap valueUniques arguments
-    GrinPrimitiveCall _ _ arguments -> concatMap valueUniques arguments
-    GrinCpsPrimitiveCall _ _ arguments continuation ->
-      concatMap valueUniques arguments <> valueUniques continuation
-    GrinApply _ function arguments -> valueUniques function <> concatMap valueUniques arguments
-    GrinCpsApply _ function arguments continuation ->
-      valueUniques function <> concatMap valueUniques arguments <> valueUniques continuation
-    GrinContinue continuation values -> valueUniques continuation <> concatMap valueUniques values
-    GrinCpsRaise exception continuation -> valueUniques exception <> valueUniques continuation
-    GrinHalt values -> concatMap valueUniques values
-    GrinExit status -> valueUniques status
-    GrinCase scrutinee binder alternatives ->
-      valueUniques scrutinee
-        <> (grinVarUnique binder : concatMap alternativeUniques alternatives)
-    GrinThrow exception -> valueUniques exception
-    GrinCatch _ action handler state ->
-      valueUniques action <> valueUniques handler <> concatMap valueUniques state
-    GrinForeignCallExpr _ arguments -> concatMap valueUniques arguments
-
 isControlPrimitive :: T.Text -> Bool
 isControlPrimitive name =
   name `elem` ["awaitIO#", "fork#", "newMVar#", "putMVar#", "readMVar#", "takeMVar#", "yield#"]
-
-alternativeUniques :: GrinAlt -> [Int]
-alternativeUniques alternative =
-  map grinVarUnique (grinAltBinders alternative)
-    <> exprUniques (grinAltRhs alternative)
-
-valueUniques :: GrinValue -> [Int]
-valueUniques value =
-  case value of
-    GrinVarValue var -> [grinVarUnique var]
-    GrinGlobalValue {} -> []
-    GrinLitValue {} -> []
-
-nodeUniques :: GrinNode -> [Int]
-nodeUniques = concatMap valueUniques . grinNodeFields
