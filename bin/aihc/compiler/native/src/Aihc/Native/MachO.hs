@@ -8,6 +8,7 @@ where
 
 import Aihc.Native.Object
 import Control.Monad (replicateM_, zipWithM_)
+import Data.Binary.Get (getWord64le, runGet)
 import Data.Binary.Put
 import Data.Bits (shiftL, (.&.), (.|.))
 import Data.ByteString (ByteString)
@@ -16,8 +17,9 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
+import Data.IntSet qualified as IntSet
 import Data.List (mapAccumL, sortOn)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Ord (Down (..))
 import Data.Text.Encoding qualified as Text
 import Data.Word (Word32, Word64)
@@ -32,12 +34,30 @@ writeArm64MachO image = do
       (contentEnd, placedSections) = mapAccumL placeSection (fromIntegral headerSize, 0) sectionDescriptions
       relocationStart = alignUp 8 (fst contentEnd)
   (relocationEnd, sectionsWithRelocations) <- placeRelocations relocationStart placedSections
-  let placedSymbols = orderSymbols (imageSymbols image)
+  let localTargets =
+        IntMap.fromList
+          [ (index, (fromIntegral ordinal, placedAddress section + symbolOffset symbol))
+          | (index, symbol) <- zip [0 ..] (imageSymbols image),
+            not (symbolGlobal symbol),
+            Just role <- [symbolSection symbol],
+            Just (ordinal, section) <- [findSection role placedSections]
+          ]
+      requiredSymbols =
+        IntSet.fromList
+          [ relocationSymbol relocation
+          | section <- imageSections image,
+            relocation <- imageSectionRelocations section,
+            isNothing (localRelocationTarget localTargets relocation)
+          ]
+      placedSymbols =
+        filter
+          (\(index, symbol) -> symbolGlobal symbol || index `IntSet.member` requiredSymbols)
+          (orderSymbols (imageSymbols image))
       orderedSymbols = map snd placedSymbols
       symbolIndexes = IntMap.fromList [(source, index) | (index, (source, _)) <- zip [0 :: Word32 ..] placedSymbols]
-      symbolOffset = alignUp 8 relocationEnd
+      symbolTableOffset = alignUp 8 relocationEnd
       (stringOffsets, stringTable) = buildStringTable orderedSymbols
-      stringOffset = symbolOffset + fromIntegral (length orderedSymbols * 16)
+      stringOffset = symbolTableOffset + fromIntegral (length orderedSymbols * 16)
       stringSize = BS.length stringTable
       locals = length (filter (not . symbolGlobal) orderedSymbols)
       definitions = length (filter isExternalDefinition orderedSymbols)
@@ -51,12 +71,12 @@ writeArm64MachO image = do
     putHeader commandsSize
     putSegment segmentCommandSize segmentFileOffset segmentFileSize segmentVmSize sectionsWithRelocations
     putBuildVersion
-    putSymbolCommand symbolOffset (length orderedSymbols) stringOffset stringSize
+    putSymbolCommand symbolTableOffset (length orderedSymbols) stringOffset stringSize
     putDynamicSymbolCommand locals definitions undefinedCount
-    _ <- putSectionContents (fromIntegral headerSize) sectionsWithRelocations
+    _ <- putSectionContents localTargets (fromIntegral headerSize) sectionsWithRelocations
     putPadding (relocationStart - fst contentEnd)
-    mapM_ (putSectionRelocations symbolIndexes) sectionsWithRelocations
-    putPadding (symbolOffset - relocationEnd)
+    mapM_ (putSectionRelocations localTargets symbolIndexes) sectionsWithRelocations
+    putPadding (symbolTableOffset - relocationEnd)
     zipWithM_ (putSymbol placedSections) stringOffsets orderedSymbols
     putByteString stringTable
 
@@ -196,15 +216,24 @@ putDynamicSymbolCommand locals definitions undefinedCount = do
   putWord32le (fromIntegral undefinedCount)
   replicateM_ 12 (putWord32le 0)
 
-putSectionRelocations :: IntMap Word32 -> PlacedSection -> Put
-putSectionRelocations indexes section =
+-- | A local absolute address needs a section ordinal, not a symbol index.
+-- Instruction relocations still need their target symbols.
+localRelocationTarget :: IntMap (Word32, Word64) -> Relocation -> Maybe (Word32, Word64)
+localRelocationTarget targets relocation
+  | relocationKind relocation == Absolute64 = IntMap.lookup (relocationSymbol relocation) targets
+  | otherwise = Nothing
+
+putSectionRelocations :: IntMap (Word32, Word64) -> IntMap Word32 -> PlacedSection -> Put
+putSectionRelocations localTargets indexes section =
   mapM_ putRelocation (sortOn (Down . relocationOffset) (imageSectionRelocations (placedImageSection section)))
   where
     putRelocation relocation = do
       let symbolIndex = indexes IntMap.! relocationSymbol relocation
           addend = relocationAddend relocation
       case relocationKind relocation of
-        Absolute64 -> putRecord relocation symbolIndex False 3 0
+        Absolute64 -> case localRelocationTarget localTargets relocation of
+          Just (ordinal, _) -> putRecord relocation ordinal False False 3 0
+          Nothing -> putRecord relocation symbolIndex True False 3 0
         Arm64Branch26 -> putArmInstruction relocation symbolIndex True 2 2 addend
         Arm64Page21 -> putArmInstruction relocation symbolIndex True 2 3 addend
         Arm64PageOffset12 -> putArmInstruction relocation symbolIndex False 2 4 addend
@@ -213,16 +242,16 @@ putSectionRelocations indexes section =
     putArmInstruction relocation symbolIndex pcRelative lengthValue typeValue addend = do
       if addend == 0
         then pure ()
-        else putRecord relocation (fromIntegral addend .&. 0x00ffffff) False 2 10
-      putRecord relocation symbolIndex pcRelative lengthValue typeValue
-    putRecord :: Relocation -> Word32 -> Bool -> Word32 -> Word32 -> Put
-    putRecord relocation symbolIndex pcRelative lengthValue typeValue = do
+        else putRecord relocation (fromIntegral addend .&. 0x00ffffff) True False 2 10
+      putRecord relocation symbolIndex True pcRelative lengthValue typeValue
+    putRecord :: Relocation -> Word32 -> Bool -> Bool -> Word32 -> Word32 -> Put
+    putRecord relocation symbolIndex external pcRelative lengthValue typeValue = do
       putWord32le (fromIntegral (relocationOffset relocation))
       putWord32le
         ( (symbolIndex .&. 0x00ffffff)
             .|. (if pcRelative then 1 `shiftL` 24 else 0)
             .|. lengthValue `shiftL` 25
-            .|. 1 `shiftL` 27
+            .|. (if external then 1 `shiftL` 27 else 0)
             .|. typeValue `shiftL` 28
         )
 
@@ -288,16 +317,36 @@ buildStringTable symbols =
 putFixedName :: ByteString -> Put
 putFixedName name = putByteString (BS.take 16 name) >> replicateM_ (16 - min 16 (BS.length name)) (putWord8 0)
 
-putSectionContents :: Word64 -> [PlacedSection] -> PutM Word64
-putSectionContents offset sections =
+putSectionContents :: IntMap (Word32, Word64) -> Word64 -> [PlacedSection] -> PutM Word64
+putSectionContents localTargets offset sections =
   case sections of
     [] -> pure offset
     section : rest -> do
       putPadding (placedFileOffset section - offset)
-      let bytes = imageSectionBytes (placedImageSection section)
+      let imageSection = placedImageSection section
+          bytes = imageSectionBytes imageSection
           next = placedFileOffset section + fromIntegral (BL.length bytes)
-      putLazyByteString bytes
-      putSectionContents next rest
+          patches =
+            sortOn
+              fst
+              [ (relocationOffset relocation, address)
+              | relocation <- imageSectionRelocations imageSection,
+                Just (_, address) <- [localRelocationTarget localTargets relocation]
+              ]
+      putLocalAddresses 0 bytes patches
+      putSectionContents localTargets next rest
+
+-- | A section relocation stores the original target address plus its addend.
+-- The linker adjusts this address when it places the target section.
+putLocalAddresses :: Word64 -> BL.ByteString -> [(Word64, Word64)] -> Put
+putLocalAddresses start bytes patches =
+  case patches of
+    [] -> putLazyByteString bytes
+    (offset, address) : rest -> do
+      let (prefix, suffix) = BL.splitAt (fromIntegral (offset - start)) bytes
+      putLazyByteString prefix
+      putWord64le (address + runGet getWord64le suffix)
+      putLocalAddresses (offset + 8) (BL.drop 8 suffix) rest
 
 putPadding :: Word64 -> Put
 putPadding count = replicateM_ (fromIntegral count) (putWord8 0)

@@ -17,7 +17,7 @@ import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Lower (LowerTarget, lowerEntry, lowerModule)
 import Aihc.Native
-  ( NativeTarget,
+  ( NativeTarget (..),
     RuntimeGarbageCollector (..),
     RuntimePlan (..),
     executableEntryName,
@@ -126,6 +126,17 @@ fixtureTest backend directory name = testCase name $ do
   let resultTypes = concat [functionResults function | ItemFunction function <- moduleItems lirModule, functionName function == Symbol "main"]
       wrapped = Module (moduleItems lirModule <> [ItemFunction (testWrapper resultTypes)])
   output <- compileUnit backend wrapped
+  when (backendTarget backend == AppleArm64) $
+    forM_ (headerValues "max-arm64-object-bytes" source) $ \limit -> do
+      maximumBytes <- case reads (T.unpack limit) of
+        [(value, "")] -> pure value
+        _ -> assertFailure "invalid ARM64 object size limit"
+      case output of
+        BackendObject bytes ->
+          assertBool
+            ("ARM64 object size " <> show (BL.length bytes) <> " exceeds " <> show maximumBytes)
+            (BL.length bytes <= maximumBytes)
+        BackendSource _ -> assertFailure "ARM64 output is not an object"
   when (backendRuns backend && name `notElem` uncheckedTraps) $ do
     (exit, out, err) <- runFixture backend output
     case (headerValues "expect" source, headerValues "expect-trap" source) of
