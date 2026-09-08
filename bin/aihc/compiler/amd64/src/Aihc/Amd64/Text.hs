@@ -124,9 +124,8 @@ sseName operation wide =
     SseMul -> "mul" <> suffix
     SseDiv -> "div" <> suffix
     SseSqrt -> "sqrt" <> suffix
-    -- The conversion reads the other width, so its name is the mirror of the
-    -- flag: a double result comes from a single operand.
-    SseConvertWidth -> if wide then "cvtss2sd" else "cvtsd2ss"
+    -- The flag gives the source width for this conversion.
+    SseConvertWidth -> if wide then "cvtsd2ss" else "cvtss2sd"
   where
     suffix = if wide then "sd" else "ss"
 

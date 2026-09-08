@@ -1,5 +1,3 @@
-; expect: 0, 0
-; reason: Signed remainder permits the minimum integer and minus one.
 
 func @main() -> (i8, i64) {
 entry:

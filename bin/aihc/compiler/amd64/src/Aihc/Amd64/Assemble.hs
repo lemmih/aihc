@@ -421,7 +421,7 @@ encodeInstruction instruction =
     AmdIdiv source -> encodeGroup True [0xf7] 7 (rmOperand source) []
     AmdImulWide source -> encodeGroup True [0xf7] 5 (rmOperand source) []
     AmdCqo -> bytes [0x48, 0x99]
-    AmdStoreByte destination source -> encodeRm False [0x88] (registerNumber (registerInfo source)) (memoryOperand destination) False []
+    AmdStoreByte destination source -> encodeRm False [0x88] (registerNumber (registerInfo source)) (memoryOperand destination) True []
     AmdStoreWord destination source -> bytes [0x66] <> encodeRm False [0x89] (registerNumber (registerInfo source)) (memoryOperand destination) False []
     AmdMovqToXmm xmm source -> bytes [0x66] <> encodeRm True [0x0f, 0x6e] (fromIntegral xmm) (RegisterOperand (registerInfo source)) False []
     AmdMovqFromXmm destination xmm -> bytes [0x66] <> encodeRm True [0x0f, 0x7e] (fromIntegral xmm) (RegisterOperand (registerInfo destination)) False []
@@ -553,7 +553,7 @@ encodeRm width64 opcode regField operand forceByteRex suffix =
           modrm = fromIntegral actualMode `shiftL` 6 .|. (regField .&. 7) `shiftL` 3 .|. rm
           sib = [0x24 .|. baseLow | useSib]
           rexByte = rex width64 (regField >= 8) False (baseNumber >= 8)
-       in bytes ([rexByte | width64 || regField >= 8 || baseNumber >= 8] <> opcode <> [modrm] <> sib <> actualDisplacement <> suffix)
+       in bytes ([rexByte | width64 || regField >= 8 || baseNumber >= 8 || (forceByteRex && regField >= 4)] <> opcode <> [modrm] <> sib <> actualDisplacement <> suffix)
 
 relativeBranch :: [Word8] -> FixupKind -> Text -> [Item]
 relativeBranch opcode kind target = [Bytes (BS.pack opcode), Apply (Fixup kind target (-4) 4 0)]

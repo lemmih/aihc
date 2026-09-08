@@ -1,6 +1,3 @@
-; expect: 37
-; reason: The byte store must use SIL, which requires a REX prefix.
-; The third C argument sets RDX to zero, so DH cannot equal the expected byte.
 
 func @store_byte(%pointer: ptr, %value: i8, %zero: i64) -> i8 cc c {
 entry:

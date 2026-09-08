@@ -1119,8 +1119,9 @@ compileTerminator ctx next fused terminator =
               _ -> []
       pure (moves <> floatMoves <> leaveFrame ctx 0 <> [returnInstruction ctx])
     TailCall symbol arguments ->
-      tailCall (Left (lirSymbol symbol)) (maybe [] signatureParameters (Map.lookup symbol (ctxSignatures ctx))) arguments
-    TailCallIndirect target arguments signature -> tailCall (Right target) (signatureParameters signature) arguments
+      let signature = Map.lookup symbol (ctxSignatures ctx)
+       in tailCall (Left (lirSymbol symbol)) (maybe AihcConvention signatureConvention signature) (maybe [] signatureParameters signature) arguments
+    TailCallIndirect target arguments signature -> tailCall (Right target) (signatureConvention signature) (signatureParameters signature) arguments
     Trap message -> do
       stub <- trapLabel message
       pure [jump stub]
@@ -1131,13 +1132,27 @@ compileTerminator ctx next fused terminator =
     isNext target = Just (targetLabel target) == next
     branchTo target = [jump (labelOf target) | not (isNext target)]
     jump label = amd64Instruction (AmdJmp (Amd64JumpLabel label))
+    tailCall callee convention parameterTypes arguments =
+      case convention of
+        AihcConvention -> aihcTailCall callee parameterTypes arguments
+        CConvention -> do
+          argumentMoves <- cArgumentMoves ctx parameterTypes arguments
+          targetLoad <- case callee of
+            Left _ -> pure []
+            Right operand -> do
+              stub <- trapLabel "indirect call to a non-function"
+              pure (operandTo ctx Code scratchRight operand <> [testZero scratchRight, amd64Instruction (AmdJe stub)])
+          let branch = case callee of
+                Left label -> jump label
+                Right _ -> amd64Instruction (AmdJmp (Amd64JumpRegister scratchRight))
+          pure (targetLoad <> argumentMoves <> leaveFrame ctx 0 <> [branch])
     -- The outgoing block and the return address replace the incoming block.
     -- When the outgoing block is no larger, the arguments are written in
     -- place above the frame and the return address moves up; when it is
     -- larger and the function has no frame, the return address moves down
     -- to make room; when it is larger and the function has a frame, the
     -- block is built below the frame and copied up once the frame is gone.
-    tailCall callee parameterTypes arguments = do
+    aihcTailCall callee parameterTypes arguments = do
       let outgoing = overflowBytes (length arguments)
           incoming = ctxIncomingOverflow ctx
           types = parameterTypes <> repeat I64
@@ -1220,6 +1235,24 @@ compileTerminator ctx next fused terminator =
                         ]
                       <> [amd64Instruction (AmdLea RSP (Amd64MemoryAddress (Amd64Memory RAX delta))), branch]
 
+cArgumentMoves :: Ctx -> [Type] -> [Operand] -> M [Amd64Statement]
+cArgumentMoves ctx parameterTypes arguments = do
+  let (integers, floats) = classify (take (length arguments) (parameterTypes <> repeat I64))
+  when (length integers > length argumentRegisters) $ unsupported "C call with more than six integer arguments"
+  when (length floats > floatArgumentCount) $ unsupported "C call with more than eight float arguments"
+  -- Move float arguments first. Integer moves can overwrite their source registers.
+  pure
+    ( concat
+        [ loads <> [amd64Instruction (AmdMovqToXmm xmm register)]
+        | ((index, ty), xmm) <- zip floats [0 ..],
+          let (loads, register) = operandIn ctx 0 ty scratchLeft (arguments !! index)
+        ]
+        <> parallelMove [(LocRegister register, operandSource ctx ty (arguments !! index)) | ((index, ty), register) <- zip integers argumentRegisters]
+        -- A variadic callee reads the number of vector registers
+        -- from @al@.
+        <> [immediate RAX (length floats)]
+    )
+
 -- | Move the arguments of a jump into the parameters of the target, all at
 -- once.
 blockArgumentMoves :: Ctx -> Target -> M [Amd64Statement]
@@ -1280,7 +1313,7 @@ compileInstruction ctx (Instruction results operation) =
     Select ty condition left right -> single $ \dst -> pure (select ty dst condition left right)
     Load ty (Address base offset) _ -> do
       let (loads, baseRegister) = operandIn ctx 0 Ptr scratchRight base
-      single $ \dst -> pure (loads <> [loadMemory ty dst (Amd64Memory baseRegister (fromInteger offset))])
+      single $ \dst -> pure (loads <> [loadMemory ty dst (Amd64Memory baseRegister (fromInteger offset))] <> [mask | ty == I1, mask <- narrowRegister I1 dst])
     Store ty value (Address base offset) _ -> do
       let (loads, a) = operandIn ctx 0 ty scratchLeft value
           (loads', baseRegister) = operandIn ctx 0 Ptr scratchRight base
@@ -1390,14 +1423,14 @@ compileInstruction ctx (Instruction results operation) =
           let (loads, b) = rightRegister ty right
            in pure (loads <> narrow ty dst (multiply dst a b))
         DivS -> do
-          checks <- signedDivisionChecks ty a right
+          checks <- signedDivisionChecks op ty a right
           pure (checks <> [amd64Instruction AmdCqo, amd64Instruction (AmdIdiv (Amd64RmRegister scratchRight))] <> narrow ty dst (move dst RAX))
         DivU -> do
           zero <- trapLabel "integer division by zero"
           let (loads, b) = rightRegister ty right
           pure (loads <> move RAX a <> [testZero b, amd64Instruction (AmdJe zero), clearRdx, amd64Instruction (AmdDiv (Amd64RmRegister b))] <> move dst RAX)
         RemS -> do
-          checks <- signedDivisionChecks ty a right
+          checks <- signedDivisionChecks op ty a right
           pure (checks <> [amd64Instruction AmdCqo, amd64Instruction (AmdIdiv (Amd64RmRegister scratchRight))] <> narrow ty dst (move dst RDX))
         RemU -> do
           zero <- trapLabel "integer division by zero"
@@ -1444,10 +1477,21 @@ compileInstruction ctx (Instruction results operation) =
     -- The dividend goes to @rax@ and the divisor to the right scratch
     -- register, both sign-extended. The divisor must not be zero, and the
     -- minimum value divided by minus one does not fit.
-    signedDivisionChecks ty a right = do
+    signedDivisionChecks op ty a right = do
       zero <- trapLabel "integer division by zero"
-      overflow <- trapLabel "integer overflow"
       skip <- freshLabel "div"
+      minusOne <-
+        if op == DivS
+          then do
+            overflow <- trapLabel "integer overflow"
+            pure
+              [ immediate scratchLeft (minimumSigned ty),
+                amd64Instruction (AmdCmp (Amd64RmRegister RAX) (Amd64BinaryRegister scratchLeft)),
+                amd64Instruction (AmdJe overflow)
+              ]
+          -- A remainder with divisor minus one is zero. Use one to prevent
+          -- the hardware overflow trap for the minimum signed integer.
+          else pure [immediate scratchRight (1 :: Integer)]
       let (loads, b) = rightRegister ty right
       pure
         ( loads
@@ -1456,12 +1500,10 @@ compileInstruction ctx (Instruction results operation) =
             <> [ testZero scratchRight,
                  amd64Instruction (AmdJe zero),
                  amd64Instruction (AmdCmp (Amd64RmRegister scratchRight) (Amd64BinaryImmediate (-1))),
-                 amd64Instruction (AmdJne skip),
-                 immediate scratchLeft (minimumSigned ty),
-                 amd64Instruction (AmdCmp (Amd64RmRegister RAX) (Amd64BinaryRegister scratchLeft)),
-                 amd64Instruction (AmdJe overflow),
-                 amd64Label skip
+                 amd64Instruction (AmdJne skip)
                ]
+            <> minusOne
+            <> [amd64Label skip]
         )
 
     -- A narrow value is zero-extended in its register, so a leading-zero
@@ -1687,23 +1729,7 @@ compileInstruction ctx (Instruction results operation) =
                     | (register, (ty, argument)) <- zip argumentRegisters (zip types arguments)
                     ]
               )
-          CConvention -> do
-            let (integers, floats) = classify (take (length arguments) types)
-            when (length integers > length argumentRegisters) $ unsupported "C call with more than six integer arguments"
-            when (length floats > floatArgumentCount) $ unsupported "C call with more than eight float arguments"
-            -- The floats go first: a float register is never a home, while
-            -- the integer moves may overwrite one.
-            pure
-              ( concat
-                  [ loads <> [amd64Instruction (AmdMovqToXmm xmm register)]
-                  | ((index, ty), xmm) <- zip floats [0 ..],
-                    let (loads, register) = operandIn ctx 0 ty scratchLeft (arguments !! index)
-                  ]
-                  <> parallelMove [(LocRegister register, operandSource ctx ty (arguments !! index)) | ((index, ty), register) <- zip integers argumentRegisters]
-                  -- A variadic callee reads the number of vector registers
-                  -- from @al@.
-                  <> [immediate RAX (length floats)]
-              )
+          CConvention -> cArgumentMoves ctx parameterTypes arguments
       let branch = case callee of
             Left symbol -> [amd64Instruction (AmdCall (lirSymbol symbol))]
             Right _ -> [amd64Instruction (AmdCallRegister scratchRight)]

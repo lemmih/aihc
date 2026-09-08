@@ -712,6 +712,7 @@ compileInstruction fn (Instruction results operation) =
     Load ty address _ -> do
       offset <- effectiveAddress address
       emit (loadInstruction ty <> "\t" <> tshow offset)
+      when (ty == I1) (narrow I1)
       single
     Store ty value address _ -> do
       offset <- effectiveAddress address
