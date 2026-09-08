@@ -8,6 +8,7 @@ packages:
   components/aihc-tc
   bin/aihc-fmt
   tooling/aihc-hackage
+  tooling/aihc-package-plan
   tooling/aihc-testing
   tooling/aihc-resolve-tooling-common
   tooling/aihc-tc-tooling-common

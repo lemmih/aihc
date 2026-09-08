@@ -83,6 +83,12 @@ in rec {
     ".cabal"
   ];
 
+  packagePlanSrc = mkComponentSrc "/tooling/aihc-package-plan" [
+    ".hs"
+    ".hs-boot"
+    ".cabal"
+  ];
+
   testingSrc = pkgs:
     pkgs.lib.cleanSourceWith {
       src = root;
