@@ -36,6 +36,8 @@ module Aihc.Tc.Monad
     mkTcConfig,
     getDerivingReferences,
     getWiring,
+    getKinds,
+    arrowType,
     TcWiring (..),
     wiredTupleTyCon,
     wiredTupleDataCon,
@@ -53,7 +55,6 @@ module Aihc.Tc.Monad
     emptyTcEnv,
     mkWiredTyCon,
     implicitParamType,
-    configuredTyCon,
     lookupTerm,
     lookupResolvedTerm,
     lookupTermKey,
@@ -141,7 +142,7 @@ import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (.
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
-import Aihc.Tc.Wiring (TcWiring (..), tupleDataCon, tupleTyCon)
+import Aihc.Tc.Wiring (TcWiring (..), mkTcKinds, tupleDataCon, tupleTyCon)
 import Control.Monad (foldM, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
@@ -223,20 +224,27 @@ data TcEnv = TcEnv
 data TcConfig = TcConfig
   { tcConfigPrimPackage :: !PackageId,
     tcConfigDerivingReferences :: !DerivingReferences,
-    tcConfigWiring :: !TcWiring
+    tcConfigWiring :: !TcWiring,
+    -- | The kind vocabulary of the wiring, resolved once.
+    tcConfigKinds :: !TcKinds
   }
   deriving (Show)
 
 -- | A configuration from the tables of one compiler. The type checker has
 -- no default: every table names a library it does not itself define.
 mkTcConfig :: PackageId -> DerivingReferences -> TcWiring -> TcConfig
-mkTcConfig = TcConfig
+mkTcConfig primPackage references wiring =
+  TcConfig primPackage references wiring (mkTcKinds wiring)
 
 getDerivingReferences :: TcM DerivingReferences
 getDerivingReferences = asks (tcConfigDerivingReferences . tcEnvConfig)
 
 getWiring :: TcM TcWiring
 getWiring = asks (tcConfigWiring . tcEnvConfig)
+
+-- | The kind vocabulary the type checker builds its own kinds from.
+getKinds :: TcM TcKinds
+getKinds = asks (tcConfigKinds . tcEnvConfig)
 
 -- | The tuple type constructor that one syntactic form denotes.
 wiredTupleTyCon :: TupleFlavor -> Int -> TcM TyCon
@@ -263,6 +271,21 @@ wiredTyCon select kind = do
   wired <- wiredTyConIdentity select
   mkWiredTyCon wired kind
 
+-- | The function arrow as a type, and the declaration that goes with it.
+--
+-- 'TcArrowTy' is a form rather than a type constructor, so the type
+-- checker recognises an arrow without consulting the wiring. The
+-- desugarer does not: a partially applied arrow reaches it as an ordinary
+-- type constructor and the name has to be bound there. Every place that
+-- builds an arrow goes through here, so the constructor is declared in
+-- the interface of exactly the modules that can mention it.
+arrowType :: TcM TcType
+arrowType = do
+  kinds <- getKinds
+  let kind = KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds))
+  _ <- wiredTyCon tcWiringArrowTyCon kind
+  pure TcArrowTy
+
 -- | The binder of a term that a wiring entry names. The wiring gives the
 -- whole identity, so the term is found by key and never by scope.
 lookupWiredTerm :: TyCon -> TcM (Maybe TcBinder)
@@ -272,18 +295,22 @@ lookupWiredTerm wired =
 -- | The @Bool@ type that a guard and an @if@ condition have.
 boolType :: TcM TcType
 boolType = do
-  tyCon <- wiredTyCon tcWiringBoolTyCon typeKindType
+  kinds <- getKinds
+  tyCon <- wiredTyCon tcWiringBoolTyCon (typeKind kinds)
   pure (TcTyCon tyCon [])
 
 -- | The @Char@ type that a character literal has.
 charType :: TcM TcType
 charType = do
-  tyCon <- wiredTyCon tcWiringCharTyCon typeKindType
+  kinds <- getKinds
+  tyCon <- wiredTyCon tcWiringCharTyCon (typeKind kinds)
   pure (TcTyCon tyCon [])
 
 -- | The list type constructor, for a list literal or a comprehension.
 listTyConOfWiring :: TcM TyCon
-listTyConOfWiring = wiredTyCon tcWiringListTyCon (KFun KType KType)
+listTyConOfWiring = do
+  kinds <- getKinds
+  wiredTyCon tcWiringListTyCon (KFun (typeKind kinds) (typeKind kinds))
 
 -- | The constraint type for one implicit parameter, such as @?x :: Int@.
 --
@@ -291,7 +318,8 @@ listTyConOfWiring = wiredTyCon tcWiringListTyCon (KFun KType KType)
 implicitParamType :: Text -> TcType -> TcM TcType
 implicitParamType name payload = do
   wiring <- getWiring
-  tyCon <- mkWiredTyCon (tcWiringImplicitParamTyCon wiring name) (KFun KType KConstraint)
+  kinds <- getKinds
+  tyCon <- mkWiredTyCon (tcWiringImplicitParamTyCon wiring name) (KFun (typeKind kinds) (constraintKind kinds))
   pure (TcTyCon tyCon [payload])
 
 -- | Register the kind of a type constructor whose identity is already
@@ -306,21 +334,6 @@ mkWiredTyCon tyCon kind = do
       let info = TyConInfo (tyConName tyCon) (tyConArity tyCon) tyCon (ForAll [] [] kind) DataTyCon Nothing
       lift $ modify' $ \state -> state {tcsGlobalTyCons = Map.insert (tyConKey tyCon) info (tcsGlobalTyCons state)}
       pure tyCon
-
-configuredTyCon :: TyCon -> TcM TyCon
-configuredTyCon tyCon
-  | tyConPackageId tyCon == PackageId "aihc-prim",
-    tyConModuleName tyCon == "GHC.Types" = do
-      packageIdentity <- asks (tcConfigPrimPackage . tcEnvConfig)
-      pure
-        ( mkTyConWithNamespace
-            (tyConNamespace tyCon)
-            packageIdentity
-            (tyConModuleName tyCon)
-            (tyConName tyCon)
-            (tyConArity tyCon)
-        )
-  | otherwise = pure tyCon
 
 -- | Whether a polymorphic binding is known to have no free type variables.
 data Closedness
@@ -434,10 +447,11 @@ freshUnique = lift $ do
 -- | Allocate a fresh meta (unification) type variable.
 freshMetaTv :: TcM TcType
 freshMetaTv = do
+  kinds <- getKinds
   kindUnique@(Unique kindKey) <- freshUnique
   lift $ modify' $ \state ->
     state
-      { tcsMetaKinds = IntMap.insert kindKey typeKindType (tcsMetaKinds state),
+      { tcsMetaKinds = IntMap.insert kindKey (typeKind kinds) (tcsMetaKinds state),
         tcsTrackedKindMetas = IntSet.insert kindKey (tcsTrackedKindMetas state)
       }
   freshMetaTvOfKind (TcMetaTv kindUnique)
@@ -452,8 +466,9 @@ freshMetaTvOfKind kind = do
 -- | Allocate a fresh skolem (rigid) type variable.
 freshSkolemTv :: Text -> TcM TyVarId
 freshSkolemTv name = do
+  kinds <- getKinds
   u <- freshUnique
-  pure (TyVarId {tvName = name, tvUnique = u})
+  pure (mkTyVarId name u (typeKind kinds))
 
 -- | Allocate a fresh evidence variable.
 freshEvVar :: TcM EvVar
@@ -475,8 +490,9 @@ readMetaTv (Unique key) = lift $ gets $ \s ->
   IntMap.lookup key (tcsMetaSolutions s)
 
 readMetaTvKind :: Unique -> TcM TcType
-readMetaTvKind (Unique key) =
-  lift $ gets $ IntMap.findWithDefault typeKindType key . tcsMetaKinds
+readMetaTvKind (Unique key) = do
+  kinds <- getKinds
+  lift $ gets $ IntMap.findWithDefault (typeKind kinds) key . tcsMetaKinds
 
 trackKindMeta :: Unique -> TcM ()
 trackKindMeta (Unique key) =

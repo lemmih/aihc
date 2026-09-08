@@ -7,7 +7,9 @@ packages:
   components/aihc-resolve
   components/aihc-tc
   bin/aihc-fmt
+  bin/aihc-haddock
   tooling/aihc-hackage
+  tooling/aihc-package-plan
   tooling/aihc-testing
   tooling/aihc-resolve-tooling-common
   tooling/aihc-tc-tooling-common

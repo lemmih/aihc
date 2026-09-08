@@ -5,6 +5,7 @@
   checkedPackageNames = [
     "aihc"
     "aihc-fmt"
+    "aihc-haddock"
     "aihc-resolve"
     "aihc-tc"
     "aihc-testing"
@@ -101,6 +102,13 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-haddock = {
+      src = sources.haddockSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
   };
 
   enableCoverageWithExport = hsLib: drv:
@@ -179,7 +187,7 @@ in rec {
     warningsAsErrors ? false,
   }: let
     hsLib = pkgs.haskell.lib;
-    localPackageNames = (builtins.attrNames componentSpecs) ++ ["aihc-hackage"];
+    localPackageNames = (builtins.attrNames componentSpecs) ++ ["aihc-hackage" "aihc-package-plan"];
     enableWarningsAsErrors = drv:
       if warningsAsErrors
       then
@@ -257,6 +265,11 @@ in rec {
           aihc-hackage = hsLib.dontCheck (hsLib.dontHaddock (
             hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
               final.callCabal2nix "aihc-hackage" (sources.hackageSrc pkgs) {}
+            ))
+          ));
+          aihc-package-plan = hsLib.dontCheck (hsLib.dontHaddock (
+            hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
+              final.callCabal2nix "aihc-package-plan" (sources.packagePlanSrc pkgs) {}
             ))
           ));
         }

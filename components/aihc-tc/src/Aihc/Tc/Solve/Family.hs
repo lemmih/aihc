@@ -16,7 +16,7 @@ module Aihc.Tc.Solve.Family
 where
 
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
-import Aihc.Tc.Monad (TcM, getTyConEnv, getTypeFamilyInstances, lookupTyConByIdentity)
+import Aihc.Tc.Monad (TcM, getKinds, getTyConEnv, getTypeFamilyInstances, lookupTyConByIdentity)
 import Aihc.Tc.Types
 import Control.Monad (foldM)
 import Data.List (sortOn)
@@ -100,8 +100,9 @@ reduceHead ty =
           | tciFlavor info == TypeFamilyTyCon,
             length arguments >= tciArity info -> do
               let (familyArguments, extraArguments) = splitAt (tciArity info) arguments
+              kinds <- getKinds
               equations <- familyEquations tyCon
-              case firstEquation equations familyArguments of
+              case firstEquation kinds equations familyArguments of
                 Just reduced -> reduceTypeFamilies (foldl applyType reduced extraArguments)
                 Nothing -> pure ty
         _ -> pure ty
@@ -125,8 +126,8 @@ axiomIndex info =
 -- | The right-hand side of the first equation that matches. In a closed
 -- family, an earlier equation that could still match after the meta
 -- variables are solved blocks the later equations.
-firstEquation :: [TypeFamilyInstanceInfo] -> [TcType] -> Maybe TcType
-firstEquation equations arguments =
+firstEquation :: TcKinds -> [TypeFamilyInstanceInfo] -> [TcType] -> Maybe TcType
+firstEquation kinds equations arguments =
   case equations of
     [] -> Nothing
     equation : rest ->
@@ -137,7 +138,7 @@ firstEquation equations arguments =
           | tfiiClosed equation,
             and (zipWith couldUnify patterns arguments) ->
               Nothing
-        _ -> firstEquation rest arguments
+        _ -> firstEquation kinds rest arguments
 
 equationArguments :: TypeFamilyInstanceInfo -> Maybe [TcType]
 equationArguments info =
@@ -162,7 +163,7 @@ couldUnify patternType target =
     _ -> patternType == target
 
 applyType :: TcType -> TcType -> TcType
-applyType (TcTyCon tyCon arguments) argument = mkTyConApp tyCon (arguments <> [argument])
+applyType (TcTyCon tyCon arguments) argument = TcTyCon tyCon (arguments <> [argument])
 applyType function argument = TcAppTy function argument
 
 -- | Match pattern types against target types. The type variables of the

@@ -190,12 +190,13 @@ surfaceTypeSpan ty =
 -- unlifted types retain their fixed representation.
 checkRuntimeType :: TvKindEnv -> Type -> TcM TcType
 checkRuntimeType tvEnv ty = do
+  kinds <- getKinds
   (tcTy, actual) <- convertSurfaceTypeWithKinds tvEnv ty
   actual' <- zonkKind actual
   case actual' of
     KTYPE {} -> pure tcTy
-    KMeta unique -> bindKindMetaAt (surfaceTypeSpan ty) unique KType >> pure tcTy
-    _ -> emitError (surfaceTypeSpan ty) (KindMismatch KType actual') >> pure tcTy
+    KMeta unique -> bindKindMetaAt (surfaceTypeSpan ty) unique (typeKind kinds) >> pure tcTy
+    _ -> emitError (surfaceTypeSpan ty) (KindMismatch (typeKind kinds) actual') >> pure tcTy
 
 convertSurfaceTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, TcType)
 convertSurfaceTypeWithKinds tvEnv ty =
@@ -211,7 +212,8 @@ convertSurfaceTypeWithKinds tvEnv ty =
         Nothing -> convertNonSynonymTypeWithKinds tvEnv (peelTypeHead ty)
 
 convertNonSynonymTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, TcType)
-convertNonSynonymTypeWithKinds tvEnv ty =
+convertNonSynonymTypeWithKinds tvEnv ty = do
+  kinds <- getKinds
   case ty of
     TAnn ann inner ->
       case fromAnnotation ann of
@@ -226,7 +228,7 @@ convertNonSynonymTypeWithKinds tvEnv ty =
     TBuiltinCon builtin promotion ->
       inferBuiltinTypeConstructor builtin promotion
     TStar {} ->
-      knownType tcWiringTypeTyCon KType
+      knownType tcWiringTypeTyCon
     TApp f a -> do
       (fTy, fKind) <- convertSurfaceTypeWithKinds tvEnv f
       (aTy, aKind) <- convertSurfaceTypeWithKinds tvEnv a
@@ -247,14 +249,14 @@ convertNonSynonymTypeWithKinds tvEnv ty =
     TFun _ a b -> do
       aTy <- checkRuntimeType tvEnv a
       bTy <- checkRuntimeType tvEnv b
-      pure (TcFunTy aTy bTy, KType)
+      pure (TcFunTy aTy bTy, typeKind kinds)
     TTuple flavor _ args ->
       convertTupleType tvEnv flavor args
     TUnboxedSum args -> do
       tys <- mapM (checkRuntimeType tvEnv) args
       argumentKinds <- mapM tcTypeKind tys
       let arity = length tys
-          resultKind = KTYPE (SumRep (map runtimeRepOrLifted argumentKinds))
+          resultKind = mkTYPEKind kinds (sumRep kinds (map (runtimeRepOrLifted kinds) argumentKinds))
           tyConKind' = foldr KFun resultKind argumentKinds
       wiring <- getWiring
       tyCon <- mkWiredTyCon (tcWiringUnboxedSumTyCon wiring arity) tyConKind'
@@ -269,9 +271,9 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       (innerType, innerKind) <- convertSurfaceTypeWithKinds tvEnv inner
       pure (TcQualTy predicates innerType, innerKind)
     TImplicitParam name payload -> do
-      payloadType <- checkSurfaceType tvEnv payload KType
+      payloadType <- checkSurfaceType tvEnv payload (typeKind kinds)
       constraintType <- implicitParamType name payloadType
-      pure (constraintType, KConstraint)
+      pure (constraintType, constraintKind kinds)
     TForall telescope inner -> do
       params <- makeParamEnvWith tvEnv (forallTelescopeBinders telescope)
       let tvEnv' = tvEnv <> Map.fromList [(paramName p, (paramTyVar p, paramKind p)) | p <- params]
@@ -280,7 +282,7 @@ convertNonSynonymTypeWithKinds tvEnv ty =
     _ -> do
       emitError NoSourceSpan (OtherError ("unsupported surface type in kind checker: " <> take 80 (show ty)))
       meta <- freshMetaTv
-      pure (meta, KType)
+      pure (meta, typeKind kinds)
 
 convertPromotedSyntaxType :: TvKindEnv -> ResolutionAnnotation -> Type -> TcM (TcType, TcType)
 convertPromotedSyntaxType tvEnv resolution syntax =
@@ -293,9 +295,10 @@ convertPromotedSyntaxType tvEnv resolution syntax =
 
 convertListType :: TvKindEnv -> Type -> TcM (TcType, TcType)
 convertListType tvEnv argument = do
-  argumentType <- checkSurfaceType tvEnv argument KType
+  kinds <- getKinds
+  argumentType <- checkSurfaceType tvEnv argument (typeKind kinds)
   result <- listType argumentType
-  pure (result, KType)
+  pure (result, typeKind kinds)
 
 convertDataConstructorList :: TvKindEnv -> [Type] -> TcM (TcType, TcType)
 convertDataConstructorList tvEnv arguments = do
@@ -311,17 +314,18 @@ convertDataConstructorList tvEnv arguments = do
 
 convertTupleType :: TvKindEnv -> TupleFlavor -> [Type] -> TcM (TcType, TcType)
 convertTupleType tvEnv flavor arguments = do
+  kinds <- getKinds
   argumentTypes <-
     case flavor of
-      Boxed -> mapM (\argument -> checkSurfaceType tvEnv argument KType) arguments
+      Boxed -> mapM (\argument -> checkSurfaceType tvEnv argument (typeKind kinds)) arguments
       Unboxed -> mapM (checkRuntimeType tvEnv) arguments
   argumentKinds <- mapM tcTypeKind argumentTypes
-  let argumentReps = map runtimeRepOrLifted argumentKinds
+  let argumentReps = map (runtimeRepOrLifted kinds) argumentKinds
       arity = length argumentTypes
       fallbackResultKind =
         case flavor of
-          Boxed -> KType
-          Unboxed -> KTYPE (TupleRep argumentReps)
+          Boxed -> typeKind kinds
+          Unboxed -> mkTYPEKind kinds (tupleRep kinds argumentReps)
       fallbackKind = foldr KFun fallbackResultKind argumentKinds
   wired <- wiredTupleTyCon flavor arity
   maybeTyCon <- lookupTyCon (tyConName wired)
@@ -364,12 +368,13 @@ expandTypeSynonym tvEnv ty =
     _ -> pure Nothing
 
 instantiateTypeSynonym :: TvKindEnv -> Text -> TypeSynonymInfo -> [Type] -> TcM (TcType, TcType)
-instantiateTypeSynonym tvEnv synonymName synonym arguments =
+instantiateTypeSynonym tvEnv synonymName synonym arguments = do
+  kinds <- getKinds
   case tsiBody synonym of
     Nothing -> do
       emitError NoSourceSpan (OtherError ("recursive or incomplete type synonym: " <> T.unpack synonymName))
       meta <- freshMetaTv
-      pure (meta, KType)
+      pure (meta, typeKind kinds)
     Just body -> do
       let params = tsiParams synonym
           arity = length params
@@ -378,7 +383,7 @@ instantiateTypeSynonym tvEnv synonymName synonym arguments =
         then do
           emitError NoSourceSpan (OtherError ("type synonym " <> T.unpack synonymName <> " is not fully applied"))
           meta <- freshMetaTv
-          pure (meta, KType)
+          pure (meta, typeKind kinds)
         else do
           checkedArguments <- zipWithM checkArgument params synonymArguments
           let substitution = Map.fromList (zip (map tvUnique params) checkedArguments)
@@ -405,10 +410,11 @@ typeApplicationSpine = go []
     go arguments headType = (headType, arguments)
 
 expandTcTypeSynonyms :: Set TcTypeKey -> TcType -> TcM TcType
-expandTcTypeSynonyms expanding ty =
+expandTcTypeSynonyms expanding ty = do
   case ty of
     TcTyVar {} -> pure ty
     TcMetaTv {} -> pure ty
+    TcArrowTy -> pure ty
     TcTyCon tyCon arguments -> do
       expandedArguments <- mapM (expandTcTypeSynonyms expanding) arguments
       maybeInfo <- lookupTyConByIdentity tyCon
@@ -467,16 +473,16 @@ inferTypeConstructor name = do
   case mInfo of
     Just info
       | isWired typeTyCon' info ->
-          knownType tcWiringTypeTyCon KType
+          knownType tcWiringTypeTyCon
     Just info
       | isWired constraintTyCon' info ->
-          knownType tcWiringConstraintTyCon KType
+          knownType tcWiringConstraintTyCon
     Just info -> do
       kind <- instantiateTyConKind info
       pure (TcTyCon (tciTyCon info) [], kind)
     Nothing
-      | nameText name == tyConName typeTyCon' -> knownType tcWiringTypeTyCon KType
-      | nameText name == tyConName constraintTyCon' -> knownType tcWiringConstraintTyCon KType
+      | nameText name == tyConName typeTyCon' -> knownType tcWiringTypeTyCon
+      | nameText name == tyConName constraintTyCon' -> knownType tcWiringConstraintTyCon
       | otherwise -> inferUnknownType
 
 instantiateTyConKind :: TyConInfo -> TcM TcType
@@ -498,8 +504,9 @@ inferBuiltinTypeConstructor builtin promotion =
           tyCon <- wiredTyCon tcWiringNilDataCon resultKind
           pure (TcTyCon tyCon [], resultKind)
       | otherwise -> do
-          tyCon <- wiredTyCon tcWiringListTyCon (KFun KType KType)
-          pure (TcTyCon tyCon [], KFun KType KType)
+          kinds <- getKinds
+          tyCon <- wiredTyCon tcWiringListTyCon (KFun (typeKind kinds) (typeKind kinds))
+          pure (TcTyCon tyCon [], KFun (typeKind kinds) (typeKind kinds))
     BuiltinCons
       | promoted -> do
           -- @\'(:)@ has kind @k -> [k] -> [k]@.
@@ -509,7 +516,8 @@ inferBuiltinTypeConstructor builtin promotion =
           tyCon <- wiredTyCon tcWiringConsDataCon kind
           pure (TcTyCon tyCon [], kind)
       | otherwise -> do
-          let kind = KFun KType (KFun (listTypeKind KType) (listTypeKind KType))
+          kinds <- getKinds
+          let kind = KFun (typeKind kinds) (KFun (listTypeKind (typeKind kinds)) (listTypeKind (typeKind kinds)))
           tyCon <- wiredTyCon tcWiringConsDataCon kind
           pure (TcTyCon tyCon [], kind)
     BuiltinTuple flavor arity
@@ -518,27 +526,33 @@ inferBuiltinTypeConstructor builtin promotion =
           -- names the tuple type constructor of the same arity.
           argKinds <- replicateM arity freshKindMeta
           wiredType <- wiredTupleTyCon flavor arity
-          tupleTyCon <- mkWiredTyCon wiredType (foldr KFun KType (replicate arity KType))
+          kinds <- getKinds
+          tupleTyCon <- mkWiredTyCon wiredType (foldr KFun (typeKind kinds) (replicate arity (typeKind kinds)))
           let resultKind = TcTyCon tupleTyCon argKinds
               kind = foldr KFun resultKind argKinds
           wiredData <- wiredTupleDataCon flavor arity
           tyCon <- mkWiredTyCon wiredData kind
           pure (TcTyCon tyCon [], kind)
       | otherwise -> do
+          kinds <- getKinds
           wired <- wiredTupleTyCon flavor arity
-          let argKinds = replicate arity KType
-              kind = foldr KFun KType argKinds
+          let argKinds = replicate arity (typeKind kinds)
+              kind = foldr KFun (typeKind kinds) argKinds
           knownWiredType wired kind
     BuiltinArrow -> do
-      let kind = KFun KType (KFun KType KType)
-      tyCon <- wiredTyCon tcWiringArrowTyCon kind
-      pure (TcTyCon tyCon [], kind)
+      kinds <- getKinds
+      let kind = KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds))
+      arrow <- arrowType
+      pure (arrow, kind)
   where
     promoted = promotion == Promoted
 
--- | A type constructor whose identity comes from the wiring tables.
-knownType :: (TcWiring -> TyCon) -> TcType -> TcM (TcType, TcType)
-knownType select kind = do
+-- | A type constructor of kind @Type@ whose identity comes from the
+-- wiring tables.
+knownType :: (TcWiring -> TyCon) -> TcM (TcType, TcType)
+knownType select = do
+  kinds <- getKinds
+  let kind = typeKind kinds
   tyCon <- wiredTyCon select kind
   pure (TcTyCon tyCon [], kind)
 
@@ -587,17 +601,19 @@ tyConKindFromParams = tyConKindFromParamsWith Map.empty
 
 tyConKindFromParamsWith :: TvKindEnv -> [ParamInfo] -> Maybe Type -> TcM TcType
 tyConKindFromParamsWith outerEnv params maybeResultKind = do
+  kinds <- getKinds
   let tvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- params] <> outerEnv
-  resultKind <- maybe (pure KType) (kindFromSurfaceType tvEnv) maybeResultKind
+  resultKind <- maybe (pure (typeKind kinds)) (kindFromSurfaceType tvEnv) maybeResultKind
   pure (foldr (KFun . paramKind) resultKind params)
 
 kindFromSurfaceType :: TvKindEnv -> Type -> TcM TcType
-kindFromSurfaceType tvEnv ty =
+kindFromSurfaceType tvEnv ty = do
+  kinds <- getKinds
   case peelTypeHead ty of
-    TStar {} -> pure KType
+    TStar {} -> pure (typeKind kinds)
     other -> do
       (tcType, kind) <- convertSurfaceTypeWithKinds tvEnv other
-      unifyKindsAt (surfaceTypeSpan ty) kind KType
+      unifyKindsAt (surfaceTypeSpan ty) kind (typeKind kinds)
       pure tcType
 
 unifyKinds :: TcType -> TcType -> TcM ()
@@ -631,14 +647,35 @@ unifyKindsAt sp expected actual = do
       | leftPredicates == rightPredicates -> unifyKindsAt sp leftBody rightBody
     _ -> emitError sp (KindMismatch expected' actual')
 
+-- | Whether a kind is a runtime representation with no variables left in
+-- it, so that a representation-polymorphic variable may take it.
+--
+-- The head has to be a promoted representation constructor, and every
+-- argument has to be free of variables: a @TupleRep@ whose fields are
+-- still unsolved fixes no layout, and neither does a @BoxedRep@ of an
+-- unknown levity. The head is recognised by its namespace and its name,
+-- as the representation matchers in "Aihc.Tc.Types" are.
 isConcreteRuntimeRep :: TcType -> Bool
 isConcreteRuntimeRep ty =
   case ty of
-    TcTyCon tyCon _ ->
-      tyConModuleName tyCon == "GHC.Types"
-        && tyConNamespace tyCon == ResolutionNamespaceTerm
+    TcTyCon tyCon arguments ->
+      tyConNamespace tyCon == ResolutionNamespaceTerm
         && "Rep" `T.isSuffixOf` tyConName tyCon
+        && all isGroundKind arguments
     _ -> False
+
+-- | Whether a kind contains no type variable and no unsolved meta.
+isGroundKind :: TcType -> Bool
+isGroundKind ty =
+  case ty of
+    TcTyVar {} -> False
+    TcMetaTv {} -> False
+    TcArrowTy -> False
+    TcTyCon _ arguments -> all isGroundKind arguments
+    TcFunTy argument result -> isGroundKind argument && isGroundKind result
+    TcForAllTy {} -> False
+    TcQualTy _ body -> isGroundKind body
+    TcAppTy function argument -> isGroundKind function && isGroundKind argument
 
 bindKindMetaAt :: SourceSpan -> Unique -> TcType -> TcM ()
 bindKindMetaAt sp u kind
@@ -649,6 +686,7 @@ bindKindMetaAt sp u kind
 zonkKind :: TcType -> TcM TcType
 zonkKind kind =
   case kind of
+    TcArrowTy -> pure kind
     TcMetaTv unique -> do
       solution <- readMetaTv unique
       case solution of
@@ -661,7 +699,7 @@ zonkKind kind =
       kind' <- zonkKind (tvKind tyVar)
       pure (TcTyVar (setTyVarKind kind' tyVar))
     TcTyCon tyCon arguments -> do
-      tyCon' <- configuredTyCon tyCon
+      let tyCon' = tyCon
       maybeSynonym <- lookupKindSynonym tyCon'
       case maybeSynonym of
         Just synonym
@@ -702,6 +740,7 @@ lookupKindSynonym tyCon
 defaultKindMetas :: TcType -> TcM TcType
 defaultKindMetas kind =
   case kind of
+    TcArrowTy -> pure kind
     TcMetaTv unique -> do
       solution <- readMetaTv unique
       case solution of
@@ -714,7 +753,9 @@ defaultKindMetas kind =
         Nothing -> do
           tracked <- isTrackedKindMeta unique
           if tracked
-            then writeMetaTv unique KType >> pure KType
+            then do
+              kinds <- getKinds
+              writeMetaTv unique (typeKind kinds) >> pure (typeKind kinds)
             else pure kind
     TcTyVar tyVar -> do
       kind' <- defaultKindMetas (tvKind tyVar)
@@ -726,7 +767,9 @@ defaultKindMetas kind =
       solution <- readMetaTv representation
       case solution of
         Just {} -> defaultKindMetas =<< zonkKind kind
-        Nothing -> writeMetaTv representation liftedRep >> pure KType
+        Nothing -> do
+          kinds <- getKinds
+          writeMetaTv representation (liftedRep kinds) >> pure (typeKind kinds)
     TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM defaultKindMetas arguments
     TcFunTy argument result -> TcFunTy <$> defaultKindMetas argument <*> defaultKindMetas result
     TcForAllTy tyVar body -> do
@@ -756,6 +799,7 @@ freshKindMeta = do
 occursInKind :: Unique -> TcType -> Bool
 occursInKind needle kind =
   case kind of
+    TcArrowTy -> False
     TcMetaTv unique -> unique == needle
     TcTyVar tyVar -> occursInKind needle (tvKind tyVar)
     TcTyCon _ arguments -> any (occursInKind needle) arguments
@@ -777,6 +821,10 @@ occursInKind needle kind =
 tcTypeKind :: TcType -> TcM TcType
 tcTypeKind ty =
   case ty of
+    -- @(->)@ takes two ordinary types and gives one.
+    TcArrowTy -> do
+      kinds <- getKinds
+      pure (KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds)))
     TcTyVar tyVar -> zonkKind (tvKind tyVar)
     TcMetaTv unique -> readMetaTvKind unique >>= zonkKind
     TcTyCon tyCon arguments -> do
@@ -786,11 +834,12 @@ tcTypeKind ty =
           Just info -> instantiateTyConKind info
           Nothing -> do
             emitError NoSourceSpan (OtherError ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon)))
-            pure (foldr KFun KType (replicate (tyConArity tyCon) KType))
+            kinds <- getKinds
+            pure (foldr KFun (typeKind kinds) (replicate (tyConArity tyCon) (typeKind kinds)))
       foldM applyArgument initialKind arguments
-    TcFunTy {} -> pure KType
+    TcFunTy {} -> typeKind <$> getKinds
     TcForAllTy _ body -> tcTypeKind body
-    TcQualTy _ _ -> pure KType
+    TcQualTy _ _ -> typeKind <$> getKinds
     TcAppTy function argument -> tcTypeKind function >>= (`applyArgument` argument)
   where
     applyArgument functionKind argument = do
@@ -806,26 +855,28 @@ tcTypeKind ty =
           unifyKinds functionKind' (TcFunTy argumentKind resultKind)
           zonkKind resultKind
         _ -> do
-          emitError NoSourceSpan (KindMismatch (TcFunTy KType KType) functionKind')
-          pure KType
+          kinds <- getKinds
+          emitError NoSourceSpan (KindMismatch (TcFunTy (typeKind kinds) (typeKind kinds)) functionKind')
+          pure (typeKind kinds)
 
 applyType :: TcType -> TcType -> TcType
-applyType (TcTyCon tc args) arg = mkTyConApp tc (args ++ [arg])
+applyType (TcTyCon tc args) arg = TcTyCon tc (args ++ [arg])
 applyType f arg = TcAppTy f arg
 
 listType :: TcType -> TcM TcType
 listType ty = do
-  tyCon <- wiredTyCon tcWiringListTyCon (KFun KType KType)
+  kinds <- getKinds
+  tyCon <- wiredTyCon tcWiringListTyCon (KFun (typeKind kinds) (typeKind kinds))
   pure (TcTyCon tyCon [ty])
 
 listTypeKind :: TcType -> TcType
 listTypeKind kind = KFun kind kind
 
-runtimeRepOrLifted :: TcType -> TcType
-runtimeRepOrLifted kind =
+runtimeRepOrLifted :: TcKinds -> TcType -> TcType
+runtimeRepOrLifted kinds kind =
   case runtimeRepFromKind kind of
     Right runtimeRep -> runtimeRep
-    Left _ -> liftedRep
+    Left _ -> liftedRep kinds
 
 freeTypeVars :: Type -> [Text]
 freeTypeVars = nub . go
@@ -888,12 +939,14 @@ surfacePredToPred tvEnv ty = do
 surfaceAtomicPredToPred :: TvKindEnv -> Type -> TcM Pred
 surfaceAtomicPredToPred tvEnv ty =
   case peelTypeHead ty of
-    TImplicitParam name payload ->
-      IParamPred name <$> checkSurfaceType tvEnv payload KType
+    TImplicitParam name payload -> do
+      kinds <- getKinds
+      IParamPred name <$> checkSurfaceType tvEnv payload (typeKind kinds)
     _ -> surfaceClassPredToPred tvEnv ty
 
 surfaceClassPredToPred :: TvKindEnv -> Type -> TcM Pred
-surfaceClassPredToPred tvEnv ty =
+surfaceClassPredToPred tvEnv ty = do
+  kinds <- getKinds
   case instanceHeadName (peelTypeHead ty) of
     Just className -> do
       let classNameText = nameText className
@@ -904,13 +957,13 @@ surfaceClassPredToPred tvEnv ty =
           | Just {} <- tciTypeSynonym classInfo -> do
               -- A constraint synonym expands to one constraint.
               (expanded, _) <- convertSurfaceTypeWithKinds tvEnv ty
-              case constraintTypeToPred expanded of
+              case constraintTypeToPred kinds expanded of
                 Just predicate -> pure predicate
                 Nothing -> do
                   emitError NoSourceSpan (OtherError ("constraint synonym does not expand to one constraint: " <> T.unpack classNameText))
                   abortTc "invalid constraint synonym expansion"
         Just classInfo
-          | isEqualityTyCon (tciTyCon classInfo),
+          | isEqualityTyCon kinds (tciTyCon classInfo),
             [left, right] <- headArgs -> do
               (leftType, leftKind) <- convertSurfaceTypeWithKinds tvEnv left
               (rightType, rightKind) <- convertSurfaceTypeWithKinds tvEnv right
@@ -918,7 +971,7 @@ surfaceClassPredToPred tvEnv ty =
               pure (EqPred leftType rightType)
         Just classInfo -> do
           classKind <- predicateClassKind classInfo
-          let argKinds = takeClassArgKinds (length headArgs) classKind
+          let argKinds = takeClassArgKinds kinds (length headArgs) classKind
           args <- zipWithM (checkSurfaceType tvEnv) headArgs argKinds
           pure (ClassPred (tciTyCon classInfo) args)
         Nothing -> do
@@ -932,22 +985,25 @@ classPredicateArgKinds :: Name -> Int -> TcM [TcType]
 classPredicateArgKinds className argCount = do
   mInfo <- lookupResolvedTyCon className
   case mInfo of
-    Just info -> takeClassArgKinds argCount <$> predicateClassKind info
+    Just info -> do
+      kinds <- getKinds
+      takeClassArgKinds kinds argCount <$> predicateClassKind info
     Nothing -> mapM (const freshKindMeta) [1 .. argCount]
 
 predicateClassKind :: TyConInfo -> TcM TcType
 predicateClassKind info
   | tciName info == "Lift" = do
-      representation <- freshMetaTvOfKind runtimeRepKind
-      pure (KFun (KTYPE representation) KConstraint)
+      kinds <- getKinds
+      representation <- freshMetaTvOfKind (runtimeRepKind kinds)
+      pure (KFun (mkTYPEKind kinds representation) (constraintKind kinds))
 predicateClassKind info = do
   kind <- instantiateTyConKind info
   zonkKind kind
 
-takeClassArgKinds :: Int -> TcType -> [TcType]
-takeClassArgKinds n kind
+takeClassArgKinds :: TcKinds -> Int -> TcType -> [TcType]
+takeClassArgKinds kinds n kind
   | n <= 0 = []
   | otherwise =
       case kind of
-        KFun arg rest -> arg : takeClassArgKinds (n - 1) rest
-        _ -> replicate n KType
+        KFun arg rest -> arg : takeClassArgKinds kinds (n - 1) rest
+        _ -> replicate n (typeKind kinds)

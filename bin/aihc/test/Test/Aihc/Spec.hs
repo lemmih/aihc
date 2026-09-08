@@ -6,12 +6,12 @@ import Aihc.Cli.BuildExe (LinkBundle (..), linkBundleManifestPath, runBuildExe, 
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcSemispace), InstallOptions (..), LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
-import Aihc.Cli.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
 import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
+import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (tcInterfaceTerms, tcTermKeyIdentifier)
 import Control.Concurrent (getNumCapabilities, setNumCapabilities)
@@ -727,7 +727,7 @@ test_installAihcPrim = do
     let packageDir = installStorePath result
         packageId = PackageId (T.pack (takeFileName packageDir))
         loader = Fc.storeModuleLoader targetStoreRoot
-    assertBool "package artifact version sets the package hash" ("ff25bff152cf500d" `isSuffixOf` packageDir)
+    assertBool "package artifact version sets the package hash" ("ff25bcf152cf4af4" `isSuffixOf` packageDir)
     mapM_ (assertTypeArtifactSize packageDir) ["GHC.Tuple", "GHC.Types"]
     mapM_ (assertModuleCore packageDir) aihcPrimLibraryModules
     coreFiles <- listNamedFiles packageDir "core"

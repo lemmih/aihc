@@ -14,13 +14,14 @@
 -- libraries call the boxed ones @Unit@, @Solo@, @Tuple2@, and so on.
 module Aihc.Tc.Wiring
   ( TcWiring (..),
+    mkTcKinds,
     tupleTyCon,
     tupleDataCon,
   )
 where
 
 import Aihc.Parser.Syntax (TupleFlavor (..))
-import Aihc.Tc.Types (TyCon)
+import Aihc.Tc.Types (TcKinds (..), TyCon)
 import Data.Text (Text)
 
 -- | The type constructors of the built-in syntactic forms, and the names
@@ -66,6 +67,15 @@ data TcWiring = TcWiring
     -- | An unlifted primitive type of one name, such as @Int#@. A foreign
     -- declaration marshals through these.
     tcWiringPrimitiveTyCon :: Text -> TyCon,
+    -- | A constructor of the kind vocabulary of one name and arity, such
+    -- as @TYPE@ or @RuntimeRep@. The type checker builds kinds of its own
+    -- and needs them to be the same types as the ones it reads back from
+    -- an interface, so it asks where they are declared rather than
+    -- assuming.
+    tcWiringKindTyCon :: Text -> Int -> TyCon,
+    -- | A promoted constructor of the kind vocabulary of one name and
+    -- arity, such as @BoxedRep@, @Lifted@ or @IntRep@.
+    tcWiringKindDataCon :: Text -> Int -> TyCon,
     -- | The Template Haskell @Lift@ class, as a module name and a class
     -- name. Its parameters take implicit kind parameters.
     tcWiringLiftClass :: (Text, Text)
@@ -75,6 +85,16 @@ data TcWiring = TcWiring
 -- type checker environment derives 'Show' for diagnostics.
 instance Show TcWiring where
   show _ = "TcWiring"
+
+-- | The kind vocabulary that the type checker builds its own kinds from.
+mkTcKinds :: TcWiring -> TcKinds
+mkTcKinds wiring =
+  TcKinds
+    { kindsTyCon = tcWiringKindTyCon wiring,
+      kindsDataCon = tcWiringKindDataCon wiring,
+      kindsEqualityTyCon = tcWiringEqualityTyCon wiring,
+      kindsArrowTyCon = tcWiringArrowTyCon wiring
+    }
 
 -- | The tuple type constructor of one flavor and arity.
 tupleTyCon :: TcWiring -> TupleFlavor -> Int -> TyCon

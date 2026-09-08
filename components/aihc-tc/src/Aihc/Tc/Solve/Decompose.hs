@@ -29,11 +29,11 @@ decomposeNominalEquality rawLeft rawRight = do
     decompose (TcFunTy leftArg leftResult) (TcFunTy rightArg rightResult) =
       pure (Just [(leftArg, rightArg), (leftResult, rightResult)])
     decompose (TcAppTy function argument) (TcFunTy domain range) = do
-      arrow <- arrowTyCon
-      pure (Just [(function, TcTyCon arrow [domain]), (argument, range)])
+      arrow <- arrowType
+      pure (Just [(function, TcAppTy arrow domain), (argument, range)])
     decompose (TcFunTy domain range) (TcAppTy function argument) = do
-      arrow <- arrowTyCon
-      pure (Just [(TcTyCon arrow [domain], function), (range, argument)])
+      arrow <- arrowType
+      pure (Just [(TcAppTy arrow domain, function), (range, argument)])
     decompose (TcAppTy function argument) (TcTyCon tyCon arguments)
       | not (null arguments) =
           pure (Just [(function, TcTyCon tyCon (init arguments)), (argument, last arguments)])
@@ -43,5 +43,3 @@ decomposeNominalEquality rawLeft rawRight = do
     decompose (TcAppTy leftFunction leftArgument) (TcAppTy rightFunction rightArgument) =
       pure (Just [(leftFunction, rightFunction), (leftArgument, rightArgument)])
     decompose _ _ = pure Nothing
-
-    arrowTyCon = wiredTyCon tcWiringArrowTyCon (KFun KType (KFun KType KType))

@@ -23,7 +23,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..))
-import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, wiredTyCon)
+import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getKinds, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, wiredTyCon)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible)
 import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
@@ -129,9 +129,10 @@ solveDictWithGivensVisited visited givens ct
               case classInfo of
                 Nothing -> pure Nothing
                 Just info -> do
+                  kinds <- getKinds
                   let substitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
                       fieldTypes = classFieldTypes info substitution
-                  case traverse (constraintTypeToPred . applySubst substitution) (ciSuperClassTypes info) of
+                  case traverse (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info) of
                     Just superClasses -> searchSuperClasses (sourceClass : classVisited) solveVisited sourceEvidence (ciOrigin info) sourcePredicate fieldTypes target 0 superClasses
                     Nothing -> pure Nothing
         _ -> pure Nothing
@@ -244,13 +245,14 @@ solveDictWithGivensVisited visited givens ct
                   case classInfo of
                     Nothing -> pure Nothing
                     Just info -> do
+                      kinds <- getKinds
                       let classSubstitution =
                             Map.fromList
                               [ (tvUnique variable, argument)
                               | (variable, argument) <- zip (ciTyVars info) sourceArguments
                               ]
                           fieldTypes = classFieldTypes info classSubstitution
-                      case traverse (constraintTypeToPred . applySubst classSubstitution) (ciSuperClassTypes info) of
+                      case traverse (constraintTypeToPred kinds . applySubst classSubstitution) (ciSuperClassTypes info) of
                         Nothing -> pure Nothing
                         Just superClasses ->
                           searchQuantifiedSuperClasses
@@ -314,7 +316,8 @@ solveDictWithGivensVisited visited givens ct
       case predicate of
         ClassPred classTyCon arguments -> pure (TcTyCon classTyCon arguments)
         EqPred left right -> do
-          equalityTyCon <- wiredTyCon tcWiringEqualityTyCon (KFun KType (KFun KType KConstraint))
+          kinds <- getKinds
+          equalityTyCon <- wiredTyCon tcWiringEqualityTyCon (KFun (typeKind kinds) (KFun (typeKind kinds) (constraintKind kinds)))
           pure (TcTyCon equalityTyCon [left, right])
         IParamPred name payload -> implicitParamType name payload
         QuantifiedPred variables antecedents consequent -> do
@@ -329,6 +332,7 @@ typeableArguments ty =
     TcFunTy argument result -> Just [argument, result]
     TcTyVar {} -> Nothing
     TcMetaTv {} -> Nothing
+    TcArrowTy -> Nothing
     TcForAllTy {} -> Nothing
     TcQualTy {} -> Nothing
     TcAppTy {} -> Nothing

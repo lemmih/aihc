@@ -102,7 +102,7 @@ representationParameter visited constructor index
     checkConstructor parameter expected con
       | null (dciTheta con),
         null (dciExTyVars con),
-        Just substitution <- matchTypes [dciResTy con] [expected] =
+        Just substitution <- matchTypes [dciResTy con] [expected] = do
           and <$> mapM (representationPosition next parameter . applySubst substitution . dcfiType) (dciFields con)
       | otherwise = pure False
 
@@ -110,6 +110,7 @@ representationPosition :: [(TyCon, Int)] -> TyVarId -> TcType -> TcM Bool
 representationPosition visited variable ty = case ty of
   TcTyVar binder -> pure (not (mentions variable (tvKind binder)))
   TcMetaTv _ -> pure False
+  TcArrowTy -> pure False
   TcFunTy argument result -> do
     left <- representationPosition visited variable argument
     right <- representationPosition visited variable result
@@ -136,6 +137,7 @@ mentions variable = elem (tvUnique variable) . variables
     variables ty = nub $ case ty of
       TcTyVar binder -> [tvUnique binder] <> variables (tvKind binder)
       TcMetaTv _ -> []
+      TcArrowTy -> []
       TcTyCon _ arguments -> concatMap variables arguments
       TcFunTy argument result -> variables argument <> variables result
       TcAppTy function argument -> variables function <> variables argument

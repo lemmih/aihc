@@ -1,0 +1,314 @@
+{
+  "dependencies": [],
+  "format_version": 1,
+  "modules": [
+    {
+      "decls": [
+        {
+          "arg_docs": {},
+          "doc": {
+            "document": {
+              "first": {
+                "document": {
+                  "string": "Configuration.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "second": {
+                "document": {
+                  "string": "A column-one comment after a data declaration.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "tag": "DocAppend"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "kind": "data",
+          "location": {
+            "end_column": 30,
+            "end_line": 11,
+            "file": "src/Layout.hs",
+            "start_column": 1,
+            "start_line": 11
+          },
+          "name": "Config",
+          "namespace": "type",
+          "signature": "Config",
+          "subordinates": [
+            {
+              "arg_docs": {},
+              "doc": null,
+              "fixity": null,
+              "kind": "constructor",
+              "location": {
+                "end_column": 30,
+                "end_line": 11,
+                "file": "src/Layout.hs",
+                "start_column": 15,
+                "start_line": 11
+              },
+              "name": "Config",
+              "namespace": "value",
+              "signature": "Int -> Bool -> Config",
+              "subordinates": [],
+              "warning": null
+            }
+          ],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "doc": {
+            "document": {
+              "first": {
+                "document": {
+                  "string": "Something that runs.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "second": {
+                "document": {
+                  "string": "Column one after the class body: closes the block.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "tag": "DocAppend"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "kind": "class",
+          "location": {
+            "end_column": 6,
+            "end_line": 22,
+            "file": "src/Layout.hs",
+            "start_column": 1,
+            "start_line": 15
+          },
+          "name": "Runnable",
+          "namespace": "type",
+          "signature": "Runnable a",
+          "subordinates": [
+            {
+              "arg_docs": {},
+              "doc": {
+                "document": {
+                  "document": {
+                    "string": "Indented like a method: documents the method.",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "meta": {
+                  "version": null
+                }
+              },
+              "fixity": null,
+              "kind": "method",
+              "location": {
+                "end_column": 20,
+                "end_line": 16,
+                "file": "src/Layout.hs",
+                "start_column": 3,
+                "start_line": 16
+              },
+              "name": "run",
+              "namespace": "value",
+              "signature": "a -> IO ()",
+              "subordinates": [],
+              "warning": null
+            },
+            {
+              "arg_docs": {},
+              "doc": null,
+              "fixity": null,
+              "kind": "method",
+              "location": {
+                "end_column": 21,
+                "end_line": 19,
+                "file": "src/Layout.hs",
+                "start_column": 3,
+                "start_line": 19
+              },
+              "name": "halt",
+              "namespace": "value",
+              "signature": "a -> IO ()",
+              "subordinates": [],
+              "warning": null
+            }
+          ],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "doc": {
+            "document": {
+              "document": {
+                "string": "Column one after a function binding.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "kind": "function",
+          "location": {
+            "end_column": 23,
+            "end_line": 22,
+            "file": "src/Layout.hs",
+            "start_column": 1,
+            "start_line": 22
+          },
+          "name": "build",
+          "namespace": "value",
+          "signature": "Int -> Config",
+          "subordinates": [],
+          "warning": null
+        },
+        {
+          "arg_docs": {
+            "2": {
+              "document": {
+                "document": {
+                  "string": "Indented after the result type.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            }
+          },
+          "doc": {
+            "document": {
+              "document": {
+                "string": "Step.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "kind": "function",
+          "location": {
+            "end_column": 32,
+            "end_line": 27,
+            "file": "src/Layout.hs",
+            "start_column": 1,
+            "start_line": 27
+          },
+          "name": "step",
+          "namespace": "value",
+          "signature": "Config -> Int -> Config",
+          "subordinates": [],
+          "warning": null
+        }
+      ],
+      "description": {
+        "document": {
+          "document": {
+            "string": "Where does a trailing comment go when layout decides?",
+            "tag": "DocString"
+          },
+          "tag": "DocParagraph"
+        },
+        "meta": {
+          "version": null
+        }
+      },
+      "diagnostics": [],
+      "exports": [
+        {
+          "contents": [
+            "Config",
+            "type",
+            {
+              "tag": "all_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "Runnable",
+            "type",
+            {
+              "tag": "all_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "build",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "step",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        }
+      ],
+      "exposed": true,
+      "extensions": [
+        "CUSKs",
+        "DeepSubsumption",
+        "DatatypeContexts",
+        "DoAndIfThenElse",
+        "EmptyDataDecls",
+        "FieldSelectors",
+        "ForeignFunctionInterface",
+        "ImplicitPrelude",
+        "ImplicitStagePersistence",
+        "ListTuplePuns",
+        "MonomorphismRestriction",
+        "PatternGuards",
+        "RelaxedPolyRec",
+        "StarIsType",
+        "TraditionalRecordSyntax"
+      ],
+      "file": "src/Layout.hs",
+      "info": {
+        "copyright": null,
+        "description": null,
+        "license": null,
+        "maintainer": null,
+        "portability": null,
+        "stability": null
+      },
+      "instances": [],
+      "name": "Layout",
+      "named_chunks": {},
+      "warning": null
+    }
+  ],
+  "name": "layout",
+  "version": "0.1.0.0"
+}

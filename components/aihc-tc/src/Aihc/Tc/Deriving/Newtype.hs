@@ -82,8 +82,8 @@ newtypeCoercion equations dataType rawSource rawTarget = go (normalize rawSource
         [field] <- dciFields con,
         let substitution = Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments),
         normalize (applySubst substitution (dcfiType field)) == source = do
-          kinds <- mapM tcTypeKind arguments
-          let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (dtiTyVars dataType)) kinds)
+          argumentKinds <- mapM tcTypeKind arguments
+          let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (dtiTyVars dataType)) argumentKinds)
               kindVariables = filter (`notElem` dtiTyVars dataType) (nub (concatMap (typeTyVars . tvKind) (dtiTyVars dataType)))
               kindArguments = map (applySubst kindSubstitution . TcTyVar) kindVariables
               key = TcAxiomKey (tyConPackageId constructor) (tyConModuleName constructor) ("$ax$" <> dtiName dataType)

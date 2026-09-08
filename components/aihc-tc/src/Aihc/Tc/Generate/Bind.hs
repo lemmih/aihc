@@ -544,6 +544,7 @@ typeMetaVars :: TcType -> [Unique]
 typeMetaVars ty =
   case ty of
     TcMetaTv unique -> [unique]
+    TcArrowTy -> []
     TcTyVar _ -> []
     TcTyCon _ args -> concatMap typeMetaVars args
     TcFunTy a b -> typeMetaVars a ++ typeMetaVars b

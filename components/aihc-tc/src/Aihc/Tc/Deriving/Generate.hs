@@ -83,8 +83,9 @@ declDerivedInstances references origin decl =
     DeclAnn annotation inner -> do
       own <-
         case fromAnnotation @TcDerivingAnnotation annotation of
-          Just derivingAnnotation ->
-            catMaybes <$> mapM (generatePlan references origin (peelDeclAnn inner)) (tcDerivingPlans derivingAnnotation)
+          Just derivingAnnotation -> do
+            kinds <- getKinds
+            catMaybes <$> mapM (generatePlan kinds references origin (peelDeclAnn inner)) (tcDerivingPlans derivingAnnotation)
           Nothing -> pure []
       rest <- declDerivedInstances references origin inner
       pure (own <> rest)
@@ -93,14 +94,15 @@ declDerivedInstances references origin decl =
 -- | The generation context of one plan.
 data Gen = Gen
   { genSpan :: !SourceSpan,
+    genKinds :: !TcKinds,
     genReferences :: !DerivingReferences,
     genPlan :: !TcDerivingPlan,
     -- | Package and module of the class, where its methods live.
     genClassOrigin :: !(Text, Text)
   }
 
-generatePlan :: DerivingReferences -> (Text, Text) -> Decl -> TcDerivingPlan -> TcM (Maybe Decl)
-generatePlan references origin sourceDecl plan =
+generatePlan :: TcKinds -> DerivingReferences -> (Text, Text) -> Decl -> TcDerivingPlan -> TcM (Maybe Decl)
+generatePlan kinds references origin sourceDecl plan =
   case supportedStrategy of
     Left message -> do
       emitWarning (tcDerivingSourceSpan plan) (OtherError message)
@@ -141,6 +143,7 @@ generatePlan references origin sourceDecl plan =
     gen =
       Gen
         { genSpan = tcDerivingSourceSpan plan,
+          genKinds = kinds,
           genReferences = references,
           genPlan = plan,
           genClassOrigin = fromMaybe origin (tcDerivingClassOrigin plan)
@@ -745,8 +748,6 @@ surfaceType sp ty =
     TcTyVar tyVar -> Just (TVar (mkUnqualifiedName NameVarId (tvName tyVar)))
     TcFunTy argument result -> TFun ArrowUnrestricted <$> surfaceType sp argument <*> surfaceType sp result
     TcAppTy function argument -> TApp <$> surfaceType sp function <*> surfaceType sp argument
-    TcTyCon tyCon [argument, result]
-      | isArrowTyCon tyCon -> TFun ArrowUnrestricted <$> surfaceType sp argument <*> surfaceType sp result
     TcTyCon tyCon arguments
       | tyConNamespace tyCon == ResolutionNamespaceType ->
           foldl TApp (TCon (tyConNameSyntax sp tyCon) Unpromoted) <$> mapM (surfaceType sp) arguments

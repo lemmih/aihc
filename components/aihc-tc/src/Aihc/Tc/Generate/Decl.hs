@@ -196,14 +196,14 @@ data CheckedSig = CheckedSig
   }
   deriving (Show)
 
-moduleBindings :: Module -> [TcBindingResult]
-moduleBindings modu =
-  concatMap (declBindings (resolvedModuleOrigin modu)) (moduleDecls modu)
+moduleBindings :: TcKinds -> Module -> [TcBindingResult]
+moduleBindings kinds modu =
+  concatMap (declBindings kinds (resolvedModuleOrigin modu)) (moduleDecls modu)
 
 -- | Recover instance-environment entries from finalized module annotations.
-moduleInstances :: Module -> [InstanceInfo]
-moduleInstances modu =
-  concatMap (declInstances (resolvedModuleOrigin modu)) (moduleDecls modu)
+moduleInstances :: TcKinds -> Module -> [InstanceInfo]
+moduleInstances kinds modu =
+  concatMap (declInstances kinds (resolvedModuleOrigin modu)) (moduleDecls modu)
 
 resolvedModuleOrigin :: Module -> (Text, Text)
 resolvedModuleOrigin resolvedModule =
@@ -284,15 +284,15 @@ typeToScheme ty =
         TcQualTy predicates result -> ForAll tyVars predicates result
         result -> ForAll tyVars [] result
 
-declInstances :: (Text, Text) -> Decl -> [InstanceInfo]
-declInstances origin decl =
+declInstances :: TcKinds -> (Text, Text) -> Decl -> [InstanceInfo]
+declInstances kinds origin decl =
   case decl of
     DeclAnn ann inner ->
-      annotationInstances origin ann inner <> declInstances origin inner
+      annotationInstances kinds origin ann inner <> declInstances kinds origin inner
     _ -> []
 
-annotationInstances :: (Text, Text) -> Annotation -> Decl -> [InstanceInfo]
-annotationInstances origin ann decl =
+annotationInstances :: TcKinds -> (Text, Text) -> Annotation -> Decl -> [InstanceInfo]
+annotationInstances kinds origin ann decl =
   explicitInstance
   where
     explicitInstance =
@@ -305,23 +305,23 @@ annotationInstances origin ann decl =
                     iiDictOrigin = origin,
                     iiDictType = tcInstanceDictType instAnn,
                     iiTyVars = tcInstanceTyVars instAnn,
-                    iiContext = map dictBinderPred (tcInstanceContextDicts instAnn),
+                    iiContext = map (dictBinderPred kinds) (tcInstanceContextDicts instAnn),
                     iiHead = tcInstanceHeadTypes instAnn
                   }
               ]
         _ -> []
 
-dictBinderPred :: TcDictBinderAnnotation -> Pred
-dictBinderPred dictBinder =
-  case constraintTypeToPred (tcDictBinderType dictBinder) of
+dictBinderPred :: TcKinds -> TcDictBinderAnnotation -> Pred
+dictBinderPred kinds dictBinder =
+  case constraintTypeToPred kinds (tcDictBinderType dictBinder) of
     Just predicate -> predicate
     Nothing -> error "invalid checked dictionary binder type"
 
-declBindings :: (Text, Text) -> Decl -> [TcBindingResult]
-declBindings origin decl =
+declBindings :: TcKinds -> (Text, Text) -> Decl -> [TcBindingResult]
+declBindings kinds origin decl =
   case decl of
     DeclAnn ann inner ->
-      annotationBindings ann inner <> declBindings origin inner
+      annotationBindings kinds ann inner <> declBindings kinds origin inner
     DeclData dataDecl ->
       concatMap dataConBindings (dataDeclConstructors dataDecl)
         <> concatMap recordSelectorBindings (dataDeclConstructors dataDecl)
@@ -331,10 +331,10 @@ declBindings origin decl =
       concatMap dataConBindings (dataFamilyInstConstructors familyInst)
     _ -> []
 
-annotationBindings :: Annotation -> Decl -> [TcBindingResult]
-annotationBindings ann decl =
+annotationBindings :: TcKinds -> Annotation -> Decl -> [TcBindingResult]
+annotationBindings kinds ann decl =
   tcAnnotationBindings ann decl
-    <> classAnnotationBindings ann decl
+    <> classAnnotationBindings kinds ann decl
     <> instanceAnnotationBindings ann
 
 tcAnnotationBindings :: Annotation -> Decl -> [TcBindingResult]
@@ -362,24 +362,24 @@ tcAnnotationBindings ann decl =
            in [TcBindingResult name displayName (tcAnnType tcAnn)]
         _ -> []
 
-classAnnotationBindings :: Annotation -> Decl -> [TcBindingResult]
-classAnnotationBindings ann decl =
+classAnnotationBindings :: TcKinds -> Annotation -> Decl -> [TcBindingResult]
+classAnnotationBindings kinds ann decl =
   case (fromAnnotation ann, decl) of
     (Just classAnn, DeclClass {}) ->
       [ TcBindingResult (tcClassMethodName method) (tcClassMethodName method) (tcClassMethodType method)
       | method <- tcClassMethods classAnn
       ]
-        <> [ TcBindingResult (defaultMethodName (tcClassMethodName method)) (defaultMethodName (tcClassMethodName method)) (classDefaultWorkerType classAnn method)
+        <> [ TcBindingResult (defaultMethodName (tcClassMethodName method)) (defaultMethodName (tcClassMethodName method)) (classDefaultWorkerType kinds classAnn method)
            | method <- tcClassMethods classAnn,
              tcClassMethodName method `elem` tcClassDefaultMethods classAnn
            ]
     _ -> []
 
-classDefaultWorkerType :: TcClassAnnotation -> TcClassMethodAnnotation -> TcType
-classDefaultWorkerType classAnnotation method =
+classDefaultWorkerType :: TcKinds -> TcClassAnnotation -> TcClassMethodAnnotation -> TcType
+classDefaultWorkerType kinds classAnnotation method =
   case lookup (tcClassMethodName method) (tcClassDefaultSignatures classAnnotation) of
     Just signature
-      | Just classPredicate <- constraintTypeToPred (tcClassMethodDictType method) ->
+      | Just classPredicate <- constraintTypeToPred kinds (tcClassMethodDictType method) ->
           let (tyVars, body) = peelForAlls signature
               qualifiedBody =
                 case body of
@@ -594,7 +594,9 @@ moduleDefaultTypes decls =
     [] -> pure Nothing
     groups -> Just <$> mapM checkDefaultType (last groups)
   where
-    checkDefaultType ty = checkSurfaceType Map.empty ty typeKindType
+    checkDefaultType ty = do
+      kinds <- getKinds
+      checkSurfaceType Map.empty ty (typeKind kinds)
 
 tcModuleBodyWithDefaults :: Map TcTermKey CheckedSig -> Module -> TcM PendingModule
 tcModuleBodyWithDefaults schemes m = do
@@ -689,6 +691,7 @@ freeKindVariables :: TcType -> [TyVarId]
 freeKindVariables ty = case ty of
   TcTyVar variable -> freeKindVariables (tvKind variable) <> [variable]
   TcMetaTv {} -> []
+  TcArrowTy -> []
   TcTyCon _ arguments -> concatMap freeKindVariables arguments
   TcFunTy argument result -> freeKindVariables argument <> freeKindVariables result
   TcAppTy function argument -> freeKindVariables function <> freeKindVariables argument
@@ -953,6 +956,7 @@ annotateClassDeclTc classDecl = do
   case classInfo of
     Nothing -> missingTypeInfo ("class " <> T.unpack className)
     Just info -> do
+      kinds <- getKinds
       methods <- zipWithM annotateClassMethod [0 :: Int ..] (classDeclMethodNames classDecl)
       items <- mapM annotateClassDefaultItem (classDeclItems classDecl)
       pure
@@ -962,7 +966,7 @@ annotateClassDeclTc classDecl = do
                   { tcClassTyCon = ciTyCon info,
                     tcClassKindTyVars = ciKindTyVars info,
                     tcClassTyVars = ciTyVars info,
-                    tcClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes info),
+                    tcClassSuperClasses = map (constraintTypeDictBinder kinds) (ciSuperClassTypes info),
                     tcClassMethods = methods,
                     tcClassDefaultMethods = ciDefaultMethods info,
                     tcClassDefaultSignatures =
@@ -1359,7 +1363,8 @@ primitiveForeignTypes =
 primitiveMarshal :: TcType -> [Text] -> Text -> TcForeignAbiType -> TcM TcForeignMarshal
 primitiveMarshal sourceType constructors primitiveName abiType = do
   wiring <- getWiring
-  primitiveTyCon <- mkWiredTyCon (tcWiringPrimitiveTyCon wiring primitiveName) typeKindType
+  kinds <- getKinds
+  primitiveTyCon <- mkWiredTyCon (tcWiringPrimitiveTyCon wiring primitiveName) (typeKind kinds)
   pure
     TcForeignMarshal
       { tcForeignSourceType = sourceType,
@@ -1425,6 +1430,7 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
       tvIds <- mapM defaultTyVarKinds rawTvIds
       headTys <- mapM defaultTypeKinds rawHeadTys
       context <- mapM defaultPredKinds rawContext
+      kinds <- getKinds
       dictName <- lookupInstanceDictName origin classNameText headTys
       classInfo <- lookupClassNamed className
       info <- maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure classInfo
@@ -1472,7 +1478,7 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
             | associated <- ciAssociatedTypes info,
               tyConName (atiTyCon associated) `notElem` explicitNames,
               Just _ <- [atiDefault associated],
-              Just equation <- [lookupEquation (associatedDefaultAxiomName associated headTys)]
+              Just equation <- [lookupEquation (associatedDefaultAxiomName kinds associated headTys)]
             ]
           annotateItem item =
             case item of
@@ -1503,7 +1509,7 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
                 tcInstanceHeadTypes = headTys,
                 tcInstanceClassTyVars = classTyVars,
                 tcInstanceClassOrigin = ciOrigin info,
-                tcInstanceClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes info),
+                tcInstanceClassSuperClasses = map (constraintTypeDictBinder kinds) (ciSuperClassTypes info),
                 tcInstanceClassMethods = classMethods,
                 tcInstanceContextDicts = contextDicts,
                 tcInstanceSuperClasses = zip superClassBinders superClassEvidence,
@@ -1869,15 +1875,16 @@ predDictBinder pred' =
       ty <- predType pred'
       pure (TcDictBinderAnnotation name [payload] ty)
 
-constraintTypeDictBinder :: TcType -> TcDictBinderAnnotation
-constraintTypeDictBinder ty =
-  case constraintTypeToPred ty of
+constraintTypeDictBinder :: TcKinds -> TcType -> TcDictBinderAnnotation
+constraintTypeDictBinder kinds ty =
+  case constraintTypeToPred kinds ty of
     Just (ClassPred classTyCon args) -> TcDictBinderAnnotation (tyConName classTyCon) args ty
     _ -> TcDictBinderAnnotation "<constraint>" [] ty
 
 constraintTypePred :: TcType -> TcM Pred
-constraintTypePred ty =
-  case constraintTypeToPred ty of
+constraintTypePred ty = do
+  kinds <- getKinds
+  case constraintTypeToPred kinds ty of
     Just predicate -> pure predicate
     Nothing -> missingTypeInfo ("class predicate for constraint " <> show ty)
 
@@ -2889,6 +2896,7 @@ typeMentionsTyVar target ty =
   case ty of
     TcTyVar tyVar -> tyVar == target || kindMentionsUnique (tvUnique target) (tvKind tyVar)
     TcMetaTv {} -> False
+    TcArrowTy -> False
     TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
     TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
     TcForAllTy tyVar body -> tyVar /= target && typeMentionsTyVar target body
@@ -2900,6 +2908,7 @@ kindMentionsUnique target kind =
   case kind of
     TcTyVar tyVar -> tvUnique tyVar == target || kindMentionsUnique target (tvKind tyVar)
     TcMetaTv unique -> unique == target
+    TcArrowTy -> False
     TcTyCon _ arguments -> any (kindMentionsUnique target) arguments
     TcFunTy argument result -> kindMentionsUnique target argument || kindMentionsUnique target result
     TcForAllTy tyVar body -> tvUnique tyVar /= target && kindMentionsUnique target body
@@ -2993,9 +3002,10 @@ predeclareTypeConstructor declaration =
     _ -> pure ()
   where
     predeclare binder name arity flavor = do
+      kinds <- getKinds
       provisionalKind <-
         case flavor of
-          ClassTyCon -> foldr KFun KConstraint <$> replicateM arity freshKindMeta
+          ClassTyCon -> foldr KFun (constraintKind kinds) <$> replicateM arity freshKindMeta
           _ -> freshKindMeta
       tyCon <- mkDeclaredTyCon binder name arity
       storeTyConInfo
@@ -3094,8 +3104,9 @@ registerClassDecl origin classDecl = do
       allClassTyVars = map paramTyVar kindParams <> paramTyVars
       paramKinds = map paramKind paramInfos
       paramTvEnv = kindEnv <> Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
-  superClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty KConstraint) (fromMaybe [] (classDeclContext classDecl))
-  let classKind = foldr KFun KConstraint paramKinds
+  kinds <- getKinds
+  superClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty (constraintKind kinds)) (fromMaybe [] (classDeclContext classDecl))
+  let classKind = foldr KFun (constraintKind kinds) paramKinds
   classTyCon <- mkDeclaredTyCon classBinder className (length params)
   let classPred = ClassPred classTyCon (map TcTyVar paramTyVars)
   storeTyConInfo
@@ -3232,6 +3243,7 @@ registerInstanceAssociatedTypes origin classInfo instanceTyVars headTys instance
 -- parameter becomes a fresh type variable.
 instantiateAssociatedDefault :: (Text, Text) -> [TyVarId] -> [TcType] -> AssociatedTypeInfo -> TypeFamilyInstanceInfo -> TcM TypeFamilyInstanceInfo
 instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys info defaultEquation = do
+  kinds <- getKinds
   args <- mapM argumentType (atiClassParams info)
   let substitution =
         Map.fromList [(tvUnique tyVar, arg) | (TcTyVar tyVar, arg) <- zip (typeArguments (tfiiLeft defaultEquation)) args]
@@ -3239,7 +3251,7 @@ instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys i
   pure
     TypeFamilyInstanceInfo
       { tfiiFamilyName = tyConName (atiTyCon info),
-        tfiiAxiomName = associatedDefaultAxiomName info headTys,
+        tfiiAxiomName = associatedDefaultAxiomName kinds info headTys,
         tfiiOrigin = (PackageId packageName, moduleName'),
         tfiiTyVars = instanceTyVars <> freshTyVars,
         tfiiLeft = TcTyCon (atiTyCon info) args,
@@ -3261,11 +3273,11 @@ associatedClassArgument headTys maybeIndex = maybeIndex >>= \index -> listToMayb
 -- | The axiom name of an instantiated associated type default. The name
 -- depends only on the class head types, so the header and body passes
 -- agree on it.
-associatedDefaultAxiomName :: AssociatedTypeInfo -> [TcType] -> Text
-associatedDefaultAxiomName info headTys =
+associatedDefaultAxiomName :: TcKinds -> AssociatedTypeInfo -> [TcType] -> Text
+associatedDefaultAxiomName kinds info headTys =
   "$ax$"
     <> tyConName (atiTyCon info)
-    <> T.concat ["$" <> maybe "a" typeSuffix (associatedClassArgument headTys maybeIndex) | maybeIndex <- atiClassParams info]
+    <> T.concat ["$" <> maybe "a" (typeSuffix kinds) (associatedClassArgument headTys maybeIndex) | maybeIndex <- atiClassParams info]
 
 typeArguments :: TcType -> [TcType]
 typeArguments ty =
@@ -3298,7 +3310,8 @@ registerClassItem classPred classTvEnv classTyVars item =
       extraKinds <- mapM (const freshKindMeta) freeVars
       let extraTyVars = zipWith setTyVarKind extraKinds rawExtraTyVars
       let tvEnv = classTvEnv <> Map.fromList (zip freeVars (zip extraTyVars extraKinds))
-      methodBody <- checkSurfaceType tvEnv body KType
+      kinds <- getKinds
+      methodBody <- checkSurfaceType tvEnv body (typeKind kinds)
       contextPreds <- mapM (surfacePredToPred tvEnv) context
       let preds = classPred : contextPreds
           scheme = ForAll (classTyVars <> extraTyVars) preds methodBody
@@ -3325,7 +3338,8 @@ registerClassDefaultSignature classTvEnv classTyVars item =
       extraKinds <- mapM (const freshKindMeta) freeVars
       let extraTyVars = zipWith setTyVarKind extraKinds rawExtraTyVars
       let tvEnv = classTvEnv <> Map.fromList (zip freeVars (zip extraTyVars extraKinds))
-      methodBody <- checkSurfaceType tvEnv body KType
+      kinds <- getKinds
+      methodBody <- checkSurfaceType tvEnv body (typeKind kinds)
       contextPreds <- mapM (surfacePredToPred tvEnv) context
       pure
         ( Just
@@ -3364,7 +3378,8 @@ registerInstanceDecl origin instanceDecl =
 predType :: Pred -> TcM TcType
 predType (ClassPred classTyCon args) = pure (TcTyCon classTyCon args)
 predType (EqPred left right) = do
-  equalityTyCon <- wiredTyCon tcWiringEqualityTyCon (KFun KType (KFun KType KConstraint))
+  kinds <- getKinds
+  equalityTyCon <- wiredTyCon tcWiringEqualityTyCon (KFun (typeKind kinds) (KFun (typeKind kinds) (constraintKind kinds)))
   pure (TcTyCon equalityTyCon [left, right])
 predType (IParamPred name payload) = implicitParamType name payload
 predType (QuantifiedPred variables antecedents consequent) = do
@@ -3374,29 +3389,36 @@ predType (QuantifiedPred variables antecedents consequent) = do
         | otherwise = TcQualTy antecedents consequentType
   pure (foldr TcForAllTy qualifiedType variables)
 
-instanceDictName :: Text -> [TcType] -> Text
-instanceDictName className tys = "$f" <> className <> T.concat (map typeSuffix tys)
+instanceDictName :: TcKinds -> Text -> [TcType] -> Text
+instanceDictName kinds className tys = "$f" <> className <> T.concat (map (typeSuffix kinds) tys)
 
-typeSuffix :: TcType -> Text
-typeSuffix ty =
+-- The arrow has a name here as any other head does: an instance of
+-- @(->)@ or of @(-> ) r@ names its dictionary after the constructor the
+-- wiring gives, not after the form the type checker matches on.
+typeSuffix :: TcKinds -> TcType -> Text
+typeSuffix kinds ty =
   case ty of
     TcTyVar tv -> tvName tv
+    TcArrowTy -> tyConName (kindsArrowTyCon kinds)
+    TcAppTy TcArrowTy argument -> tyConName (kindsArrowTyCon kinds) <> typeSuffix kinds argument
     TcTyCon tc [] -> tyConName tc
     TcTyCon (TyCon "[]" _) [_] -> "List"
-    TcTyCon tc args -> tyConName tc <> T.concat (map typeSuffix args)
+    TcTyCon tc args -> tyConName tc <> T.concat (map (typeSuffix kinds) args)
     _ -> "T"
 
-instanceHeadIdentity :: [TcType] -> Text
-instanceHeadIdentity = T.concat . map typeIdentity
+instanceHeadIdentity :: TcKinds -> [TcType] -> Text
+instanceHeadIdentity kinds = T.concat . map (typeIdentity kinds)
 
-typeIdentity :: TcType -> Text
-typeIdentity ty =
+typeIdentity :: TcKinds -> TcType -> Text
+typeIdentity kinds ty =
   case ty of
     TcTyVar tv -> tvName tv
+    TcArrowTy -> tyConIdentity (kindsArrowTyCon kinds)
+    TcAppTy TcArrowTy argument -> tyConIdentity (kindsArrowTyCon kinds) <> typeIdentity kinds argument
     TcTyCon tc [] -> tyConIdentity tc
     TcTyCon (TyCon "[]" _) [_] -> "List"
-    TcTyCon tc args -> tyConIdentity tc <> T.concat (map typeIdentity args)
-    TcFunTy argument result -> typeIdentity argument <> "->" <> typeIdentity result
+    TcTyCon tc args -> tyConIdentity tc <> T.concat (map (typeIdentity kinds) args)
+    TcFunTy argument result -> typeIdentity kinds argument <> "->" <> typeIdentity kinds result
     _ -> "T"
 
 tyConIdentity :: TyCon -> Text
@@ -3405,9 +3427,10 @@ tyConIdentity tyCon =
 
 allocateInstanceDictName :: (Text, Text) -> Text -> [TcType] -> TcM Text
 allocateInstanceDictName origin className headTys = do
+  kinds <- getKinds
   instances <- getInstances
   let taken = Set.fromList [iiDictName info | info <- instances, iiDictOrigin info == origin]
-      shortName = instanceDictName className headTys
+      shortName = instanceDictName kinds className headTys
       modules = nub (mapMaybe typeConstructorModule headTys)
       qualifiedName = shortName <> T.concat (map ("$" <>) modules)
   pure
@@ -3421,12 +3444,13 @@ allocateInstanceDictName origin className headTys = do
 
 lookupInstanceDictName :: (Text, Text) -> Text -> [TcType] -> TcM Text
 lookupInstanceDictName origin className headTys = do
+  kinds <- getKinds
   instances <- getInstances
-  let identity = instanceHeadIdentity headTys
+  let identity = instanceHeadIdentity kinds headTys
       matches info =
         iiDictOrigin info == origin
           && iiClassName info == className
-          && instanceHeadIdentity (iiHead info) == identity
+          && instanceHeadIdentity kinds (iiHead info) == identity
   case find matches instances of
     Just info -> pure (iiDictName info)
     Nothing -> allocateInstanceDictName origin className headTys
@@ -3468,7 +3492,8 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
           | param <- paramInfos
           ]
       constructorNames = concatMap (map fst . dataConBindingNames) (dataFamilyInstConstructors familyInst)
-  familyType <- checkSurfaceType tvEnv (dataFamilyInstHead familyInst) KType
+  kinds <- getKinds
+  familyType <- checkSurfaceType tvEnv (dataFamilyInstHead familyInst) (typeKind kinds)
   case (familyType, constructorNames) of
     (_, []) -> do
       emitError NoSourceSpan (OtherError "data-family instances without constructors are not supported")
@@ -3634,8 +3659,9 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
           [ (paramName param, (paramTyVar param, paramKind param))
           | param <- paramInfos
           ]
-  lhs <- checkSurfaceType tvEnv (typeFamilyEqLhs equation) KType
-  rhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) KType
+  kinds <- getKinds
+  lhs <- checkSurfaceType tvEnv (typeFamilyEqLhs equation) (typeKind kinds)
+  rhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) (typeKind kinds)
   case typeFamilyApplicationHead lhs of
     Just familyTyCon -> do
       maybeFamilyInfo <- lookupTyConByIdentity familyTyCon
@@ -4021,7 +4047,8 @@ registerDataConWithResult paramInfos resTy con = case con of
         constructorTyVars = map paramTyVar constructorParams
     let resultSurfTy = gadtBodyResultType body
         argSurfTys = gadtBodyArgTypes body
-    gadtResTy <- checkSurfaceType constructorEnv resultSurfTy KType
+    kinds <- getKinds
+    gadtResTy <- checkSurfaceType constructorEnv resultSurfTy (typeKind kinds)
     gadtArgTys <- mapM (checkRuntimeType constructorEnv) argSurfTys
     writtenPredicates <- mapM (surfacePredToPred constructorEnv) context
     (universalTyVars, refinementPredicates, universalResTy) <- rejigGadtResult resTy gadtResTy

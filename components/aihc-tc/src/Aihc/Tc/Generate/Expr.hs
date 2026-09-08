@@ -280,9 +280,10 @@ occurrenceAnnotation ty typeArgs evidenceVars
 
 inferTypeSig :: SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
 inferTypeSig sp inner tyAnn = do
+  kinds <- getKinds
   (inner', innerTy, cts) <- inferExprAt sp inner
   scoped <- getScopedTyVars
-  sigTy <- checkSurfaceType scoped tyAnn KType
+  sigTy <- checkSurfaceType scoped tyAnn (typeKind kinds)
   ev <- freshEvVar
   let sigCt =
         mkWantedEqCt
@@ -684,8 +685,9 @@ planSpine = go
         SpineParen -> continue StepParen instantiationVariables remainingTypeArgs funTy frames
         SpinePragma pragma -> continue (StepPragma pragma) instantiationVariables remainingTypeArgs funTy frames
         SpineTypeArg sp tyArg -> do
+          kinds <- getKinds
           scoped <- getScopedTyVars
-          explicitTy <- checkSurfaceType scoped tyArg KType
+          explicitTy <- checkSurfaceType scoped tyArg (typeKind kinds)
           case remainingTypeArgs of
             inferredTy : rest -> do
               -- The explicit type may be a polytype. The quick look binds
@@ -892,6 +894,7 @@ typeMetaVariables :: TcType -> [Unique]
 typeMetaVariables ty =
   case ty of
     TcTyVar {} -> []
+    TcArrowTy -> []
     TcMetaTv meta -> [meta]
     TcTyCon _ arguments -> concatMap typeMetaVariables arguments
     TcFunTy argument result -> typeMetaVariables argument <> typeMetaVariables result
@@ -915,6 +918,7 @@ typeMentionsTyVar target ty =
   case ty of
     TcTyVar tyVar -> tyVar == target
     TcMetaTv {} -> False
+    TcArrowTy -> False
     TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
     TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
     TcForAllTy binder body -> binder /= target && typeMentionsTyVar target body
@@ -1042,13 +1046,14 @@ inferTuple sp flavor elems = do
       tys = map (\(_, ty, _) -> ty) results
       cts = concatMap (\(_, _, elemCts) -> elemCts) results
       n = length tys
+  kinds <- getKinds
   wired <- wiredTupleTyCon flavor n
   maybeTyCon <- lookupTyCon (tyConName wired)
   elementKinds <- mapM tcTypeKind tys
   let fallbackKind =
         case flavor of
-          Boxed -> foldr KFun KType elementKinds
-          Unboxed -> foldr KFun (KTYPE (TupleRep (map runtimeRepOrLifted elementKinds))) elementKinds
+          Boxed -> foldr KFun (typeKind kinds) elementKinds
+          Unboxed -> foldr KFun (mkTYPEKind kinds (tupleRep kinds (map (runtimeRepOrLifted kinds) elementKinds))) elementKinds
   tc <-
     case maybeTyCon of
       Just info -> pure (tciTyCon info)
@@ -1067,7 +1072,7 @@ inferTuple sp flavor elems = do
       (e', ty, cts) <- inferExpr e
       pure (Just e', ty, cts)
 
-    runtimeRepOrLifted kind = fromRight liftedRep (runtimeRepFromKind kind)
+    runtimeRepOrLifted kinds kind = fromRight (liftedRep kinds) (runtimeRepFromKind kind)
 
 inferList :: SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
 inferList sp elems = do

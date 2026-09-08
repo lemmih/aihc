@@ -1,0 +1,270 @@
+{
+ "inst_ifaces": [
+  {
+   "arg_map": {
+    "$main$Doc.Fixture$area": {
+     "0": {
+      "document": {
+       "document": {
+        "string": "the shape",
+        "tag": "DocString"
+       },
+       "tag": "DocParagraph"
+      },
+      "meta": {
+       "version": null
+      }
+     },
+     "1": {
+      "document": {
+       "document": {
+        "string": "its area",
+        "tag": "DocString"
+       },
+       "tag": "DocParagraph"
+      },
+      "meta": {
+       "version": null
+      }
+     }
+    },
+    "$main$Doc.Fixture$scale": {
+     "0": {
+      "document": {
+       "document": {
+        "string": "factor",
+        "tag": "DocString"
+       },
+       "tag": "DocParagraph"
+      },
+      "meta": {
+       "version": null
+      }
+     },
+     "1": {
+      "document": {
+       "document": {
+        "string": "input",
+        "tag": "DocString"
+       },
+       "tag": "DocParagraph"
+      },
+      "meta": {
+       "version": null
+      }
+     }
+    }
+   },
+   "doc_map": {
+    "$main$Doc.Fixture$<+>": {
+     "document": {
+      "document": {
+       "string": "Combine two areas.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Doc.Fixture$Circle": {
+     "document": {
+      "document": {
+       "string": "A circle with a radius.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Doc.Fixture$Named": {
+     "document": {
+      "document": {
+       "string": "Things with names.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Doc.Fixture$Shape": {
+     "document": {
+      "document": {
+       "string": "A shape.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Doc.Fixture$area": {
+     "document": {
+      "first": {
+       "document": {
+        "string": "Compute the area.",
+        "tag": "DocString"
+       },
+       "tag": "DocParagraph"
+      },
+      "second": {
+       "first": {
+        "examples": [
+         {
+          "exampleExpression": "area (Circle 1)",
+          "exampleResult": [
+           "3.14"
+          ]
+         }
+        ],
+        "tag": "DocExamples"
+       },
+       "second": {
+        "document": {
+         "string": "area (Rect 2 3) == 6\n",
+         "tag": "DocString"
+        },
+        "tag": "DocCodeBlock"
+       },
+       "tag": "DocAppend"
+      },
+      "tag": "DocAppend"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Doc.Fixture$height": {
+     "document": {
+      "document": {
+       "string": "the height",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Doc.Fixture$name": {
+     "document": {
+      "document": {
+       "string": "The name.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Doc.Fixture$rename": {
+     "document": {
+      "document": {
+       "string": "Rename.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Doc.Fixture$scale": {
+     "document": {
+      "document": {
+       "string": "Scale a shape.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Doc.Fixture$width": {
+     "document": {
+      "document": {
+       "string": "the width",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    }
+   },
+   "exports": [
+    "$main$Doc.Fixture$<+>",
+    "$main$Doc.Fixture$area",
+    "$main$Doc.Fixture$scale",
+    "$main$Doc.Fixture$Named",
+    "$main$Doc.Fixture$name",
+    "$main$Doc.Fixture$rename",
+    "$main$Doc.Fixture$Shape",
+    "$main$Doc.Fixture$Circle",
+    "$main$Doc.Fixture$Rect",
+    "$main$Doc.Fixture$height",
+    "$main$Doc.Fixture$width"
+   ],
+   "fix_map": {
+    "$main$Doc.Fixture$<+>": {
+     "direction": "infixl",
+     "prec": 6
+    }
+   },
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Doc.Fixture",
+   "options": [],
+   "visible_exports": [
+    "$main$Doc.Fixture$Shape",
+    "$main$Doc.Fixture$Circle",
+    "$main$Doc.Fixture$Rect",
+    "$main$Doc.Fixture$height",
+    "$main$Doc.Fixture$width",
+    "$main$Doc.Fixture$area",
+    "$main$Doc.Fixture$Named",
+    "$main$Doc.Fixture$name",
+    "$main$Doc.Fixture$rename",
+    "$main$Doc.Fixture$$dmname",
+    "$main$Doc.Fixture$scale",
+    "$main$Doc.Fixture$<+>"
+   ]
+  }
+ ],
+ "link_env": {
+  "$main$Doc.Fixture$$dmname": "Doc.Fixture",
+  "$main$Doc.Fixture$$fEqShape": "Doc.Fixture",
+  "$main$Doc.Fixture$$fNamedShape": "Doc.Fixture",
+  "$main$Doc.Fixture$$fShowShape": "Doc.Fixture",
+  "$main$Doc.Fixture$<+>": "Doc.Fixture",
+  "$main$Doc.Fixture$Circle": "Doc.Fixture",
+  "$main$Doc.Fixture$Named": "Doc.Fixture",
+  "$main$Doc.Fixture$Rect": "Doc.Fixture",
+  "$main$Doc.Fixture$Shape": "Doc.Fixture",
+  "$main$Doc.Fixture$area": "Doc.Fixture",
+  "$main$Doc.Fixture$height": "Doc.Fixture",
+  "$main$Doc.Fixture$name": "Doc.Fixture",
+  "$main$Doc.Fixture$rename": "Doc.Fixture",
+  "$main$Doc.Fixture$scale": "Doc.Fixture",
+  "$main$Doc.Fixture$width": "Doc.Fixture"
+ },
+ "package_info": "shapes-0.1.0.0"
+}

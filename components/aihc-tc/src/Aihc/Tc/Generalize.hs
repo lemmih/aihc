@@ -16,7 +16,7 @@ module Aihc.Tc.Generalize
 where
 
 import Aihc.Tc.Kind (defaultKindMetas)
-import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, freshSkolemTv, getTermEnv, readMetaTv, readMetaTvKind, writeMetaTv)
+import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, freshSkolemTv, getKinds, getTermEnv, readMetaTv, readMetaTvKind, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (forM_, void)
@@ -126,9 +126,10 @@ defaultRuntimeRepMetas envMetaVars ty preds = do
       case solution of
         Just {} -> pure ()
         Nothing -> do
+          kinds <- getKinds
           kind <- zonkType =<< readMetaTvKind unique
           case kind of
-            KRuntimeRep -> writeMetaTv unique liftedRep
+            KRuntimeRep -> writeMetaTv unique (liftedRep kinds)
             _ -> pure ()
 
 -- | The meta-variables reachable from a set of roots, following the kind of
@@ -157,6 +158,7 @@ environmentMetaVars ignoredKeys = do
 -- | Collect free meta-variable uniques from a type.
 collectMetaVars :: TcType -> [Unique]
 collectMetaVars (TcMetaTv u) = [u]
+collectMetaVars TcArrowTy = []
 collectMetaVars (TcTyVar _) = []
 collectMetaVars (TcTyCon _ args) = concatMap collectMetaVars args
 collectMetaVars (TcFunTy a b) = collectMetaVars a ++ collectMetaVars b
@@ -204,6 +206,7 @@ substMetas subst = go
     go (TcMetaTv u) = case lookup u subst of
       Just ty -> ty
       Nothing -> TcMetaTv u
+    go TcArrowTy = TcArrowTy
     go (TcTyVar tv) = TcTyVar tv
     go (TcTyCon tc args) = TcTyCon tc (map go args)
     go (TcFunTy a b) = TcFunTy (go a) (go b)

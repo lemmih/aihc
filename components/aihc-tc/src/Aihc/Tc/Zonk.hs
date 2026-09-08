@@ -19,7 +19,7 @@ where
 import Aihc.Tc.Constraint (EqProvenance (..), TypeTrace (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..))
 import Aihc.Tc.Kind (defaultKindMetas, zonkKind)
-import Aihc.Tc.Monad (TcM, TcState (..), configuredTyCon, readMetaTv, writeMetaTv)
+import Aihc.Tc.Monad (TcM, TcState (..), getKinds, readMetaTv, writeMetaTv)
 import Aihc.Tc.Tidy (tidyDiagnostic)
 import Aihc.Tc.Types
 import Control.Monad.Trans.Class (lift)
@@ -28,6 +28,7 @@ import Control.Monad.Trans.State.Strict (gets, modify')
 -- | Zonk a type: chase meta-variable solutions to their final values.
 zonkType :: TcType -> TcM TcType
 zonkType ty = case ty of
+  TcArrowTy -> pure ty
   TcMetaTv u -> do
     mSol <- readMetaTv u
     case mSol of
@@ -37,7 +38,7 @@ zonkType ty = case ty of
         writeMetaTv u zonked
         pure zonked
   TcTyVar tv -> TcTyVar <$> zonkTyVar tv
-  TcTyCon tc args -> mkTyConApp <$> configuredTyCon tc <*> mapM zonkType args
+  TcTyCon tc args -> TcTyCon tc <$> mapM zonkType args
   TcFunTy a b -> TcFunTy <$> zonkType a <*> zonkType b
   TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> zonkType body
   TcQualTy preds body -> TcQualTy <$> mapM zonkPred preds <*> zonkType body
@@ -63,8 +64,9 @@ defaultTypeKinds :: TcType -> TcM TcType
 defaultTypeKinds ty =
   case ty of
     TcMetaTv {} -> pure ty
+    TcArrowTy -> pure ty
     TcTyVar tv -> TcTyVar <$> defaultTyVarKinds tv
-    TcTyCon tyCon args -> TcTyCon <$> configuredTyCon tyCon <*> mapM defaultTypeKinds args
+    TcTyCon tyCon args -> TcTyCon tyCon <$> mapM defaultTypeKinds args
     TcFunTy argument result -> TcFunTy <$> defaultTypeKinds argument <*> defaultTypeKinds result
     TcForAllTy tv body -> TcForAllTy <$> defaultTyVarKinds tv <*> defaultTypeKinds body
     TcQualTy predicates body -> TcQualTy <$> mapM defaultPredKinds predicates <*> defaultTypeKinds body
@@ -134,9 +136,10 @@ zonkProvenance provenance = do
 -- Tidying replaces internal meta-variable numbers with stable display names.
 finalizeDiagnostics :: TcM ()
 finalizeDiagnostics = do
+  kinds <- getKinds
   diagnostics <- lift (gets tcsDiagnostics)
   zonked <- mapM zonkDiagnostic diagnostics
-  lift (modify' (\state -> state {tcsDiagnostics = map tidyDiagnostic zonked}))
+  lift (modify' (\state -> state {tcsDiagnostics = map (tidyDiagnostic kinds) zonked}))
   where
     zonkDiagnostic diagnostic = do
       kind <- zonkErrorKind (diagKind diagnostic)

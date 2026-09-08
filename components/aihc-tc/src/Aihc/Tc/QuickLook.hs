@@ -80,6 +80,7 @@ metaVariables ty =
   case ty of
     TcTyVar {} -> []
     TcMetaTv unique -> [unique]
+    TcArrowTy -> []
     TcTyCon _ arguments -> concatMap metaVariables arguments
     TcFunTy argument result -> metaVariables argument <> metaVariables result
     TcForAllTy _ body -> metaVariables body

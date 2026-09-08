@@ -1,0 +1,6 @@
+FAIL 1 differences
+hoogle.doc pattern P :: Int -> Thing
+  expected: A pattern synonym.
+  actual:   
+note: instance heads compared without module qualifiers
+note: documentation compared as re-flowed text; line wrapping is not significant

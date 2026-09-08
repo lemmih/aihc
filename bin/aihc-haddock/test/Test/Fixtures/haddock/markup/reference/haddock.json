@@ -1,0 +1,553 @@
+{
+ "inst_ifaces": [
+  {
+   "arg_map": {
+    "$main$Markup$A": {
+     "0": {
+      "document": {
+       "document": {
+        "string": "trailing A doc",
+        "tag": "DocString"
+       },
+       "tag": "DocParagraph"
+      },
+      "meta": {
+       "version": null
+      }
+     }
+    }
+   },
+   "doc_map": {
+    "$main$Markup$%%": {
+     "document": {
+      "document": {
+       "string": "An operator.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Markup$A": {
+     "document": {
+      "document": {
+       "string": "The A thing.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Markup$C": {
+     "document": {
+      "document": {
+       "string": "A class.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Markup$F": {
+     "document": {
+      "document": {
+       "string": "A type family.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Markup$P": {
+     "document": {
+      "document": {
+       "string": "A pattern synonym.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Markup$T": {
+     "document": {
+      "document": {
+       "string": "A type synonym.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Markup$Thing": {
+     "document": {
+      "document": {
+       "string": "A thing.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Markup$fieldB": {
+     "document": {
+      "document": {
+       "string": "field doc before",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Markup$identity": {
+     "document": {
+      "tag": "DocEmpty"
+     },
+     "meta": {
+      "version": "[1,2,3]"
+     }
+    },
+    "$main$Markup$markup": {
+     "document": {
+      "first": {
+       "document": {
+        "string": "Function with markup.",
+        "tag": "DocString"
+       },
+       "tag": "DocParagraph"
+      },
+      "second": {
+       "first": {
+        "document": {
+         "first": {
+          "string": "Uses ",
+          "tag": "DocString"
+         },
+         "second": {
+          "first": {
+           "name": "$main$Markup$identity",
+           "tag": "DocIdentifier"
+          },
+          "second": {
+           "first": {
+            "string": " and ",
+            "tag": "DocString"
+           },
+           "second": {
+            "first": {
+             "string": "Data.Maybe",
+             "tag": "DocModule"
+            },
+            "second": {
+             "first": {
+              "string": " and ",
+              "tag": "DocString"
+             },
+             "second": {
+              "first": {
+               "modName": "Data.List",
+               "tag": "DocIdentifierUnchecked"
+              },
+              "second": {
+               "first": {
+                "string": ", also ",
+                "tag": "DocString"
+               },
+               "second": {
+                "first": {
+                 "document": {
+                  "string": "mono",
+                  "tag": "DocString"
+                 },
+                 "tag": "DocMonospaced"
+                },
+                "second": {
+                 "first": {
+                  "string": ", ",
+                  "tag": "DocString"
+                 },
+                 "second": {
+                  "first": {
+                   "document": {
+                    "string": "emph",
+                    "tag": "DocString"
+                   },
+                   "tag": "DocEmphasis"
+                  },
+                  "second": {
+                   "first": {
+                    "string": ", ",
+                    "tag": "DocString"
+                   },
+                   "second": {
+                    "first": {
+                     "document": {
+                      "string": "bold",
+                      "tag": "DocString"
+                     },
+                     "tag": "DocBold"
+                    },
+                    "second": {
+                     "string": ".",
+                     "tag": "DocString"
+                    },
+                    "tag": "DocAppend"
+                   },
+                   "tag": "DocAppend"
+                  },
+                  "tag": "DocAppend"
+                 },
+                 "tag": "DocAppend"
+                },
+                "tag": "DocAppend"
+               },
+               "tag": "DocAppend"
+              },
+              "tag": "DocAppend"
+             },
+             "tag": "DocAppend"
+            },
+            "tag": "DocAppend"
+           },
+           "tag": "DocAppend"
+          },
+          "tag": "DocAppend"
+         },
+         "tag": "DocAppend"
+        },
+        "tag": "DocParagraph"
+       },
+       "second": {
+        "first": {
+         "first": {
+          "header": {
+           "headerLevel": 1,
+           "headerTitle": {
+            "string": "Header",
+            "tag": "DocString"
+           }
+          },
+          "tag": "DocHeader"
+         },
+         "second": {
+          "first": {
+           "header": {
+            "headerLevel": 2,
+            "headerTitle": {
+             "string": "Sub header",
+             "tag": "DocString"
+            }
+           },
+           "tag": "DocHeader"
+          },
+          "second": {
+           "documents": [
+            {
+             "document": {
+              "string": "bullet one",
+              "tag": "DocString"
+             },
+             "tag": "DocParagraph"
+            },
+            {
+             "document": {
+              "string": "bullet two",
+              "tag": "DocString"
+             },
+             "tag": "DocParagraph"
+            }
+           ],
+           "tag": "DocUnorderedList"
+          },
+          "tag": "DocAppend"
+         },
+         "tag": "DocAppend"
+        },
+        "second": {
+         "first": {
+          "items": [
+           {
+            "document": {
+             "document": {
+              "string": "first",
+              "tag": "DocString"
+             },
+             "tag": "DocParagraph"
+            },
+            "seq": 1
+           },
+           {
+            "document": {
+             "document": {
+              "string": "second",
+              "tag": "DocString"
+             },
+             "tag": "DocParagraph"
+            },
+            "seq": 2
+           }
+          ],
+          "tag": "DocOrderedList"
+         },
+         "second": {
+          "first": {
+           "definitions": [
+            {
+             "document": {
+              "string": "term",
+              "tag": "DocString"
+             },
+             "y": {
+              "string": "definition",
+              "tag": "DocString"
+             }
+            }
+           ],
+           "tag": "DocDefList"
+          },
+          "second": {
+           "first": {
+            "document": {
+             "string": "birdtrack code\nmore",
+             "tag": "DocString"
+            },
+            "tag": "DocCodeBlock"
+           },
+           "second": {
+            "first": {
+             "document": {
+              "hyperlink": {
+               "hyperlinkLabel": null,
+               "hyperlinkUrl": "http://example.com"
+              },
+              "tag": "DocHyperlink"
+             },
+             "tag": "DocParagraph"
+            },
+            "second": {
+             "first": {
+              "document": {
+               "hyperlink": {
+                "hyperlinkLabel": {
+                 "string": "link label",
+                 "tag": "DocString"
+                },
+                "hyperlinkUrl": "http://example.com"
+               },
+               "tag": "DocHyperlink"
+              },
+              "tag": "DocParagraph"
+             },
+             "second": {
+              "first": {
+               "document": {
+                "string": " math display ",
+                "tag": "DocMathDisplay"
+               },
+               "tag": "DocParagraph"
+              },
+              "second": {
+               "first": {
+                "string": "markup x == x",
+                "tag": "DocProperty"
+               },
+               "second": {
+                "first": {
+                 "document": {
+                  "string": "anchor",
+                  "tag": "DocAName"
+                 },
+                 "tag": "DocParagraph"
+                },
+                "second": {
+                 "first": {
+                  "document": {
+                   "picture": {
+                    "pictureLabel": "pic",
+                    "pictureUrl": "http://example.com/p.png"
+                   },
+                   "tag": "DocPic"
+                  },
+                  "tag": "DocParagraph"
+                 },
+                 "second": {
+                  "first": {
+                   "table": {
+                    "tableBodyRows": [
+                     [
+                      {
+                       "tableCellColspan": 1,
+                       "tableCellContents": {
+                        "string": "c",
+                        "tag": "DocString"
+                       },
+                       "tableCellRowspan": 1
+                      },
+                      {
+                       "tableCellColspan": 1,
+                       "tableCellContents": {
+                        "string": "d",
+                        "tag": "DocString"
+                       },
+                       "tableCellRowspan": 1
+                      }
+                     ]
+                    ],
+                    "tableHeaderRows": [
+                     [
+                      {
+                       "tableCellColspan": 1,
+                       "tableCellContents": {
+                        "string": "a",
+                        "tag": "DocString"
+                       },
+                       "tableCellRowspan": 1
+                      },
+                      {
+                       "tableCellColspan": 1,
+                       "tableCellContents": {
+                        "string": "b",
+                        "tag": "DocString"
+                       },
+                       "tableCellRowspan": 1
+                      }
+                     ]
+                    ]
+                   },
+                   "tag": "DocTable"
+                  },
+                  "second": {
+                   "document": {
+                    "string": "Third paragraph with a\n line break. Escaped /slash/ and unicode: \u03bb.",
+                    "tag": "DocString"
+                   },
+                   "tag": "DocParagraph"
+                  },
+                  "tag": "DocAppend"
+                 },
+                 "tag": "DocAppend"
+                },
+                "tag": "DocAppend"
+               },
+               "tag": "DocAppend"
+              },
+              "tag": "DocAppend"
+             },
+             "tag": "DocAppend"
+            },
+            "tag": "DocAppend"
+           },
+           "tag": "DocAppend"
+          },
+          "tag": "DocAppend"
+         },
+         "tag": "DocAppend"
+        },
+        "tag": "DocAppend"
+       },
+       "tag": "DocAppend"
+      },
+      "tag": "DocAppend"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Markup$meth": {
+     "document": {
+      "document": {
+       "string": "method",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    }
+   },
+   "exports": [
+    "$main$Markup$%%",
+    "$main$Markup$P",
+    "$main$Markup$identity",
+    "$main$Markup$markup",
+    "$main$Markup$C",
+    "$main$Markup$meth",
+    "$main$Markup$F",
+    "$main$Markup$T",
+    "$main$Markup$Thing",
+    "$main$Markup$A",
+    "$main$Markup$B",
+    "$main$Markup$fieldB"
+   ],
+   "fix_map": {
+    "$main$Markup$%%": {
+     "direction": "infixr",
+     "prec": 5
+    }
+   },
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [
+     "MonoLocalBinds",
+     "TypeFamilies",
+     "ExplicitNamespaces",
+     "PatternSynonyms"
+    ],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Markup",
+   "options": [],
+   "visible_exports": [
+    "$main$Markup$Thing",
+    "$main$Markup$A",
+    "$main$Markup$B",
+    "$main$Markup$fieldB",
+    "$main$Markup$markup",
+    "$main$Markup$identity",
+    "$main$Markup$T",
+    "$main$Markup$C",
+    "$main$Markup$meth",
+    "$main$Markup$%%",
+    "$main$Markup$F",
+    "$main$Markup$P"
+   ]
+  }
+ ],
+ "link_env": {
+  "$main$Markup$%%": "Markup",
+  "$main$Markup$A": "Markup",
+  "$main$Markup$B": "Markup",
+  "$main$Markup$C": "Markup",
+  "$main$Markup$F": "Markup",
+  "$main$Markup$P": "Markup",
+  "$main$Markup$T": "Markup",
+  "$main$Markup$Thing": "Markup",
+  "$main$Markup$fieldB": "Markup",
+  "$main$Markup$identity": "Markup",
+  "$main$Markup$markup": "Markup",
+  "$main$Markup$meth": "Markup"
+ },
+ "package_info": "markup-0.1.0.0"
+}

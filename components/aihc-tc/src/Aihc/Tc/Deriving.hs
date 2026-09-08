@@ -158,11 +158,12 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvE
               targetType <- attachedTargetType classSpan targetInfo params targetKind
               checkedStrategy <- checkDerivingStrategy extensions targetFlavor className (ciOrigin classInfo) tvEnv targetKind classSpan strategy
               fallback <- defaultStockFallback className (ciOrigin classInfo) strategy checkedStrategy
+              kinds <- getKinds
               methods <- derivingClassMethods classInfo
               let headTypes = checkedArguments <> [targetType]
                   strategyTypes = case checkedStrategy of TcDerivingVia viaType -> [viaType]; _ -> []
                   quantified = filter (\param -> any (typeMentionsTyVar (paramTyVar param)) (headTypes <> strategyTypes)) params
-              pure (Just ((mkDerivingPlan classSpan checkedStrategy classInfo (map paramTyVar quantified) headTypes dataType TcDerivingInferContext methods) {tcDerivingStockFallback = fallback}))
+              pure (Just ((mkDerivingPlan kinds classSpan checkedStrategy classInfo (map paramTyVar quantified) headTypes dataType TcDerivingInferContext methods) {tcDerivingStockFallback = fallback}))
 
 attachedTargetType :: SourceSpan -> TyConInfo -> [ParamInfo] -> TcType -> TcM TcType
 attachedTargetType sourceSpan targetInfo params expectedKind = do
@@ -223,9 +224,10 @@ checkStandaloneDerivingPlan extensions derivingDecl =
               emitError classSpan (standaloneDerivingArityError className (length (ciTyVars classInfo)) (length headArguments))
               pure Nothing
           | otherwise -> do
+              kinds <- getKinds
               checkedHead <- zipWithM (checkSurfaceType tvEnv) headArguments (map tvKind (ciTyVars classInfo))
               checkedContext <- mapM (surfacePredToPred tvEnv) (standaloneDerivingContext derivingDecl)
-              let targetKind = maybe KType (tvKind . snd) (unsnoc (ciTyVars classInfo))
+              let targetKind = maybe (typeKind kinds) (tvKind . snd) (unsnoc (ciTyVars classInfo))
               targetFlavor <- standaloneTargetFlavor checkedHead
               checkedStrategy <- checkDerivingStrategy extensions targetFlavor className (ciOrigin classInfo) tvEnv targetKind classSpan (standaloneDerivingStrategy derivingDecl)
               tyVars <- mapM (defaultTyVarKinds . paramTyVar) params
@@ -235,7 +237,7 @@ checkStandaloneDerivingPlan extensions derivingDecl =
               strategy <- defaultDerivingStrategyKinds checkedStrategy
               methods <- derivingClassMethods classInfo
               dataType <- standaloneTargetDataType headTypes
-              pure (Just ((mkDerivingPlan classSpan strategy classInfo tyVars headTypes dataType (TcDerivingExplicitContext context) methods) {tcDerivingStockFallback = fallback}))
+              pure (Just ((mkDerivingPlan kinds classSpan strategy classInfo tyVars headTypes dataType (TcDerivingExplicitContext context) methods) {tcDerivingStockFallback = fallback}))
   where
     implicitParam name = do
       rawTyVar <- freshSkolemTv name
@@ -243,8 +245,8 @@ checkStandaloneDerivingPlan extensions derivingDecl =
       let tyVar = setTyVarKind kind rawTyVar
       pure ParamInfo {paramName = name, paramTyVar = tyVar, paramKind = kind}
 
-mkDerivingPlan :: SourceSpan -> TcDerivingStrategy -> ClassInfo -> [TyVarId] -> [TcType] -> Maybe DataTypeInfo -> TcDerivingContext -> [TcClassMethodAnnotation] -> TcDerivingPlan
-mkDerivingPlan sourceSpan strategy classInfo tyVars headTypes dataType context methods =
+mkDerivingPlan :: TcKinds -> SourceSpan -> TcDerivingStrategy -> ClassInfo -> [TyVarId] -> [TcType] -> Maybe DataTypeInfo -> TcDerivingContext -> [TcClassMethodAnnotation] -> TcDerivingPlan
+mkDerivingPlan kinds sourceSpan strategy classInfo tyVars headTypes dataType context methods =
   TcDerivingPlan
     { tcDerivingSourceSpan = sourceSpan,
       tcDerivingStrategy = strategy,
@@ -257,7 +259,7 @@ mkDerivingPlan sourceSpan strategy classInfo tyVars headTypes dataType context m
       tcDerivingDataType = dataType,
       tcDerivingContext = context,
       tcDerivingClassTyVars = ciTyVars classInfo,
-      tcDerivingClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes classInfo),
+      tcDerivingClassSuperClasses = map (constraintTypeDictBinder kinds) (ciSuperClassTypes classInfo),
       tcDerivingClassMethods = methods,
       tcDerivingDefaultMethods = ciDefaultMethods classInfo,
       tcDerivingDefaultSignatures = [(methodName, predicates) | (methodName, ForAll _ predicates _) <- ciDefaultSignatures classInfo]
@@ -320,9 +322,9 @@ defaultDerivingStrategyKinds strategy =
     TcDerivingVia viaType -> TcDerivingVia <$> defaultTypeKinds viaType
     _ -> pure strategy
 
-constraintTypeDictBinder :: TcType -> TcDictBinderAnnotation
-constraintTypeDictBinder ty =
-  case constraintTypeToPred ty of
+constraintTypeDictBinder :: TcKinds -> TcType -> TcDictBinderAnnotation
+constraintTypeDictBinder kinds ty =
+  case constraintTypeToPred kinds ty of
     Just (ClassPred classTyCon arguments) -> TcDictBinderAnnotation (tyConName classTyCon) arguments ty
     _ -> TcDictBinderAnnotation "<constraint>" [] ty
 
@@ -343,6 +345,7 @@ typeMentionsTyVar target ty =
   case ty of
     TcTyVar tyVar -> tyVar == target
     TcMetaTv {} -> False
+    TcArrowTy -> False
     TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
     TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
     TcForAllTy tyVar body -> tyVar /= target && typeMentionsTyVar target body

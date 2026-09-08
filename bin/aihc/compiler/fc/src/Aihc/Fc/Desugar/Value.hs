@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 -- | Direct value desugaring from checked source syntax to System FC.
 module Aihc.Fc.Desugar.Value
@@ -69,14 +68,21 @@ import Aihc.Tc.Evidence qualified as Ev
 import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
+    TcKinds,
     TcType (..),
     TyCon,
     TyVarId,
     TypeScheme (..),
     Unique (..),
+    addrRep,
     applySubst,
     applySubstPred,
     constraintTypeToPred,
+    int16Rep,
+    int32Rep,
+    int64Rep,
+    int8Rep,
+    intRep,
     isUnliftedTypeInEnv,
     mkTyConWithOrigin,
     runtimeRepOfTypeInEnv,
@@ -85,18 +91,12 @@ import Aihc.Tc.Types
     tyConModuleName,
     tyConName,
     tyConPackageId,
-    typeKindType,
-    pattern AddrRep,
-    pattern Int16Rep,
-    pattern Int32Rep,
-    pattern Int64Rep,
-    pattern Int8Rep,
-    pattern IntRep,
-    pattern Word16Rep,
-    pattern Word32Rep,
-    pattern Word64Rep,
-    pattern Word8Rep,
-    pattern WordRep,
+    typeKind,
+    word16Rep,
+    word32Rep,
+    word64Rep,
+    word8Rep,
+    wordRep,
   )
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, unless, zipWithM)
@@ -873,6 +873,7 @@ foreignTypeNewtypeDependencies ty = do
       case current of
         TcTyVar {} -> []
         TcMetaTv {} -> []
+        TcArrowTy -> []
         TcTyCon tyCon arguments ->
           [foreignNewtypeDependency dataType | dataType <- newtypes, dtiTyCon dataType == tyCon]
             <> concatMap (go newtypes) arguments
@@ -1203,8 +1204,9 @@ dropClassPredicate classTyCon predicates =
 
 makeContextDictionary :: Int -> TcDictBinderAnnotation -> ValueM Dictionary
 makeContextDictionary index annotation = do
+  kinds <- valueKinds
   binder <- freshBinder ("$d" <> T.pack (show index)) (tcDictBinderType annotation)
-  case constraintTypeToPred (tcDictBinderType annotation) of
+  case constraintTypeToPred kinds (tcDictBinderType annotation) of
     Just predicate -> pure (Dictionary predicate binder)
     Nothing -> failValue ("invalid checked class dictionary type: " <> show (tcDictBinderType annotation))
 
@@ -1962,7 +1964,7 @@ mapMaybeM :: (a -> ValueM (Maybe b)) -> [a] -> ValueM [b]
 mapMaybeM action values = catMaybes <$> mapM action values
 
 newtypeFieldType :: DataTypeInfo -> TcType -> Syn.Pattern -> ValueM TcType
-newtypeFieldType dataType scrutineeType child =
+newtypeFieldType dataType scrutineeType child = do
   case dtiConstructors dataType of
     [constructor]
       | Just (Just fieldType) <- foreignConstructorField scrutineeType constructor ->
@@ -1970,8 +1972,9 @@ newtypeFieldType dataType scrutineeType child =
     _ -> requiredPatternType child
 
 newtypePatternArguments :: Syn.Pattern -> ValueM [TcType]
-newtypePatternArguments pattern' =
-  case constructorResultType (length (patternChildren pattern')) (fromBinderType pattern') of
+newtypePatternArguments pattern' = do
+  kinds <- gets (ceKinds . vsConvertEnv)
+  case constructorResultType (length (patternChildren pattern')) (fromBinderType kinds pattern') of
     TcTyCon _ arguments -> pure arguments
     ty -> failValue ("newtype pattern has an invalid checked type: " <> show ty)
 
@@ -2178,11 +2181,12 @@ patternConstructor pattern' =
     unsupported -> failValue ("unsupported System FC pattern: " <> take 80 (show unsupported))
 
 patternLiteral :: Syn.Literal -> ValueM Literal
-patternLiteral literal =
+patternLiteral literal = do
+  kinds <- valueKinds
   case Syn.peelLiteralAnn literal of
-    Syn.LitInt value numericType _ -> LitInt <$> convertRuntimeRep (numericRepresentation numericType) <*> pure value
-    Syn.LitChar value _ -> LitChar <$> convertRuntimeRep WordRep <*> pure value
-    Syn.LitCharHash value _ -> LitChar <$> convertRuntimeRep WordRep <*> pure value
+    Syn.LitInt value numericType _ -> LitInt <$> convertRuntimeRep (numericRepresentation kinds numericType) <*> pure value
+    Syn.LitChar value _ -> LitChar <$> convertRuntimeRep (wordRep kinds) <*> pure value
+    Syn.LitCharHash value _ -> LitChar <$> convertRuntimeRep (wordRep kinds) <*> pure value
     unsupported -> failValue ("unsupported System FC pattern literal: " <> show unsupported)
 
 isBoxedCharacterLiteral :: Syn.Literal -> Bool
@@ -2275,8 +2279,12 @@ literalType literal =
     Syn.LitAnn annotation inner -> (tcAnnType <$> Syn.fromAnnotation annotation) <|> literalType inner
     _ -> Nothing
 
-fromBinderType :: Syn.Pattern -> TcType
-fromBinderType pattern' = fromMaybe typeKindType (patternType pattern')
+-- | The kind vocabulary of the compiler that checked this module.
+valueKinds :: ValueM TcKinds
+valueKinds = gets (ceKinds . vsConvertEnv)
+
+fromBinderType :: TcKinds -> Syn.Pattern -> TcType
+fromBinderType kinds pattern' = fromMaybe (typeKind kinds) (patternType pattern')
 
 nameTcType :: Syn.UnqualifiedName -> Maybe TcType
 nameTcType name =
@@ -2470,20 +2478,24 @@ desugarAnnotatedExpr annotation inner = do
               desugarAnnotatedExpr annotation primitiveLiteral
         Syn.EInt value numericType _
           | numericType /= Syn.TInteger -> do
-              representation <- convertRuntimeRep (numericRepresentation numericType)
+              kinds <- valueKinds
+              representation <- convertRuntimeRep (numericRepresentation kinds numericType)
               pure (ExLit (LitInt representation value))
         Syn.EChar value _ -> do
+          kinds <- valueKinds
           constructor <- boxedCharConstructor
-          representation <- convertRuntimeRep WordRep
+          representation <- convertRuntimeRep (wordRep kinds)
           pure (ExApp (ExVar constructor) (ExLit (LitChar representation value)))
         Syn.ECharHash value _ -> do
-          representation <- convertRuntimeRep WordRep
+          kinds <- valueKinds
+          representation <- convertRuntimeRep (wordRep kinds)
           pure (ExLit (LitChar representation value))
         Syn.EString value _ -> desugarString annotation value
         _
           | isTemplateHaskellQuote inner -> desugarTemplateHaskellQuote annotation
         Syn.EStringHash value _ -> do
-          representation <- convertRuntimeRep AddrRep
+          kinds <- valueKinds
+          representation <- convertRuntimeRep (addrRep kinds)
           pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
         Syn.EList elements -> desugarList annotation elements
         Syn.EListComp expression statements -> desugarListComp annotation expression statements
@@ -2761,6 +2773,7 @@ desugarStrictConstructor name annotation strictFlags = do
       evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
       fields <- mapM (freshBinder "_strict_field") fieldTypes
       convertedResult <- convertCheckedType resultType
+      kinds <- valueKinds
       kindEnv <- gets (ceKindEnv . vsConvertEnv)
       let applied =
             foldl
@@ -2768,7 +2781,7 @@ desugarStrictConstructor name annotation strictFlags = do
               (foldl ExApp (foldl ExTyApp (ExVar constructor) types) evidence)
               (map (ExVar . binderName) fields)
           forced (strict, binder, fieldType) inner
-            | strict && not (isUnliftedTypeInEnv kindEnv fieldType) = do
+            | strict && not (isUnliftedTypeInEnv kinds kindEnv fieldType) = do
                 evaluated <- freshBinder "_strict_forced" fieldType
                 pure
                   ( ExCase
@@ -3212,9 +3225,10 @@ desugarString annotation value = do
     _ -> do
       -- Spell the list out when the type checker recorded some other element
       -- type, so the desugared term keeps that type.
+      kinds <- valueKinds
       convertedType <- convertCheckedType elementType
       charConstructor <- boxedCharConstructor
-      representation <- convertRuntimeRep WordRep
+      representation <- convertRuntimeRep (wordRep kinds)
       nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
       consName <- primitiveName "GHC.Types" ":" SortDataConstructor
       let nil = ExTyApp (ExVar nilName) convertedType
@@ -3241,8 +3255,9 @@ desugarTuple annotation flavor elements = do
 
 checkedRuntimeRep :: TcType -> ValueM Type
 checkedRuntimeRep ty = do
+  kinds <- valueKinds
   kindEnv <- gets (ceKindEnv . vsConvertEnv)
-  liftEither (runtimeRepOfTypeInEnv kindEnv ty) >>= convertRuntimeRep
+  liftEither (runtimeRepOfTypeInEnv kinds kindEnv ty) >>= convertRuntimeRep
 
 desugarTupleElement :: TcType -> Maybe Syn.Expr -> ValueM (Expr, [Binder])
 desugarTupleElement _ (Just expression) = (,[]) <$> desugarExpr expression
@@ -3546,13 +3561,14 @@ desugarLocalDecls declarations bodyType body = do
         LocalRecursiveBinds binds -> pure (ExRec binds innerExpression)
         LocalStrictBinds binds -> pure (foldr ExLet innerExpression binds)
     allocationHasUnliftedBinder allocation = do
+      kinds <- valueKinds
       kindEnv <- gets (ceKindEnv . vsConvertEnv)
       let types =
             case allocation of
               LocalNamedAllocation _ _ ty _ -> [ty]
               LocalPatternAllocation _ _ _ rhsType binders _ -> rhsType : [ty | (_, _, ty) <- binders]
               LocalImplicitParamAllocation _ _ _ ty -> [ty]
-      pure (any (isUnliftedTypeInEnv kindEnv) types)
+      pure (any (isUnliftedTypeInEnv kinds kindEnv) types)
     allocateLocal (LocalNamedGroup group) = do
       let key = groupKey group
           name = groupName group
@@ -3761,7 +3777,8 @@ desugarCallStackPush (packageName, moduleName') function site parent = do
   packageText <- desugarStringValue (packageIdText currentPackage)
   moduleText <- desugarStringValue currentModule
   fileText <- desugarStringValue (Ev.callSiteFile site)
-  intRepresentation <- convertRuntimeRep IntRep
+  kinds <- valueKinds
+  intRepresentation <- convertRuntimeRep (intRep kinds)
   intConstructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
   charName <- primitiveName "GHC.Types" "Char" SortTypeConstructor
   listName <- primitiveName "GHC.Types" "[]" SortTypeConstructor
@@ -3802,19 +3819,20 @@ desugarCallStackEmpty (packageName, moduleName') =
 -- the NUL character is encoded as the overlong two-byte sequence
 -- @0xC0 0x80@ so that it never terminates the string.
 desugarStringValue :: Text -> ValueM Expr
-desugarStringValue value =
+desugarStringValue value = do
+  kinds <- valueKinds
   case T.unpack value of
     characters@(_ : _ : _) -> do
       let (unpacker, bytes)
             | all latin1Safe characters = ("unpackCString#", BS.pack (map (fromIntegral . fromEnum) characters))
             | otherwise = ("unpackCStringUtf8#", BS.concat (map modifiedUtf8 characters))
       unpackName <- primitiveName "GHC.CString" unpacker SortValue
-      representation <- convertRuntimeRep AddrRep
+      representation <- convertRuntimeRep (addrRep kinds)
       pure (ExApp (ExVar unpackName) (ExLit (LitAddr representation bytes)))
     characters -> do
       charName <- primitiveName "GHC.Types" "Char" SortTypeConstructor
       charConstructor <- boxedCharConstructor
-      representation <- convertRuntimeRep WordRep
+      representation <- convertRuntimeRep (wordRep kinds)
       desugarFcList
         (TyCon charName)
         [ExApp (ExVar charConstructor) (ExLit (LitChar representation character)) | character <- characters]
@@ -3881,7 +3899,8 @@ desugarTypeableTyCon package moduleName' typeName = do
   kindRepTypeConstructor <- primitiveName "GHC.Types" "KindRepTYPE" SortDataConstructor
   boxedRepConstructor <- primitiveName "GHC.Types" "BoxedRep" SortDataConstructor
   liftedConstructor <- primitiveName "GHC.Types" "Lifted" SortDataConstructor
-  intRepresentation <- convertRuntimeRep IntRep
+  kinds <- valueKinds
+  intRepresentation <- convertRuntimeRep (intRep kinds)
   packageName <- desugarTrName package
   moduleValue <- desugarTrName moduleName'
   nameValue <- desugarTrName typeName
@@ -4000,8 +4019,9 @@ desugarRationalLiteral value = do
 desugarIntegerLiteral :: Integer -> ValueM Expr
 desugarIntegerLiteral value = do
   constructor <- primitiveName "GHC.Prim.Integer" "IS" SortDataConstructor
-  intRepresentation <- convertRuntimeRep IntRep
-  wordRepresentation <- convertRuntimeRep WordRep
+  kinds <- valueKinds
+  intRepresentation <- convertRuntimeRep (intRep kinds)
+  wordRepresentation <- convertRuntimeRep (wordRep kinds)
   let small integer = ExApp (ExVar constructor) (ExLit (LitInt intRepresentation integer))
       coreName text = Name text SortValue (nameOrigin constructor)
       apply name = foldl ExApp (ExVar (coreName name))
@@ -4304,20 +4324,20 @@ convertRuntimeRep runtimeRep = do
   env <- gets vsConvertEnv
   liftEither (convertRep env runtimeRep)
 
-numericRepresentation :: Syn.NumericType -> TcType
-numericRepresentation numericType =
+numericRepresentation :: TcKinds -> Syn.NumericType -> TcType
+numericRepresentation kinds numericType =
   case numericType of
-    Syn.TInteger -> IntRep
-    Syn.TIntHash -> IntRep
-    Syn.TWordHash -> WordRep
-    Syn.TInt8Hash -> Int8Rep
-    Syn.TInt16Hash -> Int16Rep
-    Syn.TInt32Hash -> Int32Rep
-    Syn.TInt64Hash -> Int64Rep
-    Syn.TWord8Hash -> Word8Rep
-    Syn.TWord16Hash -> Word16Rep
-    Syn.TWord32Hash -> Word32Rep
-    Syn.TWord64Hash -> Word64Rep
+    Syn.TInteger -> intRep kinds
+    Syn.TIntHash -> intRep kinds
+    Syn.TWordHash -> wordRep kinds
+    Syn.TInt8Hash -> int8Rep kinds
+    Syn.TInt16Hash -> int16Rep kinds
+    Syn.TInt32Hash -> int32Rep kinds
+    Syn.TInt64Hash -> int64Rep kinds
+    Syn.TWord8Hash -> word8Rep kinds
+    Syn.TWord16Hash -> word16Rep kinds
+    Syn.TWord32Hash -> word32Rep kinds
+    Syn.TWord64Hash -> word64Rep kinds
 
 withLocals :: [(TcTermKey, (Binder, TcType))] -> ValueM a -> ValueM a
 withLocals additions action = do
