@@ -3487,7 +3487,6 @@ directPatternBindings pattern' binder ty =
   case pattern' of
     Syn.PAnn _ inner -> directPatternBindings inner binder ty
     Syn.PParen inner -> directPatternBindings inner binder ty
-    Syn.PStrict inner -> directPatternBindings inner binder ty
     Syn.PIrrefutable inner -> directPatternBindings inner binder ty
     Syn.PTypeSig inner _ -> directPatternBindings inner binder ty
     Syn.PVar name -> Just <$> binderEntry name binder ty
