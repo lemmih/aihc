@@ -15,6 +15,7 @@ extra-source-files:
   compiler/fc/test/Test/Fixtures/fc-lint/pass/*.fc
   compiler/fc/test/Test/Fixtures/fc/*.fc
   compiler/fc/test/Test/Fixtures/golden/*.yaml
+  compiler/grin/test/Test/Fixtures/grin-lint/*.yaml
   compiler/grin/test/Test/Fixtures/grin-snapshot/*.yaml
   compiler/grin/test/Test/Fixtures/grin/*.yaml
   compiler/lir/test/Test/Fixtures/lir/asm/*.lir
@@ -101,7 +102,6 @@ library
     Aihc.Cli.BuildExe
     Aihc.Cli.Install
     Aihc.Cli.Options
-    Aihc.Cli.PackageInterface
     Aihc.Cli.PackageManifest
     Aihc.Cli.ResolveArtifact
     Aihc.Cli.Runtime

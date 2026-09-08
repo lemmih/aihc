@@ -73,8 +73,6 @@ import Aihc.Parser.Syntax
     TypeSynDecl (..),
     UnqualifiedName (..),
     ValueDecl (..),
-    applyExtensionSetting,
-    applyImpliedExtensions,
     binderHeadName,
     binderHeadParams,
     fromAnnotation,
@@ -126,6 +124,7 @@ import Aihc.Tc.Deriving.Newtype (checkNewtypeInstance)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
+import Aihc.Tc.Extensions (effectiveModuleExtensions)
 import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
@@ -920,9 +919,7 @@ annotateDeclDerivingTc extensions decl =
     _ -> pure decl
 
 moduleEnabledExtensions :: Module -> [Extension]
-moduleEnabledExtensions modu =
-  applyImpliedExtensions $
-    foldr applyExtensionSetting [] (moduleLanguagePragmas modu)
+moduleEnabledExtensions = effectiveModuleExtensions . moduleLanguagePragmas
 
 annotateDeclTc :: (Text, Text) -> Map Text [Text] -> Map Text TcType -> Decl -> TcM Decl
 annotateDeclTc origin classMethods checkedValueTypes decl =

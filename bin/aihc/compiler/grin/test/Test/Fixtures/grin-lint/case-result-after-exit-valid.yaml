@@ -1,0 +1,12 @@
+program: |
+  $entry -> IntRep =
+    case (0 :: IntRep) as choice%1 :: IntRep of
+      0 ->
+        exit (0 :: IntRep)
+      1 ->
+        constant (1 :: IntRep)
+      _ ->
+        constant (2 :: IntRep)
+error: none
+status: pass
+reason: Branches that return have the same layout. The exit branch has no result.

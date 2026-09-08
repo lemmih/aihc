@@ -16,9 +16,11 @@ module Aihc.Tc.Solve.Family
 where
 
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
-import Aihc.Tc.Monad (TcM, getKinds, getTyConEnv, getTypeFamilyInstances, lookupTyConByIdentity)
+import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyInstances, lookupTyConByIdentity)
 import Aihc.Tc.Types
 import Control.Monad (foldM)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (gets)
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -56,8 +58,11 @@ reducePredFamilies predicate =
 -- | Whether a type constructor is a type family.
 isTypeFamilyTyCon :: TcM (TyCon -> Bool)
 isTypeFamilyTyCon = do
-  tyCons <- getTyConEnv
-  pure (\tyCon -> maybe False ((== TypeFamilyTyCon) . tciFlavor) (Map.lookup tyCon tyCons))
+  tyCons <- lift $ gets tcsGlobalTyCons
+  pure $ \tyCon ->
+    case Map.lookup (tyConKey tyCon) tyCons of
+      Just info -> tciTyCon info == tyCon && tciFlavor info == TypeFamilyTyCon
+      Nothing -> False
 
 -- | Whether a type is a saturated application of a type family that no
 -- equation reduces yet. The equality solver waits for such a type.

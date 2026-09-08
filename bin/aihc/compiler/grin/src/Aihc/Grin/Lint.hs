@@ -12,6 +12,7 @@ import Aihc.Grin.Gc (GcGrinProgram, gcFunctionContinuations, gcGrinProgram)
 import Aihc.Grin.Syntax
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -212,6 +213,7 @@ lintExpr env bound expr =
         <> lintValue bound status
     GrinCase scrutinee binder alternatives ->
       lintValue bound scrutinee
+        <> caseRepresentationErrors alternatives
         <> concatMap (lintAlt env (Set.insert binder bound)) alternatives
     GrinThrow exception -> lintValue bound exception
     GrinCatch _ action handler state ->
@@ -257,6 +259,16 @@ bindRepresentationErrors vars valueExpr =
     _ -> []
   where
     expected = map grinVarRuntimeRep vars
+
+caseRepresentationErrors :: [GrinAlt] -> [GrinLintError]
+caseRepresentationErrors alternatives =
+  case mapMaybe (exprRuntimeReps . grinAltRhs) alternatives of
+    expected : rest ->
+      [ GrinLintResultLayout "case alternative" expected actual
+      | actual <- rest,
+        actual /= expected
+      ]
+    [] -> []
 
 lintAlt :: LintEnv -> Set GrinVar -> GrinAlt -> [GrinLintError]
 lintAlt env bound alt =
@@ -349,9 +361,7 @@ exprRuntimeReps expr =
     GrinHalt {} -> Nothing
     GrinExit {} -> Nothing
     GrinCase _ _ alternatives ->
-      case alternatives of
-        first : _ -> exprRuntimeReps (grinAltRhs first)
-        [] -> Nothing
+      listToMaybe (mapMaybe (exprRuntimeReps . grinAltRhs) alternatives)
     GrinThrow {} -> Nothing
     GrinCatch runtimeRep _ _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinForeignCallExpr foreignCall _ ->

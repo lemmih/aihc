@@ -1,0 +1,11 @@
+extensions: [KindSignatures, PolyKinds]
+modules:
+  - |
+    {-# LANGUAGE KindSignatures, NoPolyKinds, PolyKinds #-}
+    module Test where
+    data Proxy a = Proxy
+    data Box a = Box a
+    result :: Proxy Box
+    result = Proxy
+status: pass
+reason: The last PolyKinds setting must control declaration kind generalization.

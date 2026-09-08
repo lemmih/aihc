@@ -125,7 +125,6 @@ import Aihc.Parser.Syntax
     ExportSpec (..),
     Expr (..),
     Extension (..),
-    ExtensionSetting (..),
     GuardQualifier (..),
     ImportItem (..),
     InstanceDeclItem (..),
@@ -134,8 +133,6 @@ import Aihc.Parser.Syntax
     Pattern (..),
     SourceSpan (..),
     Type (..),
-    applyExtensionSetting,
-    applyImpliedExtensions,
     fromAnnotation,
     mkAnnotation,
   )
@@ -146,6 +143,7 @@ import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDeri
 import Aihc.Tc.Deriving.References (DerivingReference (..), DerivingReferences (..))
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
+import Aihc.Tc.Extensions (effectiveModuleExtensions)
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
@@ -606,18 +604,6 @@ typecheckModuleWithState config st m =
           tcEnvScopedTypeVariables = ScopedTypeVariables `elem` enabledExtensions
         }
     enabledExtensions = effectiveModuleExtensions (moduleLanguagePragmas m)
-
--- | The extensions of a module. The pragmas apply in source order, so a
--- later pragma wins, and an enabled extension brings its implied
--- extensions with it at once. A later NoMonoLocalBinds then turns off the
--- MonoLocalBinds that an earlier TypeFamilies implied, like in GHC.
-effectiveModuleExtensions :: [ExtensionSetting] -> [Extension]
-effectiveModuleExtensions = foldl step [MonoLocalBinds, MonomorphismRestriction]
-  where
-    step extensions setting =
-      case setting of
-        EnableExtension _ -> applyImpliedExtensions (applyExtensionSetting setting extensions)
-        DisableExtension _ -> applyExtensionSetting setting extensions
 
 annotateModuleDiagnostics :: [TcDiagnostic] -> Module -> Module
 annotateModuleDiagnostics diagnostics m =

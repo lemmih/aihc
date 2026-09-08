@@ -1,0 +1,17 @@
+extensions: [PolyKinds]
+modules:
+  - |
+    {-# LANGUAGE PolyKinds #-}
+    {-# LANGUAGE NoPolyKinds #-}
+    module Test where
+    data Proxy a = Proxy
+annotated:
+  - |
+    {-# LANGUAGE PolyKinds #-}
+    {-# LANGUAGE NoPolyKinds #-}
+    module Test where
+    data Proxy a = Proxy
+         │         └─ type: ∀ a. Proxy a
+         └─ type: Type → Type
+status: pass
+reason: A later NoPolyKinds pragma prevents kind generalization.

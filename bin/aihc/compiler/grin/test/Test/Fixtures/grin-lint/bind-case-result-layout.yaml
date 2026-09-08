@@ -1,0 +1,12 @@
+program: |
+  $entry -> IntRep =
+    value%2 :: IntRep <-
+      case (0 :: IntRep) as choice%1 :: IntRep of
+        0 ->
+          constant (1 :: IntRep)
+        _ ->
+          constant (2 :: WordRep)
+    constant (3 :: IntRep)
+error: result-layout
+status: pass
+reason: Each case alternative must agree with the bind result layout.

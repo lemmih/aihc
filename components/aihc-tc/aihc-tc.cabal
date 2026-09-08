@@ -58,6 +58,7 @@ library
     Aihc.Tc.Wiring
     Aihc.Tc.Zonk
 
+  other-modules: Aihc.Tc.Extensions
   hs-source-dirs: src
   build-depends:
     aihc-parser,

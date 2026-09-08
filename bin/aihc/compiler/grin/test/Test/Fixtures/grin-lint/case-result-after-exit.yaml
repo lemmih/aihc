@@ -1,0 +1,10 @@
+program: |
+  $entry -> IntRep =
+    case (0 :: IntRep) as choice%1 :: IntRep of
+      0 ->
+        exit (0 :: IntRep)
+      _ ->
+        constant (2 :: WordRep)
+error: result-layout
+status: pass
+reason: A branch that exits must not hide an invalid result layout.
