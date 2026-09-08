@@ -94,7 +94,6 @@ module Aihc.Tc
     typeKindType,
     typeKindInEnv,
     runtimeRepOfTypeInEnv,
-    isLiftedTypeInEnv,
     isUnliftedTypeInEnv,
     TcAnnotation (..),
     TcDerivingAnnotation (..),
