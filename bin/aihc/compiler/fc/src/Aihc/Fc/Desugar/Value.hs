@@ -3830,7 +3830,7 @@ desugarStringValue value =
 
 desugarTypeableEvidence :: Maybe (Text, Text) -> TcType -> [Ev.EvTerm] -> ValueM Expr
 desugarTypeableEvidence origin ty argumentEvidence = do
-  (_, argumentTypes) <- typeableTypeView ty
+  (_, _, _, argumentTypes) <- typeableTypeView ty
   unless (length argumentTypes == length argumentEvidence) (failValue "Typeable evidence argument count does not match its type")
   argumentRepresentations <- zipWithM (desugarTypeableArgument origin) argumentTypes argumentEvidence
   representation <- desugarTypeRepresentation origin ty argumentRepresentations
@@ -3861,24 +3861,49 @@ desugarTypeableArgument origin ty evidence = do
 
 desugarTypeRepresentation :: Maybe (Text, Text) -> TcType -> [Expr] -> ValueM Expr
 desugarTypeRepresentation origin ty arguments = do
-  (typeName, _) <- typeableTypeView ty
+  (package, moduleName', typeName, _) <- typeableTypeView ty
   someTypeRepName <- typeableName origin "Type.Reflection" "SomeTypeRep" SortTypeConstructor
   typeRepConstructor <- typeableName origin "Type.Reflection" "TypeRep" SortDataConstructor
-  tyConAxiom <- typeableName origin "Type.Reflection" "$ax$TyCon" SortAxiom
-  charName <- primitiveName "GHC.Types" "Char" SortTypeConstructor
-  charConstructor <- boxedCharConstructor
-  wordRep <- convertRuntimeRep WordRep
-  let someTypeRepType = TyCon someTypeRepName
-      charType = TyCon charName
-      typeNameChars =
-        [ ExApp (ExVar charConstructor) (ExLit (LitChar wordRep character))
-        | character <- T.unpack typeName
-        ]
-  nameList <- desugarFcList charType typeNameChars
-  argumentList <- desugarFcList someTypeRepType arguments
-  let tyCon = ExCast nameList (CoSym (CoAxiom tyConAxiom []))
+  tyCon <- desugarTypeableTyCon package moduleName' typeName
+  argumentList <- desugarFcList (TyCon someTypeRepName) arguments
   typeArguments <- typeableTypeArguments typeRepConstructor ty
   pure (ExApp (ExApp (foldl ExTyApp (ExVar typeRepConstructor) typeArguments) tyCon) argumentList)
+
+-- | The @GHC.Types.TyCon@ that the 'Typeable' evidence of a type carries.
+--
+-- The package, the module and the name identify the constructor, and are
+-- what aihc compares two of them by. The kind arity and the kind
+-- representation are a placeholder: the kind of a saturated type of kind
+-- @Type@, whatever the arity of the constructor. Filling them in needs the
+-- kind of the constructor, which the evidence does not carry, and nothing
+-- in aihc reads either field back. They are there so that a constructor
+-- has the shape that code written against GHC expects.
+desugarTypeableTyCon :: Text -> Text -> Text -> ValueM Expr
+desugarTypeableTyCon package moduleName' typeName = do
+  tyConConstructor <- primitiveName "GHC.Types" "TyCon" SortDataConstructor
+  moduleConstructor <- primitiveName "GHC.Types" "Module" SortDataConstructor
+  intConstructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
+  kindRepTypeConstructor <- primitiveName "GHC.Types" "KindRepTYPE" SortDataConstructor
+  boxedRepConstructor <- primitiveName "GHC.Types" "BoxedRep" SortDataConstructor
+  liftedConstructor <- primitiveName "GHC.Types" "Lifted" SortDataConstructor
+  intRepresentation <- convertRuntimeRep IntRep
+  packageName <- desugarTrName package
+  moduleValue <- desugarTrName moduleName'
+  nameValue <- desugarTrName typeName
+  let modul = foldl ExApp (ExVar moduleConstructor) [packageName, moduleValue]
+      kindArgs = ExApp (ExVar intConstructor) (ExLit (LitInt intRepresentation 0))
+      kindRep =
+        ExApp
+          (ExVar kindRepTypeConstructor)
+          (ExApp (ExVar boxedRepConstructor) (ExVar liftedConstructor))
+  pure (foldl ExApp (ExVar tyConConstructor) [modul, nameValue, kindArgs, kindRep])
+
+-- | A @GHC.Types.TrName@ holding a name. The dynamic form takes a list,
+-- which is what 'desugarStringValue' builds.
+desugarTrName :: Text -> ValueM Expr
+desugarTrName value = do
+  constructor <- primitiveName "GHC.Types" "TrNameD" SortDataConstructor
+  ExApp (ExVar constructor) <$> desugarStringValue value
 
 desugarFcList :: Type -> [Expr] -> ValueM Expr
 desugarFcList elementType elements = do
@@ -3908,11 +3933,16 @@ typeableTypeArguments name argument = case nameOrigin name of
     convertTyConApplicationArguments (mkTyConWithOrigin package moduleName' (nameText name) 1) [argument]
   _ -> failValue "Typeable support type has no module origin"
 
-typeableTypeView :: TcType -> ValueM (Text, [TcType])
+-- | The type constructor of a type and its arguments, with the package and
+-- the module that name the constructor.
+typeableTypeView :: TcType -> ValueM (Text, Text, Text, [TcType])
 typeableTypeView ty =
   case ty of
-    TcTyCon tyCon arguments -> pure (tyConName tyCon, arguments)
-    TcFunTy argument result -> pure ("(->)", [argument, result])
+    TcTyCon tyCon arguments ->
+      pure (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon, tyConName tyCon, arguments)
+    TcFunTy argument result -> do
+      package <- gets (cePrimPackage . vsConvertEnv)
+      pure (packageIdText package, "GHC.Types", "(->)", [argument, result])
     _ -> failValue ("cannot construct Typeable evidence for " <> show ty)
 
 desugarResolvedOccurrence :: TcAnnotation -> ResolutionAnnotation -> ValueM Expr

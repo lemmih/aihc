@@ -29,6 +29,12 @@ module GHC.Types
     RuntimeRep (..),
     VecCount (..),
     VecElem (..),
+    Module (..),
+    TrName (..),
+    KindBndr,
+    KindRep (..),
+    TypeLitSort (..),
+    TyCon (..),
     Tuple0# (..),
     Tuple2# (..),
     Tuple3# (..),
@@ -96,7 +102,7 @@ module GHC.Types
   )
 where
 
-import GHC.Prim (Char#, Double#, Float#, Int#)
+import GHC.Prim (Addr#, Char#, Double#, Float#, Int#)
 
 data List a = [] | a : [a]
 
@@ -174,6 +180,41 @@ data VecElem
   | Word32ElemRep
   | Word64ElemRep
   | Word8ElemRep
+
+-- | The package and the module that a type constructor was declared in.
+data Module = Module TrName TrName
+
+-- | A name in the type representation machinery. A static name comes from a
+-- string literal in the compiled program; a dynamic one is built at run time.
+data TrName
+  = TrNameS Addr#
+  | TrNameD [Char]
+
+-- | A kind variable of a 'KindRep', named by its position in the kind
+-- arguments of the type constructor that the representation belongs to.
+type KindBndr = Int
+
+-- | The kind of a type constructor, with its own kind arguments left as
+-- 'KindRepVar' binders.
+data KindRep
+  = KindRepTyConApp TyCon [KindRep]
+  | KindRepVar !KindBndr
+  | KindRepApp KindRep KindRep
+  | KindRepFun KindRep KindRep
+  | KindRepTYPE !RuntimeRep
+  | KindRepTypeLitS TypeLitSort Addr#
+  | KindRepTypeLitD TypeLitSort [Char]
+
+data TypeLitSort
+  = TypeLitSymbol
+  | TypeLitNat
+  | TypeLitChar
+
+-- | A type constructor, as the compiler builds it for the 'Typeable'
+-- evidence of a type. GHC keeps a fingerprint in the first two fields and
+-- compares constructors by it; aihc compares them by name and so has no
+-- fingerprint to keep.
+data TyCon = TyCon Module TrName Int KindRep
 
 {- ORMOLU_DISABLE -}
 

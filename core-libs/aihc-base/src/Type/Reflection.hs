@@ -13,7 +13,11 @@ module Type.Reflection
     typeOf,
     splitApps,
     typeRepTyCon,
+    tyConPackage,
+    tyConModule,
     tyConName,
+    modulePackage,
+    moduleName,
     rnfTypeRep,
     rnfSomeTypeRep,
     rnfTyCon,
@@ -23,13 +27,9 @@ where
 
 import Data.Bool (Bool (..), (&&))
 import Data.Proxy (Proxy (..))
-import GHC.Base (List (..), String, foldr, (.))
+import GHC.Base (List (..), String, foldr, unpackCString#, (.))
 import GHC.Prim (ord#, seq, (==#))
-import GHC.Types (Char (..))
-
-newtype TyCon = TyCon String
-
-data Module = Module String String
+import GHC.Types (Char (..), Module (..), TrName (..), TyCon (..))
 
 data TypeRep a = TypeRep TyCon [SomeTypeRep]
 
@@ -48,8 +48,24 @@ typeRepTyCon (TypeRep tyCon _) = tyCon
 splitApps :: TypeRep a -> (TyCon, [SomeTypeRep])
 splitApps (TypeRep tyCon arguments) = (tyCon, arguments)
 
+trNameString :: TrName -> String
+trNameString (TrNameS address) = unpackCString# address
+trNameString (TrNameD name) = name
+
+modulePackage :: Module -> String
+modulePackage (Module package _) = trNameString package
+
+moduleName :: Module -> String
+moduleName (Module _ name) = trNameString name
+
+tyConPackage :: TyCon -> String
+tyConPackage (TyCon modul _ _ _) = modulePackage modul
+
+tyConModule :: TyCon -> String
+tyConModule (TyCon modul _ _ _) = moduleName modul
+
 tyConName :: TyCon -> String
-tyConName (TyCon name) = name
+tyConName (TyCon _ name _ _) = trNameString name
 
 eqTypeRep :: TypeRep a -> TypeRep b -> Bool
 eqTypeRep (TypeRep leftTyCon leftArgs) (TypeRep rightTyCon rightArgs) =
@@ -58,8 +74,14 @@ eqTypeRep (TypeRep leftTyCon leftArgs) (TypeRep rightTyCon rightArgs) =
 eqSomeTypeRep :: SomeTypeRep -> SomeTypeRep -> Bool
 eqSomeTypeRep (SomeTypeRep left) (SomeTypeRep right) = eqTypeRep left right
 
+-- | Type constructors are compared by their qualified name. GHC compares
+-- fingerprints, which aihc does not build; the name, the module and the
+-- package identify a constructor just as well.
 eqTyCon :: TyCon -> TyCon -> Bool
-eqTyCon (TyCon leftName) (TyCon rightName) = sameString leftName rightName
+eqTyCon left right =
+  sameString (tyConPackage left) (tyConPackage right)
+    && sameString (tyConModule left) (tyConModule right)
+    && sameString (tyConName left) (tyConName right)
 
 sameTypeReps :: [SomeTypeRep] -> [SomeTypeRep] -> Bool
 sameTypeReps [] [] = True
@@ -81,10 +103,13 @@ sameChar (C# left) (C# right) =
     _ -> True
 
 rnfTyCon :: TyCon -> ()
-rnfTyCon (TyCon name) = rnfString name
+rnfTyCon (TyCon modul name _ _) = rnfModule modul `seq` rnfTrName name
 
 rnfModule :: Module -> ()
-rnfModule (Module package name) = rnfString package `seq` rnfString name
+rnfModule (Module package name) = rnfTrName package `seq` rnfTrName name
+
+rnfTrName :: TrName -> ()
+rnfTrName name = rnfString (trNameString name)
 
 rnfSomeTypeRep :: SomeTypeRep -> ()
 rnfSomeTypeRep (SomeTypeRep representation) = rnfTypeRep representation

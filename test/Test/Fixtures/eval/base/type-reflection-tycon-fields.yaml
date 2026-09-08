@@ -1,0 +1,42 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Proxy (Proxy (..))
+    import Type.Reflection (typeRep, typeRepTyCon, tyConModule, tyConName, tyConPackage)
+    import Type.Reflection.Unsafe (KindRep (..), mkTyCon, tyConKindArgs, tyConKindRep)
+
+    boolTyCon :: String
+    boolTyCon =
+      let tyCon = typeRepTyCon (typeRep (Proxy :: Proxy Bool))
+       in tyConPackage tyCon ++ ":" ++ tyConModule tyCon ++ "." ++ tyConName tyCon
+
+    -- A constructor built outside the compiler reads back the same way.
+    roundTrip :: String
+    roundTrip =
+      let tyCon = mkTyCon "acme" "Acme.Widget" "Widget" 1 (KindRepVar 0)
+       in tyConPackage tyCon
+            ++ ":"
+            ++ tyConModule tyCon
+            ++ "."
+            ++ tyConName tyCon
+            ++ "/"
+            ++ show (tyConKindArgs tyCon)
+            ++ "/"
+            ++ kindRepTag (tyConKindRep tyCon)
+
+    kindRepTag :: KindRep -> String
+    kindRepTag (KindRepVar index) = "var" ++ show index
+    kindRepTag _ = "other"
+
+    result :: Bool
+    result =
+      boolTyCon
+        == "aihc-prim:GHC.Types.Bool"
+        && roundTrip
+        == "acme:Acme.Widget.Widget/1/var0"
+output: |
+  True
+expression: result
+status: pass
+reason: a type constructor carries the package, the module, the kind arity and the kind representation that GHC's TyCon has
