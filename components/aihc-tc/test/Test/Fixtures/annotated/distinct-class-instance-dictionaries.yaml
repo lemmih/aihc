@@ -1,0 +1,49 @@
+extensions: []
+modules:
+- |
+  module A where
+  class Select a where
+    select :: a -> a
+- |
+  module B where
+  class Select a where
+    select :: a -> a
+- |
+  module Test where
+  import A as A
+  import B as B
+  data Item = Item
+  instance A.Select Item where
+    select input = input
+  instance B.Select Item where
+    select input = input
+annotated:
+- |-
+  module A where
+  class Select a where
+  └─ class methods: select ∷ ∀ a. (Select a) ⇒ a → a
+    select :: a -> a
+- |-
+  module B where
+  class Select a where
+  └─ class methods: select ∷ ∀ a. (Select a) ⇒ a → a
+    select :: a -> a
+- |-
+  module Test where
+  import A as A
+  import B as B
+  data Item = Item
+       │      └─ type: Item
+       └─ type: Type
+  instance A.Select Item where
+  └─ $fSelectItem ∷ () ⇒ Select Item
+    select input = input
+    │      └─ type: Item
+    └─ select ∷ Item → Item
+  instance B.Select Item where
+  └─ $fSelectItem$Test ∷ () ⇒ Select Item
+    select input = input
+    │      └─ type: Item
+    └─ select ∷ Item → Item
+status: pass
+reason: Classes with the same source name retain their exact dictionary identities.
