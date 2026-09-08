@@ -101,10 +101,10 @@
             addCheckSettings drv old
             // {
               testTargets = [suite];
-              # Four test workers leave processors available for package builds.
+              # Eight test workers share the compiler test workload.
               # Keep the capability count equal to the test worker count.
               # Record garbage collection statistics for CI performance checks.
-              testFlags = (addHiddenSuccesses old).testFlags ++ ["--num-threads" "4" "+RTS" "-N4" "-A32m" "-s" "-RTS"];
+              testFlags = (addHiddenSuccesses old).testFlags ++ ["--num-threads" "8" "+RTS" "-N8" "-A32m" "-s" "-RTS"];
               # The C toolchain is only needed while the tests run. Adding it to
               # testToolDepends would append --extra-include-dirs/--extra-lib-dirs
               # to the configure flags, which changes GHC's flag hash and forces a
@@ -485,7 +485,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N4
+      export GHCRTS=-N2
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -545,7 +545,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N4
+      export GHCRTS=-N2
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -574,7 +574,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N4
+      export GHCRTS=-N2
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -626,7 +626,7 @@
       ];
     } ''
       set -euo pipefail
-      export GHCRTS=-N4
+      export GHCRTS=-N2
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -727,8 +727,6 @@
   in
     mkSourceCheck "aihc-example-${exampleName}-${target}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
       set -euo pipefail
-      # Reserve build slots for shared package checks before examples start.
-      test -d ${hackageInstallTests}
       export GHCRTS=-N1
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
@@ -889,8 +887,6 @@
   in
     mkSourceCheck "aihc-wasip3-example-${exampleName}" (sources.exampleSrc exampleName pkgs) wasip3ExampleInputs ''
       set -euo pipefail
-      # Reserve build slots for shared package checks before examples start.
-      test -d ${hackageInstallTests}
       export GHCRTS=-N1
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8

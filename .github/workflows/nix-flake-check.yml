@@ -89,5 +89,5 @@ jobs:
 
       - name: Run flake checks
         env:
-          NIX_CHECK_JOBS: ${{ needs.select-runner.outputs.use_self_hosted == 'true' && '8' || '4' }}
+          NIX_CHECK_JOBS: ${{ needs.select-runner.outputs.use_self_hosted == 'true' && '16' || '4' }}
         run: nix flake check --max-jobs "$NIX_CHECK_JOBS" --print-build-logs
