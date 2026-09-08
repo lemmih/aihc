@@ -1,0 +1,36 @@
+extensions: [FlexibleInstances]
+modules:
+- |
+  module Test where
+  data LeftItem = LeftItem
+  data RightItem = RightItem
+  class Select a where
+    select :: a -> a
+  instance Select [LeftItem] where
+    select input = input
+  instance Select [RightItem] where
+    select input = input
+annotated:
+- |-
+  module Test where
+  data LeftItem = LeftItem
+       │          └─ type: LeftItem
+       └─ type: Type
+  data RightItem = RightItem
+       │           └─ type: RightItem
+       └─ type: Type
+  class Select a where
+  └─ class methods: select ∷ ∀ a. (Select a) ⇒ a → a
+    select :: a -> a
+  instance Select [LeftItem] where
+  └─ $fSelectList ∷ () ⇒ Select [LeftItem]
+    select input = input
+    │      └─ type: [LeftItem]
+    └─ select ∷ [LeftItem] → [LeftItem]
+  instance Select [RightItem] where
+  └─ $fSelectList$GHC.Types ∷ () ⇒ Select [RightItem]
+    select input = input
+    │      └─ type: [RightItem]
+    └─ select ∷ [RightItem] → [RightItem]
+status: pass
+reason: Distinct list element types retain distinct instance dictionary names.

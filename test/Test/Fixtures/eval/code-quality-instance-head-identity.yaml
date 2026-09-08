@@ -1,0 +1,22 @@
+extensions: [FlexibleInstances]
+modules:
+  - |
+    {-# LANGUAGE FlexibleInstances #-}
+    module Test where
+    data Flag = First | Second
+    data Pair = Pair Flag Flag
+    data LeftItem = LeftItem
+    data RightItem = RightItem
+    class Select a where
+      select :: a -> Flag
+    instance Select [LeftItem] where
+      select _ = First
+    instance Select [RightItem] where
+      select _ = Second
+    result :: Pair
+    result = Pair (select [LeftItem]) (select [RightItem])
+expression: result
+output: |
+  Pair First Second
+status: pass
+reason: Distinct list instance heads must retain distinct dictionary identities.

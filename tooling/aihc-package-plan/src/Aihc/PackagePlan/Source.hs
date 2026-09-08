@@ -15,7 +15,7 @@ where
 
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Hackage.Cpp (DependencyVersions, cppMacrosFromOptions, injectSyntheticCppMacros)
+import Aihc.Hackage.Cpp (DependencyVersions, compilerCppHeader, cppMacrosFromOptions, injectSyntheticCppMacros)
 import Aihc.PackagePlan.Diagnostic (DiagnosticSourceMap, cppDiagnosticValue, diagnosticSourceMap, parseDiagnosticValue)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -111,7 +111,7 @@ resolveInclude :: FilePath -> [FilePath] -> FilePath -> Cpp.IncludeRequest -> IO
 resolveInclude packageRoot includeDirs currentFile req =
   findFirst (includeCandidates packageRoot includeDirs currentFile req)
   where
-    findFirst [] = pure Nothing
+    findFirst [] = pure (TE.encodeUtf8 <$> compilerCppHeader (normalise (Cpp.includePath req)))
     findFirst (candidate : rest) = do
       exists <- doesFileExist candidate
       if exists
