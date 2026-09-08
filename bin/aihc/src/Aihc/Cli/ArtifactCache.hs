@@ -9,7 +9,6 @@ module Aihc.Cli.ArtifactCache
 where
 
 import Aihc.CompilerBuildIdentity (compilerBuildIdentity)
-import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
 import Control.Exception (IOException, bracket, evaluate, try)
 import Control.Monad (forM, forM_, unless, when)
 import Crypto.Hash.SHA256 qualified as SHA256
@@ -18,14 +17,12 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
 import Data.List (nub, sort)
-import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Numeric (showHex)
 import System.Directory (canonicalizePath, copyFile, createDirectory, createDirectoryIfMissing, doesDirectoryExist, findExecutable, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.FilePath (makeRelative, takeDirectory, (</>))
 import System.IO (hClose, openBinaryTempFile)
-import System.IO.Unsafe (unsafePerformIO)
 
 -- Each field has a length prefix to prevent ambiguous concatenation.
 hashChunks :: [BS.ByteString] -> String
@@ -34,21 +31,11 @@ hashChunks = concatMap hex . BS.unpack . SHA256.hashlazy . BL.fromChunks . conca
     field bytes = [BS8.pack (show (BS.length bytes) <> ":"), bytes]
     hex byte = let value = showHex byte "" in replicate (2 - length value) '0' <> value
 
-{-# NOINLINE executableHashes #-}
-executableHashes :: MVar (Map.Map FilePath String)
-executableHashes = unsafePerformIO (newMVar Map.empty)
-
 executableIdentity :: FilePath -> IO String
 executableIdentity command = do
   found <- findExecutable command
   path <- maybe (ioError (userError ("Compiler tool is absent: " <> command))) canonicalizePath found
-  modifyMVar executableHashes $ \hashes -> case Map.lookup path hashes of
-    Just digest -> pure (hashes, digest)
-    Nothing -> do
-      digest <- concatMap hex . BS.unpack . SHA256.hashlazy <$> BL.readFile path
-      pure (Map.insert path digest hashes, digest)
-  where
-    hex byte = let value = showHex byte "" in replicate (2 - length value) '0' <> value
+  pure (hashChunks [TE.encodeUtf8 (T.pack path)])
 
 sourceFilesHash :: FilePath -> [FilePath] -> IO String
 sourceFilesHash root files = do

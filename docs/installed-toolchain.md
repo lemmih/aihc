@@ -115,7 +115,9 @@ The Cabal build hook generates a compiler identity from declared source files, r
 The compiled program contains this identity as a pure constant.
 The identity requires no runtime executable path or filesystem access.
 The compiler uses the package main library because Cabal custom builds do not support named libraries.
-Host compiler and archiver executables use content hashes, once per process.
+Host compiler and archiver identities use hashes of their resolved paths.
+The cache does not read executable contents.
+After a tool update at the same path, users must remove obsolete cached artifacts.
 The cache does not require Git metadata.
 Source checks use file contents, not timestamps.
 The source set contains the Cabal file and the selected Haskell and C source files.
