@@ -28,10 +28,12 @@ decomposeNominalEquality rawLeft rawRight = do
           pure (Just (zip leftArgs rightArgs))
     decompose (TcFunTy leftArg leftResult) (TcFunTy rightArg rightResult) =
       pure (Just [(leftArg, rightArg), (leftResult, rightResult)])
-    decompose (TcAppTy function argument) (TcFunTy domain range) =
-      pure (Just [(function, TcAppTy TcArrowTy domain), (argument, range)])
-    decompose (TcFunTy domain range) (TcAppTy function argument) =
-      pure (Just [(TcAppTy TcArrowTy domain, function), (range, argument)])
+    decompose (TcAppTy function argument) (TcFunTy domain range) = do
+      arrow <- arrowType
+      pure (Just [(function, TcAppTy arrow domain), (argument, range)])
+    decompose (TcFunTy domain range) (TcAppTy function argument) = do
+      arrow <- arrowType
+      pure (Just [(TcAppTy arrow domain, function), (range, argument)])
     decompose (TcAppTy function argument) (TcTyCon tyCon arguments)
       | not (null arguments) =
           pure (Just [(function, TcTyCon tyCon (init arguments)), (argument, last arguments)])

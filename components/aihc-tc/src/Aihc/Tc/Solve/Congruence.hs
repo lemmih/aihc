@@ -30,6 +30,9 @@ proveGivenEquality predicates left right
       if null equalities then pure Nothing else prove equalities
   where
     prove equalities = do
+      -- Taking a function type apart names the arrow, so the constructor
+      -- has to be declared even though no source syntax mentioned it.
+      _ <- arrowType
       let graph = List.foldl' addGiven Map.empty equalities
           vertices = Set.toList (Set.unions (map subterms (left : right : concat [[a, b] | (a, b, _) <- equalities])))
           pairs = [(a, b) | a : rest <- List.tails vertices, b <- rest]

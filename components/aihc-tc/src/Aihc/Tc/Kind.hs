@@ -542,11 +542,8 @@ inferBuiltinTypeConstructor builtin promotion =
     BuiltinArrow -> do
       kinds <- getKinds
       let kind = KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds))
-      -- The type is a form of its own, but the interface still declares the
-      -- constructor: a partially applied arrow reaches the desugarer by
-      -- name, and the name has to be bound there.
-      _ <- wiredTyCon tcWiringArrowTyCon kind
-      pure (TcArrowTy, kind)
+      arrow <- arrowType
+      pure (arrow, kind)
   where
     promoted = promotion == Promoted
 
