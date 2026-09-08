@@ -1,0 +1,35 @@
+annotated:
+- |-
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  newtype Box s = Box Nat
+          │       └─ type: ∀ s. Nat → Box s
+          └─ type: Type → Type
+  create :: Nat -> (forall s. Box s -> Nat) -> Nat
+  create n fill = fill (Box n)
+  │      │ │      │     └─ type: Nat → Box (); type-args: ()
+  │      │ │      └─ type: Box () → Nat; type-args: ()
+  │      │ └─ type: ∀ s. Box s → Nat
+  │      └─ type: Nat
+  └─ type: Nat → (∀ s. Box s → Nat) → Nat
+  partial :: (forall s. Box s -> Nat) -> Nat
+  partial = (\f g -> f g) (create Z)
+            └─ error: couldn't match t0 with ∀ s. Box s → Nat
+            └─ error: expression has type t0 → Nat, but expected (∀ s. Box s → Nat) → Nat from the type signature for partial
+extensions:
+- RankNTypes
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  newtype Box s = Box Nat
+  create :: Nat -> (forall s. Box s -> Nat) -> Nat
+  create n fill = fill (Box n)
+  partial :: (forall s. Box s -> Nat) -> Nat
+  partial = (\f g -> f g) (create Z)
+reason: a meta-variable never stands for a polytype, so the argument type of
+  the lambda cannot be guessed as the polymorphic parameter of create
+status: pass

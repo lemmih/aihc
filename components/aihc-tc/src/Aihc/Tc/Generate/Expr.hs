@@ -572,7 +572,7 @@ inferApplication sp rebuild fun arg = do
   zonkedFunTy <- zonkType funTy
   case zonkedFunTy of
     TcFunTy expectedArgTy resultTy
-      | hasLeadingForAll expectedArgTy -> do
+      | isPolyType expectedArgTy -> do
           (arg', argCts) <- checkHigherRankArgument sp expectedArgTy arg
           pure (rebuild fun' arg', resultTy, funCts <> argCts)
       | otherwise -> do
@@ -597,7 +597,7 @@ inferApplication sp rebuild fun arg = do
 instantiateFunctionType :: SourceSpan -> Expr -> TcType -> TcM (Expr, TcType, [Ct])
 instantiateFunctionType sp fun funTy = do
   zonked <- zonkType funTy
-  if hasLeadingForAll zonked
+  if isPolyType zonked
     then do
       (instantiated, typeArgs, predicates) <- instantiateSigmaType zonked
       cts <- mapM (predToCt sp "<application>") predicates
@@ -655,11 +655,6 @@ checkHigherRankArgument sp expectedTy arg = do
       pure $ case result of
         DictSolved -> []
         DictStuck stuck -> [stuck]
-
-hasLeadingForAll :: TcType -> Bool
-hasLeadingForAll TcForAllTy {} = True
-hasLeadingForAll TcQualTy {} = True
-hasLeadingForAll _ = False
 
 instantiateSigmaType :: TcType -> TcM (TcType, [TcType], [Pred])
 instantiateSigmaType = go []
