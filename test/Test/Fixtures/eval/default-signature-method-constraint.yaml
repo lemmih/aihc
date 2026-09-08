@@ -1,0 +1,26 @@
+extensions: [DefaultSignatures]
+modules:
+  - |
+    module Test where
+
+    data Unit = Unit
+
+    class Required a where
+      required :: a -> a
+
+    instance Required Unit where
+      required value = value
+
+    class Apply a where
+      apply :: Required b => a -> b -> b
+      default apply :: (Required a, Required b) => a -> b -> b
+      apply value result = required value `seq` required result
+
+    instance Apply Unit
+
+    answer :: Unit
+    answer = apply Unit Unit
+expression: answer
+output: Unit
+status: pass
+reason: A default signature uses the instance constraint and the method constraint.
