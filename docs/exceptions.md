@@ -168,11 +168,13 @@ composed from evidence for `a`, so polymorphic code can build representations
 from given dictionaries. `cast` compares complete trees and invokes the one
 trusted lifted-value `unsafeCoerce#` only after equality succeeds.
 
-The compiler currently identifies `TyCon` values primarily by their local name.
-Before separately compiled packages with colliding type names are supported,
-that identity must become `(unit, module, occurrence)` throughout resolution,
-type checking, interfaces, and `TypeRep`. This is a compiler identity issue,
-not something exception handling should paper over with a wider hash.
+A `TyCon` carries the package, the module and the name of the constructor,
+laid out as GHC's `GHC.Types.TyCon`, and two of them are equal when all three
+agree. GHC compares fingerprints instead; aihc builds none, and the qualified
+name identifies a constructor just as well. The kind arity and the kind
+representation of a `TyCon` are placeholders: `Typeable` evidence does not
+carry the kind of the constructor, and nothing in aihc reads either field
+back.
 
 The compatible library layer provides:
 
