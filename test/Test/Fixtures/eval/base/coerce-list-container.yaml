@@ -1,0 +1,13 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Data.Coerce (coerce)
+    newtype Age = Age Int
+    unwrap :: [Age] -> [Int]
+    unwrap = coerce
+    result = unwrap [Age 1, Age 2] == [1, 2]
+expression: result
+output: 'True'
+status: pass
+reason: Coercible preserves representation through the list type

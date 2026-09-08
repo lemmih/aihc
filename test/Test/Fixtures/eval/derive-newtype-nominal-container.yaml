@@ -1,0 +1,24 @@
+extensions:
+  - DerivingStrategies
+  - GeneralizedNewtypeDeriving
+  - RoleAnnotations
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, GeneralizedNewtypeDeriving, RoleAnnotations #-}
+    module Test where
+
+    type role Box nominal
+    data Box a = Box a
+    class Boxed a where
+      box :: a -> Box a
+    instance Boxed Int where
+      box = Box
+    newtype N = N Int
+      deriving newtype Boxed
+    result :: Bool
+    result = True
+expression: result
+output: ''
+error: 'typecheck error: Test: newtype deriving cannot prove a safe coercion for method box'
+status: fail
+reason: method casts do not lift through a nominal parameter
