@@ -498,7 +498,7 @@ inferBuiltinTypeConstructor builtin promotion =
           tyCon <- wiredTyCon tcWiringNilDataCon resultKind
           pure (TcTyCon tyCon [], resultKind)
       | otherwise -> do
-          tyCon <- lookupWiredTyCon tcWiringListTyCon (KFun KType KType)
+          tyCon <- wiredTyCon tcWiringListTyCon (KFun KType KType)
           pure (TcTyCon tyCon [], KFun KType KType)
     BuiltinCons
       | promoted -> do
@@ -514,16 +514,11 @@ inferBuiltinTypeConstructor builtin promotion =
           pure (TcTyCon tyCon [], kind)
     BuiltinTuple flavor arity
       | promoted -> do
-          -- @\'(,)@ has kind @k1 -> k2 -> (k1, k2)@, so the tuple type
-          -- constructor has to be in scope to give the result kind.
+          -- @\'(,)@ has kind @k1 -> k2 -> (k1, k2)@, so the result kind
+          -- names the tuple type constructor of the same arity.
           argKinds <- replicateM arity freshKindMeta
           wiredType <- wiredTupleTyCon flavor arity
-          let typeName = tyConName wiredType
-          maybeInfo <- lookupTyCon typeName
-          tupleTyCon <-
-            case maybeInfo of
-              Just info -> pure (tciTyCon info)
-              Nothing -> abortTc ("promoted tuple constructor " <> T.unpack typeName <> " has no type constructor in scope")
+          tupleTyCon <- mkWiredTyCon wiredType (foldr KFun KType (replicate arity KType))
           let resultKind = TcTyCon tupleTyCon argKinds
               kind = foldr KFun resultKind argKinds
           wiredData <- wiredTupleDataCon flavor arity
@@ -541,18 +536,16 @@ inferBuiltinTypeConstructor builtin promotion =
   where
     promoted = promotion == Promoted
 
--- | A type constructor whose identity comes from the wiring tables. A
--- declaration of the same name in scope takes precedence, as it does for
--- every other built-in syntactic form.
+-- | A type constructor whose identity comes from the wiring tables.
 knownType :: (TcWiring -> TyCon) -> TcType -> TcM (TcType, TcType)
 knownType select kind = do
-  tyCon <- lookupWiredTyCon select kind
+  tyCon <- wiredTyCon select kind
   pure (TcTyCon tyCon [], kind)
 
 -- | The same, for an identity already taken from the wiring.
 knownWiredType :: TyCon -> TcType -> TcM (TcType, TcType)
 knownWiredType wired kind = do
-  tyCon <- lookupWiredTyConIdentity wired kind
+  tyCon <- mkWiredTyCon wired kind
   pure (TcTyCon tyCon [], kind)
 
 inferUnknownType :: TcM (TcType, TcType)
@@ -822,7 +815,7 @@ applyType f arg = TcAppTy f arg
 
 listType :: TcType -> TcM TcType
 listType ty = do
-  tyCon <- lookupWiredTyCon tcWiringListTyCon (KFun KType KType)
+  tyCon <- wiredTyCon tcWiringListTyCon (KFun KType KType)
   pure (TcTyCon tyCon [ty])
 
 listTypeKind :: TcType -> TcType

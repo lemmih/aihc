@@ -3284,14 +3284,15 @@ typeArguments ty =
 
 -- | Whether the parameters of a class take implicit kind parameters: the
 -- Template Haskell @Lift@ class that the wiring names, and the nominal
--- equality constraint.
+-- equality constraint. A class is identified by its module and its name;
+-- the origin package carries a version that the wiring does not know.
 isImplicitlyKindPolymorphicClass :: (Text, Text) -> Text -> TcM Bool
-isImplicitlyKindPolymorphicClass origin className = do
+isImplicitlyKindPolymorphicClass (_, moduleName') className = do
   wiring <- getWiring
   let equality = tcWiringEqualityTyCon wiring
   pure
-    ( tcWiringIsLiftClass wiring origin className
-        || (snd origin == tyConModuleName equality && className == tyConName equality)
+    ( (moduleName', className) == tcWiringLiftClass wiring
+        || (moduleName' == tyConModuleName equality && className == tyConName equality)
     )
 
 registerClassItem :: Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]

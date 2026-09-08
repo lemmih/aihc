@@ -41,8 +41,6 @@ module Aihc.Tc.Monad
     wiredTupleDataCon,
     wiredTyCon,
     wiredTyConIdentity,
-    lookupWiredTyCon,
-    lookupWiredTyConIdentity,
     lookupWiredTerm,
     boolType,
     charType,
@@ -257,50 +255,35 @@ wiredTyConIdentity :: (TcWiring -> TyCon) -> TcM TyCon
 wiredTyConIdentity select = select <$> getWiring
 
 -- | The type constructor that one wiring entry names, with its kind
--- registered on first use.
+-- registered on first use. The wiring gives the whole identity, so a
+-- declaration of that identity is found by key; a declaration of the same
+-- bare name elsewhere is not this constructor and does not take its place.
 wiredTyCon :: (TcWiring -> TyCon) -> TcType -> TcM TyCon
 wiredTyCon select kind = do
   wired <- wiredTyConIdentity select
   mkWiredTyCon wired kind
 
--- | The type constructor that one wiring entry names, preferring the
--- declaration of that name in scope. Source that declares the list or the
--- kinds itself gets the declared constructor, with its own kind.
-lookupWiredTyCon :: (TcWiring -> TyCon) -> TcType -> TcM TyCon
-lookupWiredTyCon select kind = do
-  wired <- wiredTyConIdentity select
-  lookupWiredTyConIdentity wired kind
-
--- | The same, for an identity already taken from the wiring.
-lookupWiredTyConIdentity :: TyCon -> TcType -> TcM TyCon
-lookupWiredTyConIdentity wired kind = do
-  maybeInfo <- lookupTyConInNamespace (tyConNamespace wired) (tyConName wired)
-  maybe (mkWiredTyCon wired kind) (pure . tciTyCon) maybeInfo
-
--- | The binder of a term that a wiring entry names, preferring the one in
--- scope under its bare name.
+-- | The binder of a term that a wiring entry names. The wiring gives the
+-- whole identity, so the term is found by key and never by scope.
 lookupWiredTerm :: TyCon -> TcM (Maybe TcBinder)
-lookupWiredTerm wired = do
-  sourceBinder <- lookupTerm (tyConName wired)
-  case sourceBinder of
-    Just binder -> pure (Just binder)
-    Nothing -> lookupTermKey (TcTermGlobal (tyConPackageId wired) (tyConModuleName wired) (tyConName wired))
+lookupWiredTerm wired =
+  lookupTermKey (TcTermGlobal (tyConPackageId wired) (tyConModuleName wired) (tyConName wired))
 
 -- | The @Bool@ type that a guard and an @if@ condition have.
 boolType :: TcM TcType
 boolType = do
-  tyCon <- lookupWiredTyCon tcWiringBoolTyCon typeKindType
+  tyCon <- wiredTyCon tcWiringBoolTyCon typeKindType
   pure (TcTyCon tyCon [])
 
 -- | The @Char@ type that a character literal has.
 charType :: TcM TcType
 charType = do
-  tyCon <- lookupWiredTyCon tcWiringCharTyCon typeKindType
+  tyCon <- wiredTyCon tcWiringCharTyCon typeKindType
   pure (TcTyCon tyCon [])
 
 -- | The list type constructor, for a list literal or a comprehension.
 listTyConOfWiring :: TcM TyCon
-listTyConOfWiring = lookupWiredTyCon tcWiringListTyCon (KFun KType KType)
+listTyConOfWiring = wiredTyCon tcWiringListTyCon (KFun KType KType)
 
 -- | The constraint type for one implicit parameter, such as @?x :: Int@.
 --

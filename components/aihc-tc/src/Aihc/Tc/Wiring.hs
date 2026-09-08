@@ -70,11 +70,9 @@ data TcWiring = TcWiring
     -- typed like an application rather than like a function, so that a
     -- higher-rank argument needs no impredicative instantiation.
     tcWiringApplyOperator :: (Text, Text),
-    -- | Whether a class declared in one package and module is the
-    -- Template Haskell @Lift@ class, whose parameters take implicit kind
-    -- parameters. The package identity carries a version, so the test is
-    -- a predicate rather than an identity.
-    tcWiringIsLiftClass :: (Text, Text) -> Text -> Bool
+    -- | The Template Haskell @Lift@ class, as a module name and a class
+    -- name. Its parameters take implicit kind parameters.
+    tcWiringLiftClass :: (Text, Text)
   }
 
 -- | The tables are functions, so a wiring shows as its name alone. The

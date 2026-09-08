@@ -49,7 +49,9 @@ primTcConfig prim =
 -- @GHC.Types@, which also holds the list, the arrow, the kinds, and the
 -- equality constraint. The unlifted primitives live in @GHC.Prim@, the
 -- implicit-parameter constraints in @GHC.Classes@, and the application
--- operator in @GHC.Base@.
+-- operator in @GHC.Base@. The Template Haskell @Lift@ class lives in
+-- aihc-internal, the standin for ghc-internal, as it does in GHC 9.12
+-- and later.
 primTcWiring :: PackageId -> TcWiring
 primTcWiring prim =
   TcWiring
@@ -74,7 +76,7 @@ primTcWiring prim =
       tcWiringPrimitiveTyCon = \name ->
         tyCon ResolutionNamespaceType "GHC.Prim" name 0,
       tcWiringApplyOperator = ("GHC.Base", "$"),
-      tcWiringIsLiftClass = isTemplateHaskellLift
+      tcWiringLiftClass = ("GHC.Internal.TH.Lift", "Lift")
     }
   where
     boxedTuple namespace arity =
@@ -84,15 +86,6 @@ primTcWiring prim =
     types namespace = tyCon namespace "GHC.Types"
     tyCon :: ResolutionNamespace -> Text -> Text -> Int -> TyCon
     tyCon namespace = mkTyConWithNamespace namespace prim
-
--- | The @Lift@ class lives in aihc-internal, the standin for ghc-internal,
--- as it does in GHC 9.12 and later. The package identity of a module
--- carries a version, so the package is matched by prefix.
-isTemplateHaskellLift :: (Text, Text) -> Text -> Bool
-isTemplateHaskellLift (packageId, moduleName') className =
-  "aihc-internal-" `T.isPrefixOf` packageId
-    && moduleName' == "GHC.Internal.TH.Lift"
-    && className == "Lift"
 
 -- | The name of the boxed tuple of one arity.
 boxedTupleTyConName :: Int -> Text

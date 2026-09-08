@@ -1,11 +1,7 @@
 annotated:
 - |-
   module Test where
-  data List a = [] | a : [a]
-       │        │    └─ type: ∀ a. a → [a] → [a]
-       │        └─ type: ∀ a. [a]
-       └─ type: Type → Type
-  infixr 5 :
+  import GHC.Types (List (..))
   (++) :: [a] -> [a] -> [a]
   (++) [] ys = ys
   │    │  └─ type: [a]
@@ -23,10 +19,9 @@ extensions: []
 modules:
 - |
   module Test where
-  data List a = [] | a : [a]
-  infixr 5 :
+  import GHC.Types (List (..))
   (++) :: [a] -> [a] -> [a]
   (++) [] ys = ys
   (++) (x : xs) ys = x : (xs ++ ys)
-reason: Prelude-style List declarations share the builtin list type used by list syntax
+reason: list syntax uses the wired list type constructor of GHC.Types
 status: pass

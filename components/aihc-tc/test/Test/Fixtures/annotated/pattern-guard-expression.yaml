@@ -1,23 +1,20 @@
 annotated:
 - |-
   module Test where
-  data Bool = True | False
-       │      │      └─ type: Bool
-       │      └─ type: Bool
-       └─ type: Type
+  import GHC.Types (Bool (..))
   f x | x == x = x
-  │ │     └─ type: a → a → Bool; type-args: a, a
+  │ │     └─ type: a → a → GHC.Types.Bool; type-args: a, a
   │ └─ type: a
   └─ type: ∀ a. a → a
   (==) a b = True
   │    │ └─ type: b
   │    └─ type: a
-  └─ type: ∀ a b. a → b → Bool
+  └─ type: ∀ a b. a → b → GHC.Types.Bool
 extensions: []
 modules:
 - |
   module Test where
-  data Bool = True | False
+  import GHC.Types (Bool (..))
   f x | x == x = x
   (==) a b = True
 reason: a guard expression calling a locally defined operator instantiates it at the argument type
