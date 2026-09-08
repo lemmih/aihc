@@ -10,6 +10,7 @@ packages:
   tooling/aihc-hackage
   tooling/aihc-testing
   tooling/aihc-resolve-tooling-common
+  tooling/aihc-tc-tooling-common
 
 constraints:
   aihc-cpp ==1.0.0.2,

@@ -5,6 +5,7 @@
   hsPkgs = mkHsPkgs pkgs;
   resolveProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve-tooling-common "resolve-progress";
   resolveExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve-tooling-common "resolve-extension-progress";
+  tcProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc-tooling-common "tc-progress";
   aihcDevExe = pkgs.lib.getExe' hsPkgs.aihc "aihc-dev";
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
   unicode = import ./unicode.nix {inherit pkgs;};
@@ -181,6 +182,14 @@ in {
 
   resolve-extension-progress = mkComponentApp "resolve-extension-progress" "components/aihc-resolve" ''
     ${resolveExtensionProgressExe} "$@"
+  '';
+
+  tc-progress = mkComponentApp "tc-progress" "components/aihc-tc" ''
+    ${tcProgressExe} "$@"
+  '';
+
+  tc-progress-strict = mkComponentApp "tc-progress-strict" "components/aihc-tc" ''
+    ${tcProgressExe} --strict "$@"
   '';
 
   tc-test = mkComponentApp "tc-test" "components/aihc-tc" ''

@@ -72,6 +72,17 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-tc-tooling-common = {
+      src = sources.tcToolingCommonSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--subpath tooling/aihc-tc-tooling-common";
+        srcModifier = src: src;
+      };
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc = {
       src = sources.aihcSrc;
       cabal2nixOptions = {
