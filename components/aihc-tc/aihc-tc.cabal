@@ -41,6 +41,7 @@ library
     Aihc.Tc.Monad
     Aihc.Tc.Solve
     Aihc.Tc.Solve.Canonicalize
+    Aihc.Tc.Solve.Coercible
     Aihc.Tc.Solve.Congruence
     Aihc.Tc.Solve.Decompose
     Aihc.Tc.Solve.Defaulting

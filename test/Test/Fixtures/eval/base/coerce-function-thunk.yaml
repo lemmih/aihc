@@ -1,0 +1,13 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Unsafe.Coerce (unsafeCoerce)
+
+    apply :: (Int -> Int) -> Int
+    apply function = (unsafeCoerce (id function) :: Int -> Int) 3
+
+expression: apply (\x -> x + 1) == 4
+output: "True"
+status: pass
+reason: A coerced function must reach weak head normal form before application

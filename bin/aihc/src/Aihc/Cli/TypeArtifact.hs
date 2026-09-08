@@ -492,18 +492,19 @@ getTypeSynonymInfo :: TyConTable -> Get.Get TypeSynonymInfo
 getTypeSynonymInfo table = expectArray 2 >> (TypeSynonymInfo <$> getList (getTyVar table) <*> getMaybe (getType table))
 
 putDataTypeInfo :: Map TyCon Word64 -> DataTypeInfo -> Builder.Builder
-putDataTypeInfo table info = cborArray 6 <> cborText (dtiName info) <> putTyCon table (dtiTyCon info) <> encodeList (putTyVar table) (dtiTyVars info) <> putType table (dtiResultKind info) <> putTyConFlavor (dtiFlavor info) <> encodeList (putDataConInfo table) (dtiConstructors info)
+putDataTypeInfo table info = cborArray 7 <> cborText (dtiName info) <> putTyCon table (dtiTyCon info) <> encodeList (putTyVar table) (dtiTyVars info) <> putType table (dtiResultKind info) <> putTyConFlavor (dtiFlavor info) <> encodeList (putDataConInfo table) (dtiConstructors info) <> encodeList putBool (dtiNominalRoles info)
 
 getDataTypeInfo :: TyConTable -> Get.Get DataTypeInfo
 getDataTypeInfo table = do
-  expectArray 6
+  expectArray 7
   dtiName <- getText
   dtiTyCon <- getTyCon table
   dtiTyVars <- getList (getTyVar table)
   dtiResultKind <- getType table
   dtiFlavor <- getTyConFlavor
   dtiConstructors <- getList (getDataConInfo table)
-  pure DataTypeInfo {dtiName, dtiTyCon, dtiTyVars, dtiResultKind, dtiFlavor, dtiConstructors}
+  dtiNominalRoles <- getList getBool
+  pure DataTypeInfo {dtiName, dtiTyCon, dtiTyVars, dtiResultKind, dtiFlavor, dtiConstructors, dtiNominalRoles}
 
 putDataConInfo :: Map TyCon Word64 -> DataConInfo -> Builder.Builder
 putDataConInfo table info =

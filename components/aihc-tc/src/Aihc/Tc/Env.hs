@@ -94,7 +94,9 @@ data DataTypeInfo = DataTypeInfo
     dtiTyVars :: ![TyVarId],
     dtiResultKind :: !TcType,
     dtiFlavor :: !TyConFlavor,
-    dtiConstructors :: ![DataConInfo]
+    dtiConstructors :: ![DataConInfo],
+    -- | Parameters with an explicit nominal role.
+    dtiNominalRoles :: ![Bool]
   }
   deriving (Eq, Show, Read)
 

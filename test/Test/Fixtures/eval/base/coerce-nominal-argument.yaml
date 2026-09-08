@@ -1,0 +1,16 @@
+extensions: [RoleAnnotations]
+modules:
+  - |
+    {-# LANGUAGE RoleAnnotations #-}
+    module Test where
+    import Data.Coerce (coerce)
+    newtype Age = Age Int
+    type role Box nominal
+    data Box a = Box a
+    result :: Box Int
+    result = coerce (Box (Age 7))
+expression: result
+output: ""
+error: "typecheck error: Test: unsolved constraint Coercible (Box Age) (Box Int)"
+status: fail
+reason: Coercible does not assume representation roles for arbitrary data type arguments

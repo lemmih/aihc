@@ -24,6 +24,7 @@ import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..))
 import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, mkKnownTyCon)
+import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible)
 import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
@@ -72,6 +73,20 @@ solveDictWithGivensVisited visited givens ct
               pure DictSolved
             Nothing ->
               case (tyConName className, args') of
+                (_, [left, right]) | isCoercibleClass className -> do
+                  info <- lookupClass className
+                  solved <- case info of
+                    Just classInfo
+                      | null (ciMethods classInfo),
+                        null (ciSuperClassTypes classInfo),
+                        null (ciKindTyVars classInfo) ->
+                          solveCoercible left right
+                    _ -> pure False
+                  if solved
+                    then do
+                      bindEvidence (ctEvVar ct) (EvCoercible className left right)
+                      pure DictSolved
+                    else pure (DictStuck ct)
                 ("Typeable", [ty]) -> tryTypeable className ty
                 _ -> do
                   instances <- getClassInstances (tyConName className)

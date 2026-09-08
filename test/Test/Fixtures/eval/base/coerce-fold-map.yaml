@@ -1,0 +1,25 @@
+extensions: [InstanceSigs, ScopedTypeVariables]
+modules:
+  - |
+    {-# LANGUAGE InstanceSigs, ScopedTypeVariables #-}
+    module Test where
+
+    import Data.Coerce (coerce)
+
+    newtype Elem a = Elem a
+    data Tree a = Tree a
+    newtype Seq a = Seq (Tree (Elem a))
+
+    instance Foldable Tree where
+      foldMap f (Tree a) = f a
+
+    instance Foldable Seq where
+      foldMap :: forall m a. Monoid m => (a -> m) -> Seq a -> m
+      foldMap = coerce (foldMap :: (Elem a -> m) -> Tree (Elem a) -> m)
+
+    result :: [Int]
+    result = foldMap (\x -> [x]) (Seq (Tree (Elem 7)))
+expression: result == [7]
+output: "True"
+status: pass
+reason: A coerced foldMap retains the Monoid constraint from its instance signature

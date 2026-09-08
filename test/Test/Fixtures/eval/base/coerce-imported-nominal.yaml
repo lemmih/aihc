@@ -1,0 +1,19 @@
+extensions: [RoleAnnotations]
+modules:
+  - |
+    {-# LANGUAGE RoleAnnotations #-}
+    module Box where
+    type role Box nominal
+    data Box a = Box a
+  - |
+    module Test where
+    import Box
+    import Data.Coerce (coerce)
+    newtype Age = Age Int
+    result :: Box Int
+    result = coerce (Box (Age 7))
+expression: result
+output: ""
+error: "typecheck error: Test: unsolved constraint Coercible (Box Age) (Box Int)"
+status: fail
+reason: A checked interface retains explicit nominal roles

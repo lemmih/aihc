@@ -4,7 +4,9 @@ expected: |-
   global 1.apply = (P$apply/[[BoxedRep Lifted], []])
 
   $apply (x :: BoxedRep Lifted) -> TupleRep [TupleRep [],IntRep] =
-    apply @(TupleRep [TupleRep [],IntRep]) (x :: BoxedRep Lifted) ()
+    function_whnf :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    apply @(TupleRep [TupleRep [],IntRep]) (function_whnf :: BoxedRep Lifted) ()
 extensions:
 - MagicHash
 - UnboxedTuples

@@ -723,7 +723,11 @@ lowerSpecialApplication env resultRep name arguments =
       lowerArgument env status $ \case
         value : _ -> lowerArgument env state (const (pure (GrinExit value)))
         [] -> throwLower "GRIN process exit requires a status value"
-    ("unsafeCoerce#", value : _) -> lowerArgument env value (pure . GrinConstant)
+    ("unsafeCoerce#", value : _) ->
+      lowerArgument env value $ \values ->
+        case values of
+          [result] | isLiftedRuntimeRep resultRep -> pure (GrinEval resultRep result)
+          _ -> pure (GrinConstant values)
     ("raise#", exception : _) ->
       lowerLazy env "exception" exception (pure . GrinThrow)
     ("catch#", action : handler : state : _) ->
