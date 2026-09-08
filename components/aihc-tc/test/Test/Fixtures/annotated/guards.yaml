@@ -1,22 +1,19 @@
 annotated:
 - |-
   module Main where
-  data Bool = False | True
-       │      │       └─ type: Bool
-       │      └─ type: Bool
-       └─ type: Type
+  import GHC.Types (Bool (..))
   data Maybe a = Nothing | Just a
        │         │         └─ type: ∀ a. a → Maybe a
        │         └─ type: ∀ a. Maybe a
        └─ type: Type → Type
   otherwise :: Bool
   otherwise = True
-  └─ type: Bool
+  └─ type: GHC.Types.Bool
   sign :: Bool -> Bool -> Bool
   sign x y
-  │    │ └─ type: Bool
-  │    └─ type: Bool
-  └─ type: Bool → Bool → Bool
+  │    │ └─ type: GHC.Types.Bool
+  │    └─ type: GHC.Types.Bool
+  └─ type: GHC.Types.Bool → GHC.Types.Bool → GHC.Types.Bool
     | x = y
     | otherwise = False
   firstJust :: Maybe a -> a -> a
@@ -33,21 +30,21 @@ annotated:
   └─ type: ∀ a. Maybe a → a → a
   pick :: Bool -> Maybe Bool
   pick b
-  │    └─ type: Bool
-  └─ type: Bool → Maybe Bool
+  │    └─ type: GHC.Types.Bool
+  └─ type: GHC.Types.Bool → Maybe GHC.Types.Bool
     | let c = b, c = Just c
-          │          └─ type: Bool → Maybe Bool; type-args: Bool
-          └─ type: Bool
+          │          └─ type: GHC.Types.Bool → Maybe GHC.Types.Bool; type-args: Bool
+          └─ type: GHC.Types.Bool
     | otherwise = Nothing
-                  └─ type: Maybe Bool; type-args: Bool
+                  └─ type: Maybe GHC.Types.Bool; type-args: Bool
     where
       unused = b
-      └─ type: Bool
+      └─ type: GHC.Types.Bool
 extensions: []
 modules:
 - |
   module Main where
-  data Bool = False | True
+  import GHC.Types (Bool (..))
   data Maybe a = Nothing | Just a
   otherwise :: Bool
   otherwise = True

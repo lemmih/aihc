@@ -18,6 +18,7 @@ module Aihc.Prim.Wiring
     primDerivingReferences,
     boxedTupleTyConName,
     unboxedTupleTyConName,
+    unboxedSumTyConName,
   )
 where
 
@@ -41,24 +42,48 @@ primTcConfig :: PackageId -> TcConfig
 primTcConfig prim =
   mkTcConfig prim (primDerivingReferences prim) (primTcWiring prim)
 
--- | The built-in syntax type constructors of the aihc core libraries.
+-- | The names that the aihc core libraries give the type checker.
 --
 -- @aihc-prim@ declares the boxed tuples in @GHC.Tuple@ under GHC\'s current
 -- names -- @Unit@, @Solo@, @Tuple2@, and so on -- and the unboxed ones in
--- @GHC.Types@.
+-- @GHC.Types@, which also holds the list, the arrow, the kinds, and the
+-- equality constraint. The unlifted primitives live in @GHC.Prim@, the
+-- implicit-parameter constraints in @GHC.Classes@, and the application
+-- operator in @GHC.Base@. The Template Haskell @Lift@ class lives in
+-- aihc-internal, the standin for ghc-internal, as it does in GHC 9.12
+-- and later.
 primTcWiring :: PackageId -> TcWiring
 primTcWiring prim =
   TcWiring
     { tcWiringBoxedTupleTyCon = boxedTuple ResolutionNamespaceType,
       tcWiringBoxedTupleDataCon = boxedTuple ResolutionNamespaceTerm,
       tcWiringUnboxedTupleTyCon = unboxedTuple ResolutionNamespaceType,
-      tcWiringUnboxedTupleDataCon = unboxedTuple ResolutionNamespaceTerm
+      tcWiringUnboxedTupleDataCon = unboxedTuple ResolutionNamespaceTerm,
+      tcWiringUnboxedSumTyCon = \arity ->
+        types ResolutionNamespaceType (unboxedSumTyConName arity) arity,
+      tcWiringListTyCon = types ResolutionNamespaceType "[]" 1,
+      tcWiringNilDataCon = types ResolutionNamespaceTerm "[]" 0,
+      tcWiringConsDataCon = types ResolutionNamespaceTerm ":" 2,
+      tcWiringArrowTyCon = types ResolutionNamespaceType "(->)" 2,
+      tcWiringTypeTyCon = types ResolutionNamespaceType "Type" 0,
+      tcWiringConstraintTyCon = types ResolutionNamespaceType "Constraint" 0,
+      tcWiringBoolTyCon = types ResolutionNamespaceType "Bool" 0,
+      tcWiringCharTyCon = types ResolutionNamespaceType "Char" 0,
+      tcWiringEqualityTyCon = types ResolutionNamespaceType "~" 2,
+      tcWiringCoercibleTyCon = types ResolutionNamespaceType "Coercible" 2,
+      tcWiringImplicitParamTyCon = \name ->
+        tyCon ResolutionNamespaceType "GHC.Classes" name 1,
+      tcWiringPrimitiveTyCon = \name ->
+        tyCon ResolutionNamespaceType "GHC.Prim" name 0,
+      tcWiringApplyOperator = ("GHC.Base", "$"),
+      tcWiringLiftClass = ("GHC.Internal.TH.Lift", "Lift")
     }
   where
     boxedTuple namespace arity =
       tyCon namespace "GHC.Tuple" (boxedTupleTyConName arity) arity
     unboxedTuple namespace arity =
-      tyCon namespace "GHC.Types" (unboxedTupleTyConName arity) arity
+      types namespace (unboxedTupleTyConName arity) arity
+    types namespace = tyCon namespace "GHC.Types"
     tyCon :: ResolutionNamespace -> Text -> Text -> Int -> TyCon
     tyCon namespace = mkTyConWithNamespace namespace prim
 
@@ -73,6 +98,12 @@ boxedTupleTyConName arity =
 -- | The name of the unboxed tuple of one arity.
 unboxedTupleTyConName :: Int -> Text
 unboxedTupleTyConName arity = "Tuple" <> T.pack (show arity) <> "#"
+
+-- | The name of the unboxed sum of one arity, such as @(#|#)@ for two
+-- alternatives.
+unboxedSumTyConName :: Int -> Text
+unboxedSumTyConName arity =
+  "(#" <> T.replicate (max 0 (arity - 1)) "|" <> "#)"
 
 -- | The deriving-reference table of the aihc core libraries, given the
 -- identity of the @aihc-prim@ package.

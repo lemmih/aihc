@@ -381,7 +381,7 @@ checkListPattern :: GadtHandling -> SourceSpan -> [Pattern] -> TcType -> TcM Pat
 checkListPattern gadtHandling sp items scrutTy =
   case items of
     [] -> do
-      scheme <- listConstructorScheme "[]"
+      scheme <- listConstructorScheme tcWiringNilDataCon
       (nilTy, _typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
       scrutCts <- constructorScrutineeCt gadtHandling sp "[]" scrutTy nilTy
       predicateGivens <- mapM (constructorGiven sp "[]") predicates
@@ -393,7 +393,7 @@ checkListPattern gadtHandling sp items scrutTy =
             pcPatterns = [PList []]
           }
     item : rest -> do
-      scheme <- listConstructorScheme ":"
+      scheme <- listConstructorScheme tcWiringConsDataCon
       (consTy, _typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
       (argumentTypes, resultTy) <- splitConTy 2 consTy
       case argumentTypes of
@@ -415,16 +415,17 @@ checkListPattern gadtHandling sp items scrutTy =
                 pcSkolems = skolems <> pcSkolems nestedCheck,
                 pcPatterns = [PList checkedItems]
               }
-        _ -> abortTc "GHC.Types list cons constructor has an invalid arity"
+        _ -> abortTc "the wired list cons constructor has an invalid arity"
 
-listConstructorScheme :: Text -> TcM TypeScheme
-listConstructorScheme name = do
-  sourceBinder <- lookupTerm name
-  maybeBinder <- maybe (lookupKnownTerm "GHC.Types" name) (pure . Just) sourceBinder
+listConstructorScheme :: (TcWiring -> TyCon) -> TcM TypeScheme
+listConstructorScheme select = do
+  wired <- wiredTyConIdentity select
+  maybeBinder <- lookupWiredTerm wired
+  let name = tyConName wired
   case maybeBinder of
     Just (TcIdBinder scheme _) -> pure scheme
-    Just TcMonoIdBinder {} -> abortTc ("GHC.Types list constructor is monomorphic: " <> T.unpack name)
-    Nothing -> abortTc ("GHC.Types list constructor is missing: " <> T.unpack name)
+    Just TcMonoIdBinder {} -> abortTc ("the wired list constructor is monomorphic: " <> T.unpack name)
+    Nothing -> abortTc ("the wired list constructor is missing: " <> T.unpack name)
 
 checkedPattern :: PatternCheck -> Pattern
 checkedPattern check =
@@ -435,10 +436,7 @@ checkedPattern check =
 charLiteralPatternType :: Literal -> TcM (Maybe TcType)
 charLiteralPatternType literal =
   case peelLiteralAnn literal of
-    LitChar {} -> do
-      maybeInfo <- lookupTyCon "Char"
-      tyCon <- maybe (mkKnownTyCon "GHC.Types" "Char" 0 typeKindType) (pure . tciTyCon) maybeInfo
-      pure (Just (TcTyCon tyCon []))
+    LitChar {} -> Just <$> charType
     _ -> pure Nothing
 
 -- | The check of a literal pattern that needs its resolver annotations.

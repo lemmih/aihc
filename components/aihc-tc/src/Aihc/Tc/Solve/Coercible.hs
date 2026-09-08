@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Check representation constraints before FC conversion.
 module Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, isRepresentationParameter) where
 
@@ -10,14 +8,13 @@ import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (zipWithM)
-import Control.Monad.Trans.Reader (asks)
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
 
 isCoercibleClass :: TyCon -> TcM Bool
 isCoercibleClass constructor = do
-  packageIdentity <- asks (tcConfigPrimPackage . tcEnvConfig)
-  pure (constructor == mkTyConWithOrigin packageIdentity "GHC.Types" "Coercible" 2)
+  wired <- wiredTyConIdentity tcWiringCoercibleTyCon
+  pure (constructor == wired)
 
 -- | Use nominal arguments unless a container has a known representation role.
 -- Unknown outer types wait for other constraints.
