@@ -8,6 +8,10 @@
 -- reaches it as a table in its 'TcConfig'. This module holds those tables
 -- for @aihc-prim@ and the core libraries built on it, so that the layout of
 -- those packages is stated in one place outside the type checker.
+--
+-- This is not a library component of any package. The compiler and the
+-- type checker test suites each compile this directory in place, so the
+-- wiring is shared without becoming part of a released interface.
 module Aihc.Prim.Wiring
   ( primTcConfig,
     primTcWiring,

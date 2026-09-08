@@ -69,46 +69,32 @@ library
   ghc-options: -Wall
   default-language: GHC2021
 
-library prim-wiring
-  visibility: public
-  hs-source-dirs: prim-wiring
-  exposed-modules:
-    Aihc.Prim.Wiring
-
-  build-depends:
-    aihc-parser,
-    aihc-resolve,
-    aihc-tc,
-    base >=4.16 && <5,
-    text >=1.2,
-
-  ghc-options: -Wall
-  default-language: GHC2021
-
 library fuzz
   if !flag(fuzz)
     buildable: False
   visibility: public
   hs-source-dirs:
     fuzz
+    prim-wiring
     test
 
   exposed-modules:
     Aihc.Tc.Fuzz
 
   other-modules:
+    Aihc.Prim.Wiring
     Test.Tc.Properties
 
   build-depends:
     aihc-parser,
     aihc-resolve,
     aihc-tc,
-    aihc-tc:prim-wiring,
     base >=4.16 && <5,
     containers,
     hedgehog,
     tasty,
     tasty-hedgehog,
+    text >=1.2,
 
   ghc-options: -Wall
   default-language: GHC2021
@@ -118,9 +104,11 @@ test-suite spec
   hs-source-dirs:
     test
     common
+    prim-wiring
 
   main-is: Spec.hs
   other-modules:
+    Aihc.Prim.Wiring
     TcAnnotatedGolden
     TcAnnotatedRender
     Test.Tc.Interface
@@ -133,7 +121,6 @@ test-suite spec
     aihc-parser,
     aihc-resolve,
     aihc-tc,
-    aihc-tc:prim-wiring,
     aihc-testing,
     base >=4.16 && <5,
     bytestring,

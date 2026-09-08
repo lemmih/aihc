@@ -137,15 +137,19 @@ in rec {
         relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
         inToolingCommon = pkgs.lib.hasPrefix "tooling/aihc-tc-tooling-common/" relPath;
         inTcCommon = pkgs.lib.hasPrefix "components/aihc-tc/common/" relPath;
+        inTcPrimWiring = pkgs.lib.hasPrefix "components/aihc-tc/prim-wiring/" relPath;
         inTcTest = pkgs.lib.hasPrefix "components/aihc-tc/test/" relPath;
         matchesSourceSuffix = matchesSuffix pkgs [".hs" ".hs-boot" ".cabal"] path;
       in
-        type == "directory" || ((inToolingCommon || inTcCommon || inTcTest) && matchesSourceSuffix);
+        type == "directory" || ((inToolingCommon || inTcCommon || inTcPrimWiring || inTcTest) && matchesSourceSuffix);
     };
 
   aihcSrc =
     mkRootSubsetSrc [
       "bin/aihc/"
+      # The compiler compiles the type checker wiring of the core libraries
+      # in place; it is deliberately not a library component of aihc-tc.
+      "components/aihc-tc/prim-wiring/"
       "core-libs/aihc-prim/src/GHC/Classes.hs"
       "core-libs/aihc-prim/src/GHC/Prim.hs"
       "core-libs/aihc-prim/src/GHC/Tuple.hs"

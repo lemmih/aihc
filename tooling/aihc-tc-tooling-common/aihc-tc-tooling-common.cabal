@@ -15,7 +15,11 @@ description:
 library
   hs-source-dirs:
     ../../components/aihc-tc/common
+    ../../components/aihc-tc/prim-wiring
     ../../components/aihc-tc/test
+
+  other-modules:
+    Aihc.Prim.Wiring
 
   exposed-modules:
     TcAnnotatedGolden
@@ -30,7 +34,6 @@ library
     aihc-parser,
     aihc-resolve,
     aihc-tc,
-    aihc-tc:prim-wiring,
     aihc-testing,
     base >=4.16 && <5,
     bytestring,
