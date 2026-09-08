@@ -107,7 +107,7 @@ data PackageInterfaceBinding = PackageInterfaceBinding
   deriving (Eq, Show)
 
 packageInterfaceSchemaVersion :: Int
-packageInterfaceSchemaVersion = 4
+packageInterfaceSchemaVersion = 5
 
 instance Aeson.ToJSON PackageInterface where
   toJSON interface =
@@ -347,6 +347,7 @@ resolvedTopLevel package moduleName name =
 tcTypeValue :: TcType -> Aeson.Value
 tcTypeValue ty =
   case ty of
+    TcArrowTy -> Aeson.object ["tag" .= ("arrow" :: Text)]
     TcTyVar tv ->
       Aeson.object
         [ "tag" .= ("var" :: Text),
@@ -397,6 +398,7 @@ parseTcTypeJson =
   Aeson.withObject "type" $ \obj -> do
     tag <- obj .: "tag" :: AesonTypes.Parser Text
     case tag of
+      "arrow" -> pure TcArrowTy
       "var" -> TcTyVar <$> parseTyVarObject obj
       "meta" -> TcMetaTv . Unique <$> obj .: "unique"
       "con" ->

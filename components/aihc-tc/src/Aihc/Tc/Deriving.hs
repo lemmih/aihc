@@ -345,6 +345,7 @@ typeMentionsTyVar target ty =
   case ty of
     TcTyVar tyVar -> tyVar == target
     TcMetaTv {} -> False
+    TcArrowTy -> False
     TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
     TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
     TcForAllTy tyVar body -> tyVar /= target && typeMentionsTyVar target body

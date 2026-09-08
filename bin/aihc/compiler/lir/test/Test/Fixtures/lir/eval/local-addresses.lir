@@ -1,0 +1,55 @@
+; expect: 42, 20, 16, 30, 40, 1, 0.0
+; max-arm64-object-bytes: 1584
+; Local addresses include section offsets and signed addends.
+; The linker must retain exported symbols and external symbols.
+; A page relocation must retain its local target symbol.
+; Compare addresses without a read outside the data object.
+
+extern func @sin(f64) -> f64 cc c
+
+data @padding align 1 = { bytes "pad" }
+data @before align 64 = { i64 10 }
+data @values align 8 = { i64 15, i64 20 }
+data mut @mutablePadding align 1 = { bytes "pad" }
+data mut @mutable align 64 = { i64 30 }
+export data @public align 8 = { i64 40 }
+data @table align 8 = {
+  code @answer,
+  ptr @values + 8,
+  ptr @values - 8,
+  ptr @mutable,
+  ptr @public,
+  code @mixed,
+  code @sin
+}
+
+func @answer() -> i64 {
+entry:
+  return 42
+}
+
+func @mixed() -> i64 {
+entry:
+  return 7
+}
+
+func @main() -> (i64, i64, i64, i64, i64, i1, f64) {
+entry:
+  %function = load code [@table] align 8
+  %answer = call.indirect %function() : () -> i64
+  %positive = load ptr [@table + 8] align 8
+  %second = load i64 [%positive] align 8
+  %negative = load ptr [@table + 16] align 8
+  %positiveAddress = ptr.to_int %positive
+  %negativeAddress = ptr.to_int %negative
+  %distance = sub i64 %positiveAddress, %negativeAddress
+  %mutable = load ptr [@table + 24] align 8
+  %third = load i64 [%mutable] align 8
+  %public = load ptr [@table + 32] align 8
+  %fourth = load i64 [%public] align 8
+  %mixed = load code [@table + 40] align 8
+  %same = eq code %mixed, @mixed
+  %external = load code [@table + 48] align 8
+  %sine = call.indirect %external(0.0) : (f64) -> f64 cc c
+  return %answer, %second, %distance, %third, %fourth, %same, %sine
+}

@@ -1952,6 +1952,7 @@ typeTyCons :: TcType -> [TyCon]
 typeTyCons ty = case ty of
   TcTyVar {} -> []
   TcMetaTv {} -> []
+  TcArrowTy -> []
   TcTyCon tyCon arguments -> tyCon : concatMap typeTyCons arguments
   TcFunTy argument result -> typeTyCons argument <> typeTyCons result
   TcForAllTy _ body -> typeTyCons body
@@ -1995,4 +1996,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-16"
+packageArtifactFormatVersion = "aihc-artifacts-17"

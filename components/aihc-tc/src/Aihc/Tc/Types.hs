@@ -10,6 +10,7 @@ module Aihc.Tc.Types
     tvKind,
     setTyVarKind,
     TcType (..),
+    isPolyType,
     TcTypeKey,
     TcAxiomKey (..),
     TcKindEnv,
@@ -18,10 +19,8 @@ module Aihc.Tc.Types
     tyConPackageId,
     tyConModuleName,
     TcKinds (..),
-    isArrowTyCon,
     isEqualityTyCon,
     mkAppTy,
-    mkTyConApp,
     tyConNamespace,
     mkTyConWithOrigin,
     mkTyConWithNamespace,
@@ -150,26 +149,17 @@ tyConPackageId (TyConInternal packageId _ _ _ _) = packageId
 tyConModuleName :: TyCon -> Text
 tyConModuleName (TyConInternal _ moduleName _ _ _) = moduleName
 
--- | Whether a type constructor is the function arrow @(->)@.
-isArrowTyCon :: TcKinds -> TyCon -> Bool
-isArrowTyCon kinds tyCon = tyCon == kindsArrowTyCon kinds
-
--- | Apply a type constructor to arguments. A saturated function arrow is
--- the function type, so the arrow constructor and the function type are
--- one form.
-mkTyConApp :: TcKinds -> TyCon -> [TcType] -> TcType
-mkTyConApp kinds tyCon arguments =
-  case arguments of
-    [argument, result] | isArrowTyCon kinds tyCon -> TcFunTy argument result
-    _ -> TcTyCon tyCon arguments
-
--- | Apply a type to an argument. An application of a type constructor
--- stays a constructor application, so a saturated arrow becomes the
--- function type.
-mkAppTy :: TcKinds -> TcType -> TcType -> TcType
-mkAppTy kinds function argument =
+-- | Apply a type to an argument.
+--
+-- An application of a type constructor stays a constructor application,
+-- and a saturated arrow becomes the function type. The arrow is a form of
+-- its own rather than a type constructor, so recognising it here is a
+-- pattern match: this module needs to know no library to normalise.
+mkAppTy :: TcType -> TcType -> TcType
+mkAppTy function argument =
   case function of
-    TcTyCon tyCon arguments -> mkTyConApp kinds tyCon (arguments <> [argument])
+    TcTyCon tyCon arguments -> TcTyCon tyCon (arguments <> [argument])
+    TcAppTy TcArrowTy domain -> TcFunTy domain argument
     _ -> TcAppTy function argument
 
 tyConNamespace :: TyCon -> ResolutionNamespace
@@ -191,6 +181,12 @@ data TcType
   = TcTyVar !TyVarId
   | TcMetaTv !Unique
   | TcTyCon !TyCon ![TcType]
+  | -- | The function arrow @(->)@ itself, unapplied. It is a form of its
+    -- own rather than a type constructor so that the module can recognise
+    -- an arrow without being told which type constructor the arrow is: a
+    -- saturated one is 'TcFunTy' and a partial one is @'TcAppTy'
+    -- 'TcArrowTy' domain@, and nothing else may spell either.
+    TcArrowTy
   | TcFunTy !TcType !TcType
   | TcForAllTy !TyVarId !TcType
   | TcQualTy ![Pred] !TcType
@@ -199,6 +195,15 @@ data TcType
 
 data TypeScheme = ForAll ![TyVarId] ![Pred] !TcType
   deriving (Eq, Ord, Show, Read)
+
+-- | Whether a type is a polytype: a leading quantifier or context. A
+-- meta-variable never stands for a polytype, so an argument of such a
+-- type is checked against it rather than inferred. A quantifier nested
+-- under an arrow or a constructor does not make a type a polytype.
+isPolyType :: TcType -> Bool
+isPolyType TcForAllTy {} = True
+isPolyType TcQualTy {} = True
+isPolyType _ = False
 
 typeSchemeBody :: TypeScheme -> TcType
 typeSchemeBody (ForAll _ _ body) = body
@@ -277,10 +282,13 @@ data TcKinds = TcKinds
     -- | A promoted constructor of the kind vocabulary of one name and
     -- arity, such as @BoxedRep@, @Lifted@ or @IntRep@.
     kindsDataCon :: Text -> Int -> TyCon,
-    -- | The function arrow.
-    kindsArrowTyCon :: TyCon,
     -- | The nominal equality constraint @~@.
-    kindsEqualityTyCon :: TyCon
+    kindsEqualityTyCon :: TyCon,
+    -- | The type constructor that 'TcArrowTy' denotes. Nothing inside the
+    -- type checker needs it -- an arrow is recognised by its form -- but a
+    -- partially applied arrow that leaves for the desugarer has to be
+    -- named there like any other type constructor.
+    kindsArrowTyCon :: TyCon
   }
 
 -- | The tables are functions, so a table shows as its name alone, as
@@ -366,6 +374,7 @@ typeKindInEnv kinds kindEnv = go
               Right
               (Map.lookup (tyConKey tyCon) kindEnv)
           applyArguments scheme arguments
+        TcArrowTy -> Right (KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds)))
         TcFunTy {} -> Right (typeKind kinds)
         TcForAllTy _ body -> go body
         TcQualTy _ body -> go body
@@ -385,7 +394,7 @@ typeKindInEnv kinds kindEnv = go
     applyKindWith quantified (TcFunTy formal result) argument = do
       actual <- go argument
       substitution <- matchKinds quantified formal actual
-      Right (applySubst kinds substitution result)
+      Right (applySubst substitution result)
     applyKindWith _ kind _ = Left ("type application uses a non-function kind: " <> show kind)
 
     matchKinds quantified formal actual =
@@ -413,35 +422,34 @@ isUnliftedTypeInEnv kinds kindEnv ty =
     Left _ -> False
 
 -- | Apply a type-variable substitution to a type.
-applySubst :: TcKinds -> Map Unique TcType -> TcType -> TcType
-applySubst kinds substitution = go
+applySubst :: Map Unique TcType -> TcType -> TcType
+applySubst substitution = go
   where
     go ty =
       case ty of
         TcTyVar tyVar -> Map.findWithDefault ty (tvUnique tyVar) substitution
         TcMetaTv {} -> ty
+        TcArrowTy -> ty
         TcTyCon tyCon arguments -> TcTyCon tyCon (map go arguments)
         TcFunTy argument result -> TcFunTy (go argument) (go result)
         TcForAllTy tyVar body ->
-          TcForAllTy tyVar (applySubst kinds (Map.delete (tvUnique tyVar) substitution) body)
-        TcQualTy predicates body -> TcQualTy (map (applySubstPred kinds substitution) predicates) (go body)
-        TcAppTy function argument -> applyType (go function) (go argument)
-
-    applyType = mkAppTy kinds
+          TcForAllTy tyVar (applySubst (Map.delete (tvUnique tyVar) substitution) body)
+        TcQualTy predicates body -> TcQualTy (map (applySubstPred substitution) predicates) (go body)
+        TcAppTy function argument -> mkAppTy (go function) (go argument)
 
 -- | Apply a type-variable substitution to a predicate.
-applySubstPred :: TcKinds -> Map Unique TcType -> Pred -> Pred
-applySubstPred kinds substitution predicate =
+applySubstPred :: Map Unique TcType -> Pred -> Pred
+applySubstPred substitution predicate =
   case predicate of
-    ClassPred className arguments -> ClassPred className (map (applySubst kinds substitution) arguments)
-    EqPred left right -> EqPred (applySubst kinds substitution left) (applySubst kinds substitution right)
-    IParamPred name payload -> IParamPred name (applySubst kinds substitution payload)
+    ClassPred className arguments -> ClassPred className (map (applySubst substitution) arguments)
+    EqPred left right -> EqPred (applySubst substitution left) (applySubst substitution right)
+    IParamPred name payload -> IParamPred name (applySubst substitution payload)
     QuantifiedPred variables antecedents consequent ->
       let scopedSubstitution = foldr (Map.delete . tvUnique) substitution variables
        in QuantifiedPred
             variables
-            (map (applySubstPred kinds scopedSubstitution) antecedents)
-            (applySubstPred kinds scopedSubstitution consequent)
+            (map (applySubstPred scopedSubstitution) antecedents)
+            (applySubstPred scopedSubstitution consequent)
 
 -- The kind patterns recognise a kind by its namespace and its name, so
 -- that a kind built here and a kind resolved from an interface match each

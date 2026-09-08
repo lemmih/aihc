@@ -96,8 +96,8 @@ mkTcKinds wiring =
   TcKinds
     { kindsTyCon = tcWiringKindTyCon wiring,
       kindsDataCon = tcWiringKindDataCon wiring,
-      kindsArrowTyCon = tcWiringArrowTyCon wiring,
-      kindsEqualityTyCon = tcWiringEqualityTyCon wiring
+      kindsEqualityTyCon = tcWiringEqualityTyCon wiring,
+      kindsArrowTyCon = tcWiringArrowTyCon wiring
     }
 
 -- | The tuple type constructor of one flavor and arity.

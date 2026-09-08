@@ -176,8 +176,8 @@ generatePlan kinds references origin sourceDecl plan =
         DeclStandaloneDeriving derivingDecl ->
           Just (standaloneDerivingForall derivingDecl, standaloneDerivingContext derivingDecl, standaloneDerivingHead derivingDecl)
         _ -> do
-          surfaceContext <- mapM (surfacePred kinds (genSpan gen)) context
-          headArguments <- mapM (surfaceType kinds (genSpan gen)) (tcDerivingHeadTypes plan)
+          surfaceContext <- mapM (surfacePred (genSpan gen)) context
+          headArguments <- mapM (surfaceType (genSpan gen)) (tcDerivingHeadTypes plan)
           pure ([], surfaceContext, foldl TApp (TCon (tyConNameSyntax (genSpan gen) (tcDerivingClassTyCon plan)) Unpromoted) headArguments)
 
 -- | The method equations of a plan, or 'Nothing' after reporting why the
@@ -187,11 +187,11 @@ generateItems gen =
   case tcDerivingStrategy plan of
     TcDerivingAnyclass -> pure (Just [])
     TcDerivingNewtype ->
-      case newtypeRepresentation (genKinds gen) plan of
+      case newtypeRepresentation plan of
         Left message -> failWith message
         Right representation -> associatedItems gen representation
     TcDerivingStock ->
-      case (stockFieldTypes (genKinds gen) plan, tcDerivingDataType plan) of
+      case (stockFieldTypes plan, tcDerivingDataType plan) of
         (Left message, _) -> failWith message
         (Right _, Just dataType) ->
           let constructors = dtiConstructors dataType
@@ -579,7 +579,7 @@ associatedItems gen representation = do
             let sourceHeads = init heads <> [representation]
                 left = TcTyCon (atiTyCon associated) [heads !! position | position <- positions]
                 right = TcTyCon (atiTyCon associated) [sourceHeads !! position | position <- positions]
-            case (surfaceType (genKinds gen) (genSpan gen) left, surfaceType (genKinds gen) (genSpan gen) right) of
+            case (surfaceType (genSpan gen) left, surfaceType (genSpan gen) right) of
               (Just lhs, Just rhs) -> pure (Just (InstanceItemTypeFamilyInst (TypeFamilyInst [] TypeHeadPrefix lhs rhs)))
               _ -> reject
       where
@@ -742,22 +742,20 @@ isSymbolic text =
 
 -- | The checked type as the source syntax that the instance checker reads
 -- back, or 'Nothing' for a type without a source form.
-surfaceType :: TcKinds -> SourceSpan -> TcType -> Maybe Type
-surfaceType kinds sp ty =
+surfaceType :: SourceSpan -> TcType -> Maybe Type
+surfaceType sp ty =
   case ty of
     TcTyVar tyVar -> Just (TVar (mkUnqualifiedName NameVarId (tvName tyVar)))
-    TcFunTy argument result -> TFun ArrowUnrestricted <$> surfaceType kinds sp argument <*> surfaceType kinds sp result
-    TcAppTy function argument -> TApp <$> surfaceType kinds sp function <*> surfaceType kinds sp argument
-    TcTyCon tyCon [argument, result]
-      | isArrowTyCon kinds tyCon -> TFun ArrowUnrestricted <$> surfaceType kinds sp argument <*> surfaceType kinds sp result
+    TcFunTy argument result -> TFun ArrowUnrestricted <$> surfaceType sp argument <*> surfaceType sp result
+    TcAppTy function argument -> TApp <$> surfaceType sp function <*> surfaceType sp argument
     TcTyCon tyCon arguments
       | tyConNamespace tyCon == ResolutionNamespaceType ->
-          foldl TApp (TCon (tyConNameSyntax sp tyCon) Unpromoted) <$> mapM (surfaceType kinds sp) arguments
+          foldl TApp (TCon (tyConNameSyntax sp tyCon) Unpromoted) <$> mapM (surfaceType sp) arguments
     _ -> Nothing
 
-surfacePred :: TcKinds -> SourceSpan -> Pred -> Maybe Type
-surfacePred kinds sp predicate =
+surfacePred :: SourceSpan -> Pred -> Maybe Type
+surfacePred sp predicate =
   case predicate of
     ClassPred classTyCon arguments ->
-      foldl TApp (TCon (tyConNameSyntax sp classTyCon) Unpromoted) <$> mapM (surfaceType kinds sp) arguments
+      foldl TApp (TCon (tyConNameSyntax sp classTyCon) Unpromoted) <$> mapM (surfaceType sp) arguments
     _ -> Nothing
