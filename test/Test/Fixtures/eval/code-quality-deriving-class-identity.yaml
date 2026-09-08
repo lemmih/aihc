@@ -1,0 +1,32 @@
+extensions: [DeriveAnyClass, DerivingStrategies]
+modules:
+  - |
+    module Shared where
+    data Flag = First | Second
+    data Pair = Pair Flag Flag
+  - |
+    module A where
+    import Shared
+    class Select a where
+      selectA :: a -> Flag
+      selectA _ = First
+  - |
+    module B where
+    import Shared
+    class Select a where
+      selectB :: a -> Flag
+      selectB _ = Second
+  - |
+    {-# LANGUAGE DeriveAnyClass, DerivingStrategies #-}
+    module Test where
+    import Shared
+    import qualified A
+    import qualified B
+    data Box = Box deriving anyclass (A.Select, B.Select)
+    result :: Pair
+    result = Pair (A.selectA Box) (B.selectB Box)
+expression: result
+output: |
+  Pair First Second
+status: xfail
+reason: Same-named classes from different modules must retain distinct deriving plans.

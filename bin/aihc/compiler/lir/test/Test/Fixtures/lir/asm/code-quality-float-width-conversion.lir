@@ -1,0 +1,9 @@
+; xfail: aihc-amd64
+; expect-asm-aihc-amd64: cvtss2sd xmm0, xmm0
+; reason: Float extension converts single precision to double precision.
+
+func @main(%value: f32) -> f64 {
+entry:
+  %result = fpext f32 %value to f64
+  return %result
+}

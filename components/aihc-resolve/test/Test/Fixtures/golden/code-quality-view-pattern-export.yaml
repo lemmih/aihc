@@ -1,0 +1,33 @@
+extensions: [ViewPatterns]
+modules:
+- |
+  module View where
+  view a = a
+- |
+  module Main where
+  import View
+  data T = T
+  (view -> x) = T
+  y = x
+annotated:
+- |-
+  module Main where
+  import View
+  data T = T
+       │   └─ v Main
+       └─ t Main
+  (view -> x) = T
+   │       │    └─ v Main
+   │       └─ v Main
+   └─ v View
+  y = x
+  │   └─ v Main
+  └─ v Main
+- |-
+  module View where
+  view a = a
+  │    │   └─ v 0
+  │    └─ v 0
+  └─ v View
+status: xfail
+reason: Module exports omit variables inside view patterns.

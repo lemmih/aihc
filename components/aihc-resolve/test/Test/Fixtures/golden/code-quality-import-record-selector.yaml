@@ -1,0 +1,23 @@
+extensions: []
+modules:
+- |
+  module Record where
+  data Box = Box { field :: Box }
+- |
+  module Main where
+  import Record (Box(field))
+  f = field
+annotated:
+- |-
+  module Main where
+  import Record (Box(field))
+  f = field
+  │   └─ v Record
+  └─ v Main
+- |-
+  module Record where
+  data Box = Box { field :: Box }
+       │     └─ v Record    └─ t Record
+       └─ t Record
+status: xfail
+reason: Import member validation omits record selectors.

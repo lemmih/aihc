@@ -1,0 +1,13 @@
+entry: $entry
+program: |
+  constructor Pair#/2 [IntRep, IntRep]
+
+  global partial = (CPair#/1 (10 :: IntRep))
+
+  $entry -> IntRep =
+    constant (0 :: IntRep)
+status: pass
+wasm-integer-fields:
+  - [partial, [I32, I64, I64]]
+wasm-xfail: true
+reason: The header has four padding bytes. The applied count and payload each require an eight-byte slot.

@@ -1,0 +1,20 @@
+; expect: 7.0
+; xfail: aihc-amd64
+; xfail: aihc-arm64
+; reason: A C tail call must transfer its float argument in a float register.
+
+func @identity(%value: f64) -> f64 cc c {
+entry:
+  return %value
+}
+
+func @forward(%value: f64) -> f64 cc c {
+entry:
+  tailcall @identity(7.0)
+}
+
+func @main() -> f64 {
+entry:
+  %result = call @forward(2.0)
+  return %result
+}

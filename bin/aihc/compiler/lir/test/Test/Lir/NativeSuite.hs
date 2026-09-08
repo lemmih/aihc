@@ -46,6 +46,7 @@ import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO (hClose, hFlush, hPutStr, openTempFile)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readProcessWithExitCode, waitForProcess)
+import Test.Lir.AsmSuite (withFixtureStatus)
 import Test.Lir.Observed (lowerObservedProgram)
 import Test.Native.Observed (snapshotSourcePath)
 import Test.Tasty (TestTree, testGroup)
@@ -139,7 +140,7 @@ fixtureTest backend directory name = testCase name $ do
         BackendSource _ -> assertFailure "ARM64 output is not an object"
   when (backendRuns backend && name `notElem` uncheckedTraps) $ do
     (exit, out, err) <- runFixture backend output
-    case (headerValues "expect" source, headerValues "expect-trap" source) of
+    withFixtureStatus (backendName backend) source $ case (headerValues "expect" source, headerValues "expect-trap" source) of
       ([expected], []) -> do
         assertEqual ("exit status, stderr: " <> err) ExitSuccess exit
         words' <- mapM parseWord (lines out)

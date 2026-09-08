@@ -1,0 +1,22 @@
+extensions: [ScopedTypeVariables]
+modules:
+- |
+  module Main where
+  data T = T
+  (x :: T) = T
+  y = x
+annotated:
+- |-
+  module Main where
+  data T = T
+       │   └─ v Main
+       └─ t Main
+  (x :: T) = T
+   │    │    └─ v Main
+   │    └─ t Main
+   └─ v Main
+  y = x
+  │   └─ v Main
+  └─ v Main
+status: xfail
+reason: Module exports omit variables inside pattern type signatures.

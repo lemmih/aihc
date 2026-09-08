@@ -1,0 +1,3 @@
+status: xfail
+reason: Install discards preprocessor error diagnostics.
+expect-error: code-quality-cpp-error

@@ -1,0 +1,24 @@
+extensions:
+  - ForeignFunctionInterface
+modules:
+  - |
+    module Absolute where
+
+    foreign import ccall unsafe "labs" call :: Int -> Int
+  - |
+    module LongAbsolute where
+
+    foreign import ccall unsafe "llabs" call :: Int -> Int
+  - |
+    module Test where
+
+    import qualified Absolute
+    import qualified LongAbsolute
+
+    result :: Int
+    result = Absolute.call (LongAbsolute.call (negate 7))
+output: |
+  I# 7
+expression: result
+status: xfail
+reason: Foreign imports from different modules can have the same local name.

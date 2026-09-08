@@ -1,0 +1,12 @@
+extensions: [RankNTypes, TypeApplications]
+modules:
+  - |
+    {-# LANGUAGE RankNTypes, TypeApplications #-}
+    module Test where
+    data Unit = Unit
+    result = (identity dependency) @Unit Unit
+    dependency = Unit
+    identity :: Unit -> forall a. a -> a
+    identity _ value = value
+status: xfail
+reason: A visible type application must retain its function dependency.

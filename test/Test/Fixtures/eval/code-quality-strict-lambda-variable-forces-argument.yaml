@@ -1,0 +1,13 @@
+extensions:
+  - BangPatterns
+modules:
+  - |
+    module Test where
+
+    result :: ()
+    result = (\ !value -> ()) (error "strict lambda argument")
+output: ""
+exception: strict lambda argument
+expression: result
+status: xfail
+reason: A strict variable pattern must force the lambda argument.

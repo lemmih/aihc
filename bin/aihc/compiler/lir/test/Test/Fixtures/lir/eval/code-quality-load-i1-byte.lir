@@ -1,0 +1,14 @@
+; expect: 0, 1
+; xfail: aihc-amd64
+; xfail: aihc-arm64
+; xfail: aihc-wasm
+; reason: An I1 load keeps only the low bit of each byte.
+
+data @bytes align 1 = { i8 2, i8 3 }
+
+func @main() -> (i1, i1) {
+entry:
+  %even = load i1 [@bytes] align 1
+  %odd = load i1 [@bytes + 1] align 1
+  return %even, %odd
+}

@@ -17,6 +17,7 @@ import Aihc.Tc (tcInterfaceTerms, tcTermKeyIdentifier)
 import Control.Concurrent (getNumCapabilities, setNumCapabilities)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM, forM_, void)
+import Data.Aeson (FromJSON (..), withObject, (.:))
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -26,6 +27,7 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Data.Yaml qualified as Y
 import System.Directory
   ( createDirectory,
     createDirectoryIfMissing,
@@ -82,7 +84,8 @@ tests =
             ],
         testGroup
           "install"
-          [ testCase "writes Core files and reuses an installed package" (test_installResolveArtifacts primStore),
+          [ testCase "code-quality install fixtures" (testInstallFixtures primStore),
+            testCase "writes Core files and reuses an installed package" (test_installResolveArtifacts primStore),
             testCase "accepts type-check warnings" (test_installTypeWarning primStore),
             testCase "loads the implicit Prelude type interface" (test_installImplicitPrelude primStore),
             testCase "duplicates re-exported term signatures in type interfaces" (test_installTypeReexports primStore),
@@ -104,6 +107,37 @@ tests =
             testCase "parses Hackage package targets" test_parsePackageTarget
           ]
       ]
+
+-- | Each package fixture specifies the diagnostic that install must report.
+data InstallFixture = InstallFixture
+  { installFixtureStatus :: String,
+    installFixtureReason :: String,
+    installFixtureError :: String
+  }
+
+instance FromJSON InstallFixture where
+  parseJSON = withObject "install fixture" $ \obj ->
+    InstallFixture <$> obj .: "status" <*> obj .: "reason" <*> obj .: "expect-error"
+
+testInstallFixtures :: IO SeedStore -> Assertion
+testInstallFixtures getStore = do
+  root <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/code-quality"
+  names <- sort <$> listDirectory root
+  forM_ names $ \name -> do
+    let directory = root </> name
+    fixture <- Y.decodeFileThrow (directory </> "fixture.yaml")
+    assertBool (name <> ": missing expected diagnostic") (not (null (installFixtureError fixture)))
+    assertBool (name <> ": invalid status") (installFixtureStatus fixture `elem` ["pass", "xfail"])
+    assertBool (name <> ": missing reason") (installFixtureStatus fixture /= "xfail" || not (null (installFixtureReason fixture)))
+    withSandbox getStore ("aihc-" <> name) $ \sandbox -> do
+      store <- sandboxStore sandbox "store"
+      outcome <- try (install (InstallOptions directory (Just store) False False False False False True False False buildExeHostTarget))
+      case outcome :: Either IOException InstallResult of
+        Left err -> do
+          assertBool (name <> ": unexpected error: " <> show err) (installFixtureError fixture `isInfixOf` show err)
+          assertEqual (name <> ": XPASS: install now reports the expected diagnostic") "pass" (installFixtureStatus fixture)
+        Right _ ->
+          assertEqual (name <> ": install accepted a package that requires an error") "xfail" (installFixtureStatus fixture)
 
 test_parsePackageTarget :: Assertion
 test_parsePackageTarget = do

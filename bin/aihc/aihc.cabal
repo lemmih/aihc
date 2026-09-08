@@ -15,6 +15,7 @@ extra-source-files:
   compiler/fc/test/Test/Fixtures/fc-lint/pass/*.fc
   compiler/fc/test/Test/Fixtures/fc/*.fc
   compiler/fc/test/Test/Fixtures/golden/*.yaml
+  compiler/grin/test/Test/Fixtures/grin-lint/*.yaml
   compiler/grin/test/Test/Fixtures/grin-snapshot/*.yaml
   compiler/grin/test/Test/Fixtures/grin/*.yaml
   compiler/lir/test/Test/Fixtures/lir/asm/*.lir
@@ -22,6 +23,7 @@ extra-source-files:
   compiler/lir/test/Test/Fixtures/lir/eval/*.lir
   compiler/lir/test/Test/Fixtures/lir/include/*.lir
   compiler/lir/test/Test/Fixtures/lir/lint/*.lir
+  compiler/lir/test/Test/Fixtures/lir/lower/*.yaml
   compiler/native/test/Test/Runtime/aihc_snapshot.c
   compiler/native/test/Test/Runtime/aihc_snapshot.h
   test/Test/Fixtures/build-exe/generated-entry-collision/Aihc/Entry.hs
@@ -33,6 +35,9 @@ extra-source-files:
   test/Test/Fixtures/install/c-sources/cbits/helper.c
   test/Test/Fixtures/install/c-sources/demo.cabal
   test/Test/Fixtures/install/c-sources/src/Demo.hs
+  test/Test/Fixtures/install/code-quality/cpp-error/*.cabal
+  test/Test/Fixtures/install/code-quality/cpp-error/*.yaml
+  test/Test/Fixtures/install/code-quality/cpp-error/src/*.hs
   test/Test/Fixtures/install/keep-grin/demo.cabal
   test/Test/Fixtures/install/keep-grin/src/Demo.hs
   test/Test/Fixtures/install/local-dependencies/demo/demo.cabal

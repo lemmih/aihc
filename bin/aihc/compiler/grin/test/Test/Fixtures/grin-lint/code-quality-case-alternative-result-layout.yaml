@@ -1,0 +1,10 @@
+program: |
+  $entry -> IntRep =
+    case (0 :: IntRep) as choice%1 :: IntRep of
+      0 ->
+        constant (1 :: IntRep)
+      _ ->
+        constant (2 :: WordRep)
+error: result-layout
+status: xfail
+reason: Each case alternative must return the declared function result layout.

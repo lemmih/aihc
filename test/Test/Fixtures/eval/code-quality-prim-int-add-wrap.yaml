@@ -1,0 +1,13 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    foreign import prim (+#) :: Int# -> Int# -> Int#
+output: |
+  -9223372036854775808
+expression: |
+  (+#) (9223372036854775807#) 1#
+status: xfail
+reason: Int# add must wrap at the signed 64-bit limit.

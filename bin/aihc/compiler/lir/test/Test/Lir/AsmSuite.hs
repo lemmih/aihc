@@ -14,12 +14,15 @@
 module Test.Lir.AsmSuite
   ( AsmBackend (..),
     tests,
+    withFixtureStatus,
   )
 where
 
 import Aihc.Lir (Module, expandIncludes, parseModule, renderLoadError, renderParseError)
+import Control.Exception (try)
+import Control.Monad (forM_)
 import Data.List (sort)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -27,7 +30,21 @@ import System.Directory (doesFileExist, listDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath (dropExtension, takeExtension, (</>))
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertFailure, testCase)
+import Test.Tasty.HUnit (Assertion, HUnitFailure, assertBool, assertFailure, testCase)
+
+headerValues :: Text -> Text -> [Text]
+headerValues key = mapMaybe (T.stripPrefix ("; " <> key <> ": ")) . T.lines
+
+-- | Only assertion failures count as expected failures. Tool failures stay failures.
+withFixtureStatus :: String -> Text -> Assertion -> Assertion
+withFixtureStatus backend source assertion
+  | T.pack backend `elem` headerValues "xfail" source = do
+      assertBool "XFAIL requires a reason" (not (all (T.null . T.strip) (headerValues "reason" source)))
+      outcome <- try assertion
+      case outcome :: Either HUnitFailure () of
+        Left _ -> pure ()
+        Right () -> assertFailure ("XPASS: " <> backend <> " fixture now succeeds")
+  | otherwise = assertion
 
 -- | One backend that renders assembly text.
 data AsmBackend = AsmBackend
@@ -50,6 +67,16 @@ fixtureTest backend directory name = testCase name $ do
   parsed <- either (assertFailure . renderParseError) pure (parseModule source)
   lirModule <- either (assertFailure . renderLoadError) pure =<< expandIncludes TIO.readFile (directory </> name) parsed
   actual <- either (assertFailure . ("backend failed: " <>)) pure (asmBackendRender backend lirModule)
+  let checks = headerValues ("expect-asm-" <> T.pack (asmBackendName backend)) source
+      hasChecks = any (T.isPrefixOf "; expect-asm-") (T.lines source)
+  if hasChecks
+    then withFixtureStatus (asmBackendName backend) source $
+      forM_ checks $ \expected ->
+        assertBool ("missing assembly: " <> T.unpack expected) (expected `T.isInfixOf` actual)
+    else compareGolden backend directory name actual
+
+compareGolden :: AsmBackend -> FilePath -> FilePath -> Text -> Assertion
+compareGolden backend directory name actual = do
   let goldenPath = directory </> dropExtension name <> asmBackendExtension backend
   accept <- lookupEnv "AIHC_ACCEPT_ASM"
   exists <- doesFileExist goldenPath
