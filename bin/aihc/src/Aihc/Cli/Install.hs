@@ -832,8 +832,7 @@ loadInstalledPackage requirements storePath = do
 
 parseSource :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
 parseSource root versions fileInfo = do
-  bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
-  ParsedInterfaceFile path modu sourceLines parseDiagnostics _ extensions _ <- parseInterfaceFile root versions fileInfo
+  ParsedInterfaceFile path modu sourceLines parseDiagnostics _ extensions _ bytes <- parseInterfaceFile root versions fileInfo
   -- The type checker reads the language pragmas of the module. Give it the
   -- effective extensions, which include the cabal default extensions and
   -- the language edition. The type checker turns MonoLocalBinds on by

@@ -64,7 +64,7 @@ loadPackageDoc root dependencies = do
 
 loadModule :: FilePath -> DependencyVersions -> [Text] -> HackageCabal.FileInfo -> IO ModuleDoc
 loadModule root versions exposed fileInfo = do
-  ParsedInterfaceFile path modu _ parseDiagnostics cppDiagnostics extensions source <-
+  ParsedInterfaceFile path modu _ parseDiagnostics cppDiagnostics extensions source _ <-
     parseInterfaceFile root versions fileInfo
   let relative = normalise (makeRelative root path)
       fallbackName = T.intercalate "." (map T.pack (splitDirectories (dropExtension relative)))

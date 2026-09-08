@@ -15,7 +15,6 @@ where
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (DependencyVersions, cppMacrosFromOptions, injectSyntheticCppMacros)
-import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.PackagePlan.Diagnostic (DiagnosticSourceMap, cppDiagnosticValue, diagnosticSourceMap, parseDiagnosticValue)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -37,20 +36,22 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Text.Encoding.Error (lenientDecode)
 import System.Directory (doesFileExist)
 import System.FilePath (makeRelative, normalise, splitDirectories, takeDirectory, takeExtension, (</>))
 
 -- | One loaded source file: its path, the parsed module, the source lines
 -- for diagnostics, the parse and CPP diagnostics, the effective extensions,
--- and the source text after preprocessing. The text is what the parser saw, so
--- offsets in the module's spans index into it directly.
+-- the source text after preprocessing, and the original source bytes.
+-- The parser uses the source text. Module spans refer to this text.
 data ParsedInterfaceFile
-  = ParsedInterfaceFile !FilePath Module !DiagnosticSourceMap [Aeson.Value] [Aeson.Value] [Extension] !Text
+  = ParsedInterfaceFile !FilePath Module !DiagnosticSourceMap [Aeson.Value] [Aeson.Value] [Extension] !Text !BS.ByteString
 
 parseInterfaceFile :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO ParsedInterfaceFile
 parseInterfaceFile packageRoot versions fileInfo = do
-  rawSource <- HackageUtil.readTextFileLenient path
-  let normalized = normalizeSource path rawSource
+  bytes <- BS.readFile path
+  let rawSource = TE.decodeUtf8With lenientDecode bytes
+      normalized = normalizeSource path rawSource
       cabalExtSettings = mapMaybe (parseExtensionSettingName . T.pack) (HackageCabal.fileInfoExtensions fileInfo)
       cppEnabledGlobally = any isCppExtension cabalExtSettings
       cppEnabledInFile = any isCppExtension (headerExtensionSettings (readModuleHeaderPragmas normalized))
@@ -68,7 +69,7 @@ parseInterfaceFile packageRoot versions fileInfo = do
       (parseErrs, modu) = parseModule cfg source
       parseDiagnostics = map (parseDiagnosticValue path) parseErrs
       sourceLines = diagnosticSourceMap path source
-  pure (ParsedInterfaceFile path modu sourceLines parseDiagnostics cppDiagnostics extensions source)
+  pure (ParsedInterfaceFile path modu sourceLines parseDiagnostics cppDiagnostics extensions source bytes)
   where
     path = HackageCabal.fileInfoPath fileInfo
 
