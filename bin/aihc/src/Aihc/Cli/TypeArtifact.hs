@@ -437,6 +437,7 @@ putType table ty = case ty of
   TcForAllTy variable body -> sum2 4 (putTyVar table variable) (putType table body)
   TcQualTy predicates body -> sum2 5 (encodeList (putPred table) predicates) (putType table body)
   TcAppTy function argument -> sum2 6 (putType table function) (putType table argument)
+  TcArrowTy -> cborArray 1 <> cborWord 7
 
 getType :: TyConTable -> Get.Get TcType
 getType table = do
@@ -450,6 +451,7 @@ getType table = do
     (3, 4) -> TcForAllTy <$> getTyVar table <*> getType table
     (3, 5) -> TcQualTy <$> getList (getPred table) <*> getType table
     (3, 6) -> TcAppTy <$> getType table <*> getType table
+    (1, 7) -> pure TcArrowTy
     _ -> fail "unsupported type"
 
 putPred :: Map TyCon Word64 -> Pred -> Builder.Builder
@@ -763,6 +765,7 @@ typeTyCons :: TcType -> Set.Set TyCon
 typeTyCons ty = case ty of
   TcTyVar variable -> tyVarTyCons variable
   TcMetaTv {} -> mempty
+  TcArrowTy -> mempty
   TcTyCon tyCon arguments -> Set.insert tyCon (Set.unions (map typeTyCons arguments))
   TcFunTy argument result -> typeTyCons argument <> typeTyCons result
   TcForAllTy variable body -> tyVarTyCons variable <> typeTyCons body

@@ -628,7 +628,7 @@ inferApplication sp rebuild fun arg = do
   zonkedFunTy <- zonkType funTy
   case zonkedFunTy of
     TcFunTy expectedArgTy resultTy
-      | hasLeadingForAll expectedArgTy -> do
+      | isPolyType expectedArgTy -> do
           (arg', argCts) <- checkHigherRankArgument sp expectedArgTy arg
           pure (rebuild fun' arg', resultTy, funCts <> argCts)
       | otherwise -> do
@@ -653,7 +653,7 @@ inferApplication sp rebuild fun arg = do
 instantiateFunctionType :: SourceSpan -> Expr -> TcType -> TcM (Expr, TcType, [Ct])
 instantiateFunctionType sp fun funTy = do
   zonked <- zonkType funTy
-  if hasLeadingForAll zonked
+  if isPolyType zonked
     then do
       (instantiated, typeArgs, predicates) <- instantiateSigmaType zonked
       cts <- mapM (predToCt sp "<application>") predicates
@@ -712,18 +712,12 @@ checkHigherRankArgument sp expectedTy arg = do
         DictSolved -> []
         DictStuck stuck -> [stuck]
 
-hasLeadingForAll :: TcType -> Bool
-hasLeadingForAll TcForAllTy {} = True
-hasLeadingForAll TcQualTy {} = True
-hasLeadingForAll _ = False
-
 instantiateSigmaType :: TcType -> TcM (TcType, [TcType], [Pred])
 instantiateSigmaType = go []
   where
     go arguments (TcForAllTy binder body) = do
-      kinds <- getKinds
       argument <- freshMetaTv
-      go (arguments <> [argument]) (applySubst kinds (Map.singleton (tvUnique binder) argument) body)
+      go (arguments <> [argument]) (applySubst (Map.singleton (tvUnique binder) argument) body)
     go arguments (TcQualTy predicates body) = pure (body, arguments, predicates)
     go arguments ty = pure (ty, arguments, [])
 
@@ -731,9 +725,8 @@ skolemizeSigmaType :: TcType -> TcM ([TyVarId], [Pred], TcType)
 skolemizeSigmaType = go [] []
   where
     go skolems predicates (TcForAllTy binder body) = do
-      kinds <- getKinds
       skolem <- setTyVarKind (tvKind binder) <$> freshSkolemTv (tvName binder)
-      go (skolems <> [skolem]) predicates (applySubst kinds (Map.singleton (tvUnique binder) (TcTyVar skolem)) body)
+      go (skolems <> [skolem]) predicates (applySubst (Map.singleton (tvUnique binder) (TcTyVar skolem)) body)
     go skolems predicates (TcQualTy morePredicates body) =
       go skolems (predicates <> morePredicates) body
     go skolems predicates ty = pure (skolems, predicates, ty)
@@ -762,6 +755,7 @@ typeMetaVariables :: TcType -> [Unique]
 typeMetaVariables ty =
   case ty of
     TcTyVar {} -> []
+    TcArrowTy -> []
     TcMetaTv meta -> [meta]
     TcTyCon _ arguments -> concatMap typeMetaVariables arguments
     TcFunTy argument result -> typeMetaVariables argument <> typeMetaVariables result
@@ -785,6 +779,7 @@ typeMentionsTyVar target ty =
   case ty of
     TcTyVar tyVar -> tyVar == target
     TcMetaTv {} -> False
+    TcArrowTy -> False
     TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
     TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
     TcForAllTy binder body -> binder /= target && typeMentionsTyVar target body

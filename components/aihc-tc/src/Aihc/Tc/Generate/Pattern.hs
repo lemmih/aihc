@@ -804,22 +804,21 @@ constructorGiven sp constructorName predicate = do
 
 instantiateConstructorPattern :: TcType -> TypeScheme -> TcM (TcType, [TcType], [Pred], [TyVarId])
 instantiateConstructorPattern scrutTy (ForAll tyVars predicates body) = do
-  kinds <- getKinds
   matched <- matchConstructorResult (Set.fromList (map tvUnique tyVars)) (constructorResultType body) =<< zonkType scrutTy
   let resultTyVars = constructorResultTyVars body
       isUniversal tyVar = tvUnique tyVar `Set.member` resultTyVars
-  (substitution, skolems) <- foldM (instantiateTyVar kinds matched isUniversal) (Map.empty, []) tyVars
-  let instantiateType = applySubst kinds substitution
+  (substitution, skolems) <- foldM (instantiateTyVar matched isUniversal) (Map.empty, []) tyVars
+  let instantiateType = applySubst substitution
       typeArgs = map (instantiateType . TcTyVar) tyVars
   pure
     ( instantiateType body,
       typeArgs,
-      map (applySubstPred kinds substitution) predicates,
+      map (applySubstPred substitution) predicates,
       skolems
     )
   where
-    instantiateTyVar kinds matched isUniversal (substitution, skolems) tyVar = do
-      let kind = applySubst kinds substitution (tvKind tyVar)
+    instantiateTyVar matched isUniversal (substitution, skolems) tyVar = do
+      let kind = applySubst substitution (tvKind tyVar)
           extend ty extra = (Map.insert (tvUnique tyVar) ty substitution, skolems <> extra)
       case Map.lookup (tvUnique tyVar) matched of
         Just ty -> pure (extend ty [])
@@ -863,6 +862,7 @@ typeTyVars ty =
   case ty of
     TcTyVar tyVar -> Set.insert (tvUnique tyVar) (typeTyVars (tvKind tyVar))
     TcMetaTv {} -> Set.empty
+    TcArrowTy -> Set.empty
     TcTyCon _ arguments -> Set.unions (map typeTyVars arguments)
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
     TcForAllTy tyVar body -> Set.delete (tvUnique tyVar) (typeTyVars body)

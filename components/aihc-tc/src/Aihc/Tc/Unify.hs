@@ -56,10 +56,12 @@ unifyMetaTv loc u ty = do
   ty' <- zonkType ty
   case ty' of
     TcMetaTv u' | u == u' -> pure (Right ())
-    _ ->
-      if occursIn u ty'
-        then pure $ Left $ OccursCheckError (TcMetaTv u) ty'
-        else do
+    _
+      | occursIn u ty' -> pure $ Left $ OccursCheckError (TcMetaTv u) ty'
+      -- A meta-variable stands for a monotype. Binding it to a polytype
+      -- would let inference guess an impredicative instantiation.
+      | isPolyType ty' -> pure $ Left $ UnificationError (TcMetaTv u) ty' (UnifyOrigin NoSourceSpan) Nothing
+      | otherwise -> do
           declaredKind <- readMetaTvKind u
           solvedKind <- tcTypeKind ty'
           unifyKindsAt loc declaredKind solvedKind
@@ -71,6 +73,7 @@ occursIn :: Unique -> TcType -> Bool
 occursIn u = go
   where
     go (TcMetaTv u') = u == u'
+    go TcArrowTy = False
     go (TcTyVar _) = False
     go (TcTyCon _ args) = any go args
     go (TcFunTy a b) = go a || go b

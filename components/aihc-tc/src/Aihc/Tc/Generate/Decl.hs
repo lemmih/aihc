@@ -715,6 +715,7 @@ freeKindVariables :: TcType -> [TyVarId]
 freeKindVariables ty = case ty of
   TcTyVar variable -> freeKindVariables (tvKind variable) <> [variable]
   TcMetaTv {} -> []
+  TcArrowTy -> []
   TcTyCon _ arguments -> concatMap freeKindVariables arguments
   TcFunTy argument result -> freeKindVariables argument <> freeKindVariables result
   TcAppTy function argument -> freeKindVariables function <> freeKindVariables argument
@@ -1331,7 +1332,6 @@ resolveForeignValueType sourceType = go (0 :: Int) [] sourceType
               | (tyConName tyCon, tyConArity tyCon) `elem` [("ByteArray#", 0), ("MutableByteArray#", 1)] ->
                   pure (Right (byteArrayMarshal ty))
               | otherwise -> do
-                  kinds <- getKinds
                   mDataType <- lookupDataType tyCon
                   case mDataType of
                     Just dataType
@@ -1341,7 +1341,7 @@ resolveForeignValueType sourceType = go (0 :: Int) [] sourceType
                           case dciFields constructor of
                             [field]
                               | Just substitution <- matchTypes [dciResTy constructor] [ty] ->
-                                  go (depth + 1) (dciName constructor : constructors) (applySubst kinds substitution (dcfiType field))
+                                  go (depth + 1) (dciName constructor : constructors) (applySubst substitution (dcfiType field))
                             [] -> pure (Right (voidMarshal (reverse (dciName constructor : constructors))))
                             _ -> unsupported ty
                     _ -> unsupported ty
@@ -1462,7 +1462,7 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
       let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (ciTyVars info)) headKinds)
           classSubstitution =
             Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip (ciTyVars info) headTys] <> kindSubstitution
-          superClassTypes = map (applySubst kinds classSubstitution) (ciSuperClassTypes info)
+          superClassTypes = map (applySubst classSubstitution) (ciSuperClassTypes info)
           defaults = ciDefaultMethods info
       superClasses <- mapM constraintTypePred superClassTypes
       superClassEvidence <- mapM (solveInstanceSuperClass classNameText context) superClasses
@@ -1479,11 +1479,11 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
           [ do
               ForAll _ methodPredicates methodBody <- methodExpectedScheme info headTys methodName
               let signatureSubstitution =
-                    fromMaybe Map.empty (matchTypes [applySubst kinds classSubstitution signatureBody] [methodBody])
+                    fromMaybe Map.empty (matchTypes [applySubst classSubstitution signatureBody] [methodBody])
                   predicates =
                     filter
                       (not . isPredicateOfClass (ciTyCon info))
-                      (map (applySubstPred kinds signatureSubstitution . applySubstPred kinds classSubstitution) signaturePredicates)
+                      (map (applySubstPred signatureSubstitution . applySubstPred classSubstitution) signaturePredicates)
               (methodName,) <$> mapM (solveInstanceSuperClass classNameText (context <> methodPredicates)) predicates
           | methodName <- defaults,
             methodName `notElem` definedMethods,
@@ -1502,7 +1502,7 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
             | associated <- ciAssociatedTypes info,
               tyConName (atiTyCon associated) `notElem` explicitNames,
               Just _ <- [atiDefault associated],
-              Just equation <- [lookupEquation (associatedDefaultAxiomName associated headTys)]
+              Just equation <- [lookupEquation (associatedDefaultAxiomName kinds associated headTys)]
             ]
           annotateItem item =
             case item of
@@ -1514,14 +1514,14 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
           associatedEquations = mapMaybe explicitEquation (instanceDeclTypeFamilyInsts instanceDecl) <> defaultEquations
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon info) headTys)) tvIds
           methodOrder = map fst (ciMethods info)
-          specializeVariable variable = setTyVarKind (applySubst kinds kindSubstitution (tvKind variable)) variable
+          specializeVariable variable = setTyVarKind (applySubst kindSubstitution (tvKind variable)) variable
           classTyVars = map specializeVariable (ciTyVars info)
           specializeKinds (name, ForAll variables predicates body) =
             ( name,
               ForAll
                 [specializeVariable variable | variable <- variables, Map.notMember (tvUnique variable) kindSubstitution]
-                (map (applySubstPred kinds kindSubstitution) predicates)
-                (applySubst kinds kindSubstitution body)
+                (map (applySubstPred kindSubstitution) predicates)
+                (applySubst kindSubstitution body)
             )
           classMethods = zipWith (classMethodFromInfo info {ciTyVars = classTyVars}) [0 :: Int ..] (map specializeKinds (ciMethods info))
           instAnn =
@@ -1846,7 +1846,6 @@ methodExpectedScheme classInfo headTys methodName =
     Just (ForAll tyVars predicates body) ->
       case splitClassReceiver predicates headTys of
         Just (receiverSubst, methodPredicates) -> do
-          kinds <- getKinds
           headKinds <- mapM tcTypeKind headTys
           let classKinds = map tvKind (ciTyVars classInfo)
               kindSubst = fromMaybe Map.empty (matchTypes classKinds headKinds)
@@ -1854,8 +1853,8 @@ methodExpectedScheme classInfo headTys methodName =
           pure
             ( ForAll
                 (filter (\tyVar -> not (Map.member (tvUnique tyVar) subst)) tyVars)
-                (map (applySubstPred kinds subst) methodPredicates)
-                (applySubst kinds subst body)
+                (map (applySubstPred subst) methodPredicates)
+                (applySubst subst body)
             )
         Nothing -> missingTypeInfo ("class method receiver for " <> T.unpack methodName)
     Nothing -> missingTypeInfo ("class method " <> T.unpack methodName)
@@ -2047,14 +2046,12 @@ checkInstanceHeadTypes className tvEnv headArgTypes = do
 -- type variables that cannot be unified during constraint solving.
 skolemizeQualified :: TypeScheme -> TcM ([TyVarId], [Pred], TcType)
 skolemizeQualified (ForAll tvs preds body) = do
-  kinds <- getKinds
   (skolems, subst) <- foldM extendSubst ([], Map.empty) tvs
-  pure (skolems, map (applySubstPred kinds subst) preds, applySubst kinds subst body)
+  pure (skolems, map (applySubstPred subst) preds, applySubst subst body)
   where
     extendSubst (skolems, subst) tv = do
-      kinds <- getKinds
       rawSkolem <- freshSkolemTv (tvName tv)
-      let skolem = setTyVarKind (applySubst kinds subst (tvKind tv)) rawSkolem
+      let skolem = setTyVarKind (applySubst subst (tvKind tv)) rawSkolem
       pure (skolems <> [skolem], Map.insert (tvUnique tv) (TcTyVar skolem) subst)
 
 -- | Split a function type into argument types and result type.
@@ -2925,6 +2922,7 @@ typeMentionsTyVar target ty =
   case ty of
     TcTyVar tyVar -> tyVar == target || kindMentionsUnique (tvUnique target) (tvKind tyVar)
     TcMetaTv {} -> False
+    TcArrowTy -> False
     TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
     TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
     TcForAllTy tyVar body -> tyVar /= target && typeMentionsTyVar target body
@@ -2936,6 +2934,7 @@ kindMentionsUnique target kind =
   case kind of
     TcTyVar tyVar -> tvUnique tyVar == target || kindMentionsUnique target (tvKind tyVar)
     TcMetaTv unique -> unique == target
+    TcArrowTy -> False
     TcTyCon _ arguments -> any (kindMentionsUnique target) arguments
     TcFunTy argument result -> kindMentionsUnique target argument || kindMentionsUnique target result
     TcForAllTy tyVar body -> tvUnique tyVar /= target && kindMentionsUnique target body
@@ -3278,11 +3277,11 @@ instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys i
   pure
     TypeFamilyInstanceInfo
       { tfiiFamilyName = tyConName (atiTyCon info),
-        tfiiAxiomName = associatedDefaultAxiomName info headTys,
+        tfiiAxiomName = associatedDefaultAxiomName kinds info headTys,
         tfiiOrigin = (PackageId packageName, moduleName'),
         tfiiTyVars = instanceTyVars <> freshTyVars,
         tfiiLeft = TcTyCon (atiTyCon info) args,
-        tfiiRight = applySubst kinds substitution (tfiiRight defaultEquation),
+        tfiiRight = applySubst substitution (tfiiRight defaultEquation),
         tfiiClosed = False
       }
   where
@@ -3300,11 +3299,11 @@ associatedClassArgument headTys maybeIndex = maybeIndex >>= \index -> listToMayb
 -- | The axiom name of an instantiated associated type default. The name
 -- depends only on the class head types, so the header and body passes
 -- agree on it.
-associatedDefaultAxiomName :: AssociatedTypeInfo -> [TcType] -> Text
-associatedDefaultAxiomName info headTys =
+associatedDefaultAxiomName :: TcKinds -> AssociatedTypeInfo -> [TcType] -> Text
+associatedDefaultAxiomName kinds info headTys =
   "$ax$"
     <> tyConName (atiTyCon info)
-    <> T.concat ["$" <> maybe "a" typeSuffix (associatedClassArgument headTys maybeIndex) | maybeIndex <- atiClassParams info]
+    <> T.concat ["$" <> maybe "a" (typeSuffix kinds) (associatedClassArgument headTys maybeIndex) | maybeIndex <- atiClassParams info]
 
 typeArguments :: TcType -> [TcType]
 typeArguments ty =
@@ -3417,29 +3416,36 @@ predType (QuantifiedPred variables antecedents consequent) = do
         | otherwise = TcQualTy antecedents consequentType
   pure (foldr TcForAllTy qualifiedType variables)
 
-instanceDictName :: Text -> [TcType] -> Text
-instanceDictName className tys = "$f" <> className <> T.concat (map typeSuffix tys)
+instanceDictName :: TcKinds -> Text -> [TcType] -> Text
+instanceDictName kinds className tys = "$f" <> className <> T.concat (map (typeSuffix kinds) tys)
 
-typeSuffix :: TcType -> Text
-typeSuffix ty =
+-- The arrow has a name here as any other head does: an instance of
+-- @(->)@ or of @(-> ) r@ names its dictionary after the constructor the
+-- wiring gives, not after the form the type checker matches on.
+typeSuffix :: TcKinds -> TcType -> Text
+typeSuffix kinds ty =
   case ty of
     TcTyVar tv -> tvName tv
+    TcArrowTy -> tyConName (kindsArrowTyCon kinds)
+    TcAppTy TcArrowTy argument -> tyConName (kindsArrowTyCon kinds) <> typeSuffix kinds argument
     TcTyCon tc [] -> tyConName tc
     TcTyCon (TyCon "[]" _) [_] -> "List"
-    TcTyCon tc args -> tyConName tc <> T.concat (map typeSuffix args)
+    TcTyCon tc args -> tyConName tc <> T.concat (map (typeSuffix kinds) args)
     _ -> "T"
 
-instanceHeadIdentity :: [TcType] -> Text
-instanceHeadIdentity = T.concat . map typeIdentity
+instanceHeadIdentity :: TcKinds -> [TcType] -> Text
+instanceHeadIdentity kinds = T.concat . map (typeIdentity kinds)
 
-typeIdentity :: TcType -> Text
-typeIdentity ty =
+typeIdentity :: TcKinds -> TcType -> Text
+typeIdentity kinds ty =
   case ty of
     TcTyVar tv -> tvName tv
+    TcArrowTy -> tyConIdentity (kindsArrowTyCon kinds)
+    TcAppTy TcArrowTy argument -> tyConIdentity (kindsArrowTyCon kinds) <> typeIdentity kinds argument
     TcTyCon tc [] -> tyConIdentity tc
     TcTyCon (TyCon "[]" _) [_] -> "List"
-    TcTyCon tc args -> tyConIdentity tc <> T.concat (map typeIdentity args)
-    TcFunTy argument result -> typeIdentity argument <> "->" <> typeIdentity result
+    TcTyCon tc args -> tyConIdentity tc <> T.concat (map (typeIdentity kinds) args)
+    TcFunTy argument result -> typeIdentity kinds argument <> "->" <> typeIdentity kinds result
     _ -> "T"
 
 tyConIdentity :: TyCon -> Text
@@ -3448,9 +3454,10 @@ tyConIdentity tyCon =
 
 allocateInstanceDictName :: (Text, Text) -> Text -> [TcType] -> TcM Text
 allocateInstanceDictName origin className headTys = do
+  kinds <- getKinds
   instances <- getInstances
   let taken = Set.fromList [iiDictName info | info <- instances, iiDictOrigin info == origin]
-      shortName = instanceDictName className headTys
+      shortName = instanceDictName kinds className headTys
       modules = nub (mapMaybe typeConstructorModule headTys)
       qualifiedName = shortName <> T.concat (map ("$" <>) modules)
   pure
@@ -3464,12 +3471,13 @@ allocateInstanceDictName origin className headTys = do
 
 lookupInstanceDictName :: (Text, Text) -> Text -> [TcType] -> TcM Text
 lookupInstanceDictName origin className headTys = do
+  kinds <- getKinds
   instances <- getInstances
-  let identity = instanceHeadIdentity headTys
+  let identity = instanceHeadIdentity kinds headTys
       matches info =
         iiDictOrigin info == origin
           && iiClassName info == className
-          && instanceHeadIdentity (iiHead info) == identity
+          && instanceHeadIdentity kinds (iiHead info) == identity
   case find matches instances of
     Just info -> pure (iiDictName info)
     Nothing -> allocateInstanceDictName origin className headTys

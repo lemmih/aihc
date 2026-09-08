@@ -36,10 +36,9 @@ reduceTypeFamilies ty =
       reduceHead (TcTyCon tyCon arguments')
     TcFunTy argument result -> TcFunTy <$> reduceTypeFamilies argument <*> reduceTypeFamilies result
     TcAppTy function argument -> do
-      kinds <- getKinds
       function' <- reduceTypeFamilies function
       argument' <- reduceTypeFamilies argument
-      reduceHead (applyType kinds function' argument')
+      reduceHead (applyType function' argument')
     TcForAllTy tyVar body -> TcForAllTy tyVar <$> reduceTypeFamilies body
     TcQualTy predicates body -> TcQualTy <$> mapM reducePredFamilies predicates <*> reduceTypeFamilies body
     _ -> pure ty
@@ -104,7 +103,7 @@ reduceHead ty =
               kinds <- getKinds
               equations <- familyEquations tyCon
               case firstEquation kinds equations familyArguments of
-                Just reduced -> reduceTypeFamilies (foldl (applyType kinds) reduced extraArguments)
+                Just reduced -> reduceTypeFamilies (foldl applyType reduced extraArguments)
                 Nothing -> pure ty
         _ -> pure ty
     _ -> pure ty
@@ -135,7 +134,7 @@ firstEquation kinds equations arguments =
       case equationArguments equation of
         Just patterns
           | Just substitution <- matchTypes patterns arguments ->
-              Just (applySubst kinds substitution (tfiiRight equation))
+              Just (applySubst substitution (tfiiRight equation))
           | tfiiClosed equation,
             and (zipWith couldUnify patterns arguments) ->
               Nothing
@@ -163,9 +162,9 @@ couldUnify patternType target =
       couldUnify function targetFunction && couldUnify argument targetArgument
     _ -> patternType == target
 
-applyType :: TcKinds -> TcType -> TcType -> TcType
-applyType kinds (TcTyCon tyCon arguments) argument = mkTyConApp kinds tyCon (arguments <> [argument])
-applyType _ function argument = TcAppTy function argument
+applyType :: TcType -> TcType -> TcType
+applyType (TcTyCon tyCon arguments) argument = TcTyCon tyCon (arguments <> [argument])
+applyType function argument = TcAppTy function argument
 
 -- | Match pattern types against target types. The type variables of the
 -- patterns are the pattern variables.

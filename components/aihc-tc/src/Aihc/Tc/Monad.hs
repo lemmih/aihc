@@ -37,6 +37,7 @@ module Aihc.Tc.Monad
     getDerivingReferences,
     getWiring,
     getKinds,
+    arrowType,
     TcWiring (..),
     wiredTupleTyCon,
     wiredTupleDataCon,
@@ -269,6 +270,21 @@ wiredTyCon :: (TcWiring -> TyCon) -> TcType -> TcM TyCon
 wiredTyCon select kind = do
   wired <- wiredTyConIdentity select
   mkWiredTyCon wired kind
+
+-- | The function arrow as a type, and the declaration that goes with it.
+--
+-- 'TcArrowTy' is a form rather than a type constructor, so the type
+-- checker recognises an arrow without consulting the wiring. The
+-- desugarer does not: a partially applied arrow reaches it as an ordinary
+-- type constructor and the name has to be bound there. Every place that
+-- builds an arrow goes through here, so the constructor is declared in
+-- the interface of exactly the modules that can mention it.
+arrowType :: TcM TcType
+arrowType = do
+  kinds <- getKinds
+  let kind = KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds))
+  _ <- wiredTyCon tcWiringArrowTyCon kind
+  pure TcArrowTy
 
 -- | The binder of a term that a wiring entry names. The wiring gives the
 -- whole identity, so the term is found by key and never by scope.

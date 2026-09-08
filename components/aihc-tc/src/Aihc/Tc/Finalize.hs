@@ -418,6 +418,8 @@ firstMetaType ty =
   case ty of
     TcMetaTv meta ->
       Just meta
+    TcArrowTy ->
+      Nothing
     TcTyVar {} ->
       Nothing
     TcTyCon _ args ->

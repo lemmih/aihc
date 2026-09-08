@@ -204,8 +204,8 @@ canonicalizeGiven ct = case ctPred ct of
 
 -- | Apply a list of given equalities as a substitution to a type.
 -- Each given @(lhs, rhs)@ rewrites occurrences of @lhs@ with @rhs@.
-applyGivenSubst :: TcKinds -> [(TcType, TcType)] -> TcType -> TcType
-applyGivenSubst kinds givens ty = foldr applyOne ty givens
+applyGivenSubst :: [(TcType, TcType)] -> TcType -> TcType
+applyGivenSubst givens ty = foldr applyOne ty givens
   where
     applyOne (lhs, rhs) t
       | t == lhs = rhs
@@ -213,7 +213,7 @@ applyGivenSubst kinds givens ty = foldr applyOne ty givens
           case t of
             TcTyCon tc args -> TcTyCon tc (map (applyOne (lhs, rhs)) args)
             TcFunTy a b -> TcFunTy (applyOne (lhs, rhs) a) (applyOne (lhs, rhs) b)
-            TcAppTy f a -> mkAppTy kinds (applyOne (lhs, rhs) f) (applyOne (lhs, rhs) a)
+            TcAppTy f a -> mkAppTy (applyOne (lhs, rhs) f) (applyOne (lhs, rhs) a)
             TcForAllTy tv body -> TcForAllTy tv (applyOne (lhs, rhs) body)
             _ -> t
 
@@ -236,7 +236,7 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
   ClassPred className arguments -> do
     kinds <- getKinds
     arguments' <- mapM zonkType arguments
-    let rewritten = ClassPred className (map (applyGivenSubst kinds givenEqualities) arguments')
+    let rewritten = ClassPred className (map (applyGivenSubst givenEqualities) arguments')
         rewrittenGivens = map (rewritePred kinds givenEqualities) givenPredicates
     result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritten})
     case result of
@@ -252,7 +252,7 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
   IParamPred name payload -> do
     kinds <- getKinds
     payload' <- zonkType payload
-    let rewritten = IParamPred name (applyGivenSubst kinds givenEqualities payload')
+    let rewritten = IParamPred name (applyGivenSubst givenEqualities payload')
         rewrittenGivens = map (rewritePred kinds givenEqualities) givenPredicates
     result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritten})
     case result of
@@ -284,6 +284,7 @@ typeMetaVars :: TcType -> [Unique]
 typeMetaVars ty =
   case ty of
     TcMetaTv unique -> [unique]
+    TcArrowTy -> []
     TcTyVar _ -> []
     TcTyCon _ arguments -> concatMap typeMetaVars arguments
     TcFunTy argument result -> typeMetaVars argument <> typeMetaVars result
@@ -305,6 +306,7 @@ typeTyVars ty =
   case ty of
     TcTyVar tyVar -> [tyVar]
     TcMetaTv _ -> []
+    TcArrowTy -> []
     TcTyCon _ arguments -> concatMap typeTyVars arguments
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
     TcForAllTy tyVar body -> filter (/= tyVar) (typeTyVars body)
@@ -314,11 +316,11 @@ typeTyVars ty =
 rewritePred :: TcKinds -> [(TcType, TcType)] -> Pred -> Pred
 rewritePred kinds equalities predicate =
   case predicate of
-    ClassPred className arguments -> ClassPred className (map (applyGivenSubst kinds equalities) arguments)
-    EqPred left right -> EqPred (applyGivenSubst kinds equalities left) (applyGivenSubst kinds equalities right)
+    ClassPred className arguments -> ClassPred className (map (applyGivenSubst equalities) arguments)
+    EqPred left right -> EqPred (applyGivenSubst equalities left) (applyGivenSubst equalities right)
     QuantifiedPred variables antecedents consequent ->
       QuantifiedPred variables (map (rewritePred kinds equalities) antecedents) (rewritePred kinds equalities consequent)
-    IParamPred name payload -> IParamPred name (applyGivenSubst kinds equalities payload)
+    IParamPred name payload -> IParamPred name (applyGivenSubst equalities payload)
 
 zonkCtEqProvenance :: Ct -> TcM (Maybe EqProvenance)
 zonkCtEqProvenance ct =
