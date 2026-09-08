@@ -208,10 +208,15 @@ in rec {
         if spec.disableProfiling
         then hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling baseDrv)
         else baseDrv;
+      # Check executables do not need shared copies of the project libraries.
+      sharedAdjusted =
+        if enableSeparateIntermediates && !(builtins.elem name ["aihc-prim" "aihc-internal" "aihc-template-haskell"])
+        then hsLib.disableSharedLibraries profilingAdjusted
+        else profilingAdjusted;
       optimizationAdjusted =
         if disableOptimization && spec.optimizeForChecks
-        then hsLib.disableOptimization profilingAdjusted
-        else profilingAdjusted;
+        then hsLib.disableOptimization sharedAdjusted
+        else sharedAdjusted;
       coverageAdjusted =
         if enableCoverage && spec.supportsCoverage
         then enableCoverageWithExport hsLib optimizationAdjusted

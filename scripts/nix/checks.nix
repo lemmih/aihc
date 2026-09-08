@@ -45,13 +45,37 @@
       previousIntermediates = drv.intermediates;
     };
 
+  reuseCompiledTests = drv: check:
+    if drv ? intermediates
+    then
+      check.overrideAttrs (_: {
+        # The package build already compiled every test executable.
+        buildPhase = ''
+          runHook preBuild
+          rm -rf dist/build
+          cp -R ${drv.intermediates}/share/haskell/${drv.compiler.version}/${drv.pname}-${drv.version}/dist/build dist/build
+          chmod -R u+w dist/build
+          ./Setup register --inplace
+          runHook postBuild
+        '';
+        # These outputs only record successful tests.
+        installPhase = ''
+          runHook preInstall
+          for outputName in $outputs; do
+            mkdir -p "''${!outputName}"
+          done
+          runHook postInstall
+        '';
+      })
+    else check;
+
   mkPackageTest = drv:
-    pkgs.haskell.lib.doCheck (
+    reuseCompiledTests drv (pkgs.haskell.lib.doCheck (
       pkgs.haskell.lib.dontHaddock (pkgs.haskell.lib.overrideCabal drv (addCheckSettings drv))
-    );
+    ));
 
   mkEvalPackageTest = drv:
-    pkgs.haskell.lib.doCheck (
+    reuseCompiledTests drv (pkgs.haskell.lib.doCheck (
       pkgs.haskell.lib.dontHaddock (
         pkgs.haskell.lib.overrideCabal drv (
           old:
@@ -67,15 +91,16 @@
             }
         )
       )
-    );
+    ));
 
-  mkAihcPackageTest = drv:
-    pkgs.haskell.lib.doCheck (
+  mkAihcPackageTest = suite: drv:
+    reuseCompiledTests drv (pkgs.haskell.lib.doCheck (
       pkgs.haskell.lib.dontHaddock (
         pkgs.haskell.lib.overrideCabal drv (
           old:
             addCheckSettings drv old
             // {
+              testTargets = [suite];
               # Tasty defaults to one worker per processor and raises the RTS
               # capability count to match. The eval fixtures allocate several
               # gigabytes each, so on a 32-thread runner that many concurrent
@@ -111,12 +136,14 @@
                   export AIHC_PRIM_SRC="$coreLibsRoot/core-libs/aihc-prim"
                   export AIHC_EVAL_FIXTURES=${sources.evalFixturesSrc pkgs}
                   export AIHC_TEST_ROOT=${sources.aihcSrc pkgs}
-                  export AIHC_PREBUILT_STORE=${specSeedStore}
+                  ${pkgs.lib.optionalString (suite == "spec") ''
+                    export AIHC_PREBUILT_STORE=${specSeedStore}
+                  ''}
                 '';
             }
         )
       )
-    );
+    ));
 
   mkSourceCheck = name: src: nativeBuildInputs: text:
     pkgs.runCommand name {
@@ -335,7 +362,10 @@
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
   tcTests = mkPackageTest hsPkgs.aihc-tc;
   testingTests = mkPackageTest hsPkgs.aihc-testing;
-  aihcTests = mkAihcPackageTest hsPkgs.aihc;
+  aihcTests = pkgs.linkFarm "aihc-tests" (map (suite: {
+    name = suite;
+    path = mkAihcPackageTest suite hsPkgs.aihc;
+  }) ["spec" "dev-spec"]);
   fmtTests = mkPackageTest hsPkgs.aihc-fmt;
   haddockTests = mkPackageTest hsPkgs.aihc-haddock;
   unicode = import ./unicode.nix {inherit pkgs;};
@@ -449,8 +479,8 @@
   # install it again.
   # These fresh Nix stores do not need a second module cache.
   # --reinstall retains installed interfaces and skips that cache.
-  specSeedStore =
-    pkgs.runCommand "aihc-spec-seed-store" {
+  mkSpecSeedStore = name: script:
+    pkgs.runCommand name {
       src = sources.coreLibrariesSrc pkgs;
       nativeBuildInputs = [
         pkgs.llvmPackages.bintools
@@ -462,24 +492,28 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N2
+      export GHCRTS=-N4
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       export AIHC_WASM_SYSROOT=${wasmSysroot}
-      mkdir -p "$out/prim"
-
-      ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          ${aihcExe} install --reinstall core-libs/aihc-prim --store "$out/prim" --target ${target}
-        '')
-        specSeedPrimTargets}
-
-      # The install tests want aihc-prim on its own and build-exe wants
-      # aihc-base as well. Keeping them apart matches what the suite builds for
-      # itself outside CI, so a test sees the same store either way.
-      cp -R --no-preserve=mode "$out/prim" "$out/core"
-      ${aihcExe} install --reinstall core-libs/aihc-base --store "$out/core" --target ${specSeedBaseTarget}
+      ${script}
     '';
+
+  specPrimStoreFor = target:
+    mkSpecSeedStore "aihc-spec-prim-store-${target}" ''
+      ${aihcExe} install --reinstall core-libs/aihc-prim --store "$out" --target ${target}
+    '';
+
+  specSeedStore = mkSpecSeedStore "aihc-spec-seed-store" ''
+    mkdir -p "$out/prim"
+    ${pkgs.lib.concatMapStringsSep "\n" (target: ''
+        cp -R --no-preserve=mode ${specPrimStoreFor target}/. "$out/prim/"
+      '')
+      specSeedPrimTargets}
+    cp -R --no-preserve=mode "$out/prim" "$out/core"
+    ${aihcExe} install --reinstall core-libs/aihc-base --store "$out/core" --target ${specSeedBaseTarget}
+  '';
 
   # The compiler owns preparation of the installed toolchain. Runtime archives
   # are built once per backend/GC pair, and ordinary package installation emits
@@ -518,7 +552,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N2
+      export GHCRTS=-N4
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -547,7 +581,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N2
+      export GHCRTS=-N4
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -599,7 +633,7 @@
       ];
     } ''
       set -euo pipefail
-      export GHCRTS=-N2
+      export GHCRTS=-N4
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
