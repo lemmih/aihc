@@ -1,0 +1,18 @@
+extensions: [MultiParamTypeClasses]
+modules:
+  - |
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Data.Coerce where
+    class Coercible a b
+    require :: Coercible a b => a -> b -> Bool
+    require _ _ = True
+  - |
+    module Test where
+    import qualified Data.Coerce as Fake
+    result :: Bool
+    result = Fake.require True False
+expression: result
+output: ""
+error: "typecheck error: Test: unsolved constraint Coercible Bool Bool"
+status: fail
+reason: A class outside GHC.Types does not receive built-in Coercible evidence

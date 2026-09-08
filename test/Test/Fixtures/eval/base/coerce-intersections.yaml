@@ -1,0 +1,28 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Coerce (coerce)
+    import Data.Semigroup (Semigroup (..))
+    import Data.List.NonEmpty (NonEmpty (..))
+
+    data Set a = Set a
+    newtype Intersection a = Intersection (Set a)
+
+    intersections :: Ord a => NonEmpty (Set a) -> Set a
+    intersections (Set x :| rest) = foldr smaller (Set x) rest
+      where
+        smaller (Set a) (Set b) = Set (min a b)
+
+    instance Ord a => Semigroup (Intersection a) where
+      Intersection (Set a) <> Intersection (Set b) = Intersection (Set (min a b))
+      sconcat = coerce intersections
+
+    result :: Int
+    result = case sconcat (Intersection (Set 7) :| [Intersection (Set 3)]) of
+      Intersection (Set value) -> value
+expression: result == 3
+output: "True"
+status: pass
+reason: A coerced overloaded function retains the Ord constraint from its instance

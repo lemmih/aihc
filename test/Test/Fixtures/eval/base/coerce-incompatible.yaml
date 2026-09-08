@@ -1,0 +1,12 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Data.Coerce (coerce)
+    result :: Bool
+    result = coerce (1 :: Int)
+expression: result
+output: ""
+error: "typecheck error: Test: unsolved constraint Coercible Int Bool"
+status: fail
+reason: Coercible rejects types with different representations

@@ -682,7 +682,11 @@ packageStoreDirectory config dependencies root inputs = do
       dependencyIdentities = sortOn id (map (T.pack . takeFileName . installStorePath . installedResult) dependencies)
       unitIdentity = packageNameText <> "-" <> packageVersionText <> "-" <> T.pack compilerBuildIdentity
   sourceHash <- sourceFilesHash root (cabalFile : map HackageCabal.fileInfoPath files <> HackageCabal.cCompileSources cInputs)
-  let packageHash = stableHash (map TE.encodeUtf8 (packageArtifactFormatVersion : T.pack (compileOptionsKey config) : T.pack sourceHash : dependencyIdentities))
+  cSysrootArguments <-
+    if compileNoCode config || null (HackageCabal.cCompileSources cInputs)
+      then pure []
+      else wasmSysrootIncludeArguments (compileTarget config)
+  let packageHash = stableHash (map TE.encodeUtf8 (packageArtifactFormatVersion : T.pack (compileOptionsKey config) : T.pack sourceHash : T.pack (show cSysrootArguments) : dependencyIdentities))
   pure (T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash, unitIdentity)
 
 packageActiveName :: FilePath -> FilePath
@@ -716,8 +720,7 @@ buildEnvironmentIdentity target = do
         "compiler/native/runtime/include/ghcplatform.h"
       ]
   headerHash <- stableHash <$> mapM BS.readFile headers
-  sysrootArguments <- wasmSysrootIncludeArguments target
-  pure (stableHash (map BS8.pack [compilerBuildIdentity, compilerHash, archiverHash, headerHash, show arguments, show sysrootArguments]))
+  pure (stableHash (map BS8.pack [compilerBuildIdentity, compilerHash, archiverHash, headerHash, show arguments]))
 
 compileOptionsKey :: ModuleCompileConfig -> String
 compileOptionsKey config =
@@ -1994,4 +1997,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-13"
+packageArtifactFormatVersion = "aihc-artifacts-16"

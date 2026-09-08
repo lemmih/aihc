@@ -36,6 +36,8 @@ data EvTerm
     EvGiven !Pred
   | -- | Dictionary construction: origin, dictionary name, type args, sub-evidence.
     EvDict !(Text, Text) !Text ![TcType] ![EvTerm]
+  | -- | A checked representation constraint with an empty dictionary.
+    EvCoercible !TyCon !TcType !TcType
   | -- | Coercion evidence (for equality constraints).
     EvCoercion !Coercion
   | -- | Superclass selection from a dictionary. The source class origin,

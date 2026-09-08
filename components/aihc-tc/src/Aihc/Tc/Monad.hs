@@ -65,6 +65,8 @@ module Aihc.Tc.Monad
     extendTyConTermEnvPermanent,
     extendResolvedTermEnvPermanent,
     getTermEnv,
+    withVisibleTerms,
+    isTermVisible,
     lookupTyCon,
     lookupTyConQualified,
     lookupResolvedTyCon,
@@ -201,7 +203,8 @@ data TcEnv = TcEnv
     -- with an explicit @forall@, an instance head, or a class head binds
     -- them over the bodies it covers.
     tcEnvGivenPredicates :: ![Pred],
-    tcEnvScopedTyVars :: !(Map Text (TyVarId, TcType))
+    tcEnvScopedTyVars :: !(Map Text (TyVarId, TcType)),
+    tcEnvVisibleTerms :: !(Set.Set TcTermKey)
   }
   deriving (Show)
 
@@ -300,7 +303,8 @@ emptyTcEnv config =
       tcEnvDefaultTypes = Nothing,
       tcEnvScopedTypeVariables = False,
       tcEnvGivenPredicates = [],
-      tcEnvScopedTyVars = Map.empty
+      tcEnvScopedTyVars = Map.empty,
+      tcEnvVisibleTerms = Set.empty
     }
 
 -- | The mutable state of the type checker.
@@ -498,6 +502,13 @@ getTermEnv = do
   locals <- asks tcEnvTerms
   globals <- lift $ gets tcsGlobalTerms
   pure (locals <> globals)
+
+-- | Use the resolver's scope facts without another name resolution pass.
+withVisibleTerms :: [TcTermKey] -> TcM a -> TcM a
+withVisibleTerms terms = local (\env -> env {tcEnvVisibleTerms = Set.fromList terms})
+
+isTermVisible :: TcTermKey -> TcM Bool
+isTermVisible key = asks (Set.member key . tcEnvVisibleTerms)
 
 -- | Extend the term environment with a new binding for the duration
 -- of the given computation.

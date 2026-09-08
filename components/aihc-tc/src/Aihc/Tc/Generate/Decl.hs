@@ -60,6 +60,8 @@ import Aihc.Parser.Syntax
     PragmaUnpackKind (..),
     RecordField (..),
     Rhs (..),
+    Role (..),
+    RoleAnnotation (..),
     SourceSpan (..),
     TupleFlavor (..),
     TyVarBinder,
@@ -94,7 +96,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), VisibleTermIdentities (..))
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -130,6 +132,7 @@ import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
@@ -506,6 +509,7 @@ tcModuleScc modules = do
           declaration <- moduleDecls modu
         ]
   mapM_ (uncurry registerStructuralDecl) (filter (not . isInstanceDecl . snd) structuralDeclarations)
+  mapM_ registerNominalRoles declarations
   -- Generalize data kinds before instances use them.
   generalizeDataKinds polyKindOrigins initialKeys
   mapM_ (uncurry registerStructuralDecl) (filter (isInstanceDecl . snd) structuralDeclarations)
@@ -529,6 +533,23 @@ tcModuleScc modules = do
   annotated <- mapM annotatePendingModule pending
   mapM finalizeModuleTc annotated
 
+-- | Keep explicit nominal roles in the checked interface.
+registerNominalRoles :: Decl -> TcM ()
+registerNominalRoles declaration = case peelDeclAnn declaration of
+  DeclRoleAnnotation annotation -> do
+    info <- lookupDeclaredTyCon (roleAnnotationName annotation)
+    case info of
+      Just constructor -> lift $ modify' $ \state ->
+        state
+          { tcsDataTypes =
+              Map.adjust
+                (\dataType -> dataType {dtiNominalRoles = map (== RoleNominal) (roleAnnotationRoles annotation)})
+                (tyConKey (tciTyCon constructor))
+                (tcsDataTypes state)
+          }
+      Nothing -> pure ()
+  _ -> pure ()
+
 registerCheckedSig :: TcTermKey -> CheckedSig -> TcM ()
 registerCheckedSig key sig = do
   extendTermEnvPermanent (checkedSigName sig) binder
@@ -551,9 +572,15 @@ data PendingModule = PendingModule
   }
 
 tcModuleBody :: Map TcTermKey CheckedSig -> Module -> TcM PendingModule
-tcModuleBody schemes m = do
+tcModuleBody schemes m = withVisibleTerms visible $ do
   declaredDefaults <- moduleDefaultTypes (moduleDecls m)
   localDefaultTypes declaredDefaults (tcModuleBodyWithDefaults schemes m)
+  where
+    visible =
+      [ TcTermGlobal package moduleName' name
+      | VisibleTermIdentities identities <- mapMaybe fromAnnotation (moduleAnns m),
+        (package, moduleName', name) <- identities
+      ]
 
 -- | The candidate types of the module @default@ declaration.
 --
@@ -1565,7 +1592,7 @@ tcInstanceDeclBodies (DeclAnn ann inner)
       classInfo <- lookupClass (tcInstanceClassTyCon annotation) >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       items <-
         withScopedTyVars (tyVarScope (tcInstanceTyVars annotation)) $
-          mapM (tcInstanceItemBody classInfo givens headTys) (instanceDeclItems instanceDecl)
+          mapM (tcInstanceItemBody classInfo givens headTys (instanceMethodSignatures (instanceDeclItems instanceDecl))) (instanceDeclItems instanceDecl)
       pure (DeclAnn ann (DeclInstance (instanceDecl {instanceDeclItems = items})))
   | otherwise = DeclAnn ann <$> tcInstanceDeclBodies inner
 tcInstanceDeclBodies (DeclInstance instanceDecl) =
@@ -1582,7 +1609,7 @@ tcInstanceDeclBodies (DeclInstance instanceDecl) =
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       items <-
         withScopedTyVars tvEnv $
-          mapM (tcInstanceItemBody classInfo givens headTys) (instanceDeclItems instanceDecl)
+          mapM (tcInstanceItemBody classInfo givens headTys (instanceMethodSignatures (instanceDeclItems instanceDecl))) (instanceDeclItems instanceDecl)
       pure (DeclInstance (instanceDecl {instanceDeclItems = items}))
 tcInstanceDeclBodies decl =
   pure decl
@@ -1592,16 +1619,59 @@ tcInstanceDeclBodies decl =
 tyVarScope :: [TyVarId] -> Map Text (TyVarId, TcType)
 tyVarScope tyVars = Map.fromList [(tvName tyVar, (tyVar, tvKind tyVar)) | tyVar <- tyVars]
 
-tcInstanceItemBody :: ClassInfo -> [Pred] -> [TcType] -> InstanceDeclItem -> TcM InstanceDeclItem
-tcInstanceItemBody classInfo givens headTys item =
+instanceMethodSignatures :: [InstanceDeclItem] -> Map Text Type
+instanceMethodSignatures = Map.fromList . concatMap collect
+  where
+    collect (InstanceItemAnn _ inner) = collect inner
+    collect (InstanceItemTypeSig names ty) = [(unqualifiedNameText name, ty) | name <- names]
+    collect _ = []
+
+-- | Check the instance signature against the class method type.
+-- Explicit type variables keep their source names in the method body.
+instanceMethodScope :: Map Text Type -> Text -> [Pred] -> TypeScheme -> [Match] -> TcM TvKindEnv
+instanceMethodScope signatures name givens (ForAll _ predicates expected) matches =
+  case Map.lookup name signatures of
+    Nothing -> pure Map.empty
+    Just signature -> do
+      scheme@(ForAll variables signaturePredicates signatureType) <- sigToScheme signature
+      withScopedTyVars (scopedSigTyVars (explicitForallNames signature) variables) $ do
+        let (arguments, result) = splitFunTy signatureType (matchArity matches)
+        checked <- mapM (tcMatchEquation Nothing arguments result) matches
+        solveInstanceBodyConstraints (givens <> signaturePredicates) [(cts, impls) | (_, cts, impls) <- checked]
+      instantiated <- instantiateWithArgs scheme
+      evidence <- freshEvVar
+      let span' = surfaceTypeSpan signature
+          origin = SigOrigin span'
+          equality = mkWantedCt (EqPred (instType instantiated) expected) evidence origin span'
+      constraints <- forM (instPreds instantiated) $ \predicate -> do
+        ev <- freshEvVar
+        pure (mkWantedCt predicate ev origin span')
+      solveBodyConstraintsWithGivens (givens <> predicates) (equality : constraints) []
+      arguments <- mapM zonkType (instTypeArgs instantiated)
+      forM_ (zip variables arguments) $ \(variable, argument) ->
+        when (tvName variable `elem` explicitForallNames signature) $
+          case argument of
+            TcTyVar _ -> pure ()
+            _ -> emitError span' (OtherError "an explicit instance signature variable must remain polymorphic")
+      pure
+        ( Map.fromList
+            [ (tvName variable, (scoped, tvKind scoped))
+            | (variable, TcTyVar scoped) <- zip variables arguments,
+              tvName variable `elem` explicitForallNames signature
+            ]
+        )
+
+tcInstanceItemBody :: ClassInfo -> [Pred] -> [TcType] -> Map Text Type -> InstanceDeclItem -> TcM InstanceDeclItem
+tcInstanceItemBody classInfo givens headTys signatures item =
   case item of
     InstanceItemAnn ann inner ->
-      InstanceItemAnn ann <$> tcInstanceItemBody classInfo givens headTys inner
+      InstanceItemAnn ann <$> tcInstanceItemBody classInfo givens headTys signatures inner
     InstanceItemBind (FunctionBind name matches) -> do
-      ForAll methodTyVars methodGivens methodTy <- methodExpectedScheme classInfo headTys (unqualifiedNameText name)
+      scheme@(ForAll methodTyVars methodGivens methodTy) <- methodExpectedScheme classInfo headTys (unqualifiedNameText name)
+      scope <- instanceMethodScope signatures (unqualifiedNameText name) givens scheme matches
       let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
       (results, failed) <-
-        withErrorTracking $ do
+        withErrorTracking $ withScopedTyVars scope $ do
           results <- mapM (tcMatchEquation Nothing argTys resTy) matches
           solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
           pure results
@@ -1617,9 +1687,10 @@ tcInstanceItemBody classInfo givens headTys item =
     InstanceItemBind (PatternBind _ pat rhs) ->
       case patternBinderName pat of
         Just (_, methodName) -> do
-          ForAll methodTyVars methodGivens methodTy <- methodExpectedScheme classInfo headTys methodName
+          scheme@(ForAll methodTyVars methodGivens methodTy) <- methodExpectedScheme classInfo headTys methodName
+          scope <- instanceMethodScope signatures methodName givens scheme [zeroArgMatch (patternSpan pat) rhs]
           (results, failed) <-
-            withErrorTracking $ do
+            withErrorTracking $ withScopedTyVars scope $ do
               results <- mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pat) rhs]
               solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
               pure results
@@ -3707,7 +3778,8 @@ registerDataConstructors origin dataDecl = do
             dtiTyVars = tyVars,
             dtiResultKind = resultKind,
             dtiFlavor = DataTyCon,
-            dtiConstructors = constructors
+            dtiConstructors = constructors,
+            dtiNominalRoles = replicate (length tyVars) False
           }
       pure (bindings <> selectorBindings)
 
@@ -3759,7 +3831,8 @@ registerNewtypeConstructor origin newtypeDecl = do
             dtiTyVars = tyVars,
             dtiResultKind = resultKind,
             dtiFlavor = NewtypeTyCon,
-            dtiConstructors = constructors
+            dtiConstructors = constructors,
+            dtiNominalRoles = replicate (length tyVars) False
           }
       pure (maybeToList constructor <> selectorBindings)
 

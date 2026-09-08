@@ -1,0 +1,18 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Data.Coerce (coerce)
+    newtype Age = Age Int
+    data Tree a = Leaf a | Branch (Tree a)
+    unwrap :: Tree Age -> Tree Int
+    unwrap = coerce
+    pair :: (Age, Age) -> (Int, Int)
+    pair = coerce
+    result = case unwrap (Branch (Leaf (Age 7))) of
+      Branch (Leaf value) -> value == 7 && pair (Age 1, Age 2) == (1, 2)
+      _ -> False
+expression: result
+output: "True"
+status: pass
+reason: Coercible preserves representation through recursive data types and tuples

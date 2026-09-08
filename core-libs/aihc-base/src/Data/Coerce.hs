@@ -1,9 +1,8 @@
-module Data.Coerce (coerce) where
+module Data.Coerce (Coercible, coerce) where
 
+import GHC.Types (Coercible)
 import Unsafe.Coerce (unsafeCoerce)
 
--- | Change the type of a value that has the same runtime representation.
--- The standin has no @Coercible@ solver, so the type gives no proof that the
--- two representations agree. The caller must keep that property.
-coerce :: a -> b
+-- | Change the type of a value with the same representation.
+coerce :: (Coercible a b) => a -> b
 coerce = unsafeCoerce

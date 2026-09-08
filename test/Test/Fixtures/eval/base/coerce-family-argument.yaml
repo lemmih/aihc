@@ -1,0 +1,18 @@
+extensions: [TypeFamilies]
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies #-}
+    module Test where
+    import Data.Coerce (coerce)
+    newtype Age = Age Int
+    type family Field a
+    type instance Field Age = Bool
+    type instance Field Int = Int
+    data Box a = Box (Field a)
+    result :: Box Int
+    result = coerce (Box True :: Box Age)
+expression: result
+output: ""
+error: "typecheck error: Test: unsolved constraint Coercible (Box Age) (Box Int)"
+status: fail
+reason: A type family requires nominal arguments even when its enclosing data type has no role annotation

@@ -3697,6 +3697,9 @@ desugarEvidence evidence =
           package = PackageId packageName
           name = Name dictionaryName SortValue (OriginTop package moduleName')
       pure (foldl ExApp (foldl ExTyApp (ExVar name) convertedTypes) evidenceArguments)
+    Ev.EvCoercible constructor left right -> do
+      arguments <- mapM convertCheckedType [left, right]
+      pure (foldl ExTyApp (ExVar (classDictConName constructor)) arguments)
     Ev.EvCoercion coercion -> withCoercion coercion (pure . ExCoercion)
     Ev.EvSuperClass _ _ _ fieldTypes fieldIndex -> do
       resultPredicateType <-

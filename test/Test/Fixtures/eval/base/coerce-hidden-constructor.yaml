@@ -1,0 +1,16 @@
+extensions: []
+modules:
+  - |
+    module Age (Age) where
+    newtype Age = Age Int
+  - |
+    module Test where
+    import Age (Age)
+    import Data.Coerce (coerce)
+    unwrap :: Age -> Int
+    unwrap = coerce
+expression: "True"
+output: ""
+error: "typecheck error: Test: unsolved constraint Coercible Age Int"
+status: fail
+reason: Coercible cannot use a newtype constructor outside its scope

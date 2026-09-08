@@ -1,0 +1,26 @@
+extensions: [InstanceSigs, ScopedTypeVariables]
+modules:
+  - |
+    {-# LANGUAGE InstanceSigs, ScopedTypeVariables #-}
+    module Test where
+
+    data Proxy a = Proxy
+    data Box a = Box a
+
+    class Value a where
+      value :: Proxy a -> Int
+
+    instance Value Bool where
+      value _ = 7
+
+    class ReadBox f where
+      readBox :: Value a => f a -> Int
+
+    instance ReadBox Box where
+      readBox :: forall element. Value element => Box element -> Int
+      readBox _ = value (Proxy :: Proxy element)
+
+expression: readBox (Box True) == 7
+output: "True"
+status: pass
+reason: An explicit instance signature scopes its type variables over the method body

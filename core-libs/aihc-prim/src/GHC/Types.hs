@@ -18,6 +18,7 @@ module GHC.Types
     isTrue#,
     Ordering (..),
     Constraint,
+    Coercible,
     type (~),
     TYPE,
     Type,
@@ -115,6 +116,10 @@ data Ordering = LT | EQ | GT
 
 type Constraint :: Type
 data Constraint
+
+-- | The compiler proves that both types have the same representation.
+type Coercible :: Type -> Type -> Constraint
+class Coercible a b
 
 -- | The compiler supplies nominal equality evidence for this class.
 type (~) :: forall k. k -> k -> Constraint
