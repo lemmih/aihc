@@ -183,6 +183,15 @@ in rec {
   exampleSrc = exampleName:
     mkRootSubsetSrc ["examples/${exampleName}/"] exampleSourceSuffixes;
 
+  haddockSrc = mkComponentSrc "/bin/aihc-haddock" [
+    ".hs"
+    ".hs-boot"
+    ".cabal"
+    ".json"
+    ".txt"
+    ".sh"
+  ];
+
   fmtSrc = mkComponentSrc "/bin/aihc-fmt" [
     ".hs"
     ".hs-boot"

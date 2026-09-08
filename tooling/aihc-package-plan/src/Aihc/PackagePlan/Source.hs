@@ -40,8 +40,12 @@ import Data.Text.Encoding qualified as TE
 import System.Directory (doesFileExist)
 import System.FilePath (makeRelative, normalise, splitDirectories, takeDirectory, takeExtension, (</>))
 
+-- | One loaded source file: its path, the parsed module, the source lines
+-- for diagnostics, the parse and CPP diagnostics, the effective extensions,
+-- and the source text after preprocessing. The text is what the parser saw, so
+-- offsets in the module's spans index into it directly.
 data ParsedInterfaceFile
-  = ParsedInterfaceFile !FilePath Module !DiagnosticSourceMap [Aeson.Value] [Aeson.Value] [Extension]
+  = ParsedInterfaceFile !FilePath Module !DiagnosticSourceMap [Aeson.Value] [Aeson.Value] [Extension] !Text
 
 parseInterfaceFile :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO ParsedInterfaceFile
 parseInterfaceFile packageRoot versions fileInfo = do
@@ -64,7 +68,7 @@ parseInterfaceFile packageRoot versions fileInfo = do
       (parseErrs, modu) = parseModule cfg source
       parseDiagnostics = map (parseDiagnosticValue path) parseErrs
       sourceLines = diagnosticSourceMap path source
-  pure (ParsedInterfaceFile path modu sourceLines parseDiagnostics cppDiagnostics extensions)
+  pure (ParsedInterfaceFile path modu sourceLines parseDiagnostics cppDiagnostics extensions source)
   where
     path = HackageCabal.fileInfoPath fileInfo
 

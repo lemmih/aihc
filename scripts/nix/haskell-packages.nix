@@ -5,6 +5,7 @@
   checkedPackageNames = [
     "aihc"
     "aihc-fmt"
+    "aihc-haddock"
     "aihc-resolve"
     "aihc-tc"
     "aihc-testing"
@@ -96,6 +97,13 @@
     };
     aihc-fmt = {
       src = sources.fmtSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
+    aihc-haddock = {
+      src = sources.haddockSrc;
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = false;

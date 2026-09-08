@@ -1,0 +1,2 @@
+json: XFAIL pattern synonym signatures carry no span in aihc-parser 3.0.0.0, so their -- | comment cannot be attached; table cells are recognised but not parsed yet
+hoogle: XFAIL pattern synonym signatures carry no span in aihc-parser 3.0.0.0, so their -- | comment cannot be attached
