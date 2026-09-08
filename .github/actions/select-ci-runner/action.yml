@@ -19,6 +19,10 @@ inputs:
     description: Whether this workflow context is trusted to use self-hosted capacity.
     required: false
     default: "true"
+  wait-for-self-hosted:
+    description: Queue the job for a self-hosted runner when the workflow context permits it.
+    required: false
+    default: "false"
 
 outputs:
   use_self_hosted:
@@ -45,6 +49,7 @@ runs:
         FALLBACK_RUNNER: ${{ inputs.fallback-runner }}
         RUNNER_TOKEN: ${{ inputs.runner-token }}
         ALLOW_SELF_HOSTED: ${{ inputs.allow-self-hosted }}
+        WAIT_FOR_SELF_HOSTED: ${{ inputs.wait-for-self-hosted }}
       run: |
         set -euo pipefail
 
@@ -58,8 +63,23 @@ runs:
           } >>"$GITHUB_OUTPUT"
         }
 
+        set_self_hosted_outputs() {
+          local reason="$1"
+          {
+            echo "use_self_hosted=true"
+            echo "runs_on=[\"self-hosted\",\"linux\",\"$RUNNER_LABEL\"]"
+            echo "selected_runner=$RUNNER_LABEL"
+            echo "reason=$reason"
+          } >>"$GITHUB_OUTPUT"
+        }
+
         if [ "$ALLOW_SELF_HOSTED" != "true" ]; then
           set_hosted_outputs "self-hosted runners disabled for this workflow context"
+          exit 0
+        fi
+
+        if [ "$WAIT_FOR_SELF_HOSTED" = "true" ]; then
+          set_self_hosted_outputs "queue this job for the requested self-hosted runner"
           exit 0
         fi
 
@@ -92,12 +112,7 @@ runs:
         raise SystemExit(1)
         ' "$RUNNER_LABEL"
         then
-          {
-            echo "use_self_hosted=true"
-            echo "runs_on=[\"self-hosted\",\"linux\",\"$RUNNER_LABEL\"]"
-            echo "selected_runner=$RUNNER_LABEL"
-            echo "reason=found an online idle runner with label '$RUNNER_LABEL'"
-          } >>"$GITHUB_OUTPUT"
+          set_self_hosted_outputs "found an online idle runner with label '$RUNNER_LABEL'"
         else
           set_hosted_outputs "no online idle runner matched label '$RUNNER_LABEL'"
         fi

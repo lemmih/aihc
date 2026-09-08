@@ -37,6 +37,7 @@ jobs:
         uses: ./.github/actions/select-ci-runner
         with:
           repository: ${{ github.repository }}
+          wait-for-self-hosted: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_compiler }}
           runner-label: ${{ vars.CI_NIX_CHECK_RUNNER_LABEL != '' && vars.CI_NIX_CHECK_RUNNER_LABEL || (vars.CI_SELF_HOSTED_RUNNER_LABEL != '' && vars.CI_SELF_HOSTED_RUNNER_LABEL || 'aihc-nix') }}
           fallback-runner: ${{ vars.CI_HOSTED_FALLBACK_RUNNER != '' && vars.CI_HOSTED_FALLBACK_RUNNER || 'ubuntu-24.04' }}
           runner-token: ${{ secrets.SELF_HOSTED_RUNNER_ADMIN_TOKEN != '' && secrets.SELF_HOSTED_RUNNER_ADMIN_TOKEN || secrets.AUTOMATION_PR_TOKEN }}
