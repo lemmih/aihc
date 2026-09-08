@@ -42,6 +42,7 @@ module Aihc.Tc.Monad
     wiredTyCon,
     wiredTyConIdentity,
     lookupWiredTerm,
+    wiredDataConKindScheme,
     boolType,
     charType,
     listTyConOfWiring,
@@ -268,6 +269,20 @@ wiredTyCon select kind = do
 lookupWiredTerm :: TyCon -> TcM (Maybe TcBinder)
 lookupWiredTerm wired =
   lookupTermKey (TcTermGlobal (tyConPackageId wired) (tyConModuleName wired) (tyConName wired))
+
+-- | The kind scheme that the wiring gives a data constructor, if it gives
+-- one. A wired constructor such as the empty list is polymorphic in a kind
+-- that its declaration does not state, so the type checker cannot infer
+-- the kind from the declaration and takes it from the wiring instead.
+wiredDataConKindScheme :: TyCon -> TcM (Maybe TypeScheme)
+wiredDataConKindScheme dataCon = do
+  wiring <- getWiring
+  case [mkKind | (wired, mkKind) <- tcWiringDataConKinds wiring, tyConKey wired == tyConKey dataCon] of
+    [] -> pure Nothing
+    mkKind : _ -> do
+      rawElementKind <- freshSkolemTv "k"
+      let elementKindVar = setTyVarKind KType rawElementKind
+      pure (Just (ForAll [elementKindVar] [] (mkKind (TcTyVar elementKindVar))))
 
 -- | The @Bool@ type that a guard and an @if@ condition have.
 boolType :: TcM TcType

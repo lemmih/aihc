@@ -3056,15 +3056,6 @@ predeclareTypeLevelDataConstructors declaration =
           arity = length fields
       mapM_ (predeclareName parent arity) names
     predeclareName parent arity name = do
-      listTyCon' <- wiredTyConIdentity tcWiringListTyCon
-      isListConstructor <-
-        if tyConModuleName parent == tyConModuleName listTyCon' && tyConName parent == tyConName listTyCon'
-          then isWiredListDataConName name
-          else pure False
-      kindScheme <-
-        if isListConstructor
-          then listDataConstructorKind name
-          else ForAll [] [] <$> freshKindMeta
       let dataConTyCon =
             mkTyConWithNamespace
               ResolutionNamespaceTerm
@@ -3072,6 +3063,8 @@ predeclareTypeLevelDataConstructors declaration =
               (tyConModuleName parent)
               name
               arity
+      wiredKindScheme <- wiredDataConKindScheme dataConTyCon
+      kindScheme <- maybe (ForAll [] [] <$> freshKindMeta) pure wiredKindScheme
       storeTyConInfo
         TyConInfo
           { tciName = name,
@@ -3869,18 +3862,16 @@ registerTypeLevelDataCon constructor = do
       arity = length fieldTypes
       (packageId, moduleName') = dciOrigin constructor
       dataConTyCon = mkTyConWithNamespace ResolutionNamespaceTerm packageId moduleName' name arity
-  isListConstructor <- isWiredListDataCon moduleName' name
-  kindScheme <-
-    if isListConstructor
-      then listDataConstructorKind name
-      else
-        pure
+  wiredKindScheme <- wiredDataConKindScheme dataConTyCon
+  let kindScheme =
+        fromMaybe
           ( ForAll
               (dciUnivTyVars constructor <> dciExTyVars constructor)
               (dciTheta constructor)
               (foldr TcFunTy (dciResTy constructor) fieldTypes)
           )
-  let info =
+          wiredKindScheme
+      info =
         TyConInfo
           { tciName = name,
             tciArity = arity,
@@ -3889,41 +3880,9 @@ registerTypeLevelDataCon constructor = do
             tciFlavor = DataTyCon,
             tciTypeSynonym = Nothing
           }
-  if isListConstructor
-    then replaceTyConEnvPermanent info
-    else storeTyConInfo info
-
--- | Whether a data constructor of the given name is one of the wired list
--- constructors, the empty list or the cons.
-isWiredListDataConName :: Text -> TcM Bool
-isWiredListDataConName name = do
-  wiring <- getWiring
-  pure (name `elem` [tyConName (tcWiringNilDataCon wiring), tyConName (tcWiringConsDataCon wiring)])
-
--- | The same, for a constructor declared in a named module.
-isWiredListDataCon :: Text -> Text -> TcM Bool
-isWiredListDataCon moduleName' name = do
-  listTyCon' <- wiredTyConIdentity tcWiringListTyCon
-  if moduleName' == tyConModuleName listTyCon'
-    then isWiredListDataConName name
-    else pure False
-
-listDataConstructorKind :: Text -> TcM TypeScheme
-listDataConstructorKind name = do
-  nilName <- tyConName <$> wiredTyConIdentity tcWiringNilDataCon
-  rawElementKind <- freshSkolemTv "k"
-  let elementKindVar = setTyVarKind KType rawElementKind
-      elementKind = TcTyVar elementKindVar
-  resultKind <- listTypeForKind elementKind
-  let body
-        | name == nilName = resultKind
-        | otherwise = TcFunTy elementKind (TcFunTy resultKind resultKind)
-  pure (ForAll [elementKindVar] [] body)
-
-listTypeForKind :: TcType -> TcM TcType
-listTypeForKind elementKind = do
-  listTyCon <- listTyConOfWiring
-  pure (TcTyCon listTyCon [elementKind])
+  case wiredKindScheme of
+    Just {} -> replaceTyConEnvPermanent info
+    Nothing -> storeTyConInfo info
 
 registerRecordSelectors :: (Text, Text) -> [DataConInfo] -> TcM [TcBindingResult]
 registerRecordSelectors origin constructors =
