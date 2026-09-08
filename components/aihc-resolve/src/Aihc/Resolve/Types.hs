@@ -17,6 +17,7 @@ module Aihc.Resolve.Types
     modulesInPackage,
     ResolvedName (..),
     ResolutionAnnotation (..),
+    VisibleTermIdentities (..),
     ResolveError (..),
     ResolveResult (..),
     resolvedModuleAsts,
@@ -62,6 +63,10 @@ modulesInPackage :: Package -> [Module] -> [(Package, Module)]
 modulesInPackage package = map pairWithPackage
   where
     pairWithPackage modu = (package, modu)
+
+-- | Global term identities visible in one module, including qualified imports.
+newtype VisibleTermIdentities = VisibleTermIdentities [(PackageId, Text, Text)]
+  deriving (Eq, Show)
 
 data ResolvedName
   = ResolvedTopLevel PackageId Name

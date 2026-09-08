@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Age (Age (..)) where
+    newtype Age = Age Int
+  - |
+    module Test where
+    import qualified Age as A
+    import Data.Coerce (coerce)
+    unwrap :: A.Age -> Int
+    unwrap = coerce
+expression: unwrap (A.Age 7) == 7
+output: "True"
+status: pass
+reason: A qualified import makes its newtype constructor available to Coercible

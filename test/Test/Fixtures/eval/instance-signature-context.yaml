@@ -1,0 +1,16 @@
+extensions: [InstanceSigs, ScopedTypeVariables]
+modules:
+  - |
+    {-# LANGUAGE InstanceSigs, ScopedTypeVariables #-}
+    module Test where
+    data Box a = Box a
+    class Check f where
+      check :: Eq a => f a -> Bool
+    instance Check Box where
+      check :: forall element. Box element -> Bool
+      check (Box value) = value == value
+expression: check (Box True)
+output: ""
+error: "typecheck error: Test: unsolved constraint Eq element"
+status: fail
+reason: A method body must satisfy the context of its explicit instance signature

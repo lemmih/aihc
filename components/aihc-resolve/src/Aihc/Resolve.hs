@@ -33,6 +33,7 @@ module Aihc.Resolve
     displayIdentifier,
     ResolvedName (..),
     ResolutionAnnotation (..),
+    VisibleTermIdentities (..),
   )
 where
 
@@ -179,7 +180,13 @@ resolveModule builtinScope package exports nextLocal modu =
           (moduleInfo builtinScope modu')
           nextLocal
           (resolveBindingGroup (topLevelTermDefinition scope) Map.empty (moduleDecls modu))
-   in (nextLocal', modu' {moduleDecls = decls'})
+      visibleTerms =
+        VisibleTermIdentities
+          [ (packageId, fromMaybe "" (nameQualifier name), nameText name)
+          | visibleScope <- scope : Map.elems (scopeQualifiedModules scope),
+            ResolvedTopLevel packageId name <- Map.elems (scopeTerms visibleScope)
+          ]
+   in (nextLocal', modu' {moduleDecls = decls', moduleAnns = mkAnnotation visibleTerms : moduleAnns modu'})
 
 moduleInfo :: Scope -> Module -> ModuleInfo
 moduleInfo builtinScope modu =
