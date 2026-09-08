@@ -41,7 +41,6 @@ resolve_cmd="${RESOLVE_PROGRESS_CMD:-nix run .#resolve-progress}"
 resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#resolve-extension-progress -- --markdown}"
 tc_cmd="${TC_PROGRESS_CMD:-nix run .#tc-progress}"
 core_libs_progress_cmd="${CORE_LIBS_PROGRESS_CMD:-nix run .#aihc-dev -- core-libs-progress}"
-line_counts_cmd="${LINE_COUNTS_CMD:-nix run .#line-counts}"
 
 tmpdir="$(mktemp -d)"
 cleanup() {
@@ -53,13 +52,11 @@ resolve_out="$tmpdir/resolve-progress.txt"
 resolve_extension_out="$tmpdir/resolve-extension-progress.md"
 tc_out="$tmpdir/tc-progress.txt"
 core_libs_progress_out="$tmpdir/core-libs-progress.txt"
-line_counts_out="$tmpdir/line-counts.txt"
 
 run_cmd "$resolve_cmd" >"$resolve_out"
 run_cmd "$resolve_extension_markdown_cmd" | sed -n '/^# Name Resolver Extension Support Status/,$p' >"$resolve_extension_out"
 run_cmd "$tc_cmd" >"$tc_out"
 run_cmd "$core_libs_progress_cmd" >"$core_libs_progress_out"
-run_cmd "$line_counts_cmd" >"$line_counts_out"
 
 parse_progress() {
 	local infile="$1"
@@ -179,53 +176,6 @@ cat >"$tmpdir/readme-root-base.txt" <<EOF2
 \`${base_implemented}/${base_total}\` (\`${base_complete}%\`) ${base_circles}
 EOF2
 
-replace_marker_block() {
-	local file="$1"
-	local marker="$2"
-	local content_file="$3"
-	local start="<!-- AUTO-GENERATED: START ${marker} -->"
-	local end="<!-- AUTO-GENERATED: END ${marker} -->"
-	local tmp_out="$tmpdir/$(basename "$file").${marker}.out"
-
-	local start_count
-	local end_count
-	start_count="$(grep -Fxc "$start" "$file" || true)"
-	end_count="$(grep -Fxc "$end" "$file" || true)"
-	if [ "$start_count" -ne 1 ] || [ "$end_count" -ne 1 ]; then
-		echo "Expected exactly one marker pair for '${marker}' in ${file}" >&2
-		exit 1
-	fi
-
-	awk -v start="$start" -v end="$end" -v content_file="$content_file" '
-    $0 == start {
-      print
-      while ((getline line < content_file) > 0) {
-        print line
-      }
-      close(content_file)
-      in_block = 1
-      next
-    }
-    $0 == end {
-      in_block = 0
-      print
-      next
-    }
-    !in_block { print }
-  ' "$file" >"$tmp_out"
-
-	if [ "$mode" = "--update" ]; then
-		if ! cmp -s "$file" "$tmp_out"; then
-			cat "$tmp_out" >"$file"
-		fi
-	else
-		if ! cmp -s "$file" "$tmp_out"; then
-			echo "Generated block out of date: ${file} (${marker})" >&2
-			stale=1
-		fi
-	fi
-}
-
 replace_marker_inline() {
 	local file="$1"
 	local marker="$2"
@@ -300,7 +250,6 @@ replace_marker_inline README.md "tc-progress" "$tmpdir/readme-root-tc.txt"
 replace_marker_inline README.md "resolve-progress" "$tmpdir/readme-root-resolve.txt"
 replace_marker_inline README.md "ghc-prim-progress" "$tmpdir/readme-root-ghc-prim.txt"
 replace_marker_inline README.md "base-progress" "$tmpdir/readme-root-base.txt"
-replace_marker_block README.md "line-counts" "$line_counts_out"
 remove_obsolete_marker_line README.md "tc-stackage-progress"
 
 if [ "$mode" = "--check" ] && [ "$stale" -ne 0 ]; then

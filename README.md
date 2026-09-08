@@ -24,18 +24,6 @@ Find more information here:
 
 The `aihc-prim` and `aihc-base` rows count the exports of GHC's `ghc-prim` and `base` that aihc provides with the same name and signature. Compatibility also runs the other way: a module that exists in `ghc-prim` or `base` may only export names that GHC exports from it too, so code written against aihc keeps compiling with GHC. The `dev-spec` test suite fails on any new divergence; `cabal run aihc-dev -- core-libs-progress --divergences` lists the current ones. Modules that only aihc defines are free to export anything.
 
-## Lines of code
-
-<!-- AUTO-GENERATED: START line-counts -->
-```
-| Component    |   Code |   Tests |   Total |
-|--------------|--------|---------|---------|
-| aihc-resolve |   3474 |    3213 |    6687 |
-| aihc-tc      |  13463 |    6286 |   19749 |
-| **Total**    |  16937 |    9499 |   26436 |
-```
-<!-- AUTO-GENERATED: END line-counts -->
-
 ## Useful Commands
 
 Run the full test suite:
