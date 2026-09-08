@@ -1,7 +1,7 @@
 # aihc-haddock
 
 Documentation tool for aihc packages, built as a proof of concept for
-[issue #1895](https://github.com/lemmih/aihc/issues/1895).
+[issue #1895](https://github.com/ai-haskell-compiler/aihc/issues/1895).
 
 It shares dependency resolution and source loading with the compiler through
 `aihc-package-plan`, keeps its own artifact cache, and produces a versioned
