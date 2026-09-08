@@ -17,6 +17,7 @@ module GHC.Types
     Bool (..),
     isTrue#,
     Ordering (..),
+    SPEC (..),
     Constraint,
     Coercible,
     type (~),
@@ -119,6 +120,8 @@ data Double = D# Double#
 data Bool = False | True
 
 data Ordering = LT | EQ | GT
+
+data SPEC = SPEC | SPEC2
 
 type Constraint :: Type
 data Constraint
