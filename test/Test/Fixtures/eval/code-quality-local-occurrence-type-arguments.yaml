@@ -1,0 +1,18 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE NoMonoLocalBinds #-}
+    module Test where
+    data Nat = Z | S Nat
+    data Unit = Unit
+    result :: Unit
+    result = loop (S Z) Unit
+      where
+        loop n value = case n of
+          Z -> value
+          S previous -> loop previous value
+expression: result
+output: |
+  Unit
+status: pass
+reason: TC must record type arguments for a recursive local occurrence.

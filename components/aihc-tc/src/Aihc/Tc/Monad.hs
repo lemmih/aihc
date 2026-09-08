@@ -84,6 +84,7 @@ module Aihc.Tc.Monad
     extendTyConEnvPermanent,
     replaceTyConEnvPermanent,
     getTyConEnv,
+    effectiveModuleExtensions,
     addDataType,
     addPatSyn,
     getPatSyns,
@@ -101,8 +102,6 @@ module Aihc.Tc.Monad
     getScopedTyVars,
     withGivenPredicates,
     getGivenPredicates,
-    getTcLevel,
-    withTcLevel,
     addInstance,
     getInstances,
     getClassInstances,
@@ -134,7 +133,7 @@ module Aihc.Tc.Monad
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), TupleFlavor, UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
+import Aihc.Parser.Syntax (Annotation, Extension (..), ExtensionSetting (..), Name (..), SourceSpan (..), TupleFlavor, UnqualifiedName (..), applyExtensionSetting, applyImpliedExtensions, fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
 import Aihc.Tc.Annotations (TcForeignImportInfo)
 import Aihc.Tc.Deriving.References (DerivingReferences)
@@ -197,8 +196,6 @@ data TcEnv = TcEnv
     tcEnvMonoLocalBinds :: !Bool,
     -- | Whether the monomorphism restriction is active.
     tcEnvMonomorphismRestriction :: !Bool,
-    -- | Current implication nesting level.
-    tcEnvTcLevel :: !TcLevel,
     -- | The candidate types of the module @default@ declaration.
     --
     -- 'Nothing' means the module has no @default@ declaration, so defaulting
@@ -365,7 +362,6 @@ emptyTcEnv config =
       tcEnvTerms = Map.empty,
       tcEnvMonoLocalBinds = True,
       tcEnvMonomorphismRestriction = True,
-      tcEnvTcLevel = topTcLevel,
       tcEnvDefaultTypes = Nothing,
       tcEnvScopedTypeVariables = False,
       tcEnvGivenPredicates = [],
@@ -927,16 +923,6 @@ tcMonoLocalBinds = asks tcEnvMonoLocalBinds
 tcMonomorphismRestriction :: TcM Bool
 tcMonomorphismRestriction = asks tcEnvMonomorphismRestriction
 
--- | Get the current implication nesting level.
-getTcLevel :: TcM TcLevel
-getTcLevel = asks tcEnvTcLevel
-
--- | Run a computation at a deeper implication level.
-withTcLevel :: TcM a -> TcM a
-withTcLevel =
-  local $ \env ->
-    env {tcEnvTcLevel = pushLevel (tcEnvTcLevel env)}
-
 -- | Emit a diagnostic (error or warning).
 emitDiagnostic :: TcDiagnostic -> TcM ()
 emitDiagnostic d = lift $ modify' $ \s ->
@@ -1012,3 +998,11 @@ markGadtCon name = lift $ modify' $ \s ->
 isGadtCon :: Text -> TcM Bool
 isGadtCon name = lift $ gets $ \s ->
   Set.member name (tcsGadtCons s)
+
+effectiveModuleExtensions :: [ExtensionSetting] -> [Extension]
+effectiveModuleExtensions = foldl step [MonoLocalBinds, MonomorphismRestriction]
+  where
+    step extensions setting =
+      case setting of
+        EnableExtension _ -> applyImpliedExtensions (applyExtensionSetting setting extensions)
+        DisableExtension _ -> applyExtensionSetting setting extensions

@@ -47,7 +47,6 @@ import Aihc.Tc.Types
     TyVarId (..),
     TypeScheme (..),
     Unique (..),
-    applySubst,
     runtimeRepFromKind,
     tvKind,
     tyConKey,
@@ -371,7 +370,8 @@ kindVarToType env tyCon arguments expectedKind tyVar =
     Just found
       | tvName found == tvName tyVar -> Right (tyVarType found)
     _ -> do
-      substitution <- kindSubst env tyCon arguments expectedKind
+      checkedKinds <- Tc.typeApplicationKinds (ceKinds env) (ceKindEnv env) tyCon arguments expectedKind
+      let substitution = Tc.tcInvisibleKindSubstitution checkedKinds
       case Map.lookup (tvUnique tyVar) substitution of
         Just runtimeRep -> convertRep env runtimeRep
         Nothing ->
@@ -384,45 +384,9 @@ kindVarToType env tyCon arguments expectedKind tyVar =
                 <> show arguments
             )
 
-kindSubst :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String (Map Unique TcType)
-kindSubst env tyCon arguments expectedKind = do
-  ForAll quantified _ resultKind <- kindScheme env tyCon
-  let quantifiedUniques = map tvUnique quantified
-      (argumentSubstitution, remainingKind) = go quantifiedUniques Map.empty resultKind arguments
-      resultSubstitution =
-        case expectedKind of
-          Just expected -> matchKind quantifiedUniques remainingKind expected
-          Nothing -> Map.empty
-  pure (argumentSubstitution <> resultSubstitution)
-  where
-    go quantifiedUniques substitution (KFun formal result) (argument : rest) =
-      case typeKindInEnv env argument of
-        Right argumentKind ->
-          let found = matchKind quantifiedUniques (applySubst substitution formal) argumentKind
-           in go quantifiedUniques (substitution <> found) (applySubst found result) rest
-        Left _ -> go quantifiedUniques substitution result rest
-    go _ substitution kind _ = (substitution, applySubst substitution kind)
-
-    matchKind quantifiedUniques (TcTyVar tyVar) actual
-      | tvUnique tyVar `elem` quantifiedUniques = Map.singleton (tvUnique tyVar) actual
-    matchKind quantifiedUniques (KTYPE (TcTyVar tyVar)) (KTYPE runtimeRep)
-      | tvUnique tyVar `elem` quantifiedUniques = Map.singleton (tvUnique tyVar) runtimeRep
-    matchKind quantifiedUniques (KFun left right) (KFun left' right') =
-      matchKind quantifiedUniques left left' <> matchKind quantifiedUniques right right'
-    matchKind quantifiedUniques (TcTyCon left formalArguments) (TcTyCon right actualArguments)
-      | left == right,
-        length formalArguments == length actualArguments =
-          Map.unions (zipWith (matchKind quantifiedUniques) formalArguments actualArguments)
-    matchKind _ _ _ = Map.empty
-
 visibleArgumentKinds :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String [TcType]
-visibleArgumentKinds env tyCon arguments expectedKind = do
-  ForAll _ _ resultKind <- kindScheme env tyCon
-  substitution <- kindSubst env tyCon arguments expectedKind
-  pure (takeArgumentKinds (applySubst substitution resultKind))
-  where
-    takeArgumentKinds (KFun argument result) = argument : takeArgumentKinds result
-    takeArgumentKinds _ = []
+visibleArgumentKinds env tyCon arguments expectedKind =
+  Tc.tcVisibleArgumentKinds <$> Tc.typeApplicationKinds (ceKinds env) (ceKindEnv env) tyCon arguments expectedKind
 
 kindScheme :: ConvertEnv -> TyCon -> Either String TypeScheme
 kindScheme env tyCon =

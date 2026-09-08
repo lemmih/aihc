@@ -1022,6 +1022,7 @@ freeVarsExpr expr =
       scrutVars <- freeVarsExpr scrut
       altVars <- Set.unions <$> mapM freeVarsAlt alts
       pure (scrutVars <> altVars)
+    ETypeApp inner _ -> freeVarsExpr inner
     ETypeSig inner _ -> freeVarsExpr inner
     EParen inner -> freeVarsExpr inner
     EPragma _ inner -> freeVarsExpr inner

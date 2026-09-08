@@ -364,10 +364,10 @@ replaceModulePlans plans modu =
     replacePlan original =
       fromMaybe original (find ((== planKey original) . planKey) plans)
 
-type PlanKey = (Text, [TcType])
+type PlanKey = (TyCon, [TcType])
 
 planKey :: TcDerivingPlan -> PlanKey
-planKey plan = (tcDerivingClassName plan, tcDerivingHeadTypes plan)
+planKey plan = (tcDerivingClassTyCon plan, tcDerivingHeadTypes plan)
 
 planPredicate :: TcDerivingPlan -> Pred
 planPredicate plan = ClassPred (tcDerivingClassTyCon plan) (tcDerivingHeadTypes plan)

@@ -1,0 +1,15 @@
+extensions: [ExplicitForAll, TypeApplications]
+modules:
+  - |
+    {-# LANGUAGE ExplicitForAll, TypeApplications #-}
+    module Test where
+    data Unit = Unit
+    result = dependency @Unit Unit
+    partial = dependency @Unit
+    dependency :: forall a. a -> a
+    dependency value = value
+dependencies:
+  Test.result: [Test.Unit, Test.dependency]
+  Test.partial: [Test.dependency]
+status: pass
+reason: A visible type application must retain its function dependency.

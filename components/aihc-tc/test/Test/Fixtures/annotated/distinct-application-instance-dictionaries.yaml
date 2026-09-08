@@ -1,0 +1,36 @@
+extensions: [FlexibleInstances]
+modules:
+- |
+  module Test where
+  data LeftItem = LeftItem
+  data RightItem = RightItem
+  class Select a where
+    select :: a -> a
+  instance Select (f LeftItem) where
+    select input = input
+  instance Select (f RightItem) where
+    select input = input
+annotated:
+- |-
+  module Test where
+  data LeftItem = LeftItem
+       │          └─ type: LeftItem
+       └─ type: Type
+  data RightItem = RightItem
+       │           └─ type: RightItem
+       └─ type: Type
+  class Select a where
+  └─ class methods: select ∷ ∀ a. (Select a) ⇒ a → a
+    select :: a -> a
+  instance Select (f LeftItem) where
+  └─ $fSelectT ∷ ∀ f. () ⇒ Select (f LeftItem)
+    select input = input
+    │      └─ type: f LeftItem
+    └─ select ∷ f LeftItem → f LeftItem
+  instance Select (f RightItem) where
+  └─ $fSelectT$1 ∷ ∀ f. () ⇒ Select (f RightItem)
+    select input = input
+    │      └─ type: f RightItem
+    └─ select ∷ f RightItem → f RightItem
+status: pass
+reason: Type applications retain their arguments in instance dictionary identities.

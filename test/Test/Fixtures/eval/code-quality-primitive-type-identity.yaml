@@ -1,0 +1,11 @@
+extensions: [MagicHash]
+modules:
+  - |
+    module Test where
+    data Int# = LocalInt
+    foreign import prim (+#) :: Int# -> Int# -> Int#
+expression: (+#)
+output: ""
+error: 'typecheck error: Test: foreign import prim +# must repeat the type of GHC.Prim.+#: expected Int# → Int# → Int#, got Int# → Int# → Int#'
+status: fail
+reason: A local type must not replace a same-named primitive type.

@@ -5,10 +5,10 @@ module Aihc.Tc.Fuzz
 where
 
 import Hedgehog (Property)
-import Test.Tc.Properties (prop_reflexiveEq, prop_zonkIdempotent)
+import Test.Tc.Properties (prop_zonkAssignedMeta, prop_zonkIdempotent)
 
 tcFuzzProperties :: [(String, Property)]
 tcFuzzProperties =
   [ ("zonking idempotent", prop_zonkIdempotent),
-    ("reflexive equality solved", prop_reflexiveEq)
+    ("zonk reads an assigned metavariable", prop_zonkAssignedMeta)
   ]

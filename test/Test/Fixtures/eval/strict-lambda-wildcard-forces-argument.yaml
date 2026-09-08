@@ -1,0 +1,18 @@
+extensions:
+  - BangPatterns
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (raise#)
+
+    data Failure = Failure
+
+    result :: ()
+    result = (\ !_ -> ()) (raise# Failure)
+output: ""
+exception: Failure
+expression: result
+status: pass
+reason: A strict wildcard pattern must force the lambda argument.

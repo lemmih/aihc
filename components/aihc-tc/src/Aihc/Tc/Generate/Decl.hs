@@ -73,8 +73,6 @@ import Aihc.Parser.Syntax
     TypeSynDecl (..),
     UnqualifiedName (..),
     ValueDecl (..),
-    applyExtensionSetting,
-    applyImpliedExtensions,
     binderHeadName,
     binderHeadParams,
     fromAnnotation,
@@ -123,7 +121,7 @@ import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingT
 import Aihc.Tc.Deriving.Context (inferDerivingContexts, typeTyVars)
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
 import Aihc.Tc.Deriving.Newtype (checkNewtypeInstance)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -140,18 +138,20 @@ import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
+import Aihc.Tc.TypeScheme (equivalentTypeSchemes, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Reader (asks)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Char (isAlpha, isAlphaNum, ord)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (elemIndex, find, mapAccumL, nub, nubBy, partition, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, isNothing, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -921,8 +921,7 @@ annotateDeclDerivingTc extensions decl =
 
 moduleEnabledExtensions :: Module -> [Extension]
 moduleEnabledExtensions modu =
-  applyImpliedExtensions $
-    foldr applyExtensionSetting [] (moduleLanguagePragmas modu)
+  effectiveModuleExtensions (moduleLanguagePragmas modu)
 
 annotateDeclTc :: (Text, Text) -> Map Text [Text] -> Map Text TcType -> Decl -> TcM Decl
 annotateDeclTc origin classMethods checkedValueTypes decl =
@@ -1184,9 +1183,31 @@ annotateForeignDeclTc foreignDecl = do
       registerForeignImport key (TcForeignCCallImport (foreignSafetyMark (foreignSafety foreignDecl)) checkedPlan)
       pure (DeclAnn (mkAnnotation checkedPlan) annotated)
     CPrim -> do
+      checkPrimitiveImportType sourceSpan key ty
       registerForeignImport key TcForeignPrimImport
       pure annotated
     _ -> pure annotated
+
+-- | A primitive declaration must retain the configured primitive type.
+checkPrimitiveImportType :: SourceSpan -> TcTermKey -> TcType -> TcM ()
+checkPrimitiveImportType sourceSpan key declaredType = do
+  primitivePackage <- asks (tcConfigPrimPackage . tcEnvConfig)
+  case key of
+    TcTermGlobal package declaredModule "seq"
+      | (package, declaredModule) /= (primitivePackage, "GHC.Prim") ->
+          emitError sourceSpan (OtherError "foreign primitive seq is only accepted in the configured GHC.Prim module")
+    TcTermGlobal package declaredModule name
+      | (package, declaredModule) /= (primitivePackage, "GHC.Prim") -> do
+          canonical <- lookupTermKey (TcTermGlobal primitivePackage "GHC.Prim" name)
+          case canonical of
+            Just binder -> do
+              let canonicalType = case binder of
+                    TcIdBinder scheme _ -> schemeToType scheme
+                    TcMonoIdBinder ty -> ty
+              unless (equivalentTypeSchemes (typeSchemeFromType canonicalType) (typeSchemeFromType declaredType)) $
+                emitError sourceSpan (OtherError ("foreign import prim " <> T.unpack name <> " must repeat the type of GHC.Prim." <> T.unpack name <> ": expected " <> renderTcType canonicalType <> ", got " <> renderTcType declaredType))
+            Nothing -> pure ()
+    _ -> pure ()
 
 -- | Record the checked calling convention of a foreign import, so that the
 -- interface of the module carries it.
@@ -1455,9 +1476,9 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
       headTys <- mapM defaultTypeKinds rawHeadTys
       context <- mapM defaultPredKinds rawContext
       kinds <- getKinds
-      dictName <- lookupInstanceDictName origin classNameText headTys
       classInfo <- lookupClassNamed className
       info <- maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure classInfo
+      dictName <- lookupInstanceDictName origin (ciTyCon info) headTys
       headKinds <- mapM tcTypeKind headTys
       let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (ciTyVars info)) headKinds)
           classSubstitution =
@@ -3433,25 +3454,6 @@ typeSuffix kinds ty =
     TcTyCon tc args -> tyConName tc <> T.concat (map (typeSuffix kinds) args)
     _ -> "T"
 
-instanceHeadIdentity :: TcKinds -> [TcType] -> Text
-instanceHeadIdentity kinds = T.concat . map (typeIdentity kinds)
-
-typeIdentity :: TcKinds -> TcType -> Text
-typeIdentity kinds ty =
-  case ty of
-    TcTyVar tv -> tvName tv
-    TcArrowTy -> tyConIdentity (kindsArrowTyCon kinds)
-    TcAppTy TcArrowTy argument -> tyConIdentity (kindsArrowTyCon kinds) <> typeIdentity kinds argument
-    TcTyCon tc [] -> tyConIdentity tc
-    TcTyCon (TyCon "[]" _) [_] -> "List"
-    TcTyCon tc args -> tyConIdentity tc <> T.concat (map (typeIdentity kinds) args)
-    TcFunTy argument result -> typeIdentity kinds argument <> "->" <> typeIdentity kinds result
-    _ -> "T"
-
-tyConIdentity :: TyCon -> Text
-tyConIdentity tyCon =
-  packageIdText (tyConPackageId tyCon) <> "." <> tyConModuleName tyCon <> "." <> tyConName tyCon
-
 allocateInstanceDictName :: (Text, Text) -> Text -> [TcType] -> TcM Text
 allocateInstanceDictName origin className headTys = do
   kinds <- getKinds
@@ -3469,18 +3471,18 @@ allocateInstanceDictName origin className headTys = do
             else shortName <> "$" <> T.pack (show (Set.size taken))
     )
 
-lookupInstanceDictName :: (Text, Text) -> Text -> [TcType] -> TcM Text
-lookupInstanceDictName origin className headTys = do
-  kinds <- getKinds
+lookupInstanceDictName :: (Text, Text) -> TyCon -> [TcType] -> TcM Text
+lookupInstanceDictName origin classTyCon headTys = do
   instances <- getInstances
-  let identity = instanceHeadIdentity kinds headTys
-      matches info =
+  let matches info =
         iiDictOrigin info == origin
-          && iiClassName info == className
-          && instanceHeadIdentity kinds (iiHead info) == identity
+          && fmap tyConKey (instanceClassTyCon info) == Just (tyConKey classTyCon)
+          -- Both directions preserve type structure and permit fresh type variables.
+          && isJust (matchTypes (iiHead info) headTys)
+          && isJust (matchTypes headTys (iiHead info))
   case find matches instances of
     Just info -> pure (iiDictName info)
-    Nothing -> allocateInstanceDictName origin className headTys
+    Nothing -> allocateInstanceDictName origin (tyConName classTyCon) headTys
 
 typeConstructorModule :: TcType -> Maybe Text
 typeConstructorModule ty =
@@ -4456,15 +4458,11 @@ tcMatchEquation expectedOrigin argTys resTy match = do
       pure (match {matchPats = pats', matchRhs = annotateRhsCast resTy ev rhs'}, bodyWanteds, [])
     else do
       -- GADT givens: wrap body wanteds in an implication.
-      level <- getTcLevel
       let impl =
             Implication
               { implSkols = pcSkolems patCheck,
-                implGivenEvs = map ctEvVar givenCts,
                 implGivenCts = givenCts,
-                implWantedCts = bodyWanteds,
-                implTcLevel = level,
-                implInfo = AppOrigin sp
+                implWantedCts = bodyWanteds
               }
       pure (match {matchPats = pats', matchRhs = annotateRhsCast resTy ev rhs'}, [], [impl])
 
