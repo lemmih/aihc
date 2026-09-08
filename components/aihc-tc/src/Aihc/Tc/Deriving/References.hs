@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | The library names that generated deriving code refers to, and the
 -- classes that stock deriving knows.
 --
