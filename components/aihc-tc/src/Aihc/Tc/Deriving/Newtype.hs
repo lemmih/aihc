@@ -12,6 +12,7 @@ import Aihc.Tc.Kind (tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Types
+import Aihc.Tc.Wiring (isBoxedTupleTyCon)
 import Control.Monad (zipWithM)
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
@@ -111,18 +112,21 @@ newtypeCoercion equations dataType rawSource rawTarget = go (normalize rawSource
                                      ] of
       proof : _ -> Just proof
       [] -> Nothing
+    -- A boxed tuple or a list carries its parameters representationally,
+    -- so a coercion under one is sound. The tuples come from the wiring
+    -- tables; the list is still named here.
     trustedContainer constructor = do
-      let arity = tyConArity constructor
-          moduleName = tyConModuleName constructor
-          name = tyConName constructor
-          shape =
-            (moduleName == "GHC.Types" && name == "[]")
-              || (moduleName == "GHC.Tuple" && name == boxedTupleTyConName arity)
-      if shape
-        then do
-          expected <- mkKnownTyCon moduleName name arity (foldr KFun KType (replicate arity KType))
+      wiring <- getWiring
+      if isBoxedTupleTyCon wiring constructor
+        then pure True
+        else trustedList constructor
+    trustedList constructor
+      | tyConModuleName constructor == "GHC.Types",
+        tyConName constructor == "[]" = do
+          let arity = tyConArity constructor
+          expected <- mkKnownTyCon "GHC.Types" "[]" arity (foldr KFun KType (replicate arity KType))
           pure (constructor == expected)
-        else pure False
+      | otherwise = pure False
     normalize ty = case ty of
       TcAppTy function argument -> case normalize function of
         TcTyCon constructor arguments -> TcTyCon constructor (arguments <> [normalize argument])

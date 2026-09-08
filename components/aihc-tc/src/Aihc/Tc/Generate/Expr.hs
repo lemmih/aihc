@@ -913,8 +913,8 @@ inferTuple sp flavor elems = do
       tys = map (\(_, ty, _) -> ty) results
       cts = concatMap (\(_, _, elemCts) -> elemCts) results
       n = length tys
-      typeName = tupleTyConText flavor n
-  maybeTyCon <- lookupTyCon typeName
+  wired <- wiredTupleTyCon flavor n
+  maybeTyCon <- lookupTyCon (tyConName wired)
   elementKinds <- mapM tcTypeKind tys
   let fallbackKind =
         case flavor of
@@ -923,7 +923,7 @@ inferTuple sp flavor elems = do
   tc <-
     case maybeTyCon of
       Just info -> pure (tciTyCon info)
-      Nothing -> mkKnownTyCon (tupleTyConModule flavor) typeName n fallbackKind
+      Nothing -> mkWiredTyCon wired fallbackKind
   -- A tuple section such as @(0,)@ is a function of its missing fields.
   let tupleTy = TcTyCon tc tys
       missingTys = [ty | (Nothing, ty, _) <- results]
@@ -939,18 +939,6 @@ inferTuple sp flavor elems = do
       pure (Just e', ty, cts)
 
     runtimeRepOrLifted kind = fromRight liftedRep (runtimeRepFromKind kind)
-
-tupleTyConText :: TupleFlavor -> Int -> Text
-tupleTyConText flavor arity =
-  case flavor of
-    Boxed -> boxedTupleTyConName arity
-    Unboxed -> unboxedTupleTyConName arity
-
-tupleTyConModule :: TupleFlavor -> Text
-tupleTyConModule flavor =
-  case flavor of
-    Boxed -> "GHC.Tuple"
-    Unboxed -> "GHC.Types"
 
 inferList :: SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
 inferList sp elems = do

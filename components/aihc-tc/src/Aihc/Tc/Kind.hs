@@ -323,12 +323,12 @@ convertTupleType tvEnv flavor arguments = do
           Boxed -> KType
           Unboxed -> KTYPE (TupleRep argumentReps)
       fallbackKind = foldr KFun fallbackResultKind argumentKinds
-      typeName = tupleTyConText flavor arity
-  maybeTyCon <- lookupTyCon typeName
+  wired <- wiredTupleTyCon flavor arity
+  maybeTyCon <- lookupTyCon (tyConName wired)
   tyCon <-
     case maybeTyCon of
       Just info -> pure (tciTyCon info)
-      Nothing -> mkKnownTyCon (tupleTyConModule flavor) typeName arity fallbackKind
+      Nothing -> mkWiredTyCon wired fallbackKind
   let tupleType = TcTyCon tyCon argumentTypes
   tupleKind <- tcTypeKind tupleType
   pure (tupleType, tupleKind)
@@ -515,7 +515,8 @@ inferBuiltinTypeConstructor builtin promotion =
           -- @\'(,)@ has kind @k1 -> k2 -> (k1, k2)@, so the tuple type
           -- constructor has to be in scope to give the result kind.
           argKinds <- replicateM arity freshKindMeta
-          let typeName = tupleTyConText flavor arity
+          wiredType <- wiredTupleTyCon flavor arity
+          let typeName = tyConName wiredType
           maybeInfo <- lookupTyCon typeName
           tupleTyCon <-
             case maybeInfo of
@@ -523,12 +524,14 @@ inferBuiltinTypeConstructor builtin promotion =
               Nothing -> abortTc ("promoted tuple constructor " <> T.unpack typeName <> " has no type constructor in scope")
           let resultKind = TcTyCon tupleTyCon argKinds
               kind = foldr KFun resultKind argKinds
-          tyCon <- mkKnownDataCon (tupleTyConModule flavor) typeName arity kind
+          wiredData <- wiredTupleDataCon flavor arity
+          tyCon <- mkWiredTyCon wiredData kind
           pure (TcTyCon tyCon [], kind)
-      | otherwise ->
+      | otherwise -> do
+          wired <- wiredTupleTyCon flavor arity
           let argKinds = replicate arity KType
               kind = foldr KFun KType argKinds
-           in knownTypeWithArity (tupleTyConModule flavor) (tupleTyConText flavor arity) arity kind
+          knownWiredType wired kind
     BuiltinArrow -> do
       let kind = KFun KType (KFun KType KType)
       tyCon <- mkKnownTyCon "GHC.Types" "(->)" 2 kind
@@ -543,6 +546,15 @@ knownTypeWithArity :: Text -> Text -> Int -> TcType -> TcM (TcType, TcType)
 knownTypeWithArity moduleName name arity kind = do
   maybeInfo <- lookupTyCon name
   tyCon <- maybe (mkKnownTyCon moduleName name arity kind) (pure . tciTyCon) maybeInfo
+  pure (TcTyCon tyCon [], kind)
+
+-- | A type constructor whose identity comes from the wiring tables. A
+-- declaration of the same name in scope takes precedence, as it does for
+-- every other built-in syntactic form.
+knownWiredType :: TyCon -> TcType -> TcM (TcType, TcType)
+knownWiredType wired kind = do
+  maybeInfo <- lookupTyCon (tyConName wired)
+  tyCon <- maybe (mkWiredTyCon wired kind) (pure . tciTyCon) maybeInfo
   pure (TcTyCon tyCon [], kind)
 
 inferUnknownType :: TcM (TcType, TcType)
@@ -949,18 +961,6 @@ takeClassArgKinds n kind
       case kind of
         KFun arg rest -> arg : takeClassArgKinds (n - 1) rest
         _ -> replicate n KType
-
-tupleTyConText :: TupleFlavor -> Int -> Text
-tupleTyConText flavor arity =
-  case flavor of
-    Boxed -> boxedTupleTyConName arity
-    Unboxed -> unboxedTupleTyConName arity
-
-tupleTyConModule :: TupleFlavor -> Text
-tupleTyConModule flavor =
-  case flavor of
-    Boxed -> "GHC.Tuple"
-    Unboxed -> "GHC.Types"
 
 bars :: Int -> Text
 bars n

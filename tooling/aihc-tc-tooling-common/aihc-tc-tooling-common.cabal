@@ -30,6 +30,7 @@ library
     aihc-parser,
     aihc-resolve,
     aihc-tc,
+    aihc-tc:prim-wiring,
     aihc-testing,
     base >=4.16 && <5,
     bytestring,

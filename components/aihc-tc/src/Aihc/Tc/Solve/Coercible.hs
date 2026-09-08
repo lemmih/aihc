@@ -8,6 +8,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
+import Aihc.Tc.Wiring (isBoxedTupleTyCon)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Reader (asks)
@@ -106,12 +107,13 @@ representationParameter visited constructor index
 
 builtinRepresentation :: TyCon -> TcM Bool
 builtinRepresentation constructor
-  | (tyConModuleName constructor == "GHC.Types" && tyConName constructor == "[]")
-      || (tyConModuleName constructor == "GHC.Tuple" && tyConName constructor == boxedTupleTyConName (tyConArity constructor)) = do
+  | tyConModuleName constructor == "GHC.Types" && tyConName constructor == "[]" = do
       let arity = tyConArity constructor
       expected <- mkKnownTyCon (tyConModuleName constructor) (tyConName constructor) arity (foldr KFun KType (replicate arity KType))
       pure (constructor == expected)
-  | otherwise = pure False
+  | otherwise = do
+      wiring <- getWiring
+      pure (isBoxedTupleTyCon wiring constructor)
 
 representationPosition :: [(TyCon, Int)] -> TyVarId -> TcType -> TcM Bool
 representationPosition visited variable ty = case ty of

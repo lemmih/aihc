@@ -54,6 +54,7 @@ library
     Aihc.Tc.TypeScheme
     Aihc.Tc.Types
     Aihc.Tc.Unify
+    Aihc.Tc.Wiring
     Aihc.Tc.Zonk
 
   hs-source-dirs: src
@@ -64,6 +65,22 @@ library
     containers,
     text >=1.2,
     transformers,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+library prim-wiring
+  visibility: public
+  hs-source-dirs: prim-wiring
+  exposed-modules:
+    Aihc.Prim.Wiring
+
+  build-depends:
+    aihc-parser,
+    aihc-resolve,
+    aihc-tc,
+    base >=4.16 && <5,
+    text >=1.2,
 
   ghc-options: -Wall
   default-language: GHC2021
@@ -86,6 +103,7 @@ library fuzz
     aihc-parser,
     aihc-resolve,
     aihc-tc,
+    aihc-tc:prim-wiring,
     base >=4.16 && <5,
     containers,
     hedgehog,
@@ -115,6 +133,7 @@ test-suite spec
     aihc-parser,
     aihc-resolve,
     aihc-tc,
+    aihc-tc:prim-wiring,
     aihc-testing,
     base >=4.16 && <5,
     bytestring,

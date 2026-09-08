@@ -359,7 +359,8 @@ checkTuplePattern :: GadtHandling -> SourceSpan -> TupleFlavor -> [Pattern] -> T
 checkTuplePattern gadtHandling sp flavor items scrutTy = do
   elemTys <- mapM (const freshMetaTv) items
   let arity = length items
-      typeName = tupleTyConText flavor arity
+  wired <- wiredTupleTyCon flavor arity
+  let typeName = tyConName wired
   maybeTyCon <- lookupTyCon typeName
   tupleTyCon <-
     case maybeTyCon of
@@ -929,12 +930,6 @@ withPatternBindings :: [(UnqualifiedName, TcType)] -> TcM a -> TcM a
 withPatternBindings [] action = action
 withPatternBindings ((name, ty) : rest) action =
   extendResolvedTermEnv name (TcMonoIdBinder ty) (withPatternBindings rest action)
-
-tupleTyConText :: TupleFlavor -> Int -> Text
-tupleTyConText flavor arity =
-  case flavor of
-    Boxed -> boxedTupleTyConName arity
-    Unboxed -> unboxedTupleTyConName arity
 
 patternNameText :: Name -> Text
 patternNameText name =
