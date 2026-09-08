@@ -68,7 +68,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (ResolutionNamespace (..))
 import Aihc.Tc.Env (AssociatedTypeInfo, DataTypeInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, tyConModuleName, tyConNamespace, pattern KType)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -446,8 +446,18 @@ renderTcTypeInModule currentModule = go 0
 
     commaSep = T.unpack . T.intercalate (T.pack ", ") . map T.pack
 
+    -- Rendering only: a name that reads as a tuple prints in tuple syntax.
+    -- The identity of a tuple type constructor is the wiring's to say
+    -- ('Aihc.Tc.Wiring'), but a renderer has no configuration to consult,
+    -- and printing @(a, b)@ for a lookalike misleads no one.
     isBoxedTupleCon name arity =
-      arity /= 1 && name == boxedTupleTyConName arity
+      arity /= 1 && name == tupleDisplayName arity
+
+    tupleDisplayName arity =
+      case arity of
+        0 -> T.pack "Unit"
+        1 -> T.pack "Solo"
+        _ -> T.pack ("Tuple" <> show arity)
 
     renderTyConName tyCon =
       namespacePrefix <> qualifiedName

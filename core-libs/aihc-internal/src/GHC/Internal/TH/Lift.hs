@@ -85,6 +85,8 @@ class Lift (t :: TYPE r) where
   -- | Turn a value into a Template Haskell expression, suitable for use in
   -- a splice.
   lift :: (Quote m) => t -> m Exp
+  default lift :: (r ~ ('BoxedRep 'Lifted), Quote m) => t -> m Exp
+  lift = unTypeCode . liftTyped
 
   -- | Turn a value into a Template Haskell typed expression, suitable for use
   -- in a typed splice.

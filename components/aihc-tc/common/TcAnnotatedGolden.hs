@@ -36,12 +36,12 @@ import Aihc.Parser.Syntax
     parseLanguageEdition,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
+import Aihc.Prim.Wiring (primTcConfig)
 import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import Aihc.Tc
   ( TcConfig,
     TcInterface,
     emptyTcInterface,
-    tcConfig,
     tcModuleDiagnostics,
     tcModuleSuccess,
     typecheckModuleSccWithInterface,
@@ -100,7 +100,7 @@ fixtureRoot :: FilePath
 fixtureRoot = "test/Test/Fixtures/annotated"
 
 testTcConfig :: TcConfig
-testTcConfig = tcConfig (PackageId "aihc-prim")
+testTcConfig = primTcConfig (PackageId "aihc-prim")
 
 -- | Load every annotated fixture. The fixture root is resolved relative to the
 -- working directory, so running the suite from the wrong directory would

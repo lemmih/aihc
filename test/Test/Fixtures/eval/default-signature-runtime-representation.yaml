@@ -1,0 +1,28 @@
+extensions: [DataKinds, DefaultSignatures, FlexibleInstances, KindSignatures, MultiParamTypeClasses, PolyKinds, TypeOperators]
+modules:
+  - |
+    module Test where
+
+    import GHC.Exts (RuntimeRep(..), Levity(..), TYPE)
+
+    data Unit = Unit
+
+    class Required b where
+      required :: b -> b
+
+    instance Required Unit where
+      required value = value
+
+    class Apply (r :: RuntimeRep) (a :: TYPE r) where
+      apply :: Required b => a -> b -> b
+      default apply :: (r ~ 'BoxedRep 'Lifted, Required b) => a -> b -> b
+      apply = const required
+
+    instance Apply ('BoxedRep 'Lifted) Unit
+
+    answer :: Unit
+    answer = apply Unit Unit
+expression: answer
+output: Unit
+status: pass
+reason: A default signature specializes the runtime representation and preserves the method constraint.

@@ -23,11 +23,12 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..))
-import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, mkKnownTyCon)
+import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, wiredTyCon)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible)
 import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
+import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, (<=<))
@@ -313,7 +314,7 @@ solveDictWithGivensVisited visited givens ct
       case predicate of
         ClassPred classTyCon arguments -> pure (TcTyCon classTyCon arguments)
         EqPred left right -> do
-          equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
+          equalityTyCon <- wiredTyCon tcWiringEqualityTyCon (KFun KType (KFun KType KConstraint))
           pure (TcTyCon equalityTyCon [left, right])
         IParamPred name payload -> implicitParamType name payload
         QuantifiedPred variables antecedents consequent -> do

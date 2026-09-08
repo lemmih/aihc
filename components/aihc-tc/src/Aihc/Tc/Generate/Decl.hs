@@ -1358,7 +1358,8 @@ primitiveForeignTypes =
 
 primitiveMarshal :: TcType -> [Text] -> Text -> TcForeignAbiType -> TcM TcForeignMarshal
 primitiveMarshal sourceType constructors primitiveName abiType = do
-  primitiveTyCon <- mkKnownTyCon "GHC.Prim" primitiveName 0 typeKindType
+  wiring <- getWiring
+  primitiveTyCon <- mkWiredTyCon (tcWiringPrimitiveTyCon wiring primitiveName) typeKindType
   pure
     TcForeignMarshal
       { tcForeignSourceType = sourceType,
@@ -1427,8 +1428,10 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
       dictName <- lookupInstanceDictName origin classNameText headTys
       classInfo <- lookupClassNamed className
       info <- maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure classInfo
-      let classSubstitution =
-            Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip (ciTyVars info) headTys]
+      headKinds <- mapM tcTypeKind headTys
+      let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (ciTyVars info)) headKinds)
+          classSubstitution =
+            Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip (ciTyVars info) headTys] <> kindSubstitution
           superClassTypes = map (applySubst classSubstitution) (ciSuperClassTypes info)
           defaults = ciDefaultMethods info
       superClasses <- mapM constraintTypePred superClassTypes
@@ -1443,12 +1446,19 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
             ]
       defaultMethodEvidence <-
         sequence
-          [ (methodName,) <$> mapM (solveInstanceSuperClass classNameText context) predicates
+          [ do
+              ForAll _ methodPredicates methodBody <- methodExpectedScheme info headTys methodName
+              let signatureSubstitution =
+                    fromMaybe Map.empty (matchTypes [applySubst classSubstitution signatureBody] [methodBody])
+                  predicates =
+                    filter
+                      (not . isPredicateOfClass (ciTyCon info))
+                      (map (applySubstPred signatureSubstitution . applySubstPred classSubstitution) signaturePredicates)
+              (methodName,) <$> mapM (solveInstanceSuperClass classNameText (context <> methodPredicates)) predicates
           | methodName <- defaults,
             methodName `notElem` definedMethods,
             isNothing newtypePlan,
-            Just (ForAll _ signaturePredicates _) <- [lookup methodName (ciDefaultSignatures info)],
-            let predicates = filter (not . isPredicateOfClass (ciTyCon info)) (map (applySubstPred classSubstitution) signaturePredicates)
+            Just (ForAll _ signaturePredicates signatureBody) <- [lookup methodName (ciDefaultSignatures info)]
           ]
       contextDicts <- mapM predDictBinder context
       superClassBinders <- mapM predDictBinder superClasses
@@ -1474,7 +1484,16 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
           associatedEquations = mapMaybe explicitEquation (instanceDeclTypeFamilyInsts instanceDecl) <> defaultEquations
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon info) headTys)) tvIds
           methodOrder = map fst (ciMethods info)
-          classMethods = zipWith (classMethodFromInfo info) [0 :: Int ..] (ciMethods info)
+          specializeVariable variable = setTyVarKind (applySubst kindSubstitution (tvKind variable)) variable
+          classTyVars = map specializeVariable (ciTyVars info)
+          specializeKinds (name, ForAll variables predicates body) =
+            ( name,
+              ForAll
+                [specializeVariable variable | variable <- variables, Map.notMember (tvUnique variable) kindSubstitution]
+                (map (applySubstPred kindSubstitution) predicates)
+                (applySubst kindSubstitution body)
+            )
+          classMethods = zipWith (classMethodFromInfo info {ciTyVars = classTyVars}) [0 :: Int ..] (map specializeKinds (ciMethods info))
           instAnn =
             TcInstanceAnnotation
               { tcInstanceDictName = dictName,
@@ -1482,7 +1501,7 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
                 tcInstanceClassTyCon = ciTyCon info,
                 tcInstanceTyVars = tvIds,
                 tcInstanceHeadTypes = headTys,
-                tcInstanceClassTyVars = ciTyVars info,
+                tcInstanceClassTyVars = classTyVars,
                 tcInstanceClassOrigin = ciOrigin info,
                 tcInstanceClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes info),
                 tcInstanceClassMethods = classMethods,
@@ -3037,14 +3056,6 @@ predeclareTypeLevelDataConstructors declaration =
           arity = length fields
       mapM_ (predeclareName parent arity) names
     predeclareName parent arity name = do
-      let isListConstructor =
-            tyConModuleName parent == "GHC.Types"
-              && tyConName parent == "[]"
-              && name `elem` ["[]", ":"]
-      kindScheme <-
-        if isListConstructor
-          then listDataConstructorKind name
-          else ForAll [] [] <$> freshKindMeta
       let dataConTyCon =
             mkTyConWithNamespace
               ResolutionNamespaceTerm
@@ -3052,6 +3063,7 @@ predeclareTypeLevelDataConstructors declaration =
               (tyConModuleName parent)
               name
               arity
+      kindScheme <- ForAll [] [] <$> freshKindMeta
       storeTyConInfo
         TyConInfo
           { tciName = name,
@@ -3071,8 +3083,9 @@ registerClassDecl origin classDecl = do
   let classBinder = binderHeadName (classDeclHead classDecl)
       className = unqualifiedNameText classBinder
       params = binderHeadParams (classDeclHead classDecl)
+  poly <- isImplicitlyKindPolymorphicClass origin className
   kindParams <-
-    if isTemplateHaskellLift origin className || (snd origin == "GHC.Types" && className == "~")
+    if poly
       then implicitBinderKindParams params
       else pure []
   let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
@@ -3261,13 +3274,18 @@ typeArguments ty =
     TcAppTy function argument -> typeArguments function <> [argument]
     _ -> []
 
--- | The @Lift@ class lives in aihc-internal, the standin for ghc-internal,
--- as it does in GHC 9.12 and later.
-isTemplateHaskellLift :: (Text, Text) -> Text -> Bool
-isTemplateHaskellLift (packageId, moduleName') className =
-  "aihc-internal-" `T.isPrefixOf` packageId
-    && moduleName' == "GHC.Internal.TH.Lift"
-    && className == "Lift"
+-- | Whether the parameters of a class take implicit kind parameters: the
+-- Template Haskell @Lift@ class that the wiring names, and the nominal
+-- equality constraint. A class is identified by its module and its name;
+-- the origin package carries a version that the wiring does not know.
+isImplicitlyKindPolymorphicClass :: (Text, Text) -> Text -> TcM Bool
+isImplicitlyKindPolymorphicClass (_, moduleName') className = do
+  wiring <- getWiring
+  let equality = tcWiringEqualityTyCon wiring
+  pure
+    ( (moduleName', className) == tcWiringLiftClass wiring
+        || (moduleName' == tyConModuleName equality && className == tyConName equality)
+    )
 
 registerClassItem :: Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
 registerClassItem classPred classTvEnv classTyVars item =
@@ -3346,7 +3364,7 @@ registerInstanceDecl origin instanceDecl =
 predType :: Pred -> TcM TcType
 predType (ClassPred classTyCon args) = pure (TcTyCon classTyCon args)
 predType (EqPred left right) = do
-  equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
+  equalityTyCon <- wiredTyCon tcWiringEqualityTyCon (KFun KType (KFun KType KConstraint))
   pure (TcTyCon equalityTyCon [left, right])
 predType (IParamPred name payload) = implicitParamType name payload
 predType (QuantifiedPred variables antecedents consequent) = do
@@ -3843,17 +3861,12 @@ registerTypeLevelDataCon constructor = do
       arity = length fieldTypes
       (packageId, moduleName') = dciOrigin constructor
       dataConTyCon = mkTyConWithNamespace ResolutionNamespaceTerm packageId moduleName' name arity
-  kindScheme <-
-    if moduleName' == "GHC.Types" && name `elem` ["[]", ":"]
-      then listDataConstructorKind name
-      else
-        pure
-          ( ForAll
-              (dciUnivTyVars constructor <> dciExTyVars constructor)
-              (dciTheta constructor)
-              (foldr TcFunTy (dciResTy constructor) fieldTypes)
-          )
-  let info =
+  let kindScheme =
+        ForAll
+          (dciUnivTyVars constructor <> dciExTyVars constructor)
+          (dciTheta constructor)
+          (foldr TcFunTy (dciResTy constructor) fieldTypes)
+      info =
         TyConInfo
           { tciName = name,
             tciArity = arity,
@@ -3862,27 +3875,7 @@ registerTypeLevelDataCon constructor = do
             tciFlavor = DataTyCon,
             tciTypeSynonym = Nothing
           }
-  if moduleName' == "GHC.Types" && name `elem` ["[]", ":"]
-    then replaceTyConEnvPermanent info
-    else storeTyConInfo info
-
-listDataConstructorKind :: Text -> TcM TypeScheme
-listDataConstructorKind name = do
-  rawElementKind <- freshSkolemTv "k"
-  let elementKindVar = setTyVarKind KType rawElementKind
-      elementKind = TcTyVar elementKindVar
-  resultKind <- listTypeForKind elementKind
-  let body =
-        case name of
-          "[]" -> resultKind
-          _ -> TcFunTy elementKind (TcFunTy resultKind resultKind)
-  pure (ForAll [elementKindVar] [] body)
-
-listTypeForKind :: TcType -> TcM TcType
-listTypeForKind elementKind = do
-  maybeList <- lookupTyCon "[]"
-  listTyCon <- maybe (mkKnownTyCon "GHC.Types" "[]" 1 (TcFunTy KType KType)) (pure . tciTyCon) maybeList
-  pure (TcTyCon listTyCon [elementKind])
+  storeTyConInfo info
 
 registerRecordSelectors :: (Text, Text) -> [DataConInfo] -> TcM [TcBindingResult]
 registerRecordSelectors origin constructors =

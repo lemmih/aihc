@@ -60,6 +60,7 @@ import Aihc.Parser.Syntax
     moduleName,
   )
 import Aihc.Parser.Syntax qualified as Syntax
+import Aihc.Prim.Wiring (primTcConfig)
 import Aihc.Resolve
   ( ModuleExports,
     ModuleKey (..),
@@ -100,7 +101,6 @@ import Aihc.Tc
     mergeTcInterfaces,
     renderPred,
     renderTcType,
-    tcConfig,
     tcInterfaceClasses,
     tcInterfaceDataFamilyInstances,
     tcInterfaceDataTypes,
@@ -1244,7 +1244,7 @@ runTypeUnit context runtimes runtime = do
                in pure (resolveWithDeps builtinScope availableExports packageModules)
         let checked =
               typecheckModuleSccWithInterface
-                (tcConfig primIdentity)
+                (primTcConfig primIdentity)
                 importedTypes
                 (map snd (resolvedModules resolved))
             checkedDiagnostics = concatMap tcModuleDiagnostics (fst checked)

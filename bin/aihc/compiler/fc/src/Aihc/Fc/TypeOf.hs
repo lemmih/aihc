@@ -33,6 +33,7 @@ import Aihc.Tc.Types (Unique (..))
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 
 -- | Local headers, synonym bodies, and binder types used by typeOf.
 data TypeEnv = TypeEnv
@@ -447,6 +448,8 @@ typesEqual env left right =
   eq (reduceType env left) (reduceType env right)
   where
     arrow = functionArrowConstructor (tePrimPackage env)
+    eq first second
+      | runtimeRepresentationsEqual env first second = True
     eq (TyVar a) (TyVar b) = a == b
     eq (TyCon a) (TyCon b) = a == b
     eq (TyApp function1 argument1) (TyApp function2 argument2) =
@@ -465,3 +468,31 @@ typesEqual env left right =
         && typesEqual env body1 (substType (binderName binder2) (TyVar (binderName binder1)) body2)
     eq (TyEq a1 b1) (TyEq a2 b2) = eq a1 a2 && eq b1 b2
     eq _ _ = False
+
+-- | Local nominal evidence can equate runtime representations in kinds
+-- and FUN annotations. Equality between value types still requires a cast.
+runtimeRepresentationsEqual :: TypeEnv -> Type -> Type -> Bool
+runtimeRepresentationsEqual env left right =
+  isRuntimeRepresentation left
+    && isRuntimeRepresentation right
+    && connected Set.empty left
+  where
+    isRuntimeRepresentation ty =
+      fmap (reduceType env) (typeOf env ty) == Just (TyCon (runtimeRepConstructor (tePrimPackage env)))
+    equalities =
+      [ (reduceType env first, reduceType env second)
+      | binderType <- Map.elems (teBinders env),
+        TyEq first second <- [reduceType env binderType],
+        isRuntimeRepresentation first,
+        isRuntimeRepresentation second
+      ]
+    connected visited current
+      | current == right = True
+      | Set.member current visited = False
+      | otherwise =
+          any
+            (connected (Set.insert current visited))
+            [ next
+            | (first, second) <- equalities,
+              next <- [second | current == first] <> [first | current == second]
+            ]

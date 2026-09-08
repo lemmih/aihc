@@ -1,0 +1,20 @@
+annotated:
+- |-
+  module Test where
+  import GHC.Types (Type, RuntimeRep (..), TYPE, List (..))
+  type Pair :: TYPE ('TupleRep '[ 'IntRep, 'IntRep]) -> Type
+  data Pair a
+       └─ type: GHC.Types.TYPE ('GHC.Types.TupleRep ('GHC.Types.: 'GHC.Types.IntRep ('GHC.Types.: 'GHC.Types.IntRep 'GHC.Types.[]))) → Type
+extensions:
+- DataKinds
+- StandaloneKindSignatures
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test where
+  import GHC.Types (Type, RuntimeRep (..), TYPE, List (..))
+  type Pair :: TYPE ('TupleRep '[ 'IntRep, 'IntRep]) -> Type
+  data Pair a
+reason: promoted list syntax builds a kind-level list from the wired constructors
+status: pass

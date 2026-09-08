@@ -33,21 +33,28 @@ module Aihc.Tc.Monad
 
     -- * Environment
     TcConfig (..),
-    tcConfig,
-    tcConfigWithDeriving,
+    mkTcConfig,
     getDerivingReferences,
+    getWiring,
+    TcWiring (..),
+    wiredTupleTyCon,
+    wiredTupleDataCon,
+    wiredTyCon,
+    wiredTyConIdentity,
+    lookupWiredTerm,
+    boolType,
+    charType,
+    listTyConOfWiring,
     TcEnv (..),
     TcBinder (..),
     TcTermKey (..),
     unqualifiedTermKey,
     Closedness (..),
     emptyTcEnv,
-    mkKnownTyCon,
-    mkKnownDataCon,
+    mkWiredTyCon,
     implicitParamType,
     configuredTyCon,
     lookupTerm,
-    lookupKnownTerm,
     lookupResolvedTerm,
     lookupTermKey,
     resolvedTermKey,
@@ -126,14 +133,15 @@ module Aihc.Tc.Monad
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
+import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), TupleFlavor, UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
 import Aihc.Tc.Annotations (TcForeignImportInfo)
-import Aihc.Tc.Deriving.References (DerivingReferences, defaultDerivingReferences)
+import Aihc.Tc.Deriving.References (DerivingReferences)
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
+import Aihc.Tc.Wiring (TcWiring (..), tupleDataCon, tupleTyCon)
 import Control.Monad (foldM, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
@@ -209,48 +217,93 @@ data TcEnv = TcEnv
   deriving (Show)
 
 -- | Facts about the surrounding compiler that the type checker cannot
--- derive from source: the identity of the primitive package and the library
--- names that generated deriving code refers to.
+-- derive from source: the identity of the primitive package, the library
+-- names that generated deriving code refers to, and the type constructors
+-- that built-in syntax denotes.
 data TcConfig = TcConfig
   { tcConfigPrimPackage :: !PackageId,
-    tcConfigDerivingReferences :: !DerivingReferences
+    tcConfigDerivingReferences :: !DerivingReferences,
+    tcConfigWiring :: !TcWiring
   }
   deriving (Show)
 
--- | A configuration whose deriving references follow the aihc core-library
--- layout.
-tcConfig :: PackageId -> TcConfig
-tcConfig prim = tcConfigWithDeriving prim (defaultDerivingReferences prim)
-
-tcConfigWithDeriving :: PackageId -> DerivingReferences -> TcConfig
-tcConfigWithDeriving = TcConfig
+-- | A configuration from the tables of one compiler. The type checker has
+-- no default: every table names a library it does not itself define.
+mkTcConfig :: PackageId -> DerivingReferences -> TcWiring -> TcConfig
+mkTcConfig = TcConfig
 
 getDerivingReferences :: TcM DerivingReferences
 getDerivingReferences = asks (tcConfigDerivingReferences . tcEnvConfig)
 
-mkKnownTyCon :: Text -> Text -> Int -> TcType -> TcM TyCon
-mkKnownTyCon = mkKnownTyConInNamespace ResolutionNamespaceType
+getWiring :: TcM TcWiring
+getWiring = asks (tcConfigWiring . tcEnvConfig)
 
-mkKnownDataCon :: Text -> Text -> Int -> TcType -> TcM TyCon
-mkKnownDataCon = mkKnownTyConInNamespace ResolutionNamespaceTerm
+-- | The tuple type constructor that one syntactic form denotes.
+wiredTupleTyCon :: TupleFlavor -> Int -> TcM TyCon
+wiredTupleTyCon flavor arity = do
+  wiring <- getWiring
+  pure (tupleTyCon wiring flavor arity)
+
+-- | The tuple data constructor that one syntactic form denotes.
+wiredTupleDataCon :: TupleFlavor -> Int -> TcM TyCon
+wiredTupleDataCon flavor arity = do
+  wiring <- getWiring
+  pure (tupleDataCon wiring flavor arity)
+
+-- | The identity that one wiring entry names, without registering a kind.
+wiredTyConIdentity :: (TcWiring -> TyCon) -> TcM TyCon
+wiredTyConIdentity select = select <$> getWiring
+
+-- | The type constructor that one wiring entry names, with its kind
+-- registered on first use. The wiring gives the whole identity, so a
+-- declaration of that identity is found by key; a declaration of the same
+-- bare name elsewhere is not this constructor and does not take its place.
+wiredTyCon :: (TcWiring -> TyCon) -> TcType -> TcM TyCon
+wiredTyCon select kind = do
+  wired <- wiredTyConIdentity select
+  mkWiredTyCon wired kind
+
+-- | The binder of a term that a wiring entry names. The wiring gives the
+-- whole identity, so the term is found by key and never by scope.
+lookupWiredTerm :: TyCon -> TcM (Maybe TcBinder)
+lookupWiredTerm wired =
+  lookupTermKey (TcTermGlobal (tyConPackageId wired) (tyConModuleName wired) (tyConName wired))
+
+-- | The @Bool@ type that a guard and an @if@ condition have.
+boolType :: TcM TcType
+boolType = do
+  tyCon <- wiredTyCon tcWiringBoolTyCon typeKindType
+  pure (TcTyCon tyCon [])
+
+-- | The @Char@ type that a character literal has.
+charType :: TcM TcType
+charType = do
+  tyCon <- wiredTyCon tcWiringCharTyCon typeKindType
+  pure (TcTyCon tyCon [])
+
+-- | The list type constructor, for a list literal or a comprehension.
+listTyConOfWiring :: TcM TyCon
+listTyConOfWiring = wiredTyCon tcWiringListTyCon (KFun KType KType)
 
 -- | The constraint type for one implicit parameter, such as @?x :: Int@.
 --
 -- Each parameter name gets its own type constructor of kind @Type -> Constraint@.
 implicitParamType :: Text -> TcType -> TcM TcType
 implicitParamType name payload = do
-  tyCon <- mkKnownTyCon "GHC.Classes" name 1 (KFun KType KConstraint)
+  wiring <- getWiring
+  tyCon <- mkWiredTyCon (tcWiringImplicitParamTyCon wiring name) (KFun KType KConstraint)
   pure (TcTyCon tyCon [payload])
 
-mkKnownTyConInNamespace :: ResolutionNamespace -> Text -> Text -> Int -> TcType -> TcM TyCon
-mkKnownTyConInNamespace namespace moduleName name arity kind = do
-  packageIdentity <- asks (tcConfigPrimPackage . tcEnvConfig)
-  let tyCon = mkTyConWithNamespace namespace packageIdentity moduleName name arity
+-- | Register the kind of a type constructor whose identity is already
+-- known, such as one that comes from the wiring tables. An identity that
+-- already has a kind keeps it.
+mkWiredTyCon :: TyCon -> TcType -> TcM TyCon
+mkWiredTyCon tyCon kind = do
   maybeInfo <- lookupTyConByIdentity tyCon
   case maybeInfo of
     Just info -> pure (tciTyCon info)
     Nothing -> do
-      let info = TyConInfo name arity tyCon (ForAll [] [] kind) DataTyCon Nothing
+      let info = TyConInfo (tyConName tyCon) (tyConArity tyCon) tyCon (ForAll [] [] kind) DataTyCon Nothing
       lift $ modify' $ \state -> state {tcsGlobalTyCons = Map.insert (tyConKey tyCon) info (tcsGlobalTyCons state)}
       pure tyCon
 
@@ -448,11 +501,6 @@ lookupEvidence (EvVar u) = lift $ gets $ \s ->
 lookupTerm :: Text -> TcM (Maybe TcBinder)
 lookupTerm name =
   lift $ gets $ \s -> Map.lookup (unqualifiedTermKey name) (tcsGlobalTerms s)
-
-lookupKnownTerm :: Text -> Text -> TcM (Maybe TcBinder)
-lookupKnownTerm moduleName name = do
-  packageId <- asks (tcConfigPrimPackage . tcEnvConfig)
-  lookupTermKey (TcTermGlobal packageId moduleName name)
 
 lookupResolvedTerm :: Text -> ResolvedName -> TcM (Maybe TcBinder)
 lookupResolvedTerm displayName resolved = do

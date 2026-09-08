@@ -104,6 +104,23 @@ let
         }
       ];
     }
+    {
+      name = "containers";
+      version = "0.8";
+      hash = "sha256-zCP93Ma5w+FZO/OyqHgISrQXzHKipfxzeTAQ6ST1tRo=";
+      dependencies = [
+        {
+          name = "deepseq";
+          version = "1.5.2.0";
+          hash = "sha256-vNcooswfE2geBWNtB08cATNIhQlJRRF587lcjfD3XyM=";
+        }
+        {
+          name = "array";
+          version = "0.5.8.0";
+          hash = "sha256-YGP+ZsyP6onvdd7QbEGQJLPFH2kSubQnVfO/YgpjcwY=";
+        }
+      ];
+    }
   ];
 
   fetchPackage = pkgs: {

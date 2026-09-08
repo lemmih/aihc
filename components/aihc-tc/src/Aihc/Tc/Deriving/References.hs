@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | The library names that generated deriving code refers to, and the
 -- classes that stock deriving knows.
 --
@@ -13,7 +11,6 @@
 module Aihc.Tc.Deriving.References
   ( DerivingReference (..),
     DerivingReferences (..),
-    defaultDerivingReferences,
     derivingReferenceList,
   )
 where
@@ -101,72 +98,6 @@ data DerivingReferences = DerivingReferences
     derivingRecognizedClasses :: ![(Text, Text)]
   }
   deriving (Eq, Show)
-
--- | The table for the aihc core libraries, given the identity of the
--- @aihc-prim@ package.
-defaultDerivingReferences :: PackageId -> DerivingReferences
-defaultDerivingReferences prim =
-  DerivingReferences
-    { derivingTrue = term prim "GHC.Types" NameConId "True",
-      derivingFalse = term prim "GHC.Types" NameConId "False",
-      derivingLT = term prim "GHC.Types" NameConId "LT",
-      derivingEQ = term prim "GHC.Types" NameConId "EQ",
-      derivingGT = term prim "GHC.Types" NameConId "GT",
-      derivingIntCon = term prim "GHC.Types" NameConId "I#",
-      derivingIntPrimType = DerivingReference prim "GHC.Prim" "Int#" NameConId ResolutionNamespaceType,
-      derivingGreaterOrEqual = term prim "GHC.Classes" NameVarSym ">=",
-      derivingCons = term prim "GHC.Types" NameConSym ":",
-      derivingBind = term prim "GHC.Prim.Base" NameVarSym ">>=",
-      derivingThen = term prim "GHC.Prim.Base" NameVarSym ">>",
-      derivingReturn = term prim "GHC.Prim.Base" NameVarId "return",
-      derivingReadParens = term prim readModule NameVarId "parens",
-      derivingReadPrecContext = term prim readModule NameVarId "prec",
-      derivingReadStep = term prim readModule NameVarId "step",
-      derivingReadReset = term prim readModule NameVarId "reset",
-      derivingReadAlternative = term prim readModule NameVarSym "+++",
-      derivingReadFail = term prim readModule NameVarId "pfail",
-      derivingReadExpect = term prim readModule NameVarId "expectP",
-      derivingReadField = term prim readModule NameVarId "readField",
-      derivingReadSymField = term prim readModule NameVarId "readSymField",
-      derivingLexemeIdent = term prim readModule NameConId "Ident",
-      derivingLexemeSymbol = term prim readModule NameConId "Symbol",
-      derivingLexemePunc = term prim readModule NameConId "Punc",
-      derivingStockClasses = coreStockClasses prim,
-      derivingRecognizedClasses = coreRecognizedClasses
-    }
-  where
-    readModule = "GHC.Prim.Read"
-    term package moduleName nameType name =
-      DerivingReference package moduleName name nameType ResolutionNamespaceTerm
-
--- | The stock classes that the aihc core libraries declare in the primitive
--- package, where each is defined. GHC keeps the same list as known-key
--- names, which carry a unit id; the package here plays that part.
-coreStockClasses :: PackageId -> [(PackageId, Text, Text)]
-coreStockClasses prim =
-  [ (prim, "GHC.Classes", "Eq"),
-    (prim, "GHC.Classes", "Ord"),
-    (prim, "GHC.Prim.Enum", "Enum"),
-    (prim, "GHC.Prim.Enum", "Bounded"),
-    (prim, "GHC.Prim.Show", "Show"),
-    (prim, "GHC.Prim.Read", "Read"),
-    (prim, "GHC.Prim.Base", "Functor")
-  ]
-
--- | The stock classes of GHC that the core libraries declare outside the
--- primitive package. The generator writes no code for them, so they carry
--- no package.
-coreRecognizedClasses :: [(Text, Text)]
-coreRecognizedClasses =
-  [ ("GHC.Ix", "Ix"),
-    ("GHC.Internal.Foldable", "Foldable"),
-    ("GHC.Internal.Traversable", "Traversable"),
-    ("Data.Data", "Data"),
-    ("Type.Reflection", "Typeable"),
-    ("GHC.Generics", "Generic"),
-    ("GHC.Generics", "Generic1"),
-    ("GHC.Internal.TH.Lift", "Lift")
-  ]
 
 -- | Every reference in the table, for callers that make the names visible
 -- to later compiler phases.

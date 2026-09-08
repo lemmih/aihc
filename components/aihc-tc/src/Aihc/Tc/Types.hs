@@ -24,8 +24,6 @@ module Aihc.Tc.Types
     mkTyConWithOrigin,
     mkTyConWithNamespace,
     TypeScheme (..),
-    boxedTupleTyConName,
-    unboxedTupleTyConName,
     typeTyCon,
     constraintTyCon,
     runtimeRepTyCon,
@@ -273,16 +271,6 @@ collectTypeApplications ty =
       let (headType, arguments) = collectTypeApplications function
        in (headType, arguments <> [argument])
     _ -> (ty, [])
-
-boxedTupleTyConName :: Int -> Text
-boxedTupleTyConName arity =
-  case arity of
-    0 -> "Unit"
-    1 -> "Solo"
-    _ -> "Tuple" <> T.pack (show arity)
-
-unboxedTupleTyConName :: Int -> Text
-unboxedTupleTyConName arity = "Tuple" <> T.pack (show arity) <> "#"
 
 -- These values identify source declarations. They do not contain kind data.
 primTypeCon :: Text -> Int -> TyCon

@@ -25,11 +25,11 @@ import Aihc.Parser.Syntax
     parseLanguageEdition,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
+import Aihc.Prim.Wiring (primTcConfig)
 import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import Aihc.Tc
   ( TcInterface,
     emptyTcInterface,
-    tcConfig,
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
@@ -103,7 +103,7 @@ buildFcPrograms extensions sources = do
   let fixtureAsts = map snd (resolvedModules resolved)
       (fixtureTcResults, tcInterface) =
         typecheckModulesWithInterface
-          (tcConfig (PackageId "aihc-prim"))
+          (primTcConfig (PackageId "aihc-prim"))
           (supportTcInterface primitiveSupport)
           fixtureAsts
   if not (all tcModuleSuccess fixtureTcResults)
@@ -190,7 +190,7 @@ preparePrimitiveSupport sources = do
   let primitiveAsts = map snd (resolvedModules resolved)
       (primitiveTcResults, tcInterface) =
         typecheckModuleSccWithInterface
-          (tcConfig (PackageId "aihc-prim"))
+          (primTcConfig (PackageId "aihc-prim"))
           emptyTcInterface
           primitiveAsts
   if not (all tcModuleSuccess primitiveTcResults)

@@ -45,6 +45,7 @@ import GHC.Prim
     (<#),
   )
 import GHC.Prim.Enum (Bounded (..), Enum (..))
+import GHC.Types (VecCount (..), VecElem (..))
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 boundedEnumFrom :: (Enum a, Bounded a) => a -> [a]
@@ -513,3 +514,59 @@ enumIntegerFromThenTo first second last = go first
           case value >= last of
             True -> value : go (value + step)
             False -> []
+
+-- | GHC derives 'Enum' for 'VecCount' from a declaration that lists the
+-- constructors in width order, so the tags below follow that order rather than
+-- the alphabetical order 'GHC.Types' declares them in.
+instance Enum VecCount where
+  toEnum (I# index) =
+    case index of
+      0# -> Vec2
+      1# -> Vec4
+      2# -> Vec8
+      3# -> Vec16
+      4# -> Vec32
+      5# -> Vec64
+      _ -> toEnumError "VecCount" (I# index) (Vec2, Vec64)
+
+  fromEnum Vec2 = I# 0#
+  fromEnum Vec4 = I# 1#
+  fromEnum Vec8 = I# 2#
+  fromEnum Vec16 = I# 3#
+  fromEnum Vec32 = I# 4#
+  fromEnum Vec64 = I# 5#
+
+instance Bounded VecCount where
+  minBound = Vec2
+  maxBound = Vec64
+
+-- | As with 'VecCount', the tags follow GHC's declaration order.
+instance Enum VecElem where
+  toEnum (I# index) =
+    case index of
+      0# -> Int8ElemRep
+      1# -> Int16ElemRep
+      2# -> Int32ElemRep
+      3# -> Int64ElemRep
+      4# -> Word8ElemRep
+      5# -> Word16ElemRep
+      6# -> Word32ElemRep
+      7# -> Word64ElemRep
+      8# -> FloatElemRep
+      9# -> DoubleElemRep
+      _ -> toEnumError "VecElem" (I# index) (Int8ElemRep, DoubleElemRep)
+
+  fromEnum Int8ElemRep = I# 0#
+  fromEnum Int16ElemRep = I# 1#
+  fromEnum Int32ElemRep = I# 2#
+  fromEnum Int64ElemRep = I# 3#
+  fromEnum Word8ElemRep = I# 4#
+  fromEnum Word16ElemRep = I# 5#
+  fromEnum Word32ElemRep = I# 6#
+  fromEnum Word64ElemRep = I# 7#
+  fromEnum FloatElemRep = I# 8#
+  fromEnum DoubleElemRep = I# 9#
+
+instance Bounded VecElem where
+  minBound = Int8ElemRep
+  maxBound = DoubleElemRep
