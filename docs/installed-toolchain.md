@@ -111,7 +111,11 @@ Dependencies still use their normal cache checks.
 Code and no-code installs use separate package keys.
 The artifact format version remains separate from compiler identity.
 
-All executables use content hashes, once per process.
+The Cabal build hook generates a compiler identity from declared source files, runtime files, dependency library contents, and build options.
+The compiled program contains this identity as a pure constant.
+The identity requires no runtime executable path or filesystem access.
+The compiler uses the package main library because Cabal custom builds do not support named libraries.
+Host compiler and archiver executables use content hashes, once per process.
 The cache does not require Git metadata.
 Source checks use file contents, not timestamps.
 The source set contains the Cabal file and the selected Haskell and C source files.

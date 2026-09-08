@@ -8,6 +8,7 @@ module Aihc.Cli.ArtifactCache
   )
 where
 
+import Aihc.CompilerBuildIdentity (compilerBuildIdentity)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
 import Control.Exception (IOException, bracket, evaluate, try)
 import Control.Monad (forM, forM_, unless, when)
@@ -22,7 +23,6 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Numeric (showHex)
 import System.Directory (canonicalizePath, copyFile, createDirectory, createDirectoryIfMissing, doesDirectoryExist, findExecutable, removeDirectoryRecursive, removeFile, renameDirectory)
-import System.Environment (getExecutablePath)
 import System.FilePath (makeRelative, takeDirectory, (</>))
 import System.IO (hClose, openBinaryTempFile)
 import System.IO.Unsafe (unsafePerformIO)
@@ -33,11 +33,6 @@ hashChunks = concatMap hex . BS.unpack . SHA256.hashlazy . BL.fromChunks . conca
   where
     field bytes = [BS8.pack (show (BS.length bytes) <> ":"), bytes]
     hex byte = let value = showHex byte "" in replicate (2 - length value) '0' <> value
-
--- The executable cannot change during this process.
-{-# NOINLINE compilerBuildIdentity #-}
-compilerBuildIdentity :: String
-compilerBuildIdentity = unsafePerformIO (getExecutablePath >>= executableIdentity)
 
 {-# NOINLINE executableHashes #-}
 executableHashes :: MVar (Map.Map FilePath String)

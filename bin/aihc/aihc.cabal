@@ -1,7 +1,7 @@
 cabal-version: 3.8
 name: aihc
 version: 0.1.0.0
-build-type: Simple
+build-type: Custom
 license: Unlicense
 license-file: LICENSE
 author: David Himmelstrup
@@ -30,6 +30,12 @@ extra-source-files:
   test/Test/Fixtures/build-exe/source-directories/Main.hs
   test/Test/Fixtures/build-exe/source-directories/Message.hs
   test/Test/Fixtures/build-exe/source-directories/PrimitiveChecks.hs
+  test/Test/Fixtures/build-identity/app/Main.hs
+  test/Test/Fixtures/build-identity/dep/identity-dependency.cabal
+  test/Test/Fixtures/build-identity/dep/src/Dependency.hs
+  test/Test/Fixtures/build-identity/identity-fixture.cabal
+  test/Test/Fixtures/build-identity/runtime.h
+  test/Test/Fixtures/build-identity/src/Selected.hs
   test/Test/Fixtures/install/c-sources/cbits/helper.c
   test/Test/Fixtures/install/c-sources/demo.cabal
   test/Test/Fixtures/install/c-sources/src/Demo.hs
@@ -79,8 +85,16 @@ data-files:
   compiler/wasm/runtime/wit/deps/cli.wit
   compiler/wasm/runtime/wit/deps/filesystem.wit
 
-library compiler
-  visibility: private
+custom-setup
+  setup-depends:
+    Cabal >=3.14 && <3.17,
+    base >=4.16 && <5,
+    bytestring,
+    cryptohash-sha256,
+    directory,
+    filepath,
+
+library
   exposed-modules:
     Aihc.Amd64.Assemble
     Aihc.Amd64.Lir
@@ -144,6 +158,7 @@ library compiler
 
   other-modules:
     Aihc.Cli.TaskGraph
+    Aihc.CompilerBuildIdentity
     Aihc.Fc.Desugar.Value
     Aihc.Grin.Analysis
     Aihc.Native.Elf
@@ -151,7 +166,10 @@ library compiler
     Aihc.Native.Object
     Paths_aihc
 
-  autogen-modules: Paths_aihc
+  autogen-modules:
+    Aihc.CompilerBuildIdentity
+    Paths_aihc
+
   hs-source-dirs:
     src
     compiler/amd64/src
@@ -200,7 +218,7 @@ executable aihc
   main-is: Main.hs
   hs-source-dirs: exe
   build-depends:
-    aihc:compiler,
+    aihc,
     base >=4.16 && <5,
 
   ghc-options:
@@ -236,7 +254,7 @@ executable aihc-dev
     Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
-    aihc:compiler,
+    aihc,
     aihc-parser,
     aihc-tc,
     aihc-tc:fuzz,
@@ -332,7 +350,7 @@ test-suite spec
 
   build-depends:
     aeson,
-    aihc:compiler,
+    aihc,
     aihc-hackage,
     aihc-parser,
     aihc-resolve,
@@ -384,7 +402,7 @@ test-suite dev-spec
     Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
-    aihc:compiler,
+    aihc,
     aihc-internal,
     aihc-parser,
     aihc-tc,
