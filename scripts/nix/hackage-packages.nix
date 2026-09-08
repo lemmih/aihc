@@ -10,6 +10,8 @@
 #   version  Exact Hackage version.
 #   hash     SRI hash of the unpacked tarball.
 #   lint     Optional. Pass `--lint` to `aihc install`. Defaults to true.
+#   templateHaskell
+#            Reuse the Template Haskell libraries when true. Defaults to false.
 #   targets  Optional list of targets. Defaults to the host targets that the
 #            example tests use.
 #   dependencies
@@ -36,6 +38,7 @@ let
     }
     {
       name = "bytestring";
+      templateHaskell = true;
       version = "0.12.2.0";
       hash = "sha256-bBKEw1dWp24YUf+wrQYNqQ/eDqnM3m1ZtyFy6g1ZFq0=";
       dependencies = [
@@ -65,6 +68,7 @@ let
     }
     {
       name = "tagged";
+      templateHaskell = true;
       version = "0.8.10";
       hash = "sha256-PqVvvs5oh9qVXzUcUUK2kX18qnRbe2yquC2zw/+GZ7k=";
       dependencies = [
@@ -106,6 +110,7 @@ let
     }
     {
       name = "containers";
+      templateHaskell = true;
       version = "0.8";
       hash = "sha256-zCP93Ma5w+FZO/OyqHgISrQXzHKipfxzeTAQ6ST1tRo=";
       dependencies = [

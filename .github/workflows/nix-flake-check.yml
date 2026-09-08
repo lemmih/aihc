@@ -4,6 +4,11 @@ on:
   pull_request:
   merge_group:
   workflow_dispatch:
+    inputs:
+      rebuild_compiler:
+        description: Rebuild the type checker, compiler, and dependent checks.
+        type: boolean
+        default: false
 
 # A new push to a pull request cancels the runs of the same workflow that are
 # still queued or in progress for that pull request. Merge queue runs always
@@ -74,5 +79,14 @@ jobs:
             echo "Nix store disk use is ${disk_use}%. Skip garbage collection."
           fi
 
+      - name: Prepare a compiler performance run
+        if: github.event_name == 'workflow_dispatch' && inputs.rebuild_compiler
+        run: |
+          for source in components/aihc-tc/src/Aihc/Tc.hs bin/aihc/src/Aihc/Cli/Options.hs; do
+            printf '\n-- CI performance run: %s-%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$source"
+          done
+
       - name: Run flake checks
-        run: nix flake check --max-jobs 4 --print-build-logs
+        env:
+          NIX_CHECK_JOBS: ${{ needs.select-runner.outputs.use_self_hosted == 'true' && '16' || '4' }}
+        run: nix flake check --max-jobs "$NIX_CHECK_JOBS" --print-build-logs

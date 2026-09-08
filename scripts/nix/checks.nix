@@ -87,7 +87,7 @@
               # the log to keep an eye on GC time and capability counts, and
               # successes stay hidden because fixtures that capture stdout
               # would otherwise capture tasty's own progress output.
-              testFlags = (addHiddenSuccesses old).testFlags ++ ["--num-threads" "8" "+RTS" "-N8" "-s" "-RTS"];
+              testFlags = (addHiddenSuccesses old).testFlags ++ ["--num-threads" "8" "+RTS" "-N8" "-A32m" "-s" "-RTS"];
               # The C toolchain is only needed while the tests run. Adding it to
               # testToolDepends would append --extra-include-dirs/--extra-lib-dirs
               # to the configure flags, which changes GHC's flag hash and forces a
@@ -329,7 +329,7 @@
   '';
 
   aihcExe = pkgs.writeShellScript "aihc-with-memory-limit" ''
-    exec ${pkgs.lib.getExe' hsPkgs.aihc "aihc"} +RTS -M2G -RTS "$@"
+    exec ${pkgs.lib.getExe' hsPkgs.aihc "aihc"} +RTS -M2G -A32m -RTS "$@"
   '';
 
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
@@ -447,6 +447,8 @@
   # tasty resource. The target list must cover everything Test.Aihc.SeedStore
   # asks for; a superset is harmless, a missing target only makes the tests
   # install it again.
+  # These fresh Nix stores do not need a second module cache.
+  # --reinstall retains installed interfaces and skips that cache.
   specSeedStore =
     pkgs.runCommand "aihc-spec-seed-store" {
       src = sources.coreLibrariesSrc pkgs;
@@ -460,7 +462,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N1
+      export GHCRTS=-N2
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -468,7 +470,7 @@
       mkdir -p "$out/prim"
 
       ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          ${aihcExe} install core-libs/aihc-prim --store "$out/prim" --target ${target}
+          ${aihcExe} install --reinstall core-libs/aihc-prim --store "$out/prim" --target ${target}
         '')
         specSeedPrimTargets}
 
@@ -476,17 +478,15 @@
       # aihc-base as well. Keeping them apart matches what the suite builds for
       # itself outside CI, so a test sees the same store either way.
       cp -R --no-preserve=mode "$out/prim" "$out/core"
-      ${aihcExe} install core-libs/aihc-base --store "$out/core" --target ${specSeedBaseTarget}
+      ${aihcExe} install --reinstall core-libs/aihc-base --store "$out/core" --target ${specSeedBaseTarget}
     '';
 
   # The compiler owns preparation of the installed toolchain. Runtime archives
   # are built once per backend/GC pair, and ordinary package installation emits
   # the reusable library interfaces and target-specific archives.
   #
-  # One derivation per target, rather than one that loops over them: installing
-  # aihc-base takes minutes and runs single-threaded, so a combined derivation
-  # serialised work that has no dependency between targets. Everything a target
-  # writes is under a path named after it, so the outputs never overlap.
+  # Each target has its own derivation and output paths.
+  # Nix can compile these targets at the same time.
   exampleToolchainFor = exampleToolchainWith "";
 
   # The macOS SDK headers, fetched the way nixpkgs fetches them for its own
@@ -518,7 +518,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N1
+      export GHCRTS=-N2
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -527,11 +527,36 @@
       mkdir -p "$out"
 
       ${aihcExe} prepare-runtime --target ${target} --gc semispace --store "$out"
-      ${aihcExe} install core-libs/aihc-base --store "$out" --lint --target ${target}
+      ${aihcExe} install --reinstall core-libs/aihc-base --store "$out" --lint --target ${target}
 
       test -n "$(find "$out" -type f -name 'package.json' -print -quit)"
       test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
       test -n "$(find "$out" -type f -name 'entry.a' -print -quit)"
+    '';
+
+  templateHaskellToolchainFor = target:
+    pkgs.runCommand "aihc-template-haskell-toolchain-${target}" {
+      src = sources.coreLibrariesSrc pkgs;
+      nativeBuildInputs = [
+        pkgs.llvmPackages.bintools
+        pkgs.llvmPackages.clang
+        pkgs.llvmPackages.clang-unwrapped
+        pkgs.wasm-tools
+        pkgs.wit-bindgen
+        wasmLd
+      ];
+    } ''
+      cd "$src"
+      export GHCRTS=-N2
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+      export AIHC_WASM_SYSROOT=${wasmSysroot}
+      cp -R --no-preserve=mode ${exampleToolchainFor target} "$out"
+      ${aihcExe} install --reinstall core-libs/aihc-internal --store "$out" --lint --target ${target}
+      ${aihcExe} install --reinstall core-libs/aihc-template-haskell --store "$out" --lint --target ${target}
+      test -n "$(find "$out" -type f -name 'libaihc-template-haskell.a' -print -quit)"
+      test -z "$(find "$out" -type f -name 'core.bad' -print -quit)"
     '';
 
   hackage = import ./hackage-packages.nix;
@@ -574,7 +599,7 @@
       ];
     } ''
       set -euo pipefail
-      export GHCRTS=-N1
+      export GHCRTS=-N2
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -583,7 +608,11 @@
       mkdir -p "$coreLibsRoot"
       ln -sfn ${sources.coreLibrariesSrc pkgs}/core-libs "$coreLibsRoot/core-libs"
       export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
-      cp -R --no-preserve=mode ${exampleToolchainFor target} "$out"
+      cp -R --no-preserve=mode ${
+        if package.templateHaskell or false
+        then templateHaskellToolchainFor target
+        else exampleToolchainFor target
+      } "$out"
       ${pkgs.lib.concatMapStringsSep "\n" (dependency: ''
           cp -R --no-preserve=mode ${hackageStoreFor target dependency}/. "$out/"
         '')
@@ -593,7 +622,7 @@
       ln -sfn ${src} "$workspace/${package.name}"
       ${pkgs.lib.concatMapStrings linkWorkspaceEntry dependencies}
 
-      install_output=$(${aihcExe} install "$workspace/${package.name}" --store "$out" ${lintFlag} --target ${target})
+      install_output=$(${aihcExe} install --reinstall "$workspace/${package.name}" --store "$out" ${lintFlag} --target ${target})
       printf '%s\n' "$install_output"
       test -s "''${install_output#store: }/lib/lib${package.name}.a"
       test -z "$(find "$out" -type f -name 'core.bad' -print -quit)"
