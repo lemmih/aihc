@@ -27,16 +27,19 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory
-  ( createDirectory,
+  ( copyFile,
+    createDirectory,
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
     getCurrentDirectory,
     getFileSize,
+    getModificationTime,
     getTemporaryDirectory,
     listDirectory,
     removeDirectoryRecursive,
     removeFile,
+    setModificationTime,
     withCurrentDirectory,
   )
 import System.Environment (lookupEnv)
@@ -82,7 +85,8 @@ tests =
             ],
         testGroup
           "install"
-          [ testCase "writes Core files and reuses an installed package" (test_installResolveArtifacts primStore),
+          [ testCase "reuses unchanged fixture modules" (test_installIncremental primStore),
+            testCase "writes Core files and reuses an installed package" (test_installResolveArtifacts primStore),
             testCase "accepts type-check warnings" (test_installTypeWarning primStore),
             testCase "loads the implicit Prelude type interface" (test_installImplicitPrelude primStore),
             testCase "duplicates re-exported term signatures in type interfaces" (test_installTypeReexports primStore),
@@ -305,10 +309,65 @@ writeCachedPackage storeRoot target identity name version dependencies modules =
       { packageManifestName = name,
         packageManifestVersion = version,
         packageManifestIdentity = T.pack identity,
+        packageManifestUnitId = T.pack identity,
         packageManifestDependencies = dependencies,
         packageManifestModules = modules
       }
   BS.writeFile archive ""
+
+test_installIncremental :: IO SeedStore -> Assertion
+test_installIncremental getStore = do
+  fixture <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/incremental"
+  withSandbox getStore "aihc-incremental" $ \sandbox -> do
+    store <- sandboxStore sandbox "store"
+    let root = sandboxRoot sandbox </> "source"
+        options = InstallOptions root (Just store) True False False False False False False False AppleArm64
+    createDirectoryIfMissing True (root </> "src")
+    let dependencyRoot = sandboxRoot sandbox </> "dep"
+    createDirectoryIfMissing True (dependencyRoot </> "src")
+    copyFile (fixture </> "dep" </> "dep.cabal") (dependencyRoot </> "dep.cabal")
+    copyFile (fixture </> "dep" </> "src" </> "Dep.hs") (dependencyRoot </> "src" </> "Dep.hs")
+    copyFile (fixture </> "demo.cabal") (root </> "demo.cabal")
+    forM_ ["A.hs", "B.hs", "C.hs"] $ \name ->
+      copyFile (fixture </> "src" </> name) (root </> "src" </> name)
+    first <- install options
+    assertEqual "initial modules" ["A", "B", "C"] (sort (installWrittenModules first))
+    unchanged <- install options
+    assertEqual "unchanged package" (installStorePath first) (installStorePath unchanged)
+    originalTime <- getModificationTime (root </> "src" </> "A.hs")
+    originalSize <- getFileSize (root </> "src" </> "A.hs")
+    copyFile (fixture </> "implementation/A.hs") (root </> "src" </> "A.hs")
+    setModificationTime (root </> "src" </> "A.hs") originalTime
+    changedSize <- getFileSize (root </> "src" </> "A.hs")
+    assertEqual "fixture preserves file size" originalSize changedSize
+    changed <- install options
+    assertBool "source change selects a new package" (installStorePath first /= installStorePath changed)
+    assertEqual "changed module" ["A"] (installWrittenModules changed)
+    assertEqual "unchanged modules" ["B", "C"] (sort (installReusedModules changed))
+    copyFile (fixture </> "interface/A.hs") (root </> "src" </> "A.hs")
+    typeChanged <- install options
+    assertEqual "type change reaches the dependent module" ["A", "B"] (sort (installWrittenModules typeChanged))
+    assertEqual "independent module" ["C"] (installReusedModules typeChanged)
+    assertFileExists (installStorePath first </> "A" </> "type.cbor")
+    copyFile (fixture </> "dependency" </> "Dep.hs") (dependencyRoot </> "src" </> "Dep.hs")
+    dependencyChanged <- install options
+    assertBool "dependency change selects a new package" (installStorePath typeChanged /= installStorePath dependencyChanged)
+    assertEqual "dependency implementation preserves module artifacts" ["A", "B", "C"] (sort (installReusedModules dependencyChanged))
+    noCode <- install options {installNoCode = True}
+    assertBool "code mode selects a separate package" (installStorePath dependencyChanged /= installStorePath noCode)
+    assertFileDoesNotExist (installStorePath noCode </> "A" </> "A.o")
+    withCode <- install options
+    assertEqual "code artifacts remain available" (installStorePath dependencyChanged) (installStorePath withCode)
+    assertFileExists (installStorePath withCode </> "A" </> "A.o")
+    cachedObjects <- listNamedFiles (store </> ".build-cache") "C.o"
+    assertBool "module cache contains the independent object" (not (null cachedObjects))
+    forM_ cachedObjects $ \path -> BS.writeFile path "invalid object"
+    copyFile (fixture </> "Extra.hs") (root </> "Extra.hs")
+    repaired <- install options
+    assertEqual "corrupt module cache rebuilds the module" ["C"] (installWrittenModules repaired)
+    assertEqual "valid module cache remains available" ["A", "B"] (sort (installReusedModules repaired))
+    forced <- install options {installReinstall = True}
+    assertEqual "forced modules" ["A", "B", "C"] (sort (installWrittenModules forced))
 
 test_installResolveArtifacts :: IO SeedStore -> Assertion
 test_installResolveArtifacts getStore =
@@ -355,7 +414,7 @@ test_installResolveArtifacts getStore =
     assertEqual "repairs the complete SCC when core is absent" ["Demo.A", "Demo.B"] (sort (installWrittenModules coreRepaired))
     writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb x = (x)\n"
     changed <- install options {installReinstall = True}
-    assertEqual "source changes keep the package directory" (installStorePath first) (installStorePath changed)
+    assertBool "source changes select a new package directory" (installStorePath first /= installStorePath changed)
     assertEqual "source changes rebuild the complete SCC" ["Demo.A", "Demo.B"] (sort (installWrittenModules changed))
     let artifact = installStorePath first </> "Demo" </> "A" </> "resolve.cbor"
     artifactBytes <- BS.readFile artifact
@@ -550,8 +609,8 @@ test_installTargetArchives getStore = do
       [] -> assertFailure "no target results"
       first : rest ->
         assertBool
-          "package identity is equal for all targets"
-          (all ((== takeFileName (installStorePath first)) . takeFileName . installStorePath) rest)
+          "package identity differs between targets"
+          (all ((/= takeFileName (installStorePath first)) . takeFileName . installStorePath) rest)
 
 assertCoreFile :: FilePath -> Assertion
 assertCoreFile path = do
@@ -724,10 +783,14 @@ test_installAihcPrim = do
     result <- case caught of
       Left err -> assertFailure ("install aihc-prim failed: " <> show err)
       Right value -> pure value
+    manifest <- readPackageManifest (packageManifestPath (installStorePath result)) >>= either assertFailure pure
     let packageDir = installStorePath result
-        packageId = PackageId (T.pack (takeFileName packageDir))
-        loader = Fc.storeModuleLoader targetStoreRoot
-    assertBool "package artifact version sets the package hash" ("ff25b8f152cf4428" `isSuffixOf` packageDir)
+        packageId = PackageId (packageManifestUnitId manifest)
+        loader requested =
+          Fc.storeModuleLoader
+            targetStoreRoot
+            (if requested == packageId then PackageId (T.pack (takeFileName packageDir)) else requested)
+    assertBool "package build identity differs from its unit identity" (packageManifestIdentity manifest /= packageManifestUnitId manifest)
     mapM_ (assertTypeArtifactSize packageDir) ["GHC.Tuple", "GHC.Types"]
     mapM_ (assertModuleCore packageDir) aihcPrimLibraryModules
     coreFiles <- listNamedFiles packageDir "core"

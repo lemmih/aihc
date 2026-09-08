@@ -89,3 +89,29 @@ link through the C driver of the target directly. The weekly cross-compilation
 workflow does this: `nix build .#cross-examples-apple-arm64` compiles every
 example to a bundle on Linux, and `scripts/link-and-run-example-bundles.sh`
 links and runs the bundles on macOS.
+
+## Artifact reuse
+
+`aihc install` checks package contents before it reuses an installed build.
+The package key includes source contents, dependency build identities, compiler identity, target, and build options.
+A source change creates a new installed build.
+Previous builds remain available to their dependent packages.
+The most recent install selects the active build for that package version and target.
+
+The separate `.build-cache` directory retains module artifacts across source changes.
+The compiler checks each dependency-cycle unit before it reuses its type interfaces and backend outputs.
+A changed interface invalidates dependent units.
+A changed implementation can preserve dependent artifacts when its interface stays the same.
+The compiler still parses sources and resolves names after a package source change.
+It rebuilds the package archive and its C sources.
+
+`--reinstall` bypasses module reuse for the specified package.
+Dependencies still use their normal cache checks.
+Code and no-code installs use separate package keys.
+The artifact format version remains separate from compiler identity.
+
+Nix executables use their resolved store paths as compiler identities.
+Other executables use content hashes, once per process.
+The cache does not require Git metadata.
+Source checks use file contents, not timestamps.
+The source scan excludes the artifact store and standard build directories.

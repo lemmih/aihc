@@ -12,6 +12,7 @@ import Aihc.Cli.Install
   ( ModuleCompileConfig (..),
     ModuleCompileRequest (..),
     ModuleCompileResult (..),
+    buildEnvironmentIdentity,
     compileModules,
   )
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector, LinkExeOptions (..))
@@ -71,7 +72,8 @@ import System.Process (readProcessWithExitCode)
 data InstalledPackage = InstalledPackage
   { installedManifest :: !PackageManifest,
     installedRoot :: !FilePath,
-    installedVersion :: !Version
+    installedVersion :: !Version,
+    installedActive :: !Bool
   }
 
 data PackageConstraint = PackageConstraint
@@ -119,9 +121,12 @@ runBuildExe options = do
   sourceFiles <- materializeSourceFiles buildRoot selected sources
   runtime <- ensureRuntime storeRoot target (buildExeGarbageCollector options)
   entry <- ensureEntry storeRoot target
+  buildIdentity <- buildEnvironmentIdentity target
   let compileConfig =
         ModuleCompileConfig
-          { compileKeepCore = False,
+          { compileBuildIdentity = buildIdentity,
+            compileCacheRoot = Just (storeRoot </> ".build-cache"),
+            compileKeepCore = False,
             compileKeepGrin = False,
             compileKeepNative = False,
             compileLint = buildExeLint options,
@@ -293,7 +298,10 @@ readInstalledPackages targetRoot = do
             (ioError (userError ("Invalid installed package version: " <> T.unpack (packageManifestVersion manifest))))
             pure
             (simpleParsec (T.unpack (packageManifestVersion manifest)))
-        pure [InstalledPackage manifest root version]
+        let activePath = takeDirectory targetRoot </> ".active" </> takeFileName targetRoot </> T.unpack (packageManifestName manifest <> "-" <> packageManifestVersion manifest)
+        hasActive <- doesFileExist activePath
+        active <- if hasActive then (== entry) <$> readFile activePath else pure True
+        pure [InstalledPackage manifest root version active]
 
 resolvePackages :: [InstalledPackage] -> [PackageConstraint] -> IO [InstalledPackage]
 resolvePackages available constraints = do
@@ -312,7 +320,7 @@ resolvePackages available constraints = do
         (<>)
         [(constraintName constraint, [constraintRange constraint]) | constraint <- constraints]
     select (name, ranges) =
-      case sortOn installedVersion (filter (matches name ranges) available) of
+      case sortOn installedVersion (filter (\package -> installedActive package && matches name ranges package) available) of
         [] -> ioError (userError ("No compiled library fulfills the constraint for " <> T.unpack name))
         matches' ->
           case filter ((== installedVersion (last matches')) . installedVersion) matches' of
