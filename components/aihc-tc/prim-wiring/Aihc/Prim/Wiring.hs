@@ -77,7 +77,6 @@ primTcWiring prim =
         tyCon ResolutionNamespaceType "GHC.Prim" name 0,
       tcWiringKindTyCon = types ResolutionNamespaceType,
       tcWiringKindDataCon = types ResolutionNamespaceTerm,
-      tcWiringApplyOperator = ("GHC.Base", "$"),
       tcWiringLiftClass = ("GHC.Internal.TH.Lift", "Lift")
     }
   where

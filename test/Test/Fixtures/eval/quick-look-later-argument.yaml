@@ -1,0 +1,25 @@
+extensions:
+  - RankNTypes
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    newtype Box s = Box Nat
+
+    create :: Nat -> (forall s. Box s -> Nat) -> Nat
+    create n fill = fill (Box n)
+
+    pipe :: a -> (a -> b) -> b
+    pipe x f = f x
+
+    viaLater :: Nat
+    viaLater = pipe (\(Box n) -> S n) (create Z)
+output: |
+  S Z
+expression: |
+  viaLater
+status: pass
+reason: the quick look at the second argument instantiates pipe at the
+  polymorphic parameter type of create, and the lambda checks against it

@@ -1,0 +1,85 @@
+annotated:
+- |-
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  newtype Box s = Box Nat
+          │       └─ type: ∀ s. Nat → Box s
+          └─ type: Type → Type
+  create :: Nat -> (forall s. Box s -> Nat) -> Nat
+  create n fill = fill (Box n)
+  │      │ │      │     └─ type: Nat → Box (); type-args: ()
+  │      │ │      └─ type: Box () → Nat; type-args: ()
+  │      │ └─ type: ∀ s. Box s → Nat
+  │      └─ type: Nat
+  └─ type: Nat → (∀ s. Box s → Nat) → Nat
+  apply :: (a -> b) -> a -> b
+  apply f x = f x
+  │     │ └─ type: a
+  │     └─ type: a → b
+  └─ type: ∀ a b. (a → b) → a → b
+  pipe :: a -> (a -> b) -> b
+  pipe x f = f x
+  │    │ └─ type: a → b
+  │    └─ type: a
+  └─ type: ∀ a b. a → (a → b) → b
+  unwrap :: Box s -> Nat
+  unwrap (Box n) = n
+  │       │   └─ type: Nat
+  │       └─ type: Box s
+  └─ type: ∀ s. Box s → Nat
+  viaApply :: Nat
+  viaApply = apply (create Z) (\(Box n) -> S n)
+  │          ││                 │││   └─ type: Nat
+  │          ││                 ││└─ type: Box s
+  │          ││                 │└─ type: Box s
+  │          ││                 └─ type: Box s → Nat
+  │          └─ type: ((∀ s. Box s → Nat) → Nat) → (∀ s. Box s → Nat) → Nat; type-args: ∀ s. Box s → Nat, Nat
+  │          └─ type: ∀ s. Box s → Nat
+  └─ type: Nat
+  viaLater :: Nat
+  viaLater = pipe (\(Box n) -> S n) (create Z)
+  │          ││     │││   └─ type: Nat
+  │          ││     ││└─ type: Box s
+  │          ││     │└─ type: Box s
+  │          ││     └─ type: Box s → Nat
+  │          └─ type: (∀ s. Box s → Nat) → ((∀ s. Box s → Nat) → Nat) → Nat; type-args: ∀ s. Box s → Nat, Nat
+  │          └─ type: ∀ s. Box s → Nat
+  └─ type: Nat
+  viaVariable :: Nat
+  viaVariable = apply (create Z) unwrap
+  └─ type: Nat  └─ type: ((∀ s. Box s → Nat) → Nat) → (∀ s. Box s → Nat) → Nat; type-args: ∀ s. Box s → Nat, Nat
+                └─ type: ∀ s. Box s → Nat
+                └─ type: Box s → Nat; type-args: s
+  viaLambdaHead :: Nat
+  viaLambdaHead = (\f g -> f g) (create Z) (\(Box n) -> S n)
+                  └─ error: couldn't match Box t0 → Nat with ∀ s. Box s → Nat
+extensions:
+- RankNTypes
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  newtype Box s = Box Nat
+  create :: Nat -> (forall s. Box s -> Nat) -> Nat
+  create n fill = fill (Box n)
+  apply :: (a -> b) -> a -> b
+  apply f x = f x
+  pipe :: a -> (a -> b) -> b
+  pipe x f = f x
+  unwrap :: Box s -> Nat
+  unwrap (Box n) = n
+  viaApply :: Nat
+  viaApply = apply (create Z) (\(Box n) -> S n)
+  viaLater :: Nat
+  viaLater = pipe (\(Box n) -> S n) (create Z)
+  viaVariable :: Nat
+  viaVariable = apply (create Z) unwrap
+  viaLambdaHead :: Nat
+  viaLambdaHead = (\f g -> f g) (create Z) (\(Box n) -> S n)
+reason: the quick look at a guarded argument instantiates a head at a polytype,
+  whichever argument reveals it, and the other arguments check against it; a
+  lambda head has no instantiation variables, so its application is rejected
+status: pass

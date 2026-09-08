@@ -26,13 +26,15 @@ annotated:
   └─ type: Nat → (∀ s. Box s → Nat) → Nat
   viaOperator :: Nat
   viaOperator = create Z $ \(Box n) -> S n
-  └─ type: Nat             ││││   └─ type: Nat
-                           │││└─ type: Box s
-                           │└─ type: Box s
-                           └─ type: ∀ s. Box s → Nat
-                           └─ type: Box s → Nat
+  └─ type: Nat           │ ││││   └─ type: Nat
+                         │ │││└─ type: Box s
+                         │ │└─ type: Box s
+                         │ └─ type: ∀ s. Box s → Nat
+                         │ └─ type: Box s → Nat
+                         └─ type: ((∀ s. Box s → Nat) → Nat) → (∀ s. Box s → Nat) → Nat; type-args: ∀ s. Box s → Nat, Nat
   plain :: Nat
   plain = S $ S Z
+  │         └─ type: (Nat → Nat) → Nat → Nat; type-args: Nat, Nat
   └─ type: Nat
 extensions:
 - RankNTypes
@@ -53,6 +55,7 @@ modules:
   viaOperator = create Z $ \(Box n) -> S n
   plain :: Nat
   plain = S $ S Z
-reason: the application operator of GHC.Base types like an application, so a
-  higher-rank argument on its right checks against the polymorphic type
+reason: the quick look at the left operand instantiates the application
+  operator at the polymorphic parameter type, so the lambda on its right
+  checks against that polytype; the operator has no special typing rule
 status: pass

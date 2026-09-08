@@ -1,0 +1,21 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim
+
+    unbox :: Int -> Int#
+    unbox (I# n) = n +# 1#
+
+    result :: Int
+    result = I# (unbox $ 41)
+output: |
+  I# 42
+expression: |
+  result
+status: pass
+reason: the application operator is an ordinary representation-polymorphic
+  function, so its result may be unlifted

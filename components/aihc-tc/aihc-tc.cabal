@@ -39,6 +39,7 @@ library
     Aihc.Tc.Instantiate
     Aihc.Tc.Kind
     Aihc.Tc.Monad
+    Aihc.Tc.QuickLook
     Aihc.Tc.Solve
     Aihc.Tc.Solve.Canonicalize
     Aihc.Tc.Solve.Coercible

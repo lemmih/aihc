@@ -76,10 +76,6 @@ data TcWiring = TcWiring
     -- | A promoted constructor of the kind vocabulary of one name and
     -- arity, such as @BoxedRep@, @Lifted@ or @IntRep@.
     tcWiringKindDataCon :: Text -> Int -> TyCon,
-    -- | The application operator, as a module name and a term name. It is
-    -- typed like an application rather than like a function, so that a
-    -- higher-rank argument needs no impredicative instantiation.
-    tcWiringApplyOperator :: (Text, Text),
     -- | The Template Haskell @Lift@ class, as a module name and a class
     -- name. Its parameters take implicit kind parameters.
     tcWiringLiftClass :: (Text, Text)

@@ -27,6 +27,7 @@ import Aihc.Parser.Syntax
     Name (..),
     NumericType (..),
     Pattern (..),
+    Pragma,
     RecordField (..),
     Rhs (..),
     SourceSpan (..),
@@ -49,6 +50,7 @@ import Aihc.Tc.Generate.Record (constructorNameSyntax, lookupRecordConstructor, 
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (checkSurfaceType, tcTypeKind)
 import Aihc.Tc.Monad
+import Aihc.Tc.QuickLook (quickLookUnify)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Types
@@ -56,6 +58,8 @@ import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (when)
 import Data.Either (fromRight)
+import Data.IntSet (IntSet)
+import Data.IntSet qualified as IntSet
 import Data.List (partition)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -129,12 +133,12 @@ inferExprAt ambient expr = case expr of
     inferLambdaCase (exprSpan expr `orSourceSpan` ambient) alts
   ELambdaCases alts ->
     inferLambdaCases (exprSpan expr `orSourceSpan` ambient) alts
-  EApp fun arg ->
-    inferApp (exprSpan expr `orSourceSpan` ambient) fun arg
-  ETypeApp fun tyArg ->
-    inferTypeApp (exprSpan expr `orSourceSpan` ambient) fun tyArg
-  EInfix lhs op rhs ->
-    inferInfix (exprSpan expr `orSourceSpan` ambient) lhs op rhs
+  EApp {} ->
+    inferApplicationSpine ambient expr
+  ETypeApp {} ->
+    inferApplicationSpine ambient expr
+  EInfix {} ->
+    inferApplicationSpine ambient expr
   ESectionL inner op ->
     inferSectionL (exprSpan expr `orSourceSpan` ambient) inner op
   ESectionR op inner ->
@@ -556,73 +560,264 @@ combineSourceSpan span' _ = span'
 inferRhs :: Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
 inferRhs = inferRhsWithLocals inferExpr
 
-inferApp :: SourceSpan -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
-inferApp sp = inferApplication sp EApp
+-- | An application spine is a head and the frames applied to it, from the
+-- head outwards. A source span, a parenthesis, or a pragma between the
+-- head and an argument is a frame, so @(f x) y@ is one spine and the
+-- quick look at @y@ can use what @x@ revealed.
+data SpineFrame
+  = SpineValueArg SourceSpan Expr
+  | -- | The right operand of an infix operator. The frame rebuilds the
+    -- infix node, so the partial application cannot be instantiated.
+    SpineInfixRhs SourceSpan Expr
+  | SpineTypeArg SourceSpan Type
+  | SpineParen
+  | SpinePragma Pragma
+  | SpineAnn Annotation
 
--- | Infer an application. The rebuild function makes the checked node from
--- the checked function and argument, so an application operator keeps its
--- infix node.
-inferApplication :: SourceSpan -> (Expr -> Expr -> Expr) -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
-inferApplication sp rebuild fun arg = do
-  (rawFun, rawFunTy, rawFunCts) <- inferExpr fun
-  -- A function with a polymorphic type, for example a record field with a
-  -- higher-rank type, is instantiated at its application.
-  (fun', funTy, instantiationCts) <- instantiateFunctionType sp rawFun rawFunTy
-  let funCts = rawFunCts <> instantiationCts
-  zonkedFunTy <- zonkType funTy
-  case zonkedFunTy of
-    TcFunTy expectedArgTy resultTy
-      | isPolyType expectedArgTy -> do
-          (arg', argCts) <- checkHigherRankArgument sp expectedArgTy arg
-          pure (rebuild fun' arg', resultTy, funCts <> argCts)
-      | otherwise -> do
-          -- The function type is known, so the result type is known too.
-          -- An enclosing application then sees a function type, which lets
-          -- it check a higher-rank argument.
-          (arg', argTy, argCts) <- inferExpr arg
-          ev <- freshEvVar
-          let eqCt = mkWantedCt (EqPred expectedArgTy argTy) ev (AppOrigin sp) sp
-          pure (rebuild fun' arg', resultTy, funCts <> argCts <> [eqCt])
-    _ -> do
-      (arg', argTy, argCts) <- inferExpr arg
-      resTy <- freshMetaTv
-      ev <- freshEvVar
-      let eqCt = mkWantedCt (EqPred funTy (TcFunTy argTy resTy)) ev (AppOrigin sp) sp
-      pure (rebuild fun' arg', resTy, funCts <> argCts <> [eqCt])
+data SpineHead
+  = SpineHeadExpr Expr
+  | -- | An infix operator. Its operands are the first two frames.
+    SpineHeadOperator SourceSpan Name
 
--- | Instantiate the leading quantifiers and context of a function type.
--- The context becomes wanted constraints. The function expression gets an
--- annotation with the type arguments and the evidence, so the desugarer
--- applies them.
-instantiateFunctionType :: SourceSpan -> Expr -> TcType -> TcM (Expr, TcType, [Ct])
-instantiateFunctionType sp fun funTy = do
-  zonked <- zonkType funTy
-  if isPolyType zonked
-    then do
-      (instantiated, typeArgs, predicates) <- instantiateSigmaType zonked
-      cts <- mapM (predToCt sp "<application>") predicates
-      let pending = pendingAnnotation instantiated typeArgs (map ctEvVar cts) []
-      pure (annotatePendingExprAt sp pending fun, instantiated, cts)
-    else pure (fun, funTy, [])
+collectSpine :: SourceSpan -> Expr -> (SpineHead, [SpineFrame])
+collectSpine = go []
+  where
+    go frames sp expr =
+      case expr of
+        EAnn ann inner
+          | Just nodeSpan <- fromAnnotation @SourceSpan ann ->
+              go (SpineAnn ann : frames) nodeSpan inner
+        EApp fun arg -> go (SpineValueArg sp arg : frames) sp fun
+        ETypeApp fun tyArg -> go (SpineTypeArg sp tyArg : frames) sp fun
+        EParen inner -> go (SpineParen : frames) sp inner
+        EPragma pragma inner -> go (SpinePragma pragma : frames) sp inner
+        EInfix lhs op rhs ->
+          (SpineHeadOperator sp op, SpineValueArg sp lhs : SpineInfixRhs sp rhs : frames)
+        _ -> (SpineHeadExpr expr, frames)
 
--- | Whether an operator is the wired application operator. It is typed
--- like the application @f x@, so a higher-rank or representation
--- polymorphic argument works without impredicative instantiation.
-isApplicationOperator :: Name -> TcM Bool
-isApplicationOperator op = do
-  (applyModule, applyName) <- tcWiringApplyOperator <$> getWiring
-  if nameText op /= applyName
-    then pure False
-    else do
-      key <- resolvedTermKey op
-      pure $ case key of
-        TcTermGlobal _ moduleName' name' -> moduleName' == applyModule && name' == applyName
-        _ -> False
+-- | Whether an argument's type is known without inferring it: the
+-- argument is a variable, or an application of a variable. The quick
+-- look reads such an argument before any argument is checked.
+isGuardedArgument :: Expr -> Bool
+isGuardedArgument expr =
+  case expr of
+    EVar {} -> True
+    EApp fun _ -> isGuardedArgument fun
+    ETypeApp fun _ -> isGuardedArgument fun
+    EInfix {} -> True
+    EParen inner -> isGuardedArgument inner
+    EPragma _ inner -> isGuardedArgument inner
+    EAnn ann inner
+      | Just _ <- fromAnnotation @SourceSpan ann -> isGuardedArgument inner
+    _ -> False
 
+-- | A value argument after the quick look, before it is checked.
+data ArgState
+  = ArgDeferred Expr
+  | -- | The argument was inferred by the quick look. The unique boundary
+    -- was taken before the inference, for the escape check.
+    ArgInferred Unique Expr TcType [Ct]
+
+data ArgPlan = ArgPlan
+  { argPlanSpan :: SourceSpan,
+    -- | The instantiation of the function's polymorphic type before this
+    -- argument, with its wanted constraints.
+    argPlanInstantiation :: Maybe (PendingTcAnnotation, [Ct]),
+    -- | The wanted equality that gives an unknown function type an arrow.
+    argPlanArrowCts :: [Ct],
+    argPlanExpected :: TcType,
+    argPlanArgument :: ArgState,
+    argPlanIsInfixRhs :: Bool
+  }
+
+data SpineStep
+  = StepArg ArgPlan
+  | StepTypeArg Type [Ct]
+  | StepParen
+  | StepPragma Pragma
+  | StepAnn Annotation
+
+-- | Infer an application spine.
+--
+-- The head is instantiated once. Its fresh meta-variables are the
+-- instantiation variables of the spine. A first pass over the frames
+-- (the plan) walks the function type, infers the guarded arguments, and
+-- quick-look-unifies their types with the expected argument types, which
+-- may bind an instantiation variable to a polytype. A second pass checks
+-- every argument against its zonked expected type: an argument whose
+-- expected type is a polytype is checked against it, any other argument
+-- is inferred and equated. The checked nodes rebuild the source shape.
+inferApplicationSpine :: SourceSpan -> Expr -> TcM (Expr, TcType, [Ct])
+inferApplicationSpine ambient expr = do
+  let (spineHead, frames) = collectSpine ambient expr
+  (headExpr, headTy, headCts, headTypeArgs) <-
+    case spineHead of
+      SpineHeadExpr headSyntax -> do
+        (headExpr, headTy, headCts) <- inferExprAt ambient headSyntax
+        pure (headExpr, headTy, headCts, pendingTypeArgs headExpr)
+      SpineHeadOperator sp op -> do
+        (op', opTy, opCts) <- inferOperator sp op
+        pure (EVar op', opTy, opCts, nameTypeArgs op')
+  let instantiationVariables = IntSet.fromList (map uniqueKey (concatMap typeMetaVariables headTypeArgs))
+  (steps, resultTy) <- planSpine instantiationVariables headTypeArgs headTy frames
+  (expr', stepCts) <- checkSpineSteps headExpr steps
+  pure (expr', resultTy, headCts <> stepCts)
+
+uniqueKey :: Unique -> Int
+uniqueKey (Unique key) = key
+
+nameTypeArgs :: Name -> [TcType]
+nameTypeArgs name =
+  case mapMaybe (fromAnnotation @PendingTcAnnotation) (nameAnns name) of
+    pending : _ -> pendingTcAnnTypeArgs pending
+    [] -> []
+
+-- | The first pass over the frames. The remaining type arguments are the
+-- instantiation's type arguments that visible type applications have not
+-- consumed yet; a value argument ends them.
+planSpine :: IntSet -> [TcType] -> TcType -> [SpineFrame] -> TcM ([SpineStep], TcType)
+planSpine = go
+  where
+    go _ _ funTy [] = pure ([], funTy)
+    go instantiationVariables remainingTypeArgs funTy (frame : frames) =
+      case frame of
+        SpineAnn ann -> continue (StepAnn ann) instantiationVariables remainingTypeArgs funTy frames
+        SpineParen -> continue StepParen instantiationVariables remainingTypeArgs funTy frames
+        SpinePragma pragma -> continue (StepPragma pragma) instantiationVariables remainingTypeArgs funTy frames
+        SpineTypeArg sp tyArg -> do
+          kinds <- getKinds
+          scoped <- getScopedTyVars
+          explicitTy <- checkSurfaceType scoped tyArg (typeKind kinds)
+          case remainingTypeArgs of
+            inferredTy : rest -> do
+              -- The explicit type may be a polytype. The quick look binds
+              -- the instantiation variable to it; the wanted equality
+              -- then checks the two agree.
+              quickLookUnify instantiationVariables inferredTy explicitTy
+              ev <- freshEvVar
+              let origin = InstOrigin "visible type application"
+                  eqCt =
+                    mkWantedEqCt
+                      TypeTrace
+                        { typeTraceType = inferredTy,
+                          typeTraceRole = InferredType,
+                          typeTraceOrigin = ConstraintTypeOrigin origin
+                        }
+                      TypeTrace
+                        { typeTraceType = explicitTy,
+                          typeTraceRole = RequiredType,
+                          typeTraceOrigin = ConstraintTypeOrigin origin
+                        }
+                      ev
+                      origin
+                      sp
+              continue (StepTypeArg tyArg [eqCt]) instantiationVariables rest funTy frames
+            [] -> do
+              emitError sp (OtherError "visible type application requires a polymorphic expression")
+              continue (StepTypeArg tyArg []) instantiationVariables [] funTy frames
+        SpineValueArg sp arg -> valueArg sp arg False instantiationVariables funTy frames
+        SpineInfixRhs sp arg -> valueArg sp arg True instantiationVariables funTy frames
+
+    continue step instantiationVariables remainingTypeArgs funTy frames = do
+      (steps, resultTy) <- go instantiationVariables remainingTypeArgs funTy frames
+      pure (step : steps, resultTy)
+
+    valueArg sp arg isInfixRhs instantiationVariables funTy frames = do
+      zonkedFunTy <- zonkType funTy
+      -- A function with a polymorphic type, for example a record field
+      -- with a higher-rank type, is instantiated at its application. Its
+      -- fresh meta-variables are instantiation variables too.
+      (instantiation, instantiatedFunTy, instantiationVariables') <-
+        if isPolyType zonkedFunTy && not isInfixRhs
+          then do
+            (instantiated, typeArgs, predicates) <- instantiateSigmaType zonkedFunTy
+            cts <- mapM (predToCt sp "<application>") predicates
+            let pending = pendingAnnotation instantiated typeArgs (map ctEvVar cts) []
+                fresh = IntSet.fromList (map uniqueKey (concatMap typeMetaVariables typeArgs))
+            pure (Just (pending, cts), instantiated, IntSet.union instantiationVariables fresh)
+          else pure (Nothing, zonkedFunTy, instantiationVariables)
+      (expectedArgTy, resultTy, arrowCts) <-
+        case instantiatedFunTy of
+          TcFunTy expectedArgTy resultTy -> pure (expectedArgTy, resultTy, [])
+          _ -> do
+            argTy <- freshMetaTv
+            resTy <- freshMetaTv
+            let arrowTy = TcFunTy argTy resTy
+            quickLookUnify instantiationVariables' instantiatedFunTy arrowTy
+            ev <- freshEvVar
+            pure (argTy, resTy, [mkWantedCt (EqPred instantiatedFunTy arrowTy) ev (AppOrigin sp) sp])
+      argState <-
+        if isGuardedArgument arg
+          then do
+            boundary <- getUniqueBoundary
+            (arg', argTy, argCts) <- inferExpr arg
+            quickLookUnify instantiationVariables' expectedArgTy argTy
+            pure (ArgInferred boundary arg' argTy argCts)
+          else pure (ArgDeferred arg)
+      let plan =
+            ArgPlan
+              { argPlanSpan = sp,
+                argPlanInstantiation = instantiation,
+                argPlanArrowCts = arrowCts,
+                argPlanExpected = expectedArgTy,
+                argPlanArgument = argState,
+                argPlanIsInfixRhs = isInfixRhs
+              }
+      continue (StepArg plan) instantiationVariables' [] resultTy frames
+
+-- | The second pass: check each argument and rebuild the nodes.
+checkSpineSteps :: Expr -> [SpineStep] -> TcM (Expr, [Ct])
+checkSpineSteps = go
+  where
+    go fun [] = pure (fun, [])
+    go fun (step : steps) =
+      case step of
+        StepAnn ann -> go (EAnn ann fun) steps
+        StepParen -> go (EParen fun) steps
+        StepPragma pragma -> go (EPragma pragma fun) steps
+        StepTypeArg tyArg cts -> do
+          (expr', moreCts) <- go (ETypeApp fun tyArg) steps
+          pure (expr', cts <> moreCts)
+        StepArg plan -> do
+          let sp = argPlanSpan plan
+              fun' = maybe fun (\(pending, _) -> annotatePendingExprAt sp pending fun) (argPlanInstantiation plan)
+              instantiationCts = maybe [] snd (argPlanInstantiation plan)
+          expectedArgTy <- zonkType (argPlanExpected plan)
+          (arg', argCts) <-
+            if isPolyType expectedArgTy
+              then case argPlanArgument plan of
+                ArgDeferred arg -> checkHigherRankArgument sp expectedArgTy arg
+                ArgInferred boundary arg' argTy cts -> checkInferredHigherRankArgument sp boundary expectedArgTy arg' argTy cts
+              else do
+                (arg', argTy, cts) <-
+                  case argPlanArgument plan of
+                    ArgDeferred arg -> inferExpr arg
+                    ArgInferred _ arg' argTy cts -> pure (arg', argTy, cts)
+                ev <- freshEvVar
+                let eqCt = mkWantedCt (EqPred expectedArgTy argTy) ev (AppOrigin sp) sp
+                pure (arg', cts <> [eqCt])
+          node <-
+            if argPlanIsInfixRhs plan
+              then case fun' of
+                EApp (EVar op') lhs' -> pure (EInfix lhs' op' arg')
+                _ -> abortTc "infix operator application lost its operator node"
+              else pure (EApp fun' arg')
+          (expr', moreCts) <- go node steps
+          pure (expr', instantiationCts <> argPlanArrowCts plan <> argCts <> moreCts)
+
+-- | Check an argument against a polytype. The argument is inferred and
+-- its type unified with the skolemized polytype.
 checkHigherRankArgument :: SourceSpan -> TcType -> Expr -> TcM (Expr, [Ct])
 checkHigherRankArgument sp expectedTy arg = do
   boundary <- getUniqueBoundary
   (arg', actualTy, argCts) <- inferExpr arg
+  checkInferredHigherRankArgument sp boundary expectedTy arg' actualTy argCts
+
+-- | Check an already inferred argument against a polytype. The boundary
+-- was taken before the inference: a meta-variable older than it must not
+-- mention the skolems.
+checkInferredHigherRankArgument :: SourceSpan -> Unique -> TcType -> Expr -> TcType -> [Ct] -> TcM (Expr, [Ct])
+checkInferredHigherRankArgument sp boundary expectedTy arg' actualTy argCts = do
   (skolems, predicates, expectedBody) <- skolemizeSigmaType expectedTy
   unify sp (AppOrigin sp) actualTy expectedBody
   rejectEscapingHigherRankMetas sp boundary skolems actualTy
@@ -740,45 +935,6 @@ predicateMentionsTyVar target predicate =
       target `notElem` variables
         && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)
 
-inferTypeApp :: SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
-inferTypeApp sp fun tyArg = do
-  kinds <- getKinds
-  (fun', funTy, funCts) <- inferExpr fun
-  scoped <- getScopedTyVars
-  explicitTy <- checkSurfaceType scoped tyArg (typeKind kinds)
-  case drop (visibleTypeApplicationCount fun) (pendingTypeArgs fun') of
-    inferredTy : _ -> do
-      ev <- freshEvVar
-      let origin = InstOrigin "visible type application"
-          eqCt =
-            mkWantedEqCt
-              TypeTrace
-                { typeTraceType = inferredTy,
-                  typeTraceRole = InferredType,
-                  typeTraceOrigin = ConstraintTypeOrigin origin
-                }
-              TypeTrace
-                { typeTraceType = explicitTy,
-                  typeTraceRole = RequiredType,
-                  typeTraceOrigin = ConstraintTypeOrigin origin
-                }
-              ev
-              origin
-              sp
-      pure (ETypeApp fun' tyArg, funTy, funCts <> [eqCt])
-    [] -> do
-      emitError sp (OtherError "visible type application requires a polymorphic expression")
-      pure (ETypeApp fun' tyArg, funTy, funCts)
-
-visibleTypeApplicationCount :: Expr -> Int
-visibleTypeApplicationCount expr =
-  case expr of
-    ETypeApp fun _ -> 1 + visibleTypeApplicationCount fun
-    EParen inner -> visibleTypeApplicationCount inner
-    EPragma _ inner -> visibleTypeApplicationCount inner
-    EAnn _ inner -> visibleTypeApplicationCount inner
-    _ -> 0
-
 pendingTypeArgs :: Expr -> [TcType]
 pendingTypeArgs expr =
   case expr of
@@ -790,30 +946,6 @@ pendingTypeArgs expr =
     EParen inner -> pendingTypeArgs inner
     EPragma _ inner -> pendingTypeArgs inner
     _ -> []
-
-inferInfix :: SourceSpan -> Expr -> Name -> Expr -> TcM (Expr, TcType, [Ct])
-inferInfix sp lhs op rhs = do
-  isApplication <- isApplicationOperator op
-  if isApplication
-    then -- The operator node keeps no type arguments. The desugarer reads the
-    -- result type from the left operand.
-      inferApplication sp (`EInfix` op) lhs rhs
-    else inferInfixOperator sp lhs op rhs
-
-inferInfixOperator :: SourceSpan -> Expr -> Name -> Expr -> TcM (Expr, TcType, [Ct])
-inferInfixOperator sp lhs op rhs = do
-  -- Generate the same constraints as desugared binary application while
-  -- keeping the operator occurrence on the surface operator node.
-  (op', opTy, opCts) <- inferOperator sp op
-  (lhs', lhsTy, lhsCts) <- inferExpr lhs
-  midTy <- freshMetaTv
-  lhsEv <- freshEvVar
-  let lhsCt = mkWantedCt (EqPred opTy (TcFunTy lhsTy midTy)) lhsEv (AppOrigin sp) sp
-  (rhs', rhsTy, rhsCts) <- inferExpr rhs
-  resTy <- freshMetaTv
-  rhsEv <- freshEvVar
-  let rhsCt = mkWantedCt (EqPred midTy (TcFunTy rhsTy resTy)) rhsEv (AppOrigin sp) sp
-  pure (EInfix lhs' op' rhs', resTy, opCts ++ lhsCts ++ [lhsCt] ++ rhsCts ++ [rhsCt])
 
 inferSectionL :: SourceSpan -> Expr -> Name -> TcM (Expr, TcType, [Ct])
 inferSectionL sp inner op = do
