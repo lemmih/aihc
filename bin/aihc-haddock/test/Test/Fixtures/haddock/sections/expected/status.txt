@@ -1,0 +1,2 @@
+json: PASS
+hoogle: XFAIL Haddock's Hoogle backend omits the record fields of a constructor exported with an explicit subordinate list (Tagged (Tagged, tagOf) lists no [tagOf]); the JSON layer shows tagOf exported and documented

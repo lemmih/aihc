@@ -1,0 +1,11 @@
+cabal-version: 2.4
+name: sections
+version: 1.2.0
+synopsis: Export list sections, chunks, warnings and instances
+build-type: Simple
+
+library
+  exposed-modules: Data.Sections
+  hs-source-dirs: src
+  build-depends: base
+  default-language: Haskell2010

@@ -1,0 +1,145 @@
+{
+ "inst_ifaces": [
+  {
+   "arg_map": {
+    "$main$Layout$step": {
+     "2": {
+      "document": {
+       "document": {
+        "string": "Indented after the result type.",
+        "tag": "DocString"
+       },
+       "tag": "DocParagraph"
+      },
+      "meta": {
+       "version": null
+      }
+     }
+    }
+   },
+   "doc_map": {
+    "$main$Layout$Config": {
+     "document": {
+      "first": {
+       "document": {
+        "string": "Configuration.",
+        "tag": "DocString"
+       },
+       "tag": "DocParagraph"
+      },
+      "second": {
+       "document": {
+        "string": "A column-one comment after a data declaration.",
+        "tag": "DocString"
+       },
+       "tag": "DocParagraph"
+      },
+      "tag": "DocAppend"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Layout$Runnable": {
+     "document": {
+      "first": {
+       "document": {
+        "string": "Something that runs.",
+        "tag": "DocString"
+       },
+       "tag": "DocParagraph"
+      },
+      "second": {
+       "document": {
+        "string": "Column one after the class body: closes the block.",
+        "tag": "DocString"
+       },
+       "tag": "DocParagraph"
+      },
+      "tag": "DocAppend"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Layout$build": {
+     "document": {
+      "document": {
+       "string": "Column one after a function binding.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Layout$run": {
+     "document": {
+      "document": {
+       "string": "Indented like a method: documents the method.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Layout$step": {
+     "document": {
+      "document": {
+       "string": "Step.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    }
+   },
+   "exports": [
+    "$main$Layout$build",
+    "$main$Layout$step",
+    "$main$Layout$Config",
+    "$main$Layout$Config",
+    "$main$Layout$Runnable",
+    "$main$Layout$halt",
+    "$main$Layout$run"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Layout",
+   "options": [],
+   "visible_exports": [
+    "$main$Layout$Config",
+    "$main$Layout$Config",
+    "$main$Layout$Runnable",
+    "$main$Layout$halt",
+    "$main$Layout$run",
+    "$main$Layout$build",
+    "$main$Layout$step"
+   ]
+  }
+ ],
+ "link_env": {
+  "$main$Layout$Config": "Layout",
+  "$main$Layout$Runnable": "Layout",
+  "$main$Layout$build": "Layout",
+  "$main$Layout$halt": "Layout",
+  "$main$Layout$run": "Layout",
+  "$main$Layout$step": "Layout"
+ },
+ "package_info": "layout-0.1.0.0"
+}

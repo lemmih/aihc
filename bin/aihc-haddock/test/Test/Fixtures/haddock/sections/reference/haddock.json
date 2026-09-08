@@ -1,0 +1,259 @@
+{
+ "inst_ifaces": [
+  {
+   "arg_map": {
+    "$main$Data.Sections$increment": {
+     "1": {
+      "document": {
+       "document": {
+        "string": "the incremented counter",
+        "tag": "DocString"
+       },
+       "tag": "DocParagraph"
+      },
+      "meta": {
+       "version": null
+      }
+     }
+    }
+   },
+   "doc_map": {
+    "$main$Data.Sections$Countable": {
+     "document": {
+      "document": {
+       "string": "Things that can be counted.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Data.Sections$Counter": {
+     "document": {
+      "document": {
+       "string": "A counter.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": "[1,1,0]"
+     }
+    },
+    "$main$Data.Sections$Pair": {
+     "document": {
+      "document": {
+       "string": "A pair of the same thing.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Data.Sections$Tagged": {
+     "document": {
+      "document": {
+       "string": "A value with a tag.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Data.Sections$count": {
+     "document": {
+      "document": {
+       "string": "Count the elements.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Data.Sections$getCounter": {
+     "document": {
+      "document": {
+       "string": "the current count",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Data.Sections$increment": {
+     "document": {
+      "document": {
+       "string": "Add one.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Data.Sections$isEmpty": {
+     "document": {
+      "document": {
+       "string": "Whether there is nothing to count.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Data.Sections$legacy": {
+     "document": {
+      "document": {
+       "string": "Kept for compatibility.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Data.Sections$newCounter": {
+     "document": {
+      "document": {
+       "string": "A fresh counter at zero.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Data.Sections$tagOf": {
+     "document": {
+      "document": {
+       "string": "the tag",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Data.Sections$valueOf": {
+     "document": {
+      "document": {
+       "string": "the value",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Data.Sections$|+|": {
+     "document": {
+      "document": {
+       "string": "Add two counters.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    }
+   },
+   "exports": [
+    "$main$Data.Sections$increment",
+    "$main$Data.Sections$legacy",
+    "$main$Data.Sections$newCounter",
+    "$main$Data.Sections$|+|",
+    "$main$Data.Sections$Countable",
+    "$main$Data.Sections$count",
+    "$main$Data.Sections$isEmpty",
+    "$main$Data.Sections$Counter",
+    "$main$Data.Sections$Counter",
+    "$main$Data.Sections$getCounter",
+    "$main$Data.Sections$Pair",
+    "$main$Data.Sections$Tagged",
+    "$main$Data.Sections$Tagged",
+    "$main$Data.Sections$tagOf"
+   ],
+   "fix_map": {
+    "$main$Data.Sections$|+|": {
+     "direction": "infixl",
+     "prec": 6
+    }
+   },
+   "info": {
+    "copyright": "(c) Example",
+    "description": {
+     "string": "A module with export sections",
+     "tag": "DocString"
+    },
+    "extensions": [],
+    "language": null,
+    "maintainer": "someone@example.com",
+    "protability": null,
+    "safety": "None",
+    "stability": "experimental"
+   },
+   "is_sig": false,
+   "module": "$main$Data.Sections",
+   "options": [],
+   "visible_exports": [
+    "$main$Data.Sections$Counter",
+    "$main$Data.Sections$Counter",
+    "$main$Data.Sections$getCounter",
+    "$main$Data.Sections$newCounter",
+    "$main$Data.Sections$increment",
+    "$main$Data.Sections$|+|",
+    "$main$Data.Sections$Pair",
+    "$main$Data.Sections$Tagged",
+    "$main$Data.Sections$Tagged",
+    "$main$Data.Sections$tagOf",
+    "$main$Data.Sections$Countable",
+    "$main$Data.Sections$count",
+    "$main$Data.Sections$isEmpty",
+    "$main$Data.Sections$$dmcount",
+    "$main$Data.Sections$$dmisEmpty",
+    "$main$Data.Sections$legacy"
+   ]
+  }
+ ],
+ "link_env": {
+  "$main$Data.Sections$$dmcount": "Data.Sections",
+  "$main$Data.Sections$$dmisEmpty": "Data.Sections",
+  "$main$Data.Sections$$fCountableCounter": "Data.Sections",
+  "$main$Data.Sections$$fEqCounter": "Data.Sections",
+  "$main$Data.Sections$$fEqTagged": "Data.Sections",
+  "$main$Data.Sections$$fOrdCounter": "Data.Sections",
+  "$main$Data.Sections$$fShowCounter": "Data.Sections",
+  "$main$Data.Sections$$fShowTagged": "Data.Sections",
+  "$main$Data.Sections$Countable": "Data.Sections",
+  "$main$Data.Sections$Counter": "Data.Sections",
+  "$main$Data.Sections$Pair": "Data.Sections",
+  "$main$Data.Sections$Tagged": "Data.Sections",
+  "$main$Data.Sections$count": "Data.Sections",
+  "$main$Data.Sections$getCounter": "Data.Sections",
+  "$main$Data.Sections$increment": "Data.Sections",
+  "$main$Data.Sections$isEmpty": "Data.Sections",
+  "$main$Data.Sections$legacy": "Data.Sections",
+  "$main$Data.Sections$newCounter": "Data.Sections",
+  "$main$Data.Sections$tagOf": "Data.Sections",
+  "$main$Data.Sections$|+|": "Data.Sections"
+ },
+ "package_info": "sections-1.2.0"
+}

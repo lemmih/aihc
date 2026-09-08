@@ -1,0 +1,6 @@
+haddock: Haddock version 2.32.0, (c) Simon Marlow 2006
+ghc: 9.12.4
+json-stream: stderr
+sources: src/Markup.hs
+command: haddock --optghc=-package-env=- --optghc=-isrc --package-name=markup --package-version=0.1.0.0 --dump-interface=interface.haddock --hoogle -o hoogle SOURCES
+command: haddock --optghc=-package-env=- --optghc=-isrc --package-name=markup --package-version=0.1.0.0 --show-interface=interface.haddock

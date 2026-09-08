@@ -14,18 +14,6 @@ where
 import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeSourceExtension)
 import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
-import Aihc.Cli.PackagePlan
-  ( DependencyResolver (..),
-    DependencyVersions,
-    PackagePlan (..),
-    ParsedInterfaceFile (ParsedInterfaceFile),
-    buildPackagePlanWithResolver,
-    dependencyVersionsFromManifests,
-    localDependencyResolverWithFallback,
-    packageSpecFromSource,
-    parseInterfaceFile,
-    renderHumanDiagnostic,
-  )
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TaskGraph
@@ -49,6 +37,17 @@ import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower qualified as Lir
 import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory, wasmSysroot)
+import Aihc.PackagePlan
+  ( DependencyResolver (..),
+    DependencyVersions,
+    PackagePlan (..),
+    buildPackagePlanWithResolver,
+    dependencyVersionsFromManifests,
+    localDependencyResolverWithFallback,
+    packageSpecFromSource,
+  )
+import Aihc.PackagePlan.Diagnostic (renderHumanDiagnostic)
+import Aihc.PackagePlan.Source (ParsedInterfaceFile (ParsedInterfaceFile), parseInterfaceFile)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
     ImportDecl (..),
@@ -760,7 +759,7 @@ loadInstalledPackage requirements storePath = do
 parseSource :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
 parseSource root versions fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
-  ParsedInterfaceFile path modu sourceLines parseDiagnostics _ extensions <- parseInterfaceFile root versions fileInfo
+  ParsedInterfaceFile path modu sourceLines parseDiagnostics _ extensions _ <- parseInterfaceFile root versions fileInfo
   -- The type checker reads the language pragmas of the module. Give it the
   -- effective extensions, which include the cabal default extensions and
   -- the language edition. The type checker turns MonoLocalBinds on by

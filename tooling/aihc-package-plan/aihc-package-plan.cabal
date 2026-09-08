@@ -1,0 +1,34 @@
+cabal-version: 3.8
+name: aihc-package-plan
+version: 0.1.0.0
+build-type: Simple
+license: Unlicense
+license-file: LICENSE
+author: David Himmelstrup
+maintainer: lemmih@gmail.com
+category: Development
+synopsis: Dependency resolution and source loading shared by the aihc tools
+
+library
+  exposed-modules:
+    Aihc.PackagePlan
+    Aihc.PackagePlan.Diagnostic
+    Aihc.PackagePlan.Source
+
+  hs-source-dirs: src
+  build-depends:
+    Cabal-syntax >=3.14 && <3.17,
+    aeson >=2.0 && <2.3,
+    aihc-cpp,
+    aihc-hackage,
+    aihc-parser,
+    base >=4.16 && <5,
+    bytestring >=0.10.8 && <0.13,
+    containers >=0.5 && <0.8,
+    directory >=1.2.3 && <1.5,
+    filepath >=1.3.0.1 && <1.6,
+    text >=2.1.4 && <2.2,
+
+  default-extensions: OverloadedStrings
+  ghc-options: -Wall
+  default-language: GHC2021
