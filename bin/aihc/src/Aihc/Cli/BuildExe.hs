@@ -12,6 +12,7 @@ import Aihc.Cli.Install
   ( ModuleCompileConfig (..),
     ModuleCompileRequest (..),
     ModuleCompileResult (..),
+    buildEnvironmentIdentity,
     compileModules,
   )
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector, LinkExeOptions (..))
@@ -119,9 +120,12 @@ runBuildExe options = do
   sourceFiles <- materializeSourceFiles buildRoot selected sources
   runtime <- ensureRuntime storeRoot target (buildExeGarbageCollector options)
   entry <- ensureEntry storeRoot target
+  buildIdentity <- buildEnvironmentIdentity target
   let compileConfig =
         ModuleCompileConfig
-          { compileKeepCore = False,
+          { compileBuildIdentity = buildIdentity,
+            compileCacheRoot = Just (buildRoot </> "artifacts"),
+            compileKeepCore = False,
             compileKeepGrin = False,
             compileKeepNative = False,
             compileLint = buildExeLint options,

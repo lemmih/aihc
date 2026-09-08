@@ -1,0 +1,14 @@
+cabal-version: 3.0
+name: demo
+version: 0.1.0.0
+
+library
+  exposed-modules:
+    A
+    B
+    C
+
+  hs-source-dirs: src
+  build-depends: dep
+  default-language: Haskell2010
+  default-extensions: NoImplicitPrelude

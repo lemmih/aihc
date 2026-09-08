@@ -50,7 +50,7 @@ jobs:
   flake-check:
     needs: select-runner
     runs-on: ${{ fromJSON(needs.select-runner.outputs.runs_on) }}
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v7

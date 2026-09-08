@@ -3,7 +3,7 @@
 
 # Run all tests with hidden successes (1000 Hedgehog tests per property)
 test:
-  cabal test -v0 all --test-options='--hide-successes --hedgehog-tests 1000 --hedgehog-shrinks 10000'
+  TASTY_HEDGEHOG_TESTS=1000 TASTY_HEDGEHOG_SHRINKS=10000 cabal test -v0 all --test-options='--hide-successes'
 
 # Replay a specific Hedgehog test case
 # Usage: just replay "<replay-string>"
@@ -15,7 +15,7 @@ hedgehog:
   while true; do just hedgehog1 || break; done
 
 hedgehog1:
-  cabal test all -v0 --jobs=1 --test-options="--hedgehog-tests 10000 --hedgehog-shrinks 1000000 --hide-successes"
+  TASTY_HEDGEHOG_TESTS=10000 TASTY_HEDGEHOG_SHRINKS=1000000 cabal test all -v0 --jobs=1 --test-options="--hide-successes"
 
 # Auto-format Nix, Cabal, Haskell, and C files (excludes dist-newstyle, result, .git; Haskell excludes test fixtures)
 fmt:

@@ -601,16 +601,12 @@
       ${pkgs.lib.concatMapStrings linkWorkspaceEntry dependencies}
 
       ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          ${aihcExe} install "$workspace/${package.name}" --store "$store" ${lintFlag} --target ${target}
+          install_output=$(${aihcExe} install "$workspace/${package.name}" --store "$store" ${lintFlag} --target ${target})
+          printf '%s\n' "$install_output"
+          test -s "''${install_output#store: }/lib/lib${package.name}.a"
         '')
         targets}
 
-      archive_count=0
-      while IFS= read -r -d "" archive; do
-        test -s "$archive"
-        archive_count=$((archive_count + 1))
-      done < <(find "$store" -path '*/${package.name}-${package.version}-*/lib/lib${package.name}.a' -print0)
-      test "$archive_count" -eq ${toString (builtins.length targets)}
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
       touch "$out"
     '';

@@ -27,16 +27,22 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory
-  ( createDirectory,
+  ( copyFile,
+    createDirectory,
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
     getCurrentDirectory,
     getFileSize,
+    getModificationTime,
+    getPermissions,
     getTemporaryDirectory,
     listDirectory,
     removeDirectoryRecursive,
     removeFile,
+    setModificationTime,
+    setOwnerWritable,
+    setPermissions,
     withCurrentDirectory,
   )
 import System.Environment (lookupEnv)
@@ -82,7 +88,8 @@ tests =
             ],
         testGroup
           "install"
-          [ testCase "writes Core files and reuses an installed package" (test_installResolveArtifacts primStore),
+          [ testCase "reuses unchanged fixture modules" (test_installIncremental primStore),
+            testCase "writes Core files and reuses an installed package" (test_installResolveArtifacts primStore),
             testCase "accepts type-check warnings" (test_installTypeWarning primStore),
             testCase "loads the implicit Prelude type interface" (test_installImplicitPrelude primStore),
             testCase "duplicates re-exported term signatures in type interfaces" (test_installTypeReexports primStore),
@@ -165,9 +172,20 @@ test_buildExeSourceDirectories getStore =
         unusedType = basePackage </> "Data" </> "Bool" </> "type.cbor"
     resolveBytes <- BS.readFile unusedResolve
     BS.writeFile unusedResolve "invalid unused resolve interface"
-    withCurrentDirectory root (runBuildExe options)
+    let activeRoot = storeRoot </> ".active" </> nativeTargetStoreDirectory target
+    createDirectoryIfMissing True activeRoot
+    writeFile (activeRoot </> T.unpack (packageManifestName manifest <> "-" <> packageManifestVersion manifest)) "absent-cached-build"
+    let storeCache = storeRoot </> ".build-cache"
+    createDirectoryIfMissing True storeCache
+    writePackageManifest (packageManifestPath storeCache) manifest {packageManifestVersion = "9999"}
+    writeFile (basePackage </> "build-inputs.hash") "invalid-build-fingerprint"
+    bracket (getPermissions storeCache) (setPermissions storeCache) $ \permissions -> do
+      setPermissions storeCache (setOwnerWritable False permissions)
+      withCurrentDirectory root (runBuildExe options)
     assertFileExists (root </> ".aihc-cache" </> nativeTargetStoreDirectory target </> "Main" </> "Main.o")
     assertFileDoesNotExist (root </> ".aihc-cache" </> nativeTargetStoreDirectory target </> "GHC" </> "Base" </> "GHC.Base.o")
+    removeDirectoryRecursive storeCache
+    removeFile (basePackage </> "build-inputs.hash")
     let customBuildRoot = root </> "custom-build-root"
     withCurrentDirectory fixtureRoot (runBuildExe options {buildExeBuildRoot = Just customBuildRoot})
     assertFileExists (customBuildRoot </> nativeTargetStoreDirectory target </> "Main" </> "Main.o")
@@ -305,10 +323,80 @@ writeCachedPackage storeRoot target identity name version dependencies modules =
       { packageManifestName = name,
         packageManifestVersion = version,
         packageManifestIdentity = T.pack identity,
+        packageManifestUnitId = T.pack identity,
         packageManifestDependencies = dependencies,
         packageManifestModules = modules
       }
   BS.writeFile archive ""
+
+test_installIncremental :: IO SeedStore -> Assertion
+test_installIncremental getStore = do
+  fixture <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/incremental"
+  withSandbox getStore "aihc-incremental" $ \sandbox -> do
+    store <- sandboxStore sandbox "store"
+    let root = sandboxRoot sandbox </> "source"
+        options = InstallOptions root (Just store) True False False False False False False False AppleArm64
+    createDirectoryIfMissing True (root </> "src")
+    let dependencyRoot = sandboxRoot sandbox </> "dep"
+    createDirectoryIfMissing True (dependencyRoot </> "src")
+    copyFile (fixture </> "dep" </> "dep.cabal") (dependencyRoot </> "dep.cabal")
+    copyFile (fixture </> "dep" </> "src" </> "Dep.hs") (dependencyRoot </> "src" </> "Dep.hs")
+    copyFile (fixture </> "demo.cabal") (root </> "demo.cabal")
+    forM_ ["A.hs", "B.hs", "C.hs"] $ \name ->
+      copyFile (fixture </> "src" </> name) (root </> "src" </> name)
+    first <- install options
+    initialManifest <- readPackageManifest (packageManifestPath (installStorePath first)) >>= either assertFailure pure
+    assertEqual "initial modules" ["A", "B", "C"] (sort (installWrittenModules first))
+    unchanged <- install options
+    assertEqual "unchanged package" (installStorePath first) (installStorePath unchanged)
+    copyFile (fixture </> "Extra.hs") (root </> "src" </> "Extra.hs")
+    unrelated <- install options
+    assertEqual "unselected source does not change the package" (installStorePath first) (installStorePath unrelated)
+    removeFile (root </> "src" </> "Extra.hs")
+    withoutUnrelated <- install options
+    assertEqual "unselected source removal does not change the package" (installStorePath first) (installStorePath withoutUnrelated)
+    originalTime <- getModificationTime (root </> "src" </> "A.hs")
+    originalSize <- getFileSize (root </> "src" </> "A.hs")
+    copyFile (fixture </> "implementation/A.hs") (root </> "src" </> "A.hs")
+    setModificationTime (root </> "src" </> "A.hs") originalTime
+    changedSize <- getFileSize (root </> "src" </> "A.hs")
+    assertEqual "fixture preserves file size" originalSize changedSize
+    changed <- install options
+    assertEqual "source changes preserve package selection" (installStorePath first) (installStorePath changed)
+    assertEqual "changed module" ["A"] (installWrittenModules changed)
+    assertEqual "unchanged modules" ["B", "C"] (sort (installReusedModules changed))
+    copyFile (fixture </> "interface/A.hs") (root </> "src" </> "A.hs")
+    typeChanged <- install options
+    assertEqual "type change reaches the dependent module" ["A", "B"] (sort (installWrittenModules typeChanged))
+    assertEqual "independent module" ["C"] (installReusedModules typeChanged)
+    assertFileExists (installStorePath first </> "A" </> "type.cbor")
+    copyFile (fixture </> "dependency" </> "Dep.hs") (dependencyRoot </> "src" </> "Dep.hs")
+    dependencyChanged <- install options
+    assertEqual "dependency changes preserve package selection" (installStorePath typeChanged) (installStorePath dependencyChanged)
+    assertEqual "dependency implementation preserves module artifacts" ["A", "B", "C"] (sort (installReusedModules dependencyChanged))
+    noCode <- install options {installNoCode = True}
+    assertEqual "code mode preserves package selection" (installStorePath dependencyChanged) (installStorePath noCode)
+    assertFileDoesNotExist (installStorePath noCode </> "A" </> "A.o")
+    withCode <- install options
+    assertEqual "code artifacts remain available" (installStorePath dependencyChanged) (installStorePath withCode)
+    assertFileExists (installStorePath withCode </> "A" </> "A.o")
+    cachedObjects <- listNamedFiles (store </> ".build-cache") "C.o"
+    assertBool "module cache contains the independent object" (not (null cachedObjects))
+    forM_ cachedObjects $ \path -> BS.writeFile path "invalid object"
+    removeDirectoryRecursive (installStorePath withCode)
+    repaired <- install options
+    assertEqual "corrupt module cache rebuilds the module" ["C"] (installWrittenModules repaired)
+    assertEqual "valid module cache remains available" ["A", "B"] (sort (installReusedModules repaired))
+    forced <- install options {installReinstall = True}
+    assertEqual "forced modules" ["A", "B", "C"] (sort (installWrittenModules forced))
+    removeFile (installStorePath forced </> "build-inputs.hash")
+    withoutFingerprint <- install options
+    assertEqual "missing build metadata preserves package selection" (installStorePath first) (installStorePath withoutFingerprint)
+    removeDirectoryRecursive (store </> ".build-cache")
+    withoutCache <- install options
+    finalManifest <- readPackageManifest (packageManifestPath (installStorePath withoutCache)) >>= either assertFailure pure
+    assertEqual "cache removal preserves package identity" (packageManifestIdentity initialManifest) (packageManifestIdentity finalManifest)
+    assertEqual "cache removal preserves dependency selection" (packageManifestDependencies initialManifest) (packageManifestDependencies finalManifest)
 
 test_installResolveArtifacts :: IO SeedStore -> Assertion
 test_installResolveArtifacts getStore =
@@ -355,7 +443,7 @@ test_installResolveArtifacts getStore =
     assertEqual "repairs the complete SCC when core is absent" ["Demo.A", "Demo.B"] (sort (installWrittenModules coreRepaired))
     writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb x = (x)\n"
     changed <- install options {installReinstall = True}
-    assertEqual "source changes keep the package directory" (installStorePath first) (installStorePath changed)
+    assertEqual "source changes preserve the package directory" (installStorePath first) (installStorePath changed)
     assertEqual "source changes rebuild the complete SCC" ["Demo.A", "Demo.B"] (sort (installWrittenModules changed))
     let artifact = installStorePath first </> "Demo" </> "A" </> "resolve.cbor"
     artifactBytes <- BS.readFile artifact
@@ -548,10 +636,14 @@ test_installTargetArchives getStore = do
       pure result
     case results of
       [] -> assertFailure "no target results"
-      first : rest ->
+      first : rest -> do
         assertBool
-          "package identity is equal for all targets"
+          "targets preserve package identity"
           (all ((== takeFileName (installStorePath first)) . takeFileName . installStorePath) rest)
+        firstFingerprint <- BS.readFile (installStorePath first </> "build-inputs.hash")
+        forM_ rest $ \result -> do
+          fingerprint <- BS.readFile (installStorePath result </> "build-inputs.hash")
+          assertBool "targets have separate build fingerprints" (firstFingerprint /= fingerprint)
 
 assertCoreFile :: FilePath -> Assertion
 assertCoreFile path = do
@@ -724,10 +816,14 @@ test_installAihcPrim = do
     result <- case caught of
       Left err -> assertFailure ("install aihc-prim failed: " <> show err)
       Right value -> pure value
+    manifest <- readPackageManifest (packageManifestPath (installStorePath result)) >>= either assertFailure pure
     let packageDir = installStorePath result
-        packageId = PackageId (T.pack (takeFileName packageDir))
-        loader = Fc.storeModuleLoader targetStoreRoot
-    assertBool "package artifact version sets the package hash" ("ff25bcf152cf4af4" `isSuffixOf` packageDir)
+        packageId = PackageId (packageManifestUnitId manifest)
+        loader requested =
+          Fc.storeModuleLoader
+            targetStoreRoot
+            (if requested == packageId then PackageId (T.pack (takeFileName packageDir)) else requested)
+    assertEqual "installed artifacts use the selected package identity" (packageManifestIdentity manifest) (packageManifestUnitId manifest)
     mapM_ (assertTypeArtifactSize packageDir) ["GHC.Tuple", "GHC.Types"]
     mapM_ (assertModuleCore packageDir) aihcPrimLibraryModules
     coreFiles <- listNamedFiles packageDir "core"
@@ -889,7 +985,7 @@ test_installLocalDependencies getStore = do
     let targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
     storeEntries <- listDirectory targetStoreRoot
     assertBool "temporary store directories are absent" (not (any (".tmp-" `isPrefixOf`) storeEntries))
-    let dependencyStores = filter ("dep-1.0.0-" `isPrefixOf`) storeEntries
+    let dependencyStores = filter (== "dep-1.0.0") storeEntries
     case dependencyStores of
       [dependencyStore] -> do
         let dependencyStoreRoot = targetStoreRoot </> dependencyStore
