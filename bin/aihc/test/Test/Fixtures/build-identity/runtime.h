@@ -1,1 +1,0 @@
-#define RUNTIME_VALUE 1

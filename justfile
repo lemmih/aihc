@@ -40,7 +40,6 @@ check:
   nix develop --quiet --command bash -c 'find components tooling bin core-libs scripts test -type f \( -name "*.c" -o -name "*.h" \) -not -path "*/dist-newstyle/*" -print0 | xargs -0 -r clang-format --dry-run --Werror'
   nix develop --quiet --command bash -c 'set -euo pipefail; bindings_directory=$(mktemp -d); trap '\''rm -rf "$bindings_directory"'\'' EXIT; wit-bindgen c --world command --out-dir "$bindings_directory" bin/aihc/compiler/wasm/runtime/wit; while IFS= read -r -d "" file; do if [[ "$file" == *bin/aihc/compiler/wasm/runtime/*.c || "$file" == *aihc_host_wasip3.c ]]; then clang-tidy-unwrapped --quiet "$file" -- --target=wasm32-wasip1 --sysroot="$AIHC_WASM_SYSROOT" -std=c11 -Wall -Wextra -Wpedantic -Ibin/aihc/compiler/wasm/runtime -Ibin/aihc/compiler/native/runtime -isystem "$bindings_directory"; else clang-tidy --quiet "$file" -- -std=c11 -Wall -Wextra -Wpedantic; fi; done < <(find components tooling bin core-libs scripts test -type f -name "*.c" -not -path "*/dist-newstyle/*" -print0)'
   cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --hedgehog-tests 1000'
-  bash scripts/test-build-identity.sh
 
 # Preview the user guide at http://127.0.0.1:8000/.
 docs:

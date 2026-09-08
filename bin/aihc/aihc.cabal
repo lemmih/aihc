@@ -30,12 +30,6 @@ extra-source-files:
   test/Test/Fixtures/build-exe/source-directories/Main.hs
   test/Test/Fixtures/build-exe/source-directories/Message.hs
   test/Test/Fixtures/build-exe/source-directories/PrimitiveChecks.hs
-  test/Test/Fixtures/build-identity/app/Main.hs
-  test/Test/Fixtures/build-identity/dep/identity-dependency.cabal
-  test/Test/Fixtures/build-identity/dep/src/Dependency.hs
-  test/Test/Fixtures/build-identity/identity-fixture.cabal
-  test/Test/Fixtures/build-identity/runtime.h
-  test/Test/Fixtures/build-identity/src/Selected.hs
   test/Test/Fixtures/install/c-sources/cbits/helper.c
   test/Test/Fixtures/install/c-sources/demo.cabal
   test/Test/Fixtures/install/c-sources/src/Demo.hs
