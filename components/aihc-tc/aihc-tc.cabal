@@ -54,6 +54,7 @@ library
     Aihc.Tc.TypeScheme
     Aihc.Tc.Types
     Aihc.Tc.Unify
+    Aihc.Tc.Wiring
     Aihc.Tc.Zonk
 
   hs-source-dirs: src
@@ -74,12 +75,14 @@ library fuzz
   visibility: public
   hs-source-dirs:
     fuzz
+    prim-wiring
     test
 
   exposed-modules:
     Aihc.Tc.Fuzz
 
   other-modules:
+    Aihc.Prim.Wiring
     Test.Tc.Properties
 
   build-depends:
@@ -91,6 +94,7 @@ library fuzz
     hedgehog,
     tasty,
     tasty-hedgehog,
+    text >=1.2,
 
   ghc-options: -Wall
   default-language: GHC2021
@@ -100,9 +104,11 @@ test-suite spec
   hs-source-dirs:
     test
     common
+    prim-wiring
 
   main-is: Spec.hs
   other-modules:
+    Aihc.Prim.Wiring
     TcAnnotatedGolden
     TcAnnotatedRender
     Test.Tc.Interface

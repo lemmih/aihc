@@ -42,6 +42,7 @@ import Aihc.Parser.Syntax
     parseExtensionName,
   )
 import Aihc.Parser.Syntax qualified as Surface
+import Aihc.Prim.Wiring (primTcConfig)
 import Aihc.Resolve
   ( ModuleExports,
     Package (..),
@@ -55,7 +56,7 @@ import Aihc.Resolve
     unionScope,
     unnamedPackage,
   )
-import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), diagKind, emptyTcInterface, renderPred, renderTcType, tcConfig, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
+import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), diagKind, emptyTcInterface, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
 import Control.Exception (evaluate)
 import Control.Monad (forM, unless)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -291,7 +292,7 @@ compileEvalCase env tc = do
       Left ("resolve error: " <> show resolveErrors)
 
 evalTcConfig :: TcConfig
-evalTcConfig = tcConfig primPackageId
+evalTcConfig = primTcConfig primPackageId
 
 -- | How to desugar each module, by module name.
 --

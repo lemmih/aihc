@@ -130,6 +130,7 @@ library compiler
     Aihc.Lir.Syntax
     Aihc.Llvm.Lir
     Aihc.Native
+    Aihc.Prim.Wiring
     Aihc.Wasm
     Aihc.Wasm.Lir
 
@@ -145,6 +146,7 @@ library compiler
   autogen-modules: Paths_aihc
   hs-source-dirs:
     src
+    ../../components/aihc-tc/prim-wiring
     compiler/amd64/src
     compiler/arm64/src
     compiler/fc/src

@@ -12,6 +12,7 @@ module Test.Tc.Properties
 where
 
 import Aihc.Parser.Syntax (Type (TStar))
+import Aihc.Prim.Wiring (primTcConfig)
 import Aihc.Resolve (PackageId (PackageId))
 import Aihc.Tc
   ( ClassInfo (..),
@@ -26,7 +27,7 @@ import Aihc.Tc
     tcInterfaceFromLists,
   )
 import Aihc.Tc.Kind (convertSurfaceTypeWithKinds)
-import Aihc.Tc.Monad (TcEnv, emptyTcEnv, freshMetaTv, initTcState, runTcM, tcConfig, writeMetaTv)
+import Aihc.Tc.Monad (TcEnv, emptyTcEnv, freshMetaTv, initTcState, runTcM, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Data.Map.Strict qualified as Map
@@ -176,7 +177,7 @@ genTyCon1 =
     ]
 
 testTcEnv :: TcEnv
-testTcEnv = emptyTcEnv (tcConfig (PackageId "test-ghc-prim"))
+testTcEnv = emptyTcEnv (primTcConfig (PackageId "test-ghc-prim"))
 
 genUnique :: Gen Unique
 genUnique = Unique <$> Gen.int (Range.linear 100 199)

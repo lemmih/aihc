@@ -21,11 +21,10 @@ module Aihc.Tc
     -- * Result types
     TcResult (..),
     TcConfig,
-    tcConfig,
-    tcConfigWithDeriving,
+    mkTcConfig,
+    TcWiring (..),
     DerivingReferences (..),
     DerivingReference (..),
-    defaultDerivingReferences,
     TcBindingResult (..),
     defaultMethodName,
     TcTermKey (..),
@@ -61,13 +60,13 @@ module Aihc.Tc
     TcAxiomKey (..),
     TcKindEnv,
     TyCon (..),
+    mkTyConWithNamespace,
     tyConKey,
     tyConPackageId,
     tyConModuleName,
     TyVarId (..),
     tvKind,
     TypeScheme (..),
-    boxedTupleTyConName,
     Pred (..),
     InstanceInfo (..),
     DataFamilyInstanceInfo (..),
@@ -142,7 +141,7 @@ import Aihc.Resolve (PackageId (..))
 import Aihc.Resolve.Generic (everywhereM)
 import Aihc.Resolve.Traverse (annotationList)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcForeignImportInfo (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
-import Aihc.Tc.Deriving.References (DerivingReference (..), DerivingReferences (..), defaultDerivingReferences)
+import Aihc.Tc.Deriving.References (DerivingReference (..), DerivingReferences (..))
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
@@ -150,6 +149,7 @@ import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
+import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (finalizeDiagnostics, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((<=<))
