@@ -40,7 +40,7 @@ import Aihc.Tc.Types
   ( Pred (..),
     TcAxiomKey (..),
     TcKindEnv,
-    TcKinds,
+    TcKinds (..),
     TcType (..),
     TcTypeKey,
     TyCon,
@@ -232,8 +232,6 @@ convertType env = convertTypeWithExpectedKind env Nothing
 convertTypeWithExpectedKind :: ConvertEnv -> Maybe TcType -> TcType -> Either String Type
 convertTypeWithExpectedKind env expectedKind ty =
   case ty of
-    -- A saturated application of the arrow constructor is the function type.
-    _ | Just (argument, result) <- saturatedArrowApplication (ceKinds env) ty -> convertTypeWithExpectedKind env expectedKind (TcFunTy argument result)
     TcTyVar tyVar -> Right (tyVarType tyVar)
     TcMetaTv {} -> Left "type still has a meta variable"
     -- The constraint type of an implicit parameter is the type of its value.
@@ -262,6 +260,9 @@ convertTypeWithExpectedKind env expectedKind ty =
       pure (evidenceArrows env body convertedPredicates convertedBody)
     TcAppTy function argument ->
       TyApp <$> convertType env function <*> convertType env argument
+    -- A saturated arrow is 'TcFunTy'; only a partial one reaches here, and
+    -- the desugarer names it as it names any other type constructor.
+    TcArrowTy -> Right (TyCon (tyConNameFc env (kindsArrowTyCon (ceKinds env))))
 
 convertPred :: ConvertEnv -> Pred -> Either String Type
 convertPred env predicate =
@@ -281,19 +282,6 @@ convertPred env predicate =
       convertedAntecedents <- mapM (convertPred quantifiedEnv) antecedents
       convertedConsequent <- convertPred quantifiedEnv consequent
       pure (foldr TyForAll (foldr (funType quantifiedEnv) convertedConsequent convertedAntecedents) binders)
-
--- | The argument and result of a saturated application of the arrow
--- constructor, in any of its forms.
-saturatedArrowApplication :: TcKinds -> TcType -> Maybe (TcType, TcType)
-saturatedArrowApplication kinds ty =
-  case ty of
-    TcAppTy (TcAppTy (TcTyCon tyCon []) argument) result
-      | Tc.isArrowTyCon kinds tyCon -> Just (argument, result)
-    TcAppTy (TcTyCon tyCon [argument]) result
-      | Tc.isArrowTyCon kinds tyCon -> Just (argument, result)
-    TcTyCon tyCon [argument, result]
-      | Tc.isArrowTyCon kinds tyCon -> Just (argument, result)
-    _ -> Nothing
 
 typeRep :: ConvertEnv -> TcType -> Either String Type
 typeRep env ty = do
@@ -400,10 +388,10 @@ kindSubst env tyCon arguments expectedKind = do
     go quantifiedUniques substitution (KFun formal result) (argument : rest) =
       case typeKindInEnv env argument of
         Right argumentKind ->
-          let found = matchKind quantifiedUniques (applySubst (ceKinds env) substitution formal) argumentKind
-           in go quantifiedUniques (substitution <> found) (applySubst (ceKinds env) found result) rest
+          let found = matchKind quantifiedUniques (applySubst substitution formal) argumentKind
+           in go quantifiedUniques (substitution <> found) (applySubst found result) rest
         Left _ -> go quantifiedUniques substitution result rest
-    go _ substitution kind _ = (substitution, applySubst (ceKinds env) substitution kind)
+    go _ substitution kind _ = (substitution, applySubst substitution kind)
 
     matchKind quantifiedUniques (TcTyVar tyVar) actual
       | tvUnique tyVar `elem` quantifiedUniques = Map.singleton (tvUnique tyVar) actual
@@ -421,7 +409,7 @@ visibleArgumentKinds :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Eithe
 visibleArgumentKinds env tyCon arguments expectedKind = do
   ForAll _ _ resultKind <- kindScheme env tyCon
   substitution <- kindSubst env tyCon arguments expectedKind
-  pure (takeArgumentKinds (applySubst (ceKinds env) substitution resultKind))
+  pure (takeArgumentKinds (applySubst substitution resultKind))
   where
     takeArgumentKinds (KFun argument result) = argument : takeArgumentKinds result
     takeArgumentKinds _ = []

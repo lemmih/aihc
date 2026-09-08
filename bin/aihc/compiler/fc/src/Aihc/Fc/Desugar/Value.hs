@@ -873,6 +873,7 @@ foreignTypeNewtypeDependencies ty = do
       case current of
         TcTyVar {} -> []
         TcMetaTv {} -> []
+        TcArrowTy -> []
         TcTyCon tyCon arguments ->
           [foreignNewtypeDependency dataType | dataType <- newtypes, dtiTyCon dataType == tyCon]
             <> concatMap (go newtypes) arguments
@@ -889,14 +890,13 @@ foreignMarshalDependencies marshal = go (tcForeignSourceType marshal) (tcForeign
   where
     go _ [] = pure []
     go sourceType (constructorName : rest) = do
-      kinds <- valueKinds
       newtypes <- List.nub . Map.elems <$> gets vsNewtypeConstructors
       constructors <- Map.findWithDefault [] constructorName <$> gets vsConstructorInfos
-      case [(dataType, constructor, fieldType) | dataType <- newtypes, constructor <- dtiConstructors dataType, dciName constructor == constructorName, Just fieldType <- [foreignConstructorField kinds sourceType constructor]] of
+      case [(dataType, constructor, fieldType) | dataType <- newtypes, constructor <- dtiConstructors dataType, dciName constructor == constructorName, Just fieldType <- [foreignConstructorField sourceType constructor]] of
         [(dataType, _, fieldType)] ->
           (foreignNewtypeDependency dataType :) <$> continue constructorName fieldType rest
         [] ->
-          case [(constructor, fieldType) | constructor <- constructors, Just fieldType <- [foreignConstructorField kinds sourceType constructor]] of
+          case [(constructor, fieldType) | constructor <- constructors, Just fieldType <- [foreignConstructorField sourceType constructor]] of
             [(constructor, fieldType)] ->
               let (package, moduleName) = dciOrigin constructor
                   dependency = ForeignConstructor (Name constructorName SortDataConstructor (OriginTop package moduleName))
@@ -910,11 +910,11 @@ foreignMarshalDependencies marshal = go (tcForeignSourceType marshal) (tcForeign
 
 -- | The field type of a unary constructor at the source type, or 'Nothing'
 -- inside for a nullary constructor.
-foreignConstructorField :: TcKinds -> TcType -> DataConInfo -> Maybe (Maybe TcType)
-foreignConstructorField kinds sourceType constructor = do
+foreignConstructorField :: TcType -> DataConInfo -> Maybe (Maybe TcType)
+foreignConstructorField sourceType constructor = do
   substitution <- matchTypes [dciResTy constructor] [sourceType]
   case dciFields constructor of
-    [field] -> pure (Just (applySubst kinds substitution (dcfiType field)))
+    [field] -> pure (Just (applySubst substitution (dcfiType field)))
     [] -> pure Nothing
     _ -> Nothing
 
@@ -1165,7 +1165,6 @@ desugarDefaultMethod annotation dictionaries methodName = do
     case [candidate | candidate <- tcInstanceClassMethods annotation, tcClassMethodName candidate == methodName] of
       candidate : _ -> pure candidate
       [] -> failValue ("missing checked class method layout for " <> T.unpack methodName)
-  kinds <- valueKinds
   convertedHeadTypes <- convertTyConApplicationArguments (tcInstanceClassTyCon annotation) (tcInstanceHeadTypes annotation)
   convertedInstanceTypes <- mapM (convertCheckedType . TcTyVar) (tcInstanceTyVars annotation)
   let classTyVars = tcInstanceClassTyVars annotation
@@ -1173,7 +1172,7 @@ desugarDefaultMethod annotation dictionaries methodName = do
       substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, _) = peelConstraints methodAfterForAlls
-      extraPredicates = map (applySubstPred kinds substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates)
+      extraPredicates = map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates)
   extraTypeBinders <- convertTypeBinders extraTyVars
   convertedExtraTypes <- mapM (convertCheckedType . TcTyVar) extraTyVars
   extraDictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] extraPredicates
@@ -1966,10 +1965,9 @@ mapMaybeM action values = catMaybes <$> mapM action values
 
 newtypeFieldType :: DataTypeInfo -> TcType -> Syn.Pattern -> ValueM TcType
 newtypeFieldType dataType scrutineeType child = do
-  kinds <- valueKinds
   case dtiConstructors dataType of
     [constructor]
-      | Just (Just fieldType) <- foreignConstructorField kinds scrutineeType constructor ->
+      | Just (Just fieldType) <- foreignConstructorField scrutineeType constructor ->
           pure fieldType
     _ -> requiredPatternType child
 
@@ -2593,7 +2591,7 @@ convertOccurrenceTypeArguments name arguments = do
     convertArguments env (TcForAllTy variable body) (argument : rest) = do
       converted <- convertTypeWithExpectedKind env (Just (tvKind variable)) argument
       let substitution = Map.singleton (tvUnique variable) argument
-      (converted :) <$> convertArguments env (applySubst (ceKinds env) substitution body) rest
+      (converted :) <$> convertArguments env (applySubst substitution body) rest
     convertArguments env _ remaining = mapM (convertType env) remaining
 
 localOccurrenceTypeArguments :: Syn.Name -> TcAnnotation -> ValueM [TcType]

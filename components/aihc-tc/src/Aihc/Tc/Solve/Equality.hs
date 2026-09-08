@@ -85,6 +85,7 @@ isMetaTv :: TcType -> Bool
 isMetaTv ty =
   case ty of
     TcMetaTv _ -> True
+    TcArrowTy -> True
     _ -> False
 
 solveEqShapes :: Ct -> TcType -> TcType -> TcM EqResult
@@ -105,8 +106,7 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
   -- variables.
   (TcForAllTy v1 b1, TcForAllTy v2 b2) ->
     do
-      kinds <- getKinds
-      solveDecomposed ct t1 [(b1, applySubst kinds (Map.singleton (tvUnique v2) (TcTyVar v1)) b2)]
+      solveDecomposed ct t1 [(b1, applySubst (Map.singleton (tvUnique v2) (TcTyVar v1)) b2)]
   (TcQualTy p1 b1, TcQualTy p2 b2)
     | p1 == p2 ->
         solveDecomposed ct t1 [(b1, b2)]
@@ -157,6 +157,7 @@ occursIn :: Unique -> TcType -> Bool
 occursIn u = go
   where
     go (TcMetaTv u') = u == u'
+    go TcArrowTy = False
     go (TcTyVar _) = False
     go (TcTyCon _ args) = any go args
     go (TcFunTy a b) = go a || go b
