@@ -8,11 +8,19 @@ where
 
 import GHC.Err (undefined)
 import GHC.IO (IO (..))
-import GHC.Int (Int (..))
+import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Num (Num (..))
 import GHC.Prim
   ( chr#,
+    int16ToInt#,
     int2Word#,
+    int32ToInt#,
+    int64ToInt#,
+    int8ToInt#,
+    intToInt16#,
+    intToInt32#,
+    intToInt64#,
+    intToInt8#,
     ord#,
     readWord16OffAddr#,
     readWord32OffAddr#,
@@ -20,11 +28,15 @@ import GHC.Prim
     readWord8OffAddr#,
     readWord8OffAddrAsDouble#,
     readWord8OffAddrAsFloat#,
+    word16ToWord#,
     word2Int#,
     word32ToWord#,
     word64ToWord#,
+    word8ToWord#,
+    wordToWord16#,
     wordToWord32#,
     wordToWord64#,
+    wordToWord8#,
     writeWord16OffAddr#,
     writeWord32OffAddr#,
     writeWord64OffAddr#,
@@ -149,6 +161,73 @@ instance Storable Int where
     IO
       ( \state ->
           case writeWord64OffAddr# address index (wordToWord64# (int2Word# value)) state of
+            nextState -> (# nextState, () #)
+      )
+
+-- | The signed types have no dedicated address primops, so they round-trip
+-- through the unsigned accessor of the same width and narrow back to the
+-- signed representation.
+instance Storable Int8 where
+  sizeOf _ = 1
+  alignment _ = 1
+  peekElemOff (Ptr address) (I# index) =
+    IO
+      ( \state ->
+          case readWord8OffAddr# address index state of
+            (# readState, value #) -> (# readState, I8# (intToInt8# (word2Int# (word8ToWord# value))) #)
+      )
+  pokeElemOff (Ptr address) (I# index) (I8# value) =
+    IO
+      ( \state ->
+          case writeWord8OffAddr# address index (wordToWord8# (int2Word# (int8ToInt# value))) state of
+            nextState -> (# nextState, () #)
+      )
+
+instance Storable Int16 where
+  sizeOf _ = 2
+  alignment _ = 2
+  peekElemOff (Ptr address) (I# index) =
+    IO
+      ( \state ->
+          case readWord16OffAddr# address index state of
+            (# readState, value #) -> (# readState, I16# (intToInt16# (word2Int# (word16ToWord# value))) #)
+      )
+  pokeElemOff (Ptr address) (I# index) (I16# value) =
+    IO
+      ( \state ->
+          case writeWord16OffAddr# address index (wordToWord16# (int2Word# (int16ToInt# value))) state of
+            nextState -> (# nextState, () #)
+      )
+
+instance Storable Int32 where
+  sizeOf _ = 4
+  alignment _ = 4
+  peekElemOff (Ptr address) (I# index) =
+    IO
+      ( \state ->
+          case readWord32OffAddr# address index state of
+            (# readState, value #) -> (# readState, I32# (intToInt32# (word2Int# (word32ToWord# value))) #)
+      )
+  pokeElemOff (Ptr address) (I# index) (I32# value) =
+    IO
+      ( \state ->
+          case writeWord32OffAddr# address index (wordToWord32# (int2Word# (int32ToInt# value))) state of
+            nextState -> (# nextState, () #)
+      )
+
+instance Storable Int64 where
+  sizeOf _ = 8
+  alignment _ = 8
+  peekElemOff (Ptr address) (I# index) =
+    IO
+      ( \state ->
+          case readWord64OffAddr# address index state of
+            (# readState, value #) -> (# readState, I64# (intToInt64# (word2Int# (word64ToWord# value))) #)
+      )
+  pokeElemOff (Ptr address) (I# index) (I64# value) =
+    IO
+      ( \state ->
+          case writeWord64OffAddr# address index (wordToWord64# (int2Word# (int64ToInt# value))) state of
             nextState -> (# nextState, () #)
       )
 

@@ -7,6 +7,9 @@ module Control.Monad
     ap,
     liftM,
     liftM2,
+    liftM3,
+    liftM4,
+    liftM5,
     (=<<),
     (>=>),
     (<=<),
@@ -72,6 +75,27 @@ liftM2 :: (Monad m) => (a -> b -> c) -> m a -> m b -> m c
 liftM2 function left right = do
   leftValue <- left
   function leftValue <$> right
+
+liftM3 :: (Monad m) => (a -> b -> c -> d) -> m a -> m b -> m c -> m d
+liftM3 function first second third = do
+  firstValue <- first
+  secondValue <- second
+  function firstValue secondValue <$> third
+
+liftM4 :: (Monad m) => (a -> b -> c -> d -> e) -> m a -> m b -> m c -> m d -> m e
+liftM4 function first second third fourth = do
+  firstValue <- first
+  secondValue <- second
+  thirdValue <- third
+  function firstValue secondValue thirdValue <$> fourth
+
+liftM5 :: (Monad m) => (a -> b -> c -> d -> e -> f) -> m a -> m b -> m c -> m d -> m e -> m f
+liftM5 function first second third fourth fifth = do
+  firstValue <- first
+  secondValue <- second
+  thirdValue <- third
+  fourthValue <- fourth
+  function firstValue secondValue thirdValue fourthValue <$> fifth
 
 class (Alternative m, Monad m) => MonadPlus m where
   mzero :: m a

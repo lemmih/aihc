@@ -12,9 +12,11 @@ module Data.Monoid
     Product (..),
     First (..),
     Last (..),
+    Alt (..),
   )
 where
 
+import Control.Applicative (Alternative (..))
 import Data.Bool (Bool (..), (&&), (||))
 import Data.Semigroup
   ( Max (..),
@@ -40,6 +42,8 @@ newtype Product a = Product {getProduct :: a}
 newtype First a = First {getFirst :: Maybe a}
 
 newtype Last a = Last {getLast :: Maybe a}
+
+newtype Alt f a = Alt {getAlt :: f a}
 
 instance (Semigroup a) => Semigroup (Dual a) where
   Dual left <> Dual right = Dual (right <> left)
@@ -92,3 +96,9 @@ instance (Ord a, Bounded a) => Monoid (Max a) where
   mempty = Max minBound
 
 deriving newtype instance (Monoid m) => Monoid (WrappedMonoid m)
+
+instance (Alternative f) => Semigroup (Alt f a) where
+  Alt left <> Alt right = Alt (left <|> right)
+
+instance (Alternative f) => Monoid (Alt f a) where
+  mempty = Alt empty

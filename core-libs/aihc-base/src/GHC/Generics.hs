@@ -9,6 +9,9 @@ module GHC.Generics
     Rec1 (..),
     K1 (..),
     M1 (..),
+    D1,
+    C1,
+    S1,
     (:+:) (..),
     (:*:) (..),
     (:.:) (..),
@@ -59,6 +62,12 @@ data C
 data S
 
 data R
+
+type D1 = M1 D
+
+type C1 = M1 C
+
+type S1 = M1 S
 
 type family Rep a :: Type -> Type
 
