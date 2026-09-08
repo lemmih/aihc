@@ -145,7 +145,7 @@ allPublicDesugarConfig kinds prim =
 -- becomes an undefined symbol at link time, not a compiler diagnostic.
 compilerVisibleNames :: Text -> Set (ResolutionNamespace, Text)
 compilerVisibleNames moduleName'
-  | moduleName' == "Type.Reflection" = Set.singleton (ResolutionNamespaceTerm, "TypeRep")
+  | moduleName' `elem` ["Type.Reflection", "Type.Reflection.Internal"] = Set.singleton (ResolutionNamespaceTerm, "TypeRep")
   | otherwise = Set.empty
 
 data HeaderSource

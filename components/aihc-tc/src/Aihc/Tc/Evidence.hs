@@ -10,6 +10,8 @@ module Aihc.Tc.Evidence
     -- * Evidence terms
     EvTerm (..),
     CallSite (..),
+    TypeableTyCon (..),
+    TypeableKind (..),
     EvBinding (..),
 
     -- * Coercions
@@ -46,7 +48,7 @@ data EvTerm
   | -- | Cast evidence through a coercion.
     EvCast !EvTerm !Coercion
   | -- | Compiler-synthesized structural runtime type representation.
-    EvTypeable !(Maybe (Text, Text)) !TcType ![EvTerm]
+    EvTypeable !(Maybe (Text, Text)) !TcType !TypeableTyCon ![(TcType, EvTerm)] ![EvTerm]
   | -- | Type abstraction for quantified evidence.
     EvTypeLam !TyVarId !EvTerm
   | -- | Dictionary abstraction with its checked binder type.
@@ -61,6 +63,19 @@ data EvTerm
     EvCallStackPush !(Text, Text) !Text !CallSite !EvTerm
   | -- | The empty call stack, with the origin of the @CallStack@ type.
     EvCallStackEmpty !(Text, Text)
+  deriving (Eq, Ord, Show, Read)
+
+-- | Checked constructor metadata for runtime reflection.
+data TypeableTyCon = TypeableTyCon !TyCon !Int !TypeableKind
+  deriving (Eq, Ord, Show, Read)
+
+-- | Checked kind structure. Variables index the constructor kind arguments.
+data TypeableKind
+  = TypeableKindVar !Int
+  | TypeableKindType !TcType
+  | TypeableKindFun !TypeableKind !TypeableKind
+  | TypeableKindCon !TypeableTyCon ![TypeableKind]
+  | TypeableKindApp !TypeableKind !TypeableKind
   deriving (Eq, Ord, Show, Read)
 
 -- | The source position of one call site.

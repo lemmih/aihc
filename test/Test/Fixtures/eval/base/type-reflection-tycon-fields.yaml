@@ -2,13 +2,12 @@ modules:
   - |
     module Test where
 
-    import Data.Proxy (Proxy (..))
-    import Type.Reflection (typeRep, typeRepTyCon, tyConModule, tyConName, tyConPackage)
+    import Type.Reflection (TypeRep, typeRep, typeRepTyCon, TyCon, tyConModule, tyConName, tyConPackage)
     import Type.Reflection.Unsafe (KindRep (..), mkTyCon, tyConKindArgs, tyConKindRep)
 
     boolTyCon :: String
     boolTyCon =
-      let tyCon = typeRepTyCon (typeRep (Proxy :: Proxy Bool))
+      let tyCon = typeRepTyCon (typeRep :: TypeRep Bool)
        in tyConPackage tyCon ++ ":" ++ tyConModule tyCon ++ "." ++ tyConName tyCon
 
     -- A constructor built outside the compiler reads back the same way.

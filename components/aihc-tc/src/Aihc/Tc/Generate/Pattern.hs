@@ -49,7 +49,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
-import Control.Monad (when)
+import Control.Monad (foldM, when)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set qualified as Set
@@ -808,11 +808,9 @@ instantiateConstructorPattern scrutTy (ForAll tyVars predicates body) = do
   matched <- matchConstructorResult (Set.fromList (map tvUnique tyVars)) (constructorResultType body) =<< zonkType scrutTy
   let resultTyVars = constructorResultTyVars body
       isUniversal tyVar = tvUnique tyVar `Set.member` resultTyVars
-  substitutions <- mapM (instantiateTyVar matched isUniversal) tyVars
-  let substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty, _) <- substitutions]
-      instantiateType = applySubst kinds substitution
+  (substitution, skolems) <- foldM (instantiateTyVar kinds matched isUniversal) (Map.empty, []) tyVars
+  let instantiateType = applySubst kinds substitution
       typeArgs = map (instantiateType . TcTyVar) tyVars
-      skolems = [skolem | (_, _, Just skolem) <- substitutions]
   pure
     ( instantiateType body,
       typeArgs,
@@ -820,14 +818,18 @@ instantiateConstructorPattern scrutTy (ForAll tyVars predicates body) = do
       skolems
     )
   where
-    instantiateTyVar matched isUniversal tyVar
-      | Just ty <- Map.lookup (tvUnique tyVar) matched = pure (tyVar, ty, Nothing)
-      | isUniversal tyVar = do
-          meta <- freshMetaTv
-          pure (tyVar, meta, Nothing)
-      | otherwise = do
-          skolem <- setTyVarKind (tvKind tyVar) <$> freshSkolemTv (tvName tyVar)
-          pure (tyVar, TcTyVar skolem, Just skolem)
+    instantiateTyVar kinds matched isUniversal (substitution, skolems) tyVar = do
+      let kind = applySubst kinds substitution (tvKind tyVar)
+          extend ty extra = (Map.insert (tvUnique tyVar) ty substitution, skolems <> extra)
+      case Map.lookup (tvUnique tyVar) matched of
+        Just ty -> pure (extend ty [])
+        Nothing
+          | isUniversal tyVar -> do
+              meta <- freshMetaTvOfKind kind
+              pure (extend meta [])
+          | otherwise -> do
+              skolem <- setTyVarKind kind <$> freshSkolemTv (tvName tyVar)
+              pure (extend (TcTyVar skolem) [skolem])
 
 constructorResultTyVars :: TcType -> Set.Set Unique
 constructorResultTyVars = typeTyVars . constructorResultType

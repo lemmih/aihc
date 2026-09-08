@@ -243,7 +243,11 @@ atomicConstraintTypeToPred kinds ty =
 -- accepted with TypeOperators -- and such a class imposes no equality, so
 -- this compares identities rather than names.
 isEqualityTyCon :: TcKinds -> TyCon -> Bool
-isEqualityTyCon kinds tyCon = tyCon == kindsEqualityTyCon kinds
+isEqualityTyCon kinds tyCon =
+  tyCon == kindsEqualityTyCon kinds
+    || tyCon == mkTyConWithOrigin (tyConPackageId equality) (tyConModuleName equality) "~~" 2
+  where
+    equality = kindsEqualityTyCon kinds
 
 -- | The name of the constraint type constructor for one implicit parameter.
 isImplicitParamTyConName :: Text -> Bool
@@ -418,12 +422,12 @@ applySubst kinds substitution = go
   where
     go ty =
       case ty of
-        TcTyVar tyVar -> Map.findWithDefault ty (tvUnique tyVar) substitution
+        TcTyVar tyVar -> Map.findWithDefault (TcTyVar (setTyVarKind (go (tvKind tyVar)) tyVar)) (tvUnique tyVar) substitution
         TcMetaTv {} -> ty
         TcTyCon tyCon arguments -> TcTyCon tyCon (map go arguments)
         TcFunTy argument result -> TcFunTy (go argument) (go result)
         TcForAllTy tyVar body ->
-          TcForAllTy tyVar (applySubst kinds (Map.delete (tvUnique tyVar) substitution) body)
+          TcForAllTy (setTyVarKind (go (tvKind tyVar)) tyVar) (applySubst kinds (Map.delete (tvUnique tyVar) substitution) body)
         TcQualTy predicates body -> TcQualTy (map (applySubstPred kinds substitution) predicates) (go body)
         TcAppTy function argument -> applyType (go function) (go argument)
 
@@ -439,7 +443,7 @@ applySubstPred kinds substitution predicate =
     QuantifiedPred variables antecedents consequent ->
       let scopedSubstitution = foldr (Map.delete . tvUnique) substitution variables
        in QuantifiedPred
-            variables
+            [setTyVarKind (applySubst kinds scopedSubstitution (tvKind variable)) variable | variable <- variables]
             (map (applySubstPred kinds scopedSubstitution) antecedents)
             (applySubstPred kinds scopedSubstitution consequent)
 

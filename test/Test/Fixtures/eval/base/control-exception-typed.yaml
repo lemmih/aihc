@@ -19,7 +19,7 @@ modules:
       )
     import GHC.IO (IO (..))
     import GHC.Prim (State#, RealWorld, realWorld#)
-    import Data.Typeable (cast, eqTypeRep, typeOf)
+    import Data.Typeable (cast, typeOf)
 
     data FirstException = FirstException
     data SecondException = SecondException
@@ -81,7 +81,7 @@ modules:
 
     hasDifferentRepresentations :: Bool
     hasDifferentRepresentations =
-      case eqTypeRep (typeOf FirstException) (typeOf SecondException) of
+      case (==) (typeOf FirstException) (typeOf SecondException) of
         True -> False
         False -> True
 

@@ -20,10 +20,12 @@ where
 import Aihc.Parser.Syntax (SourceSpan (..))
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), instanceIsForClass)
+import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..))
-import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getKinds, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, wiredTyCon)
+import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind (..), TypeableTyCon (..))
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
+import Aihc.Tc.Kind (tcTypeKind, unifyKinds, zonkKind)
+import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getKinds, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible)
 import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
@@ -31,7 +33,8 @@ import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, (<=<))
+import Control.Monad (foldM, foldM_, (<=<))
+import Data.List (elemIndex)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
@@ -188,8 +191,13 @@ solveDictWithGivensVisited visited givens ct
           argumentEvidence <- mapM (solveSubPred [ctPred ct] . ClassPred typeableTyCon . (: [])) arguments
           case sequence argumentEvidence of
             Just evidence -> do
-              bindEvidence (ctEvVar ct) (EvTypeable classOrigin ty evidence)
-              pure DictSolved
+              (constructor, kindArguments) <- typeableConstructor ty
+              kindEvidence <- mapM (solveSubPred [ctPred ct] . ClassPred typeableTyCon . (: [])) kindArguments
+              case sequence kindEvidence of
+                Just solvedKinds -> do
+                  bindEvidence (ctEvVar ct) (EvTypeable classOrigin ty constructor (zip kindArguments solvedKinds) evidence)
+                  pure DictSolved
+                Nothing -> pure (DictStuck ct)
             Nothing -> pure (DictStuck ct)
 
     solveQuantifiedWanted visited' localGivens (QuantifiedPred variables antecedents consequent) = do
@@ -440,3 +448,51 @@ matchTypeQuantified quantified substitution (TcAppTy function argument, TcAppTy 
 matchTypeQuantified _ substitution (patternType, targetType)
   | patternType == targetType = Just substitution
   | otherwise = Nothing
+
+-- | Resolve the kind arguments before FC constructs a runtime representation.
+typeableConstructor :: TcType -> TcM (TypeableTyCon, [TcType])
+typeableConstructor ty = do
+  kinds <- getKinds
+  case ty of
+    TcTyCon constructor arguments -> do
+      info <- lookupTyConByIdentity constructor >>= maybe (abortTc "Typeable constructor has no checked kind") pure
+      instantiated <- instantiateWithArgs (tciKindScheme info)
+      foldM_ applyArgument (instType instantiated) arguments
+      kindArguments <- mapM zonkKind (instTypeArgs instantiated)
+      metadata <- typeableTyConMetadata constructor
+      pure (metadata, kindArguments)
+    TcFunTy {} -> do
+      let lifted = TypeableKindType (liftedRep kinds)
+      constructor <- wiredTyCon tcWiringArrowTyCon (TcFunTy (typeKind kinds) (TcFunTy (typeKind kinds) (typeKind kinds)))
+      pure (TypeableTyCon constructor 0 (TypeableKindFun lifted (TypeableKindFun lifted lifted)), [])
+    _ -> abortTc "Typeable evidence has no constructor"
+  where
+    applyArgument kind argument = do
+      kind' <- zonkKind kind
+      case kind' of
+        TcFunTy formal result -> do
+          actual <- tcTypeKind argument
+          unifyKinds formal actual
+          pure result
+        _ -> abortTc "Typeable constructor has an invalid application"
+
+typeableTyConMetadata :: TyCon -> TcM TypeableTyCon
+typeableTyConMetadata constructor = do
+  info <- lookupTyConByIdentity constructor >>= maybe (abortTc "Typeable kind constructor has no checked kind") pure
+  let ForAll variables _ body = tciKindScheme info
+  TypeableTyCon constructor (length variables) <$> typeableKindMetadata variables body
+
+typeableKindMetadata :: [TyVarId] -> TcType -> TcM TypeableKind
+typeableKindMetadata variables kind =
+  case kind of
+    KTYPE representation -> pure (TypeableKindType representation)
+    TcTyVar variable ->
+      maybe (abortTc "Typeable kind has an unbound variable") (pure . TypeableKindVar) (elemIndex variable variables)
+    TcFunTy argument result -> TypeableKindFun <$> recur argument <*> recur result
+    TcTyCon _ arguments -> do
+      (constructor, kindArguments) <- typeableConstructor kind
+      TypeableKindCon constructor <$> mapM recur (kindArguments <> arguments)
+    TcAppTy function argument -> TypeableKindApp <$> recur function <*> recur argument
+    _ -> abortTc "Typeable kind has no runtime representation"
+  where
+    recur = typeableKindMetadata variables

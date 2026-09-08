@@ -129,7 +129,7 @@ import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
-import Aihc.Tc.Generate.Expr (inferExpr)
+import Aihc.Tc.Generate.Expr (checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
@@ -524,7 +524,7 @@ tcModuleScc modules = do
   derivingFinalized <- mapM registerDerivedInstances derivingInferred
   -- Phase 2: collect type signatures and convert them to schemes.
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
-  schemes <- mapM (traverse checkUserSig) rawSigs
+  schemes <- zipWithM checkModuleSignatures derivingFinalized rawSigs
   mapM_ (uncurry registerCheckedSig) (concatMap Map.toList schemes)
   pending <- zipWithM tcModuleBody schemes derivingFinalized
   mapM_ checkBundledPatSyns derivingFinalized
@@ -550,6 +550,29 @@ registerNominalRoles declaration = case peelDeclAnn declaration of
       Nothing -> pure ()
   _ -> pure ()
 
+checkModuleSignatures :: Module -> Map TcTermKey UserSig -> TcM (Map TcTermKey CheckedSig)
+checkModuleSignatures modu signatures = do
+  checked <- traverse checkUserSig signatures
+  if PolyKinds `elem` moduleEnabledExtensions modu
+    then traverse generalizeSignatureKinds checked
+    else traverse (\signature -> do scheme <- defaultTypeSchemeKinds (checkedSigScheme signature); pure signature {checkedSigScheme = scheme}) checked
+
+-- | Quantify implicit kind variables before the signature enters the environment.
+generalizeSignatureKinds :: CheckedSig -> TcM CheckedSig
+generalizeSignatureKinds signature = do
+  let ForAll variables predicates body = checkedSigScheme signature
+  kinds <- getKinds
+  variableKinds <- mapM (zonkKind . tvKind) variables
+  forM_ (nub (concatMap collectMetaVars variableKinds)) $ \meta -> do
+    metaKind <- readMetaTvKind meta >>= zonkKind
+    when (metaKind == typeKind kinds) $ do
+      variable <- freshSkolemTv "k"
+      writeMetaTv meta (TcTyVar variable)
+  variables' <- mapM defaultTyVarKinds variables
+  body' <- zonkType body
+  predicates' <- mapM defaultPredKinds predicates
+  pure signature {checkedSigScheme = ForAll (closeKindVariables variables') predicates' body'}
+
 registerCheckedSig :: TcTermKey -> CheckedSig -> TcM ()
 registerCheckedSig key sig = do
   extendTermEnvPermanent (checkedSigName sig) binder
@@ -563,6 +586,7 @@ registerCheckedSig key sig = do
 flattenSchemeContexts :: TypeScheme -> TypeScheme
 flattenSchemeContexts (ForAll tyVars predicates body) =
   case body of
+    TcForAllTy variable inner -> flattenSchemeContexts (ForAll (tyVars <> [variable]) predicates inner)
     TcQualTy more inner -> flattenSchemeContexts (ForAll tyVars (predicates <> more) inner)
     _ -> ForAll tyVars predicates body
 
@@ -1985,7 +2009,7 @@ collectUserSigs decls = do
 
 checkUserSig :: UserSig -> TcM CheckedSig
 checkUserSig userSig = do
-  scheme <- sigToScheme (userSigType userSig) >>= defaultTypeSchemeKinds
+  scheme <- sigToScheme (userSigType userSig)
   pure
     CheckedSig
       { checkedSigName = userSigName userSig,
@@ -2449,12 +2473,14 @@ patSynLayoutScheme layout =
 patSynLayoutFromSig :: Text -> Int -> CheckedSig -> TcM (Maybe PatSynLayout)
 patSynLayoutFromSig name arity sig = do
   let ForAll tyVars required qualifiedBody = checkedSigScheme sig
+      (explicitExistentials, innerBody) = collectForAllTypes qualifiedBody
       (provided, body) =
-        case qualifiedBody of
+        case innerBody of
           TcQualTy predicates inner -> (predicates, inner)
-          _ -> ([], qualifiedBody)
+          _ -> ([], innerBody)
       (argTys, resultType) = splitFunTy body arity
-      (universals, existentials) = partition (`typeMentionsTyVar` resultType) tyVars
+      (universals, implicitExistentials) = partition (`typeMentionsTyVar` resultType) tyVars
+      existentials = implicitExistentials <> explicitExistentials
   if length argTys /= arity
     then do
       emitError (checkedSigSpan sig) (OtherError ("pattern synonym signature for " <> T.unpack name <> " does not have " <> show arity <> " arguments"))
@@ -3297,7 +3323,8 @@ isImplicitlyKindPolymorphicClass (_, moduleName') className = do
   let equality = tcWiringEqualityTyCon wiring
   pure
     ( (moduleName', className) == tcWiringLiftClass wiring
-        || (moduleName' == tyConModuleName equality && className == tyConName equality)
+        || (moduleName', className) `elem` [("Type.Reflection", "Typeable"), ("Type.Reflection.Internal", "Typeable")]
+        || (moduleName' == tyConModuleName equality && className `elem` [tyConName equality, "~~"])
     )
 
 registerClassItem :: Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
@@ -4393,7 +4420,7 @@ tcMatchEquation expectedOrigin argTys resTy match = do
       sp = sourceSpanFromAnns (matchAnns match)
   patCheck <- checkFunctionPatternsWithGivens sp (zip pats argTys)
   -- Infer the RHS under the extended environment.
-  (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsExpr (matchRhs match))
+  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternBindings (pcBindings patCheck) (checkRhs resTy (matchRhs match)))
   -- RHS type must match the expected result type.
   ev <- freshEvVar
   let rhsSp = rhsExprSpan (matchRhs match) `orSourceSpan` sp

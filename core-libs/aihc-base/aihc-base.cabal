@@ -266,6 +266,7 @@ library
     GHC.Internal.Stack
     GHC.Internal.Traversable
     GHC.Read.Lex
+    Type.Reflection.Internal
 
   if arch(wasm32)
     hs-source-dirs:
