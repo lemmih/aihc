@@ -485,7 +485,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N2
+      export GHCRTS=-N4
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -545,7 +545,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N2
+      export GHCRTS=-N4
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -574,7 +574,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N2
+      export GHCRTS=-N4
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -626,7 +626,7 @@
       ];
     } ''
       set -euo pipefail
-      export GHCRTS=-N2
+      export GHCRTS=-N4
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -727,6 +727,8 @@
   in
     mkSourceCheck "aihc-example-${exampleName}-${target}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
       set -euo pipefail
+      # Reserve build slots for shared package checks before examples start.
+      test -d ${hackageInstallTests}
       export GHCRTS=-N1
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
@@ -887,6 +889,8 @@
   in
     mkSourceCheck "aihc-wasip3-example-${exampleName}" (sources.exampleSrc exampleName pkgs) wasip3ExampleInputs ''
       set -euo pipefail
+      # Reserve build slots for shared package checks before examples start.
+      test -d ${hackageInstallTests}
       export GHCRTS=-N1
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
