@@ -54,7 +54,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Instantiate (instantiate)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
-import Control.Monad (foldM, replicateM, zipWithM, zipWithM_)
+import Control.Monad (foldM, replicateM, when, zipWithM, zipWithM_)
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -622,8 +622,8 @@ unifyKinds = unifyKindsAt NoSourceSpan
 -- | Unify two kinds and report a mismatch at the given span.
 unifyKindsAt :: SourceSpan -> TcType -> TcType -> TcM ()
 unifyKindsAt sp expected actual = do
-  expected' <- zonkKind expected
-  actual' <- zonkKind actual
+  expected' <- zonkKind expected >>= refineGivenKind
+  actual' <- zonkKind actual >>= refineGivenKind
   case (expected', actual') of
     (TcMetaTv unique, kind) -> bindKindMetaAt sp unique kind
     (kind, TcMetaTv unique) -> bindKindMetaAt sp unique kind
@@ -646,6 +646,34 @@ unifyKindsAt sp expected actual = do
     (TcQualTy leftPredicates leftBody, TcQualTy rightPredicates rightBody)
       | leftPredicates == rightPredicates -> unifyKindsAt sp leftBody rightBody
     _ -> emitError sp (KindMismatch expected' actual')
+
+-- | Use scoped equality evidence when a pattern refines a kind variable.
+refineGivenKind :: TcType -> TcM TcType
+refineGivenKind kind = do
+  predicates <- getGivenPredicates
+  equalities <- mapM zonkEquality [(left, right) | EqPred left right <- predicates]
+  pure (rewrite equalities Set.empty kind)
+  where
+    zonkEquality (left, right) = (,) <$> zonkKind left <*> zonkKind right
+    rewrite equalities visited ty
+      | ty `Set.member` visited = ty
+      | otherwise =
+          case [replacement | (left, right) <- equalities, Just replacement <- [replace ty left right]] of
+            replacement : _ -> rewrite equalities (Set.insert ty visited) replacement
+            [] -> case ty of
+              TcTyCon constructor arguments -> TcTyCon constructor (map recur arguments)
+              TcFunTy argument result -> TcFunTy (recur argument) (recur result)
+              TcAppTy function argument -> TcAppTy (recur function) (recur argument)
+              _ -> ty
+      where
+        recur = rewrite equalities visited
+    replace ty left@(TcTyVar a) right@(TcTyVar b)
+      | tvUnique a > tvUnique b, ty == left = Just right
+      | tvUnique b > tvUnique a, ty == right = Just left
+    replace _ TcTyVar {} TcTyVar {} = Nothing
+    replace ty left@TcTyVar {} right | ty == left, left /= right = Just right
+    replace ty left right@TcTyVar {} | ty == right, left /= right = Just left
+    replace _ _ _ = Nothing
 
 -- | Whether a kind is a runtime representation with no variables left in
 -- it, so that a representation-polymorphic variable may take it.
@@ -843,7 +871,7 @@ tcTypeKind ty =
     TcAppTy function argument -> tcTypeKind function >>= (`applyArgument` argument)
   where
     applyArgument functionKind argument = do
-      functionKind' <- zonkKind functionKind
+      functionKind' <- zonkKind functionKind >>= refineGivenKind
       case functionKind' of
         TcFunTy argumentKind resultKind -> do
           actualKind <- tcTypeKind argument
@@ -967,7 +995,7 @@ surfaceClassPredToPred tvEnv ty = do
             [left, right] <- headArgs -> do
               (leftType, leftKind) <- convertSurfaceTypeWithKinds tvEnv left
               (rightType, rightKind) <- convertSurfaceTypeWithKinds tvEnv right
-              unifyKinds leftKind rightKind
+              when (tciTyCon classInfo == kindsEqualityTyCon kinds) (unifyKinds leftKind rightKind)
               pure (EqPred leftType rightType)
         Just classInfo -> do
           classKind <- predicateClassKind classInfo

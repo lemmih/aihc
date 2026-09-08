@@ -95,12 +95,18 @@ defaultUnsolvedAnnotationMetas annotation =
   case firstMetaTcAnnotation annotation of
     Nothing -> pure annotation
     Just meta -> do
+      _ <- defaultKindMetas (TcMetaTv meta)
       solution <- readMetaTv meta
       case solution of
         Just {} -> pure ()
         Nothing -> do
           kinds <- getKinds
-          kind <- defaultKindMetas =<< readMetaTvKind meta
+          rawKind <- defaultKindMetas =<< readMetaTvKind meta
+          kind <- case rawKind of
+            TcMetaTv kindMeta -> do
+              writeMetaTv kindMeta (typeKind kinds)
+              pure (typeKind kinds)
+            _ -> pure rawKind
           case kind of
             KType -> do
               unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
@@ -165,8 +171,8 @@ zonkEvTerm evTerm =
       EvSuperClass <$> zonkEvTerm evidence <*> pure sourceOrigin <*> finalizePred sourcePredicate <*> mapM finalizeType fieldTypes <*> pure index
     EvCast evidence coercion ->
       EvCast <$> zonkEvTerm evidence <*> zonkCoercion coercion
-    EvTypeable origin ty arguments ->
-      EvTypeable origin <$> finalizeType ty <*> mapM zonkEvTerm arguments
+    EvTypeable origin ty constructor kindArguments arguments ->
+      EvTypeable origin <$> finalizeType ty <*> pure constructor <*> mapM (\(kind, evidence) -> (,) <$> finalizeType kind <*> zonkEvTerm evidence) kindArguments <*> mapM zonkEvTerm arguments
     EvTypeLam variable body ->
       EvTypeLam <$> defaultTyVarKinds variable <*> zonkEvTerm body
     EvDictLam predicate binderType body ->
@@ -358,8 +364,8 @@ firstMetaEvTerm evTerm =
       firstMetaEvTerm evidence <|> firstMetaPred sourcePredicate <|> firstJusts (map firstMetaType fieldTypes)
     EvCast evidence coercion ->
       firstMetaEvTerm evidence <|> firstMetaCoercion coercion
-    EvTypeable _ ty arguments ->
-      firstMetaType ty <|> firstJusts (map firstMetaEvTerm arguments)
+    EvTypeable _ ty _ kindArguments arguments ->
+      firstMetaType ty <|> firstJusts [firstMetaType kind <|> firstMetaEvTerm evidence | (kind, evidence) <- kindArguments] <|> firstJusts (map firstMetaEvTerm arguments)
     EvTypeLam variable body ->
       firstMetaType (tvKind variable) <|> firstMetaEvTerm body
     EvDictLam predicate binderType body ->

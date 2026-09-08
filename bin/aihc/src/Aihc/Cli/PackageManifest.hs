@@ -18,6 +18,7 @@ data PackageManifest = PackageManifest
   { packageManifestName :: !Text,
     packageManifestVersion :: !Text,
     packageManifestIdentity :: !Text,
+    packageManifestUnitId :: !Text,
     packageManifestDependencies :: ![Text],
     packageManifestModules :: ![Text]
   }
@@ -26,10 +27,11 @@ data PackageManifest = PackageManifest
 instance Aeson.ToJSON PackageManifest where
   toJSON manifest =
     Aeson.object
-      [ "schemaVersion" .= (2 :: Int),
+      [ "schemaVersion" .= (3 :: Int),
         "name" .= packageManifestName manifest,
         "version" .= packageManifestVersion manifest,
         "identity" .= packageManifestIdentity manifest,
+        "unitId" .= packageManifestUnitId manifest,
         "dependencies" .= packageManifestDependencies manifest,
         "modules" .= packageManifestModules manifest
       ]
@@ -38,11 +40,19 @@ instance Aeson.FromJSON PackageManifest where
   parseJSON = Aeson.withObject "PackageManifest" $ \object -> do
     schemaVersion <- object .: "schemaVersion"
     case schemaVersion :: Int of
-      2 ->
+      2 -> do
+        name <- object .: "name"
+        version <- object .: "version"
+        identity <- object .: "identity"
+        PackageManifest name version identity identity
+          <$> object .: "dependencies"
+          <*> object .: "modules"
+      3 ->
         PackageManifest
           <$> object .: "name"
           <*> object .: "version"
           <*> object .: "identity"
+          <*> object .: "unitId"
           <*> object .: "dependencies"
           <*> object .: "modules"
       _ -> fail "unsupported package manifest schema"

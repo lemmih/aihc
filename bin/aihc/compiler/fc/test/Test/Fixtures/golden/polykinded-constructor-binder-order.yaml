@@ -1,0 +1,51 @@
+extensions: [GADTs, PolyKinds, ScopedTypeVariables]
+modules:
+  - |
+    {-# LANGUAGE GADTs, PolyKinds, ScopedTypeVariables #-}
+    module Test where
+    data Bool = True | False
+    data Maybe a = Nothing | Just a
+    data Proxy (a :: k) = Proxy
+    data Box (a :: k) where
+      Box :: forall k (a :: k) j (b :: j). Proxy b -> Box a
+    result :: Box Bool
+    result = Box (Proxy :: Proxy Maybe)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tBool :: 2.tType {
+      pub 1.vTrue :: 1.tBool;
+      pub 1.vFalse :: 1.tBool
+  }
+
+  pub type 1.tMaybe (a : 2.tType) :: 2.tType {
+      pub 1.vNothing :: ∀(a : 2.tType). 1.tMaybe a;
+      pub 1.vJust :: ∀(a : 2.tType). a 2.→ 1.tMaybe a
+  }
+
+  pub type 1.tProxy (k : 2.tType) (a : k) :: 2.tType {
+      pub 1.vProxy :: ∀(k : 2.tType) (a : k). 1.tProxy k a
+  }
+
+  pub type 1.tBox (k : 2.tType) (a : k) :: 2.tType {
+      pub 1.vBox :: ∀(k : 2.tType) (a : k) (j : 2.tType) (b : j). 1.tProxy j b 2.→ 1.tBox k a
+  }
+
+  pub val 1.vresult :: 1.tBox (2.tTYPE (2.vBoxedRep 2.vLifted)) 1.tBool
+   = 1.vBox @(2.tTYPE (2.vBoxedRep 2.vLifted)) @1.tBool @(2.tTYPE (2.vBoxedRep 2.vLifted) 2.→ 2.tTYPE (2.vBoxedRep 2.vLifted)) @1.tMaybe (1.vProxy @(2.tTYPE (2.vBoxedRep 2.vLifted) 2.→ 2.tTYPE (2.vBoxedRep 2.vLifted)) @1.tMaybe)
+status: pass
+reason: Constructor calls use the same type binder order as their declarations.

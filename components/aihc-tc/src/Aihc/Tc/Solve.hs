@@ -153,16 +153,26 @@ processEq (wl, inerts) ct = do
 -- not mention a skolem of the implication.
 solveImplication :: Implication -> TcM [Ct]
 solveImplication impl = withTcLevel $ do
+  outerPredicates <- getGivenPredicates
   let rawGivens = implGivenCts impl
       wanteds = implWantedCts impl
-      givenPredicates = map ctPred rawGivens
+      givenPredicates = outerPredicates <> map ctPred rawGivens
   -- Canonicalize the given equalities by structural decomposition.
   givenEqs <- concat <$> mapM canonicalizeGiven rawGivens
   -- Equalities refine the types mentioned by dictionary wanteds, so preserve
   -- the main worklist's equality-before-dictionary ordering inside branches.
   let (equalityWanteds, dictionaryWanteds) = partitionWanteds wanteds
-  mapM_ (solveWantedWithGivens [] givenPredicates givenEqs) equalityWanteds
+  solveImplicationEqualities givenPredicates givenEqs equalityWanteds
   concat <$> mapM (solveWantedWithGivens (implSkols impl) givenPredicates givenEqs) dictionaryWanteds
+
+-- | Retry equalities after argument constraints solve meta variables.
+solveImplicationEqualities :: [Pred] -> [(TcType, TcType)] -> [Ct] -> TcM ()
+solveImplicationEqualities predicates equalities constraints = do
+  results <- withGivenPredicates predicates (mapM solveEquality constraints)
+  let remaining = [constraint | (constraint, result) <- zip constraints results, case result of EqSolved -> False; _ -> True]
+  if length remaining < length constraints
+    then solveImplicationEqualities predicates equalities remaining
+    else mapM_ (solveWantedWithGivens [] predicates equalities) remaining
 
 partitionWanteds :: [Ct] -> ([Ct], [Ct])
 partitionWanteds = foldr partitionOne ([], [])

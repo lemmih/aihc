@@ -1,0 +1,23 @@
+extensions:
+  - BangPatterns
+modules:
+  - |
+    module Test where
+    import GHC.Types (SPEC (..))
+
+    data Result = Pass | Fail
+    data Steps = Done | Next Steps
+
+    check :: SPEC -> SPEC -> Result
+    check SPEC SPEC2 = Pass
+    check _ _ = Fail
+
+    loop :: SPEC -> Steps -> Result
+    loop !_ Done = check SPEC SPEC2
+    loop !_ (Next steps) = loop SPEC steps
+output: |
+  Pass
+expression: |
+  loop SPEC2 (Next (Next Done))
+status: pass
+reason: Imports both SPEC constructors and evaluates a strict loop argument.

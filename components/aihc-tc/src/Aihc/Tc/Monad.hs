@@ -458,6 +458,9 @@ freshMetaTv = do
 
 freshMetaTvOfKind :: TcType -> TcM TcType
 freshMetaTvOfKind kind = do
+  case kind of
+    TcMetaTv kindUnique -> trackKindMeta kindUnique
+    _ -> pure ()
   unique@(Unique key) <- freshUnique
   lift $ modify' $ \state ->
     state {tcsMetaKinds = IntMap.insert key kind (tcsMetaKinds state)}

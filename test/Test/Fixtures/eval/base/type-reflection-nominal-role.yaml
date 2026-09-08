@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Data.Coerce (coerce)
+    import Type.Reflection (TypeRep)
+
+    bad :: TypeRep Int -> TypeRep Bool
+    bad = coerce
+expression: 'True'
+output: |
+  True
+error: 'typecheck error: Test: unsolved constraint Coercible (TypeRep Int) (TypeRep Bool)'
+status: fail
+reason: A representational coercion must not change the type that a TypeRep describes.

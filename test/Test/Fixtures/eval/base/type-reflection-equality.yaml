@@ -1,0 +1,26 @@
+extensions: [GADTs, PolyKinds, ScopedTypeVariables, TypeOperators]
+modules:
+  - |
+    {-# LANGUAGE GADTs, PolyKinds, ScopedTypeVariables, PatternSynonyms, TypeOperators #-}
+    module Test where
+    import Data.Kind (Type)
+    import Type.Reflection
+
+    checkedCast :: TypeRep a -> TypeRep b -> a -> Maybe b
+    checkedCast left right value =
+      case eqTypeRep left right of
+        Just HRefl -> Just value
+        Nothing -> Nothing
+
+    result :: Bool
+    result =
+      checkedCast (typeRep :: TypeRep Bool) (typeRep :: TypeRep Bool) True == Just True
+        && checkedCast (typeRep :: TypeRep Bool) (typeRep :: TypeRep Int) True == Nothing
+        && case eqTypeRep (typeRepKind (typeRep :: TypeRep Bool)) (typeRep :: TypeRep Type) of
+             Just HRefl -> True
+             Nothing -> False
+expression: result
+output: |
+  True
+status: pass
+reason: Reflection equality supplies type evidence and rejects unequal types.

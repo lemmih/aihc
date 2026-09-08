@@ -1,7 +1,7 @@
 cabal-version: 3.8
 name: aihc
 version: 0.1.0.0
-build-type: Simple
+build-type: Custom
 license: Unlicense
 license-file: LICENSE
 author: David Himmelstrup
@@ -38,6 +38,14 @@ extra-source-files:
   test/Test/Fixtures/install/code-quality/cpp-error/*.cabal
   test/Test/Fixtures/install/code-quality/cpp-error/*.yaml
   test/Test/Fixtures/install/code-quality/cpp-error/src/*.hs
+  test/Test/Fixtures/install/incremental/Extra.hs
+  test/Test/Fixtures/install/incremental/demo.cabal
+  test/Test/Fixtures/install/incremental/dep/dep.cabal
+  test/Test/Fixtures/install/incremental/dep/src/Dep.hs
+  test/Test/Fixtures/install/incremental/dependency/Dep.hs
+  test/Test/Fixtures/install/incremental/implementation/A.hs
+  test/Test/Fixtures/install/incremental/interface/A.hs
+  test/Test/Fixtures/install/incremental/src/*.hs
   test/Test/Fixtures/install/keep-grin/demo.cabal
   test/Test/Fixtures/install/keep-grin/src/Demo.hs
   test/Test/Fixtures/install/local-dependencies/demo/demo.cabal
@@ -76,8 +84,15 @@ data-files:
   compiler/wasm/runtime/wit/deps/cli.wit
   compiler/wasm/runtime/wit/deps/filesystem.wit
 
-library compiler
-  visibility: private
+custom-setup
+  setup-depends:
+    Cabal >=3.14 && <3.17,
+    base >=4.16 && <5,
+    directory,
+    filepath,
+    process,
+
+library
   exposed-modules:
     Aihc.Amd64.Assemble
     Aihc.Amd64.Lir
@@ -86,6 +101,7 @@ library compiler
     Aihc.Arm64.Lir
     Aihc.Arm64.Text
     Aihc.Cli
+    Aihc.Cli.ArtifactCache
     Aihc.Cli.Backend
     Aihc.Cli.BuildExe
     Aihc.Cli.Install
@@ -140,6 +156,7 @@ library compiler
 
   other-modules:
     Aihc.Cli.TaskGraph
+    Aihc.CompilerBuildIdentity
     Aihc.Fc.Desugar.Value
     Aihc.Grin.Analysis
     Aihc.Native.Elf
@@ -147,7 +164,10 @@ library compiler
     Aihc.Native.Object
     Paths_aihc
 
-  autogen-modules: Paths_aihc
+  autogen-modules:
+    Aihc.CompilerBuildIdentity
+    Paths_aihc
+
   hs-source-dirs:
     src
     ../../components/aihc-tc/prim-wiring
@@ -175,6 +195,7 @@ library compiler
     binary >=0.8 && <0.9,
     bytestring >=0.10.8 && <0.13,
     containers >=0.5 && <0.8,
+    cryptohash-sha256,
     deepseq,
     directory >=1.2.3 && <1.5,
     filepath >=1.3.0.1 && <1.6,
@@ -197,7 +218,7 @@ executable aihc
   main-is: Main.hs
   hs-source-dirs: exe
   build-depends:
-    aihc:compiler,
+    aihc,
     base >=4.16 && <5,
 
   ghc-options:
@@ -233,7 +254,7 @@ executable aihc-dev
     Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
-    aihc:compiler,
+    aihc,
     aihc-parser,
     aihc-tc,
     aihc-tc:fuzz,
@@ -329,7 +350,7 @@ test-suite spec
 
   build-depends:
     aeson,
-    aihc:compiler,
+    aihc,
     aihc-hackage,
     aihc-package-plan,
     aihc-parser,
@@ -382,7 +403,7 @@ test-suite dev-spec
     Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
-    aihc:compiler,
+    aihc,
     aihc-internal,
     aihc-parser,
     aihc-tc,

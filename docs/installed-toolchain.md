@@ -46,9 +46,10 @@ aihc compile Main.hs \
 
 There is no special core-library installation mechanism: `aihc-base` and
 `aihc-prim` are ordinary packages, with the latter installed through the
-former's package dependency. The store contains content-addressed library
-interfaces and whole-program bodies, target-specific library archives, and
-runtime archives keyed by target and garbage collector. An incomplete store is
+former's package dependency. The store contains installed library interfaces,
+whole-program bodies, and library archives for each target.
+Each target has one installed entry per package name and version.
+Runtime archives use keys for the target and garbage collector. An incomplete store is
 an error; application compilation never fills in missing artifacts by rebuilding
 source dependencies.
 
@@ -89,3 +90,42 @@ link through the C driver of the target directly. The weekly cross-compilation
 workflow does this: `nix build .#cross-examples-apple-arm64` compiles every
 example to a bundle on Linux, and `scripts/link-and-run-example-bundles.sh`
 links and runs the bundles on macOS.
+
+## Artifact reuse
+
+`aihc install` resolves the complete package plan before it reads build fingerprints or module caches.
+Package identities contain the selected package name and version.
+Source changes and build options do not change these identities or the selected dependencies.
+A separate build fingerprint includes source contents, dependency build fingerprints, compiler identity, target, and build options.
+A matching fingerprint permits reuse of the installed outputs.
+After a successful rebuild, installation replaces the outputs for the selected package.
+Cached artifacts never supply package candidates or select dependency versions.
+
+Library installs retain module artifacts in the separate `.build-cache` directory.
+Executable builds retain module artifacts in their build directory.
+The compiler checks each dependency-cycle unit before it reuses its type interfaces and backend outputs.
+A changed interface invalidates dependent units.
+A changed implementation can preserve dependent artifacts when its interface stays the same.
+The compiler still parses sources and resolves names after a package source change.
+It rebuilds the package archive and its C sources.
+
+`--reinstall` bypasses module reuse for the specified package.
+Dependencies still use their normal cache checks.
+Code and no-code builds use separate artifact cache keys and build fingerprints.
+The artifact format version remains separate from compiler identity.
+
+The Cabal build hook uses the current Git commit hash as the compiler identity.
+If Git or a commit is absent, the compiler identity is empty.
+Uncommitted compiler changes do not change this identity.
+The compiled program contains this identity as a pure constant.
+The identity requires no runtime executable path or filesystem access.
+The compiler uses the package main library because Cabal custom builds do not support named libraries.
+Host compiler and archiver identities use hashes of their resolved paths.
+The cache does not read executable contents.
+After a tool update at the same path, users must remove obsolete cached artifacts.
+The cache does not require Git metadata.
+Source checks use file contents, not timestamps.
+The source set contains the Cabal file and the selected Haskell and C source files.
+The cache reads these files directly.
+It does not scan source directories or classify build directories.
+Unselected files do not affect the build fingerprint.

@@ -3,13 +3,13 @@ modules:
   - |
     module Test where
 
-    import Data.Typeable (cast, eqTypeRep, typeOf, typeRep)
+    import Data.Typeable (cast, typeOf, typeRep)
     import Data.Proxy (Proxy (..))
 
     data Box a = Box a
 
     sameRepresentation :: Bool
-    sameRepresentation = eqTypeRep (typeOf (Box True)) (typeRep (Proxy :: Proxy (Box Bool)))
+    sameRepresentation = (==) (typeOf (Box True)) (typeRep (Proxy :: Proxy (Box Bool)))
 
     acceptsMatchingType :: Bool
     acceptsMatchingType =

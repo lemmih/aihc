@@ -5,6 +5,8 @@
 module Type.Reflection.Unsafe
   ( TyCon,
     mkTyCon,
+    mkTrCon,
+    mkTrApp,
     tyConKindArgs,
     tyConKindRep,
     KindRep (..),
@@ -17,6 +19,7 @@ where
 import Data.Maybe (Maybe (..))
 import GHC.Base (String, unpackCString#)
 import GHC.Types (Int, KindBndr, KindRep (..), Module (..), TrName (..), TyCon (..), TypeLitSort (..))
+import Type.Reflection.Internal (mkTrApp, mkTrCon)
 
 -- | Build a type constructor. The compiler builds the constructors that
 -- 'Type.Reflection.Typeable' evidence carries; this is for a caller that

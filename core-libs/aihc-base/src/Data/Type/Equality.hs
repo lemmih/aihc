@@ -1,3 +1,4 @@
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Data.Type.Equality
@@ -9,9 +10,9 @@ where
 infix 4 :~:, :~~:
 
 -- | Propositional equality. A value of type a :~: b proves that a and b are the same type.
-data a :~: b where
-  Refl :: a :~: a
+data (a :: k) :~: (b :: k) where
+  Refl :: forall k (a :: k). a :~: a
 
 -- | Kind-heterogeneous propositional equality.
-data a :~~: b where
-  HRefl :: a :~~: a
+data (a :: k1) :~~: (b :: k2) where
+  HRefl :: forall k (a :: k). a :~~: a

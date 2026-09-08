@@ -1,8 +1,8 @@
-{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Data.Typeable
-  ( Typeable (..),
+  ( Typeable,
     TypeRep,
     TyCon,
     Proxy (..),
@@ -10,7 +10,6 @@ module Data.Typeable
     gcast,
     gcast1,
     gcast2,
-    eqTypeRep,
     typeOf,
     typeRep,
     typeRepArgs,
@@ -25,25 +24,25 @@ where
 
 import Data.Maybe (Maybe (..))
 import Data.Proxy (Proxy (..))
+import GHC.Internal.Classes (Eq (..))
 import GHC.Types (Bool (..), Type)
-import Type.Reflection
-  ( SomeTypeRep (..),
-    TyCon,
-    Typeable (..),
-    eqTypeRep,
-    rnfSomeTypeRep,
-    rnfTyCon,
-    splitApps,
-    tyConModule,
-    tyConName,
-    tyConPackage,
-    typeOf,
-    typeRep,
-    typeRepTyCon,
-  )
+import Type.Reflection (SomeTypeRep (..), TyCon, Typeable, rnfSomeTypeRep, rnfTyCon, splitApps, tyConModule, tyConName, tyConPackage)
+import Type.Reflection qualified as Reflection
 import Unsafe.Coerce (unsafeCoerce)
 
 type TypeRep = SomeTypeRep
+
+typeRep :: forall k proxy (a :: k). (Typeable a) => proxy a -> TypeRep
+typeRep = Reflection.someTypeRep
+
+typeOf :: (Typeable a) => a -> TypeRep
+typeOf value = SomeTypeRep (Reflection.typeOf value)
+
+typeRepTyCon :: TypeRep -> TyCon
+typeRepTyCon (SomeTypeRep rep) = Reflection.typeRepTyCon rep
+
+eqTypeRep :: TypeRep -> TypeRep -> Bool
+eqTypeRep = (==)
 
 rnfTypeRep :: TypeRep -> ()
 rnfTypeRep = rnfSomeTypeRep
@@ -73,9 +72,8 @@ gcastWith value source target =
     then Just (unsafeCoerce value)
     else Nothing
 
--- | Cast a value over a unary type constructor. Typeable is not kind
--- polymorphic here, so the cast has no evidence for the type constructors and
--- always fails; a 'Data.Data.dataCast1' method defined with it is a no-op.
+-- | Cast a value over a unary type constructor. This function has no
+-- Typeable constraints and always returns Nothing.
 gcast1 :: forall (c :: Type -> Type) (t :: Type -> Type) (t' :: Type -> Type) a. c (t a) -> Maybe (c (t' a))
 gcast1 _ = Nothing
 

@@ -27,7 +27,7 @@ modules:
     moduleValue = Module (TrNameD "base") (TrNameD "Type.Reflection")
 
     boolRep :: TypeRep Bool
-    boolRep = typeRep (Proxy :: Proxy Bool)
+    boolRep = typeRep
 
     result :: Bool
     result =
