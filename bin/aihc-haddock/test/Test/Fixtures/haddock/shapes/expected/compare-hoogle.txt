@@ -1,0 +1,3 @@
+PASS
+note: instance heads compared without module qualifiers
+note: documentation compared as re-flowed text; line wrapping is not significant

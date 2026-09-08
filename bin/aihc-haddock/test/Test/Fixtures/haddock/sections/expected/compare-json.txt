@@ -1,0 +1,7 @@
+PASS
+note: omitted fields: package_info, link_env, is_sig, info, options (environment metadata, not documentation content)
+note: visible_exports order compared for top-level names only; GHC orders record fields alphabetically
+note: a type and a constructor with the same name share one stable name; the type's documentation is compared
+note: identifier links compared by occurrence name; module aliases: none
+note: excluded from Data.Sections: $main$Data.Sections$$dmcount (generated name)
+note: excluded from Data.Sections: $main$Data.Sections$$dmisEmpty (generated name)

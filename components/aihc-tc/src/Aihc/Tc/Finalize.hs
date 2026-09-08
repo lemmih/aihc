@@ -34,7 +34,7 @@ import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad
 import Aihc.Tc.Tidy (tidyType)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, pattern KType)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, typeKind, pattern KType)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((>=>))
@@ -99,15 +99,16 @@ defaultUnsolvedAnnotationMetas annotation =
       case solution of
         Just {} -> pure ()
         Nothing -> do
+          kinds <- getKinds
           kind <- defaultKindMetas =<< readMetaTvKind meta
           case kind of
             KType -> do
-              unitTyCon <- flip mkWiredTyCon KType =<< wiredTupleTyCon Boxed 0
+              unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
               writeMetaTv meta (TcTyCon unitTyCon [])
             _ ->
               abortTc
                 ( "internal type annotation error: cannot default a meta-variable with kind "
-                    <> renderTcType (tidyType kind)
+                    <> renderTcType (tidyType kinds kind)
                 )
       annotation' <- zonkTcAnnotation annotation
       defaultUnsolvedAnnotationMetas annotation'
@@ -137,10 +138,11 @@ evidenceForEvVar contextType ev = do
     Nothing -> do
       -- A reported type error can leave a wanted constraint without
       -- evidence. Keep the placeholder so the error reaches the user.
+      kinds <- getKinds
       errorCount <- currentErrorCount
       if errorCount > 0
         then pure (EvVarTerm ev)
-        else abortTc ("internal type annotation error: missing evidence for " <> show ev <> " while finalizing " <> renderTcType (tidyType contextType))
+        else abortTc ("internal type annotation error: missing evidence for " <> show ev <> " while finalizing " <> renderTcType (tidyType kinds contextType))
 
 zonkEvTerm :: EvTerm -> TcM EvTerm
 zonkEvTerm evTerm =
@@ -209,10 +211,11 @@ rejectMetaTcAnnotation :: TcAnnotation -> TcM ()
 rejectMetaTcAnnotation ann =
   case firstMetaTcAnnotation ann of
     Nothing -> pure ()
-    Just {} ->
+    Just {} -> do
+      kinds <- getKinds
       abortTc
         ( "internal type annotation error: unzonked meta-variable in finalized annotation with type "
-            <> renderTcType (tidyType (tcAnnType ann))
+            <> renderTcType (tidyType kinds (tcAnnType ann))
         )
 
 rejectMetaFinalAnnotation :: Annotation -> TcM ()

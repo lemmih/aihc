@@ -25,11 +25,13 @@ import Aihc.Parser.Syntax
     parseLanguageEdition,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Prim.Wiring (primTcConfig)
+import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import Aihc.Tc
   ( TcInterface,
+    TcKinds,
     emptyTcInterface,
+    mkTcKinds,
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
@@ -110,7 +112,7 @@ buildFcPrograms extensions sources = do
     then Left ("typecheck error: " <> unlines [show diagnostic | result <- fixtureTcResults, diagnostic <- tcModuleDiagnostics result])
     else do
       let availableInterface = supportTcInterface primitiveSupport <> tcInterface
-          fixtureBindings = concatMap tcModuleBindings fixtureTcResults
+          fixtureBindings = concatMap (tcModuleBindings fixtureKinds) fixtureTcResults
           fixtureExports =
             collectModuleExportsWithDeps (supportScopes primitiveSupport) fixtureModules
           fixtureResults =
@@ -204,7 +206,7 @@ preparePrimitiveSupport sources = do
               ]
         )
     else do
-      let primitiveBindings = concatMap tcModuleBindings primitiveTcResults
+      let primitiveBindings = concatMap (tcModuleBindings fixtureKinds) primitiveTcResults
           primitiveResults =
             map
               (\checked -> desugarModuleFc (desugarConfig primitivePackage exports checked) primitiveBindings tcInterface checked)
@@ -234,9 +236,13 @@ fixtureBuiltinScope modules =
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
     builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum"]
 
+-- | The kind vocabulary of the fixture compiler.
+fixtureKinds :: TcKinds
+fixtureKinds = mkTcKinds (primTcWiring (PackageId "aihc-prim"))
+
 desugarConfig :: Package -> ModuleExports -> Module -> DesugarConfig
 desugarConfig package exports modu =
-  moduleDesugarConfig (PackageId "aihc-prim") package (fromMaybe "Main" (moduleName modu)) exports
+  moduleDesugarConfig fixtureKinds (PackageId "aihc-prim") package (fromMaybe "Main" (moduleName modu)) exports
 
 parsePrimitiveModule :: FilePath -> Text -> Either String Module
 parsePrimitiveModule sourceName input =

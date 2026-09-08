@@ -22,18 +22,19 @@ import Data.Text qualified as T
 
 checkNewtypeInstance :: (Text, Text) -> (Text -> [Pred] -> Pred -> TcM EvTerm) -> (ClassInfo -> [TcType] -> Text -> TcM TypeScheme) -> TcDerivingPlan -> ClassInfo -> [Pred] -> TcInstanceAnnotation -> TcM TcInstanceAnnotation
 checkNewtypeInstance origin solve methodScheme original info context annotation = do
+  tcKinds <- getKinds
   let substitution = Map.fromList [(tvUnique old, TcTyVar new) | old <- tcDerivingTyVars original, new <- tcInstanceTyVars annotation, tvName old == tvName new]
       plan = original {tcDerivingHeadTypes = tcInstanceHeadTypes annotation}
-  case newtypeRepresentation plan of
+  case newtypeRepresentation tcKinds plan of
     Left message -> reject message >> pure annotation
     Right rawRepresentation -> do
-      let representation = applySubst substitution rawRepresentation
+      let representation = applySubst tcKinds substitution rawRepresentation
           headTypes = init (tcInstanceHeadTypes annotation) <> [representation]
       sourceSchemes <- mapM (methodScheme info headTypes . fst) (ciMethods info)
       headKinds <- mapM tcTypeKind headTypes
       let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (ciTyVars info)) headKinds)
           classSubstitution = Map.fromList (zip (map tvUnique (ciTyVars info)) headTypes) <> kindSubstitution
-          superclassFields = map (applySubst classSubstitution) (ciSuperClassTypes info)
+          superclassFields = map (applySubst tcKinds classSubstitution) (ciSuperClassTypes info)
           fieldTypes = superclassFields <> map fieldType sourceSchemes
       methods <- zipWithM (checkMethod plan headTypes) [length superclassFields ..] (map fst (ciMethods info))
       evidence <- if null methods then pure Nothing else Just <$> solve (ciName info) context (ClassPred (ciTyCon info) headTypes)
@@ -42,7 +43,7 @@ checkNewtypeInstance origin solve methodScheme original info context annotation 
         _ -> pure ()
       dictionaryCast <- case (tcDerivingDataType plan, tcInstanceSuperClasses annotation, evidence) of
         (Just dataType, [], Just _) | null (ciKindTyVars info) -> do
-          proof <- newtypeCoercion (tcInstanceAssociatedTypes annotation) dataType representation (last (tcInstanceHeadTypes annotation))
+          proof <- newtypeCoercion tcKinds (tcInstanceAssociatedTypes annotation) dataType representation (last (tcInstanceHeadTypes annotation))
           pure (TyConAppCo (ciTyCon info) headTypes . (map Refl (init headTypes) <>) . (: []) <$> proof)
         _ -> pure Nothing
       pure annotation {tcInstanceNewtype = Just (TcNewtypeInstance headTypes evidence fieldTypes dictionaryCast (catMaybes methods))}
@@ -51,10 +52,11 @@ checkNewtypeInstance origin solve methodScheme original info context annotation 
     fieldType (ForAll variables predicates body) =
       foldr TcForAllTy (if null predicates then body else TcQualTy predicates body) variables
     checkMethod plan headTypes index name = do
+      tcKinds <- getKinds
       ForAll variables sourcePredicates source <- methodScheme info headTypes name
       ForAll _ targetPredicates target <- methodScheme info (tcInstanceHeadTypes annotation) name
       proof <- case tcDerivingDataType plan of
-        Just dataType | sourcePredicates == targetPredicates -> newtypeCoercion (tcInstanceAssociatedTypes annotation) dataType source target
+        Just dataType | sourcePredicates == targetPredicates -> newtypeCoercion tcKinds (tcInstanceAssociatedTypes annotation) dataType source target
         _ -> pure Nothing
       case proof of
         Nothing -> reject ("newtype deriving cannot prove a safe coercion for method " <> T.unpack name) >> pure Nothing
@@ -70,8 +72,8 @@ checkNewtypeInstance origin solve methodScheme original info context annotation 
       _ -> False
 
 -- | Coercions lift through representation parameters, as roles permit.
-newtypeCoercion :: [TypeFamilyInstanceInfo] -> DataTypeInfo -> TcType -> TcType -> TcM (Maybe Coercion)
-newtypeCoercion equations dataType rawSource rawTarget = go (normalize rawSource) (normalize rawTarget)
+newtypeCoercion :: TcKinds -> [TypeFamilyInstanceInfo] -> DataTypeInfo -> TcType -> TcType -> TcM (Maybe Coercion)
+newtypeCoercion tcKinds equations dataType rawSource rawTarget = go (normalize rawSource) (normalize rawTarget)
   where
     go source target
       | source == target = pure (Just (Refl source))
@@ -81,11 +83,11 @@ newtypeCoercion equations dataType rawSource rawTarget = go (normalize rawSource
         [con] <- dtiConstructors dataType,
         [field] <- dciFields con,
         let substitution = Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments),
-        normalize (applySubst substitution (dcfiType field)) == source = do
-          kinds <- mapM tcTypeKind arguments
-          let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (dtiTyVars dataType)) kinds)
+        normalize (applySubst tcKinds substitution (dcfiType field)) == source = do
+          argumentKinds <- mapM tcTypeKind arguments
+          let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (dtiTyVars dataType)) argumentKinds)
               kindVariables = filter (`notElem` dtiTyVars dataType) (nub (concatMap (typeTyVars . tvKind) (dtiTyVars dataType)))
-              kindArguments = map (applySubst kindSubstitution . TcTyVar) kindVariables
+              kindArguments = map (applySubst tcKinds kindSubstitution . TcTyVar) kindVariables
               key = TcAxiomKey (tyConPackageId constructor) (tyConModuleName constructor) ("$ax$" <> dtiName dataType)
           pure (Just (Sym (AxiomInstCo key (kindArguments <> arguments))))
       | TcFunTy sourceArgument sourceResult <- source,
@@ -105,8 +107,8 @@ newtypeCoercion equations dataType rawSource rawTarget = go (normalize rawSource
     familyProof source target = case [ Sym (AxiomInstCo (typeFamilyAxiomKey equation) arguments)
                                      | equation <- equations,
                                        Just substitution <- [matchTypes [tfiiLeft equation] [target]],
-                                       normalize (applySubst substitution (tfiiRight equation)) == source,
-                                       let arguments = map (applySubst substitution . TcTyVar) (tfiiTyVars equation)
+                                       normalize (applySubst tcKinds substitution (tfiiRight equation)) == source,
+                                       let arguments = map (applySubst tcKinds substitution . TcTyVar) (tfiiTyVars equation)
                                      ] of
       proof : _ -> Just proof
       [] -> Nothing

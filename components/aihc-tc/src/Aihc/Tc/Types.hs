@@ -6,6 +6,7 @@
 module Aihc.Tc.Types
   ( Unique (..),
     TyVarId (TyVarId, tvName, tvUnique),
+    mkTyVarId,
     tvKind,
     setTyVarKind,
     TcType (..),
@@ -16,6 +17,7 @@ module Aihc.Tc.Types
     tyConKey,
     tyConPackageId,
     tyConModuleName,
+    TcKinds (..),
     isArrowTyCon,
     isEqualityTyCon,
     mkAppTy,
@@ -24,25 +26,14 @@ module Aihc.Tc.Types
     mkTyConWithOrigin,
     mkTyConWithNamespace,
     TypeScheme (..),
-    typeTyCon,
-    constraintTyCon,
-    runtimeRepTyCon,
-    levityTyCon,
-    vecCountTyCon,
-    vecElemTyCon,
     typeKindInEnv,
+    typeKind,
     constraintKind,
     runtimeRepKind,
-    levityKind,
-    vecCountKind,
-    vecElemKind,
     mkTYPEKind,
-    boxedRep,
+    liftedRep,
     tupleRep,
     sumRep,
-    vecRep,
-    liftedRep,
-    unliftedRep,
     intRep,
     int8Rep,
     int16Rep,
@@ -54,13 +45,9 @@ module Aihc.Tc.Types
     word32Rep,
     word64Rep,
     addrRep,
-    floatRep,
-    doubleRep,
-    typeKindType,
     runtimeRepFromKind,
     isFixedRuntimeRep,
     runtimeRepOfTypeInEnv,
-    isLiftedTypeInEnv,
     isUnliftedTypeInEnv,
     pattern KTYPE,
     pattern KConstraint,
@@ -118,12 +105,17 @@ newtype Unique = Unique Int
 data TyVarId = TyVarIdInternal !Text !Unique !TcType
   deriving (Eq, Ord, Show, Read)
 
+-- | A type variable is matched by its name and its unique. Its kind is
+-- read with 'tvKind' and given with 'mkTyVarId': the module knows no kind
+-- vocabulary of its own, so it has no kind to default to.
 pattern TyVarId :: Text -> Unique -> TyVarId
 pattern TyVarId {tvName, tvUnique} <- TyVarIdInternal tvName tvUnique _
-  where
-    TyVarId name unique = TyVarIdInternal name unique typeKindType
 
 {-# COMPLETE TyVarId #-}
+
+-- | A type variable of one name, unique and kind.
+mkTyVarId :: Text -> Unique -> TcType -> TyVarId
+mkTyVarId = TyVarIdInternal
 
 tvKind :: TyVarId -> TcType
 tvKind (TyVarIdInternal _ _ kind) = kind
@@ -159,26 +151,25 @@ tyConModuleName :: TyCon -> Text
 tyConModuleName (TyConInternal _ moduleName _ _ _) = moduleName
 
 -- | Whether a type constructor is the function arrow @(->)@.
-isArrowTyCon :: TyCon -> Bool
-isArrowTyCon tyCon =
-  tyConName tyCon == "(->)" && tyConModuleName tyCon == "GHC.Types"
+isArrowTyCon :: TcKinds -> TyCon -> Bool
+isArrowTyCon kinds tyCon = tyCon == kindsArrowTyCon kinds
 
 -- | Apply a type constructor to arguments. A saturated function arrow is
 -- the function type, so the arrow constructor and the function type are
 -- one form.
-mkTyConApp :: TyCon -> [TcType] -> TcType
-mkTyConApp tyCon arguments =
+mkTyConApp :: TcKinds -> TyCon -> [TcType] -> TcType
+mkTyConApp kinds tyCon arguments =
   case arguments of
-    [argument, result] | isArrowTyCon tyCon -> TcFunTy argument result
+    [argument, result] | isArrowTyCon kinds tyCon -> TcFunTy argument result
     _ -> TcTyCon tyCon arguments
 
 -- | Apply a type to an argument. An application of a type constructor
 -- stays a constructor application, so a saturated arrow becomes the
 -- function type.
-mkAppTy :: TcType -> TcType -> TcType
-mkAppTy function argument =
+mkAppTy :: TcKinds -> TcType -> TcType -> TcType
+mkAppTy kinds function argument =
   case function of
-    TcTyCon tyCon arguments -> mkTyConApp tyCon (arguments <> [argument])
+    TcTyCon tyCon arguments -> mkTyConApp kinds tyCon (arguments <> [argument])
     _ -> TcAppTy function argument
 
 tyConNamespace :: TyCon -> ResolutionNamespace
@@ -221,23 +212,23 @@ data Pred
   deriving (Eq, Ord, Show, Read)
 
 -- | Convert a constraint-kinded type to a predicate.
-constraintTypeToPred :: TcType -> Maybe Pred
-constraintTypeToPred ty =
+constraintTypeToPred :: TcKinds -> TcType -> Maybe Pred
+constraintTypeToPred kinds ty =
   case collectForAllTypes ty of
     (variables@(_ : _), qualified) -> do
       let (antecedents, consequentType) =
             case qualified of
               TcQualTy predicates body -> (predicates, body)
               body -> ([], body)
-      consequent <- atomicConstraintTypeToPred consequentType
+      consequent <- atomicConstraintTypeToPred kinds consequentType
       pure (QuantifiedPred variables antecedents consequent)
-    ([], body) -> atomicConstraintTypeToPred body
+    ([], body) -> atomicConstraintTypeToPred kinds body
 
-atomicConstraintTypeToPred :: TcType -> Maybe Pred
-atomicConstraintTypeToPred ty =
+atomicConstraintTypeToPred :: TcKinds -> TcType -> Maybe Pred
+atomicConstraintTypeToPred kinds ty =
   case collectTypeApplications ty of
     (TcTyCon tyCon headArgs, arguments)
-      | isEqualityTyCon tyCon,
+      | isEqualityTyCon kinds tyCon,
         [left, right] <- headArgs <> arguments ->
           Just (EqPred left right)
     (TcTyCon tyCon [payload], [])
@@ -246,13 +237,13 @@ atomicConstraintTypeToPred ty =
       Just (ClassPred tyCon (headArgs <> arguments))
     _ -> Nothing
 
--- | The exported nominal equality type in the primitive module.
-isEqualityTyCon :: TyCon -> Bool
-isEqualityTyCon tyCon =
-  tyConModuleName tyCon == "GHC.Types"
-    && tyConNamespace tyCon == ResolutionNamespaceType
-    && tyConName tyCon == "~"
-    && tyConArity tyCon == 2
+-- | Whether a type constructor is the nominal equality constraint @~@.
+--
+-- A source module may declare a class of that name -- @class a ~ b@ is
+-- accepted with TypeOperators -- and such a class imposes no equality, so
+-- this compares identities rather than names.
+isEqualityTyCon :: TcKinds -> TyCon -> Bool
+isEqualityTyCon kinds tyCon = tyCon == kindsEqualityTyCon kinds
 
 -- | The name of the constraint type constructor for one implicit parameter.
 isImplicitParamTyConName :: Text -> Bool
@@ -272,86 +263,101 @@ collectTypeApplications ty =
        in (headType, arguments <> [argument])
     _ -> (ty, [])
 
--- These values identify source declarations. They do not contain kind data.
-primTypeCon :: Text -> Int -> TyCon
-primTypeCon = mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types"
+-- | The kind vocabulary, resolved to the module that declares it.
+--
+-- The type checker knows the names GHC gives these constructors --
+-- @TYPE@, @Constraint@, @BoxedRep@, @IntRep@ and the rest -- but not the
+-- package or module that declares them, and it must not guess: a kind it
+-- built and a kind it resolved from an interface have to be the same
+-- type. 'Aihc.Tc.Wiring.mkTcKinds' builds this table from the compiler's
+-- wiring, and every kind below is built from it.
+data TcKinds = TcKinds
+  { -- | A kind constructor of one name and arity, such as @TYPE@.
+    kindsTyCon :: Text -> Int -> TyCon,
+    -- | A promoted constructor of the kind vocabulary of one name and
+    -- arity, such as @BoxedRep@, @Lifted@ or @IntRep@.
+    kindsDataCon :: Text -> Int -> TyCon,
+    -- | The function arrow.
+    kindsArrowTyCon :: TyCon,
+    -- | The nominal equality constraint @~@.
+    kindsEqualityTyCon :: TyCon
+  }
 
-primDataCon :: Text -> Int -> TyCon
-primDataCon = mkTyConWithNamespace ResolutionNamespaceTerm (PackageId "aihc-prim") "GHC.Types"
+-- | The tables are functions, so a table shows as its name alone, as
+-- 'Aihc.Tc.Wiring.TcWiring' does.
+instance Show TcKinds where
+  show _ = "TcKinds"
 
-typeTyCon, constraintTyCon, runtimeRepTyCon, levityTyCon, vecCountTyCon, vecElemTyCon :: TyCon
-typeTyCon = primTypeCon "Type" 0
-constraintTyCon = primTypeCon "Constraint" 0
-runtimeRepTyCon = primTypeCon "RuntimeRep" 0
-levityTyCon = primTypeCon "Levity" 0
-vecCountTyCon = primTypeCon "VecCount" 0
-vecElemTyCon = primTypeCon "VecElem" 0
+-- | The kind of ordinary lifted types, @TYPE (BoxedRep Lifted)@.
+typeKind :: TcKinds -> TcType
+typeKind kinds = mkTYPEKind kinds (liftedRep kinds)
 
-typeKindType, constraintKind, runtimeRepKind, levityKind, vecCountKind, vecElemKind :: TcType
-typeKindType = mkTYPEKind liftedRep
-constraintKind = TcTyCon constraintTyCon []
-runtimeRepKind = TcTyCon runtimeRepTyCon []
-levityKind = TcTyCon levityTyCon []
-vecCountKind = TcTyCon vecCountTyCon []
-vecElemKind = TcTyCon vecElemTyCon []
+-- | The kind of constraints.
+constraintKind :: TcKinds -> TcType
+constraintKind kinds = TcTyCon (kindsTyCon kinds "Constraint" 0) []
 
-mkTYPEKind :: TcType -> TcType
-mkTYPEKind representation = TcTyCon (primTypeCon "TYPE" 1) [representation]
+-- | The kind of runtime representations.
+runtimeRepKind :: TcKinds -> TcType
+runtimeRepKind kinds = TcTyCon (kindsTyCon kinds "RuntimeRep" 0) []
 
-nullaryRep :: Text -> TcType
-nullaryRep name = TcTyCon (primDataCon name 0) []
+-- | The kind of types of one runtime representation.
+mkTYPEKind :: TcKinds -> TcType -> TcType
+mkTYPEKind kinds representation =
+  TcTyCon (kindsTyCon kinds "TYPE" 1) [representation]
 
-liftedRep, unliftedRep, intRep, int8Rep, int16Rep, int32Rep, int64Rep :: TcType
-wordRep, word8Rep, word16Rep, word32Rep, word64Rep, addrRep, floatRep, doubleRep :: TcType
-liftedRep = boxedRep (TcTyCon (primDataCon "Lifted" 0) [])
-unliftedRep = boxedRep (TcTyCon (primDataCon "Unlifted" 0) [])
-intRep = nullaryRep "IntRep"
-int8Rep = nullaryRep "Int8Rep"
-int16Rep = nullaryRep "Int16Rep"
-int32Rep = nullaryRep "Int32Rep"
-int64Rep = nullaryRep "Int64Rep"
+nullaryRep :: TcKinds -> Text -> TcType
+nullaryRep kinds name = TcTyCon (kindsDataCon kinds name 0) []
 
-wordRep = nullaryRep "WordRep"
+-- | The lifted runtime representation, @BoxedRep Lifted@.
+liftedRep :: TcKinds -> TcType
+liftedRep kinds = boxedRep kinds (nullaryRep kinds "Lifted")
 
-word8Rep = nullaryRep "Word8Rep"
+intRep, int8Rep, int16Rep, int32Rep, int64Rep :: TcKinds -> TcType
+wordRep, word8Rep, word16Rep, word32Rep, word64Rep, addrRep :: TcKinds -> TcType
+intRep kinds = nullaryRep kinds "IntRep"
+int8Rep kinds = nullaryRep kinds "Int8Rep"
+int16Rep kinds = nullaryRep kinds "Int16Rep"
+int32Rep kinds = nullaryRep kinds "Int32Rep"
+int64Rep kinds = nullaryRep kinds "Int64Rep"
 
-word16Rep = nullaryRep "Word16Rep"
+wordRep kinds = nullaryRep kinds "WordRep"
 
-word32Rep = nullaryRep "Word32Rep"
+word8Rep kinds = nullaryRep kinds "Word8Rep"
 
-word64Rep = nullaryRep "Word64Rep"
+word16Rep kinds = nullaryRep kinds "Word16Rep"
 
-addrRep = nullaryRep "AddrRep"
+word32Rep kinds = nullaryRep kinds "Word32Rep"
 
-floatRep = nullaryRep "FloatRep"
+word64Rep kinds = nullaryRep kinds "Word64Rep"
 
-doubleRep = nullaryRep "DoubleRep"
+addrRep kinds = nullaryRep kinds "AddrRep"
 
-boxedRep :: TcType -> TcType
-boxedRep levity = TcTyCon (primDataCon "BoxedRep" 1) [levity]
+boxedRep :: TcKinds -> TcType -> TcType
+boxedRep kinds levity = TcTyCon (kindsDataCon kinds "BoxedRep" 1) [levity]
 
-tupleRep :: [TcType] -> TcType
-tupleRep fields = TcTyCon (primDataCon "TupleRep" 1) [dataConstructorList fields]
+-- | The runtime representation of an unboxed tuple of these fields.
+tupleRep :: TcKinds -> [TcType] -> TcType
+tupleRep kinds fields =
+  TcTyCon (kindsDataCon kinds "TupleRep" 1) [dataConstructorList kinds fields]
 
-sumRep :: [TcType] -> TcType
-sumRep fields = TcTyCon (primDataCon "SumRep" 1) [dataConstructorList fields]
+-- | The runtime representation of an unboxed sum of these fields.
+sumRep :: TcKinds -> [TcType] -> TcType
+sumRep kinds fields =
+  TcTyCon (kindsDataCon kinds "SumRep" 1) [dataConstructorList kinds fields]
 
-vecRep :: TcType -> TcType -> TcType
-vecRep count element = TcTyCon (primDataCon "VecRep" 2) [count, element]
-
-dataConstructorList :: [TcType] -> TcType
-dataConstructorList = foldr cons nil
+dataConstructorList :: TcKinds -> [TcType] -> TcType
+dataConstructorList kinds = foldr cons nil
   where
-    nil = TcTyCon (primDataCon "[]" 0) []
-    cons field rest = TcTyCon (primDataCon ":" 2) [field, rest]
+    nil = TcTyCon (kindsDataCon kinds "[]" 0) []
+    cons field rest = TcTyCon (kindsDataCon kinds ":" 2) [field, rest]
 
 -- | Get a type kind from the complete type-constructor identity table.
-typeKindInEnv :: TcKindEnv -> TcType -> Either String TcType
-typeKindInEnv kindEnv = go
+typeKindInEnv :: TcKinds -> TcKindEnv -> TcType -> Either String TcType
+typeKindInEnv kinds kindEnv = go
   where
     go rawType =
-      case configurePrimitiveType rawType of
-        TcTyVar tyVar -> Right (configurePrimitiveType (tvKind tyVar))
+      case rawType of
+        TcTyVar tyVar -> Right (tvKind tyVar)
         TcMetaTv {} -> Left "type still has a meta variable"
         TcTyCon tyCon arguments -> do
           scheme <-
@@ -360,14 +366,14 @@ typeKindInEnv kindEnv = go
               Right
               (Map.lookup (tyConKey tyCon) kindEnv)
           applyArguments scheme arguments
-        TcFunTy {} -> Right (configurePrimitiveType typeKindType)
+        TcFunTy {} -> Right (typeKind kinds)
         TcForAllTy _ body -> go body
         TcQualTy _ body -> go body
         TcAppTy function argument -> do
           functionKind <- go function
           applyKind functionKind argument
 
-    applyArguments (ForAll quantified _ body) = applyMany (map tvUnique quantified) (configurePrimitiveType body)
+    applyArguments (ForAll quantified _ body) = applyMany (map tvUnique quantified) body
 
     applyMany _ kind [] = Right kind
     applyMany quantified kind (argument : rest) = do
@@ -379,7 +385,7 @@ typeKindInEnv kindEnv = go
     applyKindWith quantified (TcFunTy formal result) argument = do
       actual <- go argument
       substitution <- matchKinds quantified formal actual
-      Right (applySubst substitution result)
+      Right (applySubst kinds substitution result)
     applyKindWith _ kind _ = Left ("type application uses a non-function kind: " <> show kind)
 
     matchKinds quantified formal actual =
@@ -394,78 +400,21 @@ typeKindInEnv kindEnv = go
             length leftArguments == length rightArguments ->
               Map.unions <$> zipWithM (matchKinds quantified) leftArguments rightArguments
         _
-          | equivalentKind formal actual -> Right Map.empty
+          | formal == actual -> Right Map.empty
           | otherwise -> Left ("kind mismatch: expected " <> show formal <> ", got " <> show actual)
 
-    equivalentKind left right =
-      configurePrimitiveType left == configurePrimitiveType right
-        || case (left, right) of
-          (KTYPE leftRep, KTYPE rightRep) -> leftRep == rightRep
-          _ -> False
+runtimeRepOfTypeInEnv :: TcKinds -> TcKindEnv -> TcType -> Either String TcType
+runtimeRepOfTypeInEnv kinds kindEnv ty = typeKindInEnv kinds kindEnv ty >>= runtimeRepFromKind
 
-    configurePrimitiveType ty =
-      case ty of
-        TcTyVar tyVar -> TcTyVar (setTyVarKind (configurePrimitiveType (tvKind tyVar)) tyVar)
-        TcMetaTv {} -> ty
-        TcTyCon tyCon arguments -> TcTyCon (configurePrimitiveTyCon tyCon) (map configurePrimitiveType arguments)
-        TcFunTy argument result -> TcFunTy (configurePrimitiveType argument) (configurePrimitiveType result)
-        TcForAllTy tyVar body ->
-          TcForAllTy
-            (setTyVarKind (configurePrimitiveType (tvKind tyVar)) tyVar)
-            (configurePrimitiveType body)
-        TcQualTy predicates body -> TcQualTy (map configurePred predicates) (configurePrimitiveType body)
-        TcAppTy function argument -> TcAppTy (configurePrimitiveType function) (configurePrimitiveType argument)
-
-    configurePred predicate =
-      case predicate of
-        ClassPred className arguments -> ClassPred (configurePrimitiveTyCon className) (map configurePrimitiveType arguments)
-        EqPred left right -> EqPred (configurePrimitiveType left) (configurePrimitiveType right)
-        IParamPred name payload -> IParamPred name (configurePrimitiveType payload)
-        QuantifiedPred variables antecedents consequent ->
-          QuantifiedPred
-            (map (\variable -> setTyVarKind (configurePrimitiveType (tvKind variable)) variable) variables)
-            (map configurePred antecedents)
-            (configurePred consequent)
-
-    configurePrimitiveTyCon tyCon
-      | tyConPackageId tyCon == PackageId "aihc-prim",
-        tyConModuleName tyCon == "GHC.Types" =
-          mkTyConWithNamespace
-            (tyConNamespace tyCon)
-            primitivePackage
-            "GHC.Types"
-            (tyConName tyCon)
-            (tyConArity tyCon)
-      | otherwise = tyCon
-
-    primitivePackage =
-      case [ packageId
-           | ((packageId, moduleName, namespace, name), _) <- Map.toList kindEnv,
-             moduleName == "GHC.Types",
-             namespace == ResolutionNamespaceType,
-             name == "TYPE"
-           ] of
-        packageId : _ -> packageId
-        [] -> PackageId "aihc-prim"
-
-runtimeRepOfTypeInEnv :: TcKindEnv -> TcType -> Either String TcType
-runtimeRepOfTypeInEnv kindEnv ty = typeKindInEnv kindEnv ty >>= runtimeRepFromKind
-
-isLiftedTypeInEnv :: TcKindEnv -> TcType -> Bool
-isLiftedTypeInEnv kindEnv ty =
-  case runtimeRepOfTypeInEnv kindEnv ty of
-    Right representation -> matchesLiftedRuntimeRep representation
-    Left _ -> False
-
-isUnliftedTypeInEnv :: TcKindEnv -> TcType -> Bool
-isUnliftedTypeInEnv kindEnv ty =
-  case runtimeRepOfTypeInEnv kindEnv ty of
+isUnliftedTypeInEnv :: TcKinds -> TcKindEnv -> TcType -> Bool
+isUnliftedTypeInEnv kinds kindEnv ty =
+  case runtimeRepOfTypeInEnv kinds kindEnv ty of
     Right representation -> not (matchesLiftedRuntimeRep representation)
     Left _ -> False
 
 -- | Apply a type-variable substitution to a type.
-applySubst :: Map Unique TcType -> TcType -> TcType
-applySubst substitution = go
+applySubst :: TcKinds -> Map Unique TcType -> TcType -> TcType
+applySubst kinds substitution = go
   where
     go ty =
       case ty of
@@ -474,38 +423,39 @@ applySubst substitution = go
         TcTyCon tyCon arguments -> TcTyCon tyCon (map go arguments)
         TcFunTy argument result -> TcFunTy (go argument) (go result)
         TcForAllTy tyVar body ->
-          TcForAllTy tyVar (applySubst (Map.delete (tvUnique tyVar) substitution) body)
-        TcQualTy predicates body -> TcQualTy (map (applySubstPred substitution) predicates) (go body)
+          TcForAllTy tyVar (applySubst kinds (Map.delete (tvUnique tyVar) substitution) body)
+        TcQualTy predicates body -> TcQualTy (map (applySubstPred kinds substitution) predicates) (go body)
         TcAppTy function argument -> applyType (go function) (go argument)
 
-    applyType = mkAppTy
+    applyType = mkAppTy kinds
 
 -- | Apply a type-variable substitution to a predicate.
-applySubstPred :: Map Unique TcType -> Pred -> Pred
-applySubstPred substitution predicate =
+applySubstPred :: TcKinds -> Map Unique TcType -> Pred -> Pred
+applySubstPred kinds substitution predicate =
   case predicate of
-    ClassPred className arguments -> ClassPred className (map (applySubst substitution) arguments)
-    EqPred left right -> EqPred (applySubst substitution left) (applySubst substitution right)
-    IParamPred name payload -> IParamPred name (applySubst substitution payload)
+    ClassPred className arguments -> ClassPred className (map (applySubst kinds substitution) arguments)
+    EqPred left right -> EqPred (applySubst kinds substitution left) (applySubst kinds substitution right)
+    IParamPred name payload -> IParamPred name (applySubst kinds substitution payload)
     QuantifiedPred variables antecedents consequent ->
       let scopedSubstitution = foldr (Map.delete . tvUnique) substitution variables
        in QuantifiedPred
             variables
-            (map (applySubstPred scopedSubstitution) antecedents)
-            (applySubstPred scopedSubstitution consequent)
+            (map (applySubstPred kinds scopedSubstitution) antecedents)
+            (applySubstPred kinds scopedSubstitution consequent)
 
+-- The kind patterns recognise a kind by its namespace and its name, so
+-- that a kind built here and a kind resolved from an interface match each
+-- other. They only match: a kind is built from a 'TcKinds'.
 pattern KTYPE :: TcType -> TcType
 pattern KTYPE representation <- (matchTYPEKind -> Just representation)
-  where
-    KTYPE representation = mkTYPEKind representation
 
 pattern KConstraint, KRuntimeRep, KLevity, KVecCount, KVecElem, KType :: TcType
-pattern KConstraint <- (matchesNullary ResolutionNamespaceType "Constraint" -> True) where KConstraint = constraintKind
-pattern KRuntimeRep <- (matchesNullary ResolutionNamespaceType "RuntimeRep" -> True) where KRuntimeRep = runtimeRepKind
-pattern KLevity <- (matchesNullary ResolutionNamespaceType "Levity" -> True) where KLevity = levityKind
-pattern KVecCount <- (matchesNullary ResolutionNamespaceType "VecCount" -> True) where KVecCount = vecCountKind
-pattern KVecElem <- (matchesNullary ResolutionNamespaceType "VecElem" -> True) where KVecElem = vecElemKind
-pattern KType <- (matchesLiftedTypeKind -> True) where KType = typeKindType
+pattern KConstraint <- (matchesNullary ResolutionNamespaceType "Constraint" -> True)
+pattern KRuntimeRep <- (matchesNullary ResolutionNamespaceType "RuntimeRep" -> True)
+pattern KLevity <- (matchesNullary ResolutionNamespaceType "Levity" -> True)
+pattern KVecCount <- (matchesNullary ResolutionNamespaceType "VecCount" -> True)
+pattern KVecElem <- (matchesNullary ResolutionNamespaceType "VecElem" -> True)
+pattern KType <- (matchesLiftedTypeKind -> True)
 
 pattern KFun :: TcType -> TcType -> TcType
 pattern KFun argument result = TcFunTy argument result
@@ -535,31 +485,19 @@ matchesLiftedRuntimeRep representation =
 
 pattern BoxedRep :: TcType -> TcType
 pattern BoxedRep levity <- (matchUnaryRep "BoxedRep" -> Just levity)
-  where
-    BoxedRep levity = boxedRep levity
 
 pattern TupleRep :: [TcType] -> TcType
 pattern TupleRep fields <- (matchListRep "TupleRep" -> Just fields)
-  where
-    TupleRep fields = tupleRep fields
 
 pattern SumRep :: [TcType] -> TcType
 pattern SumRep fields <- (matchListRep "SumRep" -> Just fields)
-  where
-    SumRep fields = sumRep fields
 
 pattern VecRep :: TcType -> TcType -> TcType
 pattern VecRep count element <- (matchBinaryRep "VecRep" -> Just (count, element))
-  where
-    VecRep count element = vecRep count element
 
 pattern Lifted, Unlifted :: TcType
 pattern Lifted <- (matchesNullary ResolutionNamespaceTerm "Lifted" -> True)
-  where
-    Lifted = TcTyCon (primDataCon "Lifted" 0) []
 pattern Unlifted <- (matchesNullary ResolutionNamespaceTerm "Unlifted" -> True)
-  where
-    Unlifted = TcTyCon (primDataCon "Unlifted" 0) []
 
 pattern IntRep, Int8Rep, Int16Rep, Int32Rep, Int64Rep :: TcType
 
@@ -567,31 +505,31 @@ pattern WordRep, Word8Rep, Word16Rep, Word32Rep, Word64Rep :: TcType
 
 pattern AddrRep, FloatRep, DoubleRep :: TcType
 
-pattern IntRep <- (matchesNullary ResolutionNamespaceTerm "IntRep" -> True) where IntRep = intRep
+pattern IntRep <- (matchesNullary ResolutionNamespaceTerm "IntRep" -> True)
 
-pattern Int8Rep <- (matchesNullary ResolutionNamespaceTerm "Int8Rep" -> True) where Int8Rep = int8Rep
+pattern Int8Rep <- (matchesNullary ResolutionNamespaceTerm "Int8Rep" -> True)
 
-pattern Int16Rep <- (matchesNullary ResolutionNamespaceTerm "Int16Rep" -> True) where Int16Rep = int16Rep
+pattern Int16Rep <- (matchesNullary ResolutionNamespaceTerm "Int16Rep" -> True)
 
-pattern Int32Rep <- (matchesNullary ResolutionNamespaceTerm "Int32Rep" -> True) where Int32Rep = int32Rep
+pattern Int32Rep <- (matchesNullary ResolutionNamespaceTerm "Int32Rep" -> True)
 
-pattern Int64Rep <- (matchesNullary ResolutionNamespaceTerm "Int64Rep" -> True) where Int64Rep = int64Rep
+pattern Int64Rep <- (matchesNullary ResolutionNamespaceTerm "Int64Rep" -> True)
 
-pattern WordRep <- (matchesNullary ResolutionNamespaceTerm "WordRep" -> True) where WordRep = wordRep
+pattern WordRep <- (matchesNullary ResolutionNamespaceTerm "WordRep" -> True)
 
-pattern Word8Rep <- (matchesNullary ResolutionNamespaceTerm "Word8Rep" -> True) where Word8Rep = word8Rep
+pattern Word8Rep <- (matchesNullary ResolutionNamespaceTerm "Word8Rep" -> True)
 
-pattern Word16Rep <- (matchesNullary ResolutionNamespaceTerm "Word16Rep" -> True) where Word16Rep = word16Rep
+pattern Word16Rep <- (matchesNullary ResolutionNamespaceTerm "Word16Rep" -> True)
 
-pattern Word32Rep <- (matchesNullary ResolutionNamespaceTerm "Word32Rep" -> True) where Word32Rep = word32Rep
+pattern Word32Rep <- (matchesNullary ResolutionNamespaceTerm "Word32Rep" -> True)
 
-pattern Word64Rep <- (matchesNullary ResolutionNamespaceTerm "Word64Rep" -> True) where Word64Rep = word64Rep
+pattern Word64Rep <- (matchesNullary ResolutionNamespaceTerm "Word64Rep" -> True)
 
-pattern AddrRep <- (matchesNullary ResolutionNamespaceTerm "AddrRep" -> True) where AddrRep = addrRep
+pattern AddrRep <- (matchesNullary ResolutionNamespaceTerm "AddrRep" -> True)
 
-pattern FloatRep <- (matchesNullary ResolutionNamespaceTerm "FloatRep" -> True) where FloatRep = floatRep
+pattern FloatRep <- (matchesNullary ResolutionNamespaceTerm "FloatRep" -> True)
 
-pattern DoubleRep <- (matchesNullary ResolutionNamespaceTerm "DoubleRep" -> True) where DoubleRep = doubleRep
+pattern DoubleRep <- (matchesNullary ResolutionNamespaceTerm "DoubleRep" -> True)
 
 matchUnaryRep :: Text -> TcType -> Maybe TcType
 matchUnaryRep expected (TcTyCon tyCon [argument])
@@ -676,11 +614,13 @@ isFixedRuntimeRep representation =
     DoubleRep -> True
     _ -> False
   where
+    -- The representation matchers this function is built from compare a
+    -- namespace and a name. Recognise a promoted constructor the same way,
+    -- so that the whole function reads one identity the same way.
     promotedConstructorIsOneOf names ty =
       case ty of
         TcTyCon tyCon [] ->
           tyConNamespace tyCon == ResolutionNamespaceTerm
-            && tyConModuleName tyCon == "GHC.Types"
             && tyConName tyCon `elem` names
         _ -> False
 

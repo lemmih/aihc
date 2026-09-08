@@ -1,0 +1,11 @@
+cabal-version: 2.4
+name: markup
+version: 0.1.0.0
+synopsis: Haddock markup fixture
+build-type: Simple
+
+library
+  exposed-modules: Markup
+  hs-source-dirs: src
+  build-depends: base
+  default-language: Haskell2010

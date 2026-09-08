@@ -53,9 +53,10 @@ import Data.Text qualified as T
 -- keeps its unresolved context, so no instance is generated for it.
 inferDerivingContexts :: [Module] -> TcM [Module]
 inferDerivingContexts modules = do
+  kinds <- getKinds
   existingInstances <- getInstances
   let originalPlans = concatMap moduleDerivingPlans modules
-      trialEnvironment = derivingEnv existingInstances originalPlans
+      trialEnvironment = derivingEnv kinds existingInstances originalPlans
       selectPlan plan
         | tcDerivingStockFallback plan,
           TcDerivingInferContext <- tcDerivingContext plan,
@@ -63,8 +64,8 @@ inferDerivingContexts modules = do
             plan {tcDerivingStrategy = TcDerivingStock}
         | otherwise = plan
       selectedPlans = map selectPlan originalPlans
-      environment = derivingEnv existingInstances selectedPlans
-  contextPlans <- mapM (inferPlanContext environment) selectedPlans
+      environment = derivingEnv kinds existingInstances selectedPlans
+  contextPlans <- mapM (inferPlanContext kinds environment) selectedPlans
   pure (map (replaceModulePlans contextPlans) modules)
 
 -- | Everything context simplification needs about the batch: the instances
@@ -79,8 +80,8 @@ data DerivingEnv = DerivingEnv
     derivingEnvContexts :: !(Map PlanKey (Either Pred [Pred]))
   }
 
-derivingEnv :: [InstanceInfo] -> [TcDerivingPlan] -> DerivingEnv
-derivingEnv existingInstances plans =
+derivingEnv :: TcKinds -> [InstanceInfo] -> [TcDerivingPlan] -> DerivingEnv
+derivingEnv kinds existingInstances plans =
   base {derivingEnvContexts = solveContexts (length inferable + 2) (Map.fromList (map initialContext inferable))}
   where
     base =
@@ -91,7 +92,7 @@ derivingEnv existingInstances plans =
         }
     groupByClass className = Map.fromListWith (flip (<>)) . map (\value -> (className value, [value]))
 
-    inferable = [(plan, obligations) | plan <- plans, Just (Right obligations) <- [inferableObligations plan]]
+    inferable = [(plan, obligations) | plan <- plans, Just (Right obligations) <- [inferableObligations kinds plan]]
 
     -- Reject cycles for anyclass and newtype plans.
     -- Stock plans can use recursive structural instances.
@@ -111,34 +112,34 @@ derivingEnv existingInstances plans =
         environment = base {derivingEnvContexts = contexts}
         next =
           Map.fromList
-            [ (planKey plan, nub . concat <$> mapM (simplifyPredicate environment plan) obligations)
+            [ (planKey plan, nub . concat <$> mapM (simplifyPredicate kinds environment plan) obligations)
             | (plan, obligations) <- inferable
             ]
 
 -- | The obligations of a plan whose context the compiler has to infer, or
 -- 'Nothing' when the plan carries its context or needs no inference. A
 -- 'Left' reports why the plan cannot be derived.
-inferableObligations :: TcDerivingPlan -> Maybe (Either String [Pred])
-inferableObligations plan =
+inferableObligations :: TcKinds -> TcDerivingPlan -> Maybe (Either String [Pred])
+inferableObligations kinds plan =
   case tcDerivingContext plan of
-    TcDerivingInferContext -> derivingObligations plan
+    TcDerivingInferContext -> derivingObligations kinds plan
     TcDerivingExplicitContext {} -> Nothing
 
 -- | The predicates that the generated instance body of a plan needs, before
 -- simplification, or 'Nothing' for a strategy that generates nothing.
-derivingObligations :: TcDerivingPlan -> Maybe (Either String [Pred])
-derivingObligations plan =
+derivingObligations :: TcKinds -> TcDerivingPlan -> Maybe (Either String [Pred])
+derivingObligations kinds plan =
   case tcDerivingStrategy plan of
-    TcDerivingAnyclass -> Just (Right (anyClassObligations plan))
+    TcDerivingAnyclass -> Just (Right (anyClassObligations kinds plan))
     TcDerivingStock
       | isSupportedStockClass (tcDerivingClassName plan) ->
-          Just (map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concat <$> stockFieldTypes plan)
+          Just (map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concat <$> stockFieldTypes kinds plan)
       | otherwise -> Nothing
     TcDerivingNewtype ->
       Just $ do
-        representation <- newtypeRepresentation plan
+        representation <- newtypeRepresentation kinds plan
         let substitution = Map.fromList (zip (map tvUnique (tcDerivingClassTyVars plan)) (tcDerivingHeadTypes plan))
-            supers = mapMaybe (constraintTypeToPred . applySubst substitution . tcDictBinderType) (tcDerivingClassSuperClasses plan)
+            supers = mapMaybe (constraintTypeToPred kinds . applySubst kinds substitution . tcDictBinderType) (tcDerivingClassSuperClasses plan)
             methods = [ClassPred (tcDerivingClassTyCon plan) (init (tcDerivingHeadTypes plan) <> [representation]) | not (null (tcDerivingClassMethods plan))]
         pure (supers <> methods)
     TcDerivingVia {} -> Nothing
@@ -147,9 +148,9 @@ derivingObligations plan =
 isSupportedStockClass :: Text -> Bool
 isSupportedStockClass className = className `elem` ["Eq", "Ord", "Show", "Read", "Bounded"]
 
-inferPlanContext :: DerivingEnv -> TcDerivingPlan -> TcM TcDerivingPlan
-inferPlanContext environment plan =
-  case inferableObligations plan of
+inferPlanContext :: TcKinds -> DerivingEnv -> TcDerivingPlan -> TcM TcDerivingPlan
+inferPlanContext kinds environment plan =
+  case inferableObligations kinds plan of
     Nothing -> pure plan
     Just (Left message) -> do
       emitError (tcDerivingSourceSpan plan) (OtherError message)
@@ -168,14 +169,14 @@ inferredContext :: DerivingEnv -> TcDerivingPlan -> Either Pred [Pred]
 inferredContext environment plan =
   Map.findWithDefault (Left (planPredicate plan)) (planKey plan) (derivingEnvContexts environment)
 
-simplifyPredicate :: DerivingEnv -> TcDerivingPlan -> Pred -> Either Pred [Pred]
-simplifyPredicate environment owner predicate
+simplifyPredicate :: TcKinds -> DerivingEnv -> TcDerivingPlan -> Pred -> Either Pred [Pred]
+simplifyPredicate kinds environment owner predicate
   | isBareVariablePredicate (tcDerivingTyVars owner) predicate = Right [predicate]
   | ClassPred typeableTyCon _ <- predicate,
     Just arguments <- typeableArguments predicate =
       concat
         <$> mapM
-          (simplifyPredicate environment owner . ClassPred typeableTyCon . (: []))
+          (simplifyPredicate kinds environment owner . ClassPred typeableTyCon . (: []))
           arguments
   | otherwise =
       case firstSuccessful (map simplifyExisting matchingExisting <> map simplifyDerived matchingDerived) of
@@ -200,13 +201,13 @@ simplifyPredicate environment owner predicate
     simplifyExisting (instanceInfo, substitution) =
       concat
         <$> mapM
-          (simplifyPredicate environment owner . applySubstPred substitution)
+          (simplifyPredicate kinds environment owner . applySubstPred kinds substitution)
           (iiContext instanceInfo)
     simplifyDerived (candidate, substitution) = do
       context <- candidateContext candidate
       concat
         <$> mapM
-          (simplifyPredicate environment owner . applySubstPred substitution)
+          (simplifyPredicate kinds environment owner . applySubstPred kinds substitution)
           context
     candidateContext candidate =
       case tcDerivingContext candidate of
@@ -223,13 +224,13 @@ firstSuccessful results =
     Left _ : rest -> firstSuccessful rest
     Right value : _ -> Just value
 
-anyClassObligations :: TcDerivingPlan -> [Pred]
-anyClassObligations plan =
+anyClassObligations :: TcKinds -> TcDerivingPlan -> [Pred]
+anyClassObligations kinds plan =
   mapMaybe
-    (constraintTypeToPred . applySubst substitution . tcDictBinderType)
+    (constraintTypeToPred kinds . applySubst kinds substitution . tcDictBinderType)
     (tcDerivingClassSuperClasses plan)
     <> concat
-      [ map (applySubstPred substitution) predicates
+      [ map (applySubstPred kinds substitution) predicates
       | (methodName, predicates) <- tcDerivingDefaultSignatures plan,
         methodName `elem` tcDerivingDefaultMethods plan
       ]
@@ -242,8 +243,8 @@ anyClassObligations plan =
 
 -- | The field types of every constructor of a stock deriving target, with
 -- the datatype parameters instantiated to the instance head.
-stockFieldTypes :: TcDerivingPlan -> Either String [[TcType]]
-stockFieldTypes plan = do
+stockFieldTypes :: TcKinds -> TcDerivingPlan -> Either String [[TcType]]
+stockFieldTypes kinds plan = do
   dataType <-
     maybe
       (Left (mechanism <> " requires checked datatype metadata"))
@@ -257,7 +258,7 @@ stockFieldTypes plan = do
           | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
           ]
   pure
-    [ [applySubst substitution (dcfiType field) | field <- dciFields constructor]
+    [ [applySubst kinds substitution (dcfiType field) | field <- dciFields constructor]
     | constructor <- dtiConstructors dataType
     ]
   where
@@ -266,8 +267,8 @@ stockFieldTypes plan = do
 -- | The representation type of a newtype deriving target: the field type
 -- of the newtype constructor, eta-reduced over the datatype parameters
 -- that the instance head leaves out.
-newtypeRepresentation :: TcDerivingPlan -> Either String TcType
-newtypeRepresentation plan = do
+newtypeRepresentation :: TcKinds -> TcDerivingPlan -> Either String TcType
+newtypeRepresentation kinds plan = do
   dataType <-
     maybe
       (Left "newtype deriving requires checked datatype metadata")
@@ -289,7 +290,7 @@ newtypeRepresentation plan = do
           | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
           ]
       dropped = drop supplied (dtiTyVars dataType)
-  case etaReduce dropped (applySubst substitution field) of
+  case etaReduce dropped (applySubst kinds substitution field) of
     Just representation
       | not (any (`elem` typeTyVars representation) dropped) -> Right representation
     _ -> Left "newtype deriving cannot eta-reduce the representation type to the instance head"

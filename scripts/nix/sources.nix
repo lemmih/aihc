@@ -83,6 +83,12 @@ in rec {
     ".cabal"
   ];
 
+  packagePlanSrc = mkComponentSrc "/tooling/aihc-package-plan" [
+    ".hs"
+    ".hs-boot"
+    ".cabal"
+  ];
+
   testingSrc = pkgs:
     pkgs.lib.cleanSourceWith {
       src = root;
@@ -176,6 +182,15 @@ in rec {
 
   exampleSrc = exampleName:
     mkRootSubsetSrc ["examples/${exampleName}/"] exampleSourceSuffixes;
+
+  haddockSrc = mkComponentSrc "/bin/aihc-haddock" [
+    ".hs"
+    ".hs-boot"
+    ".cabal"
+    ".json"
+    ".txt"
+    ".sh"
+  ];
 
   fmtSrc = mkComponentSrc "/bin/aihc-fmt" [
     ".hs"

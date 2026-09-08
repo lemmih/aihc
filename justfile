@@ -3,7 +3,7 @@
 
 # Run all tests with hidden successes (1000 Hedgehog tests per property)
 test:
-  cabal test -v0 all --test-options='--hide-successes --hedgehog-tests 1000 --hedgehog-shrinks 10000'
+  TASTY_HEDGEHOG_TESTS=1000 TASTY_HEDGEHOG_SHRINKS=10000 cabal test -v0 all --test-options='--hide-successes'
 
 # Replay a specific Hedgehog test case
 # Usage: just replay "<replay-string>"
@@ -15,7 +15,7 @@ hedgehog:
   while true; do just hedgehog1 || break; done
 
 hedgehog1:
-  cabal test all -v0 --jobs=1 --test-options="--hedgehog-tests 10000 --hedgehog-shrinks 1000000 --hide-successes"
+  TASTY_HEDGEHOG_TESTS=10000 TASTY_HEDGEHOG_SHRINKS=1000000 cabal test all -v0 --jobs=1 --test-options="--hide-successes"
 
 # Auto-format Nix, Cabal, Haskell, and C files (excludes dist-newstyle, result, .git; Haskell excludes test fixtures)
 fmt:
@@ -39,7 +39,7 @@ check:
   nix develop --quiet --command bash -c 'hlint -j $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   nix develop --quiet --command bash -c 'find components tooling bin core-libs scripts test -type f \( -name "*.c" -o -name "*.h" \) -not -path "*/dist-newstyle/*" -print0 | xargs -0 -r clang-format --dry-run --Werror'
   nix develop --quiet --command bash -c 'set -euo pipefail; bindings_directory=$(mktemp -d); trap '\''rm -rf "$bindings_directory"'\'' EXIT; wit-bindgen c --world command --out-dir "$bindings_directory" bin/aihc/compiler/wasm/runtime/wit; while IFS= read -r -d "" file; do if [[ "$file" == *bin/aihc/compiler/wasm/runtime/*.c || "$file" == *aihc_host_wasip3.c ]]; then clang-tidy-unwrapped --quiet "$file" -- --target=wasm32-wasip1 --sysroot="$AIHC_WASM_SYSROOT" -std=c11 -Wall -Wextra -Wpedantic -Ibin/aihc/compiler/wasm/runtime -Ibin/aihc/compiler/native/runtime -isystem "$bindings_directory"; else clang-tidy --quiet "$file" -- -std=c11 -Wall -Wextra -Wpedantic; fi; done < <(find components tooling bin core-libs scripts test -type f -name "*.c" -not -path "*/dist-newstyle/*" -print0)'
-  cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --hedgehog-tests 1000'
+  TASTY_HEDGEHOG_TESTS=1000 cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes'
 
 # Preview the user guide at http://127.0.0.1:8000/.
 docs:

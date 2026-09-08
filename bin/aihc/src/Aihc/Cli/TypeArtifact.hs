@@ -45,7 +45,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Annotations (TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignSafety (..), TcForeignTarget (..))
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), TypeSynonymInfo (..))
-import Aihc.Tc.Types (mkTyConWithNamespace, setTyVarKind, tyConModuleName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (mkTyConWithNamespace, mkTyVarId, tyConModuleName, tyConNamespace, tyConPackageId)
 import Control.Monad (replicateM, unless, when)
 import Data.Array (Array, listArray, (!))
 import Data.Binary.Get qualified as Get
@@ -374,7 +374,7 @@ getTyVar table = do
   name <- getText
   unique <- getUnique
   kind <- getType table
-  pure (setTyVarKind kind (TyVarId name unique))
+  pure (mkTyVarId name unique kind)
 
 putUnique :: Unique -> Builder.Builder
 putUnique (Unique value) = cborInt value

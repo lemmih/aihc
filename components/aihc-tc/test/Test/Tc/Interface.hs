@@ -2,6 +2,7 @@
 
 module Test.Tc.Interface (tcInterfaceTests) where
 
+import Aihc.Prim.Wiring (primTcWiring)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc
 import Aihc.Tc.Types (mkTyConWithOrigin)
@@ -23,8 +24,9 @@ tcInterfaceTests =
           Right _ -> assertFailure "expected a conflicting interface value exception"
     ]
   where
+    kinds = mkTcKinds (primTcWiring (PackageId "aihc-prim"))
     listTyCon = mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types" "[]" 1
-    listKind = ForAll [] [] (TcFunTy typeKindType typeKindType)
+    listKind = ForAll [] [] (TcFunTy (typeKind kinds) (typeKind kinds))
     canonicalInfo = TyConInfo "List" 1 listTyCon listKind DataTyCon Nothing
     supportInfo = TyConInfo "[]" 1 listTyCon listKind DataTyCon Nothing
     canonicalInterface = emptyTcInterface {tcInterfaceTyConMap = Map.singleton (tyConKey listTyCon) canonicalInfo}

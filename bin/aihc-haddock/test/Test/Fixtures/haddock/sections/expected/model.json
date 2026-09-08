@@ -1,0 +1,837 @@
+{
+  "dependencies": [],
+  "format_version": 1,
+  "modules": [
+    {
+      "decls": [
+        {
+          "arg_docs": {},
+          "doc": {
+            "document": {
+              "document": {
+                "string": "A counter.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": "[1,1,0]"
+            }
+          },
+          "fixity": null,
+          "kind": "newtype",
+          "location": {
+            "end_column": 27,
+            "end_line": 39,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 35
+          },
+          "name": "Counter",
+          "namespace": "type",
+          "signature": "Counter",
+          "subordinates": [
+            {
+              "arg_docs": {},
+              "doc": null,
+              "fixity": null,
+              "kind": "constructor",
+              "location": {
+                "end_column": 4,
+                "end_line": 38,
+                "file": "src/Data/Sections.hs",
+                "start_column": 19,
+                "start_line": 35
+              },
+              "name": "Counter",
+              "namespace": "value",
+              "signature": "Int -> Counter",
+              "subordinates": [
+                {
+                  "arg_docs": {},
+                  "doc": {
+                    "document": {
+                      "document": {
+                        "string": "the current count",
+                        "tag": "DocString"
+                      },
+                      "tag": "DocParagraph"
+                    },
+                    "meta": {
+                      "version": null
+                    }
+                  },
+                  "fixity": null,
+                  "kind": "field",
+                  "location": {
+                    "end_column": 22,
+                    "end_line": 36,
+                    "file": "src/Data/Sections.hs",
+                    "start_column": 5,
+                    "start_line": 36
+                  },
+                  "name": "getCounter",
+                  "namespace": "value",
+                  "signature": "Counter -> Int",
+                  "subordinates": [],
+                  "warning": null
+                }
+              ],
+              "warning": null
+            }
+          ],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "doc": {
+            "document": {
+              "document": {
+                "string": "A fresh counter at zero.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "kind": "function",
+          "location": {
+            "end_column": 22,
+            "end_line": 42,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 42
+          },
+          "name": "newCounter",
+          "namespace": "value",
+          "signature": "Counter",
+          "subordinates": [],
+          "warning": null
+        },
+        {
+          "arg_docs": {
+            "1": {
+              "document": {
+                "document": {
+                  "string": "the incremented counter",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            }
+          },
+          "doc": {
+            "document": {
+              "document": {
+                "string": "Add one.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "kind": "function",
+          "location": {
+            "end_column": 10,
+            "end_line": 49,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 46
+          },
+          "name": "increment",
+          "namespace": "value",
+          "signature": "Counter -> Counter",
+          "subordinates": [],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "doc": {
+            "document": {
+              "document": {
+                "string": "Add two counters.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": {
+            "direction": "infixl",
+            "prec": 6
+          },
+          "kind": "function",
+          "location": {
+            "end_column": 39,
+            "end_line": 55,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 55
+          },
+          "name": "|+|",
+          "namespace": "value",
+          "signature": "Counter -> Counter -> Counter",
+          "subordinates": [],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "doc": {
+            "document": {
+              "document": {
+                "string": "A pair of the same thing.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "kind": "type_synonym",
+          "location": {
+            "end_column": 21,
+            "end_line": 59,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 59
+          },
+          "name": "Pair",
+          "namespace": "type",
+          "signature": "Pair a = (a, a)",
+          "subordinates": [],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "doc": {
+            "document": {
+              "document": {
+                "string": "A value with a tag.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "kind": "data",
+          "location": {
+            "end_column": 18,
+            "end_line": 68,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 62
+          },
+          "name": "Tagged",
+          "namespace": "type",
+          "signature": "Tagged a",
+          "subordinates": [
+            {
+              "arg_docs": {},
+              "doc": null,
+              "fixity": null,
+              "kind": "constructor",
+              "location": {
+                "end_column": 8,
+                "end_line": 66,
+                "file": "src/Data/Sections.hs",
+                "start_column": 5,
+                "start_line": 63
+              },
+              "name": "Tagged",
+              "namespace": "value",
+              "signature": "String -> a -> Tagged a",
+              "subordinates": [
+                {
+                  "arg_docs": {},
+                  "doc": {
+                    "document": {
+                      "document": {
+                        "string": "the tag",
+                        "tag": "DocString"
+                      },
+                      "tag": "DocParagraph"
+                    },
+                    "meta": {
+                      "version": null
+                    }
+                  },
+                  "fixity": null,
+                  "kind": "field",
+                  "location": {
+                    "end_column": 24,
+                    "end_line": 64,
+                    "file": "src/Data/Sections.hs",
+                    "start_column": 9,
+                    "start_line": 64
+                  },
+                  "name": "tagOf",
+                  "namespace": "value",
+                  "signature": "Tagged a -> String",
+                  "subordinates": [],
+                  "warning": null
+                },
+                {
+                  "arg_docs": {},
+                  "doc": {
+                    "document": {
+                      "document": {
+                        "string": "the value",
+                        "tag": "DocString"
+                      },
+                      "tag": "DocParagraph"
+                    },
+                    "meta": {
+                      "version": null
+                    }
+                  },
+                  "fixity": null,
+                  "kind": "field",
+                  "location": {
+                    "end_column": 21,
+                    "end_line": 65,
+                    "file": "src/Data/Sections.hs",
+                    "start_column": 9,
+                    "start_line": 65
+                  },
+                  "name": "valueOf",
+                  "namespace": "value",
+                  "signature": "Tagged a -> a",
+                  "subordinates": [],
+                  "warning": null
+                }
+              ],
+              "warning": null
+            },
+            {
+              "arg_docs": {},
+              "doc": null,
+              "fixity": null,
+              "kind": "constructor",
+              "location": {
+                "end_column": 15,
+                "end_line": 67,
+                "file": "src/Data/Sections.hs",
+                "start_column": 5,
+                "start_line": 67
+              },
+              "name": "Untagged",
+              "namespace": "value",
+              "signature": "a -> Tagged a",
+              "subordinates": [],
+              "warning": null
+            }
+          ],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "doc": {
+            "document": {
+              "document": {
+                "string": "Things that can be counted.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "kind": "class",
+          "location": {
+            "end_column": 9,
+            "end_line": 84,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 73
+          },
+          "name": "Countable",
+          "namespace": "type",
+          "signature": "Countable a",
+          "subordinates": [
+            {
+              "arg_docs": {},
+              "doc": {
+                "document": {
+                  "document": {
+                    "string": "Count the elements.",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "meta": {
+                  "version": null
+                }
+              },
+              "fixity": null,
+              "kind": "method",
+              "location": {
+                "end_column": 20,
+                "end_line": 75,
+                "file": "src/Data/Sections.hs",
+                "start_column": 3,
+                "start_line": 75
+              },
+              "name": "count",
+              "namespace": "value",
+              "signature": "a -> Int",
+              "subordinates": [],
+              "warning": null
+            },
+            {
+              "arg_docs": {},
+              "doc": {
+                "document": {
+                  "document": {
+                    "string": "Whether there is nothing to count.",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "meta": {
+                  "version": null
+                }
+              },
+              "fixity": null,
+              "kind": "method",
+              "location": {
+                "end_column": 23,
+                "end_line": 79,
+                "file": "src/Data/Sections.hs",
+                "start_column": 3,
+                "start_line": 79
+              },
+              "name": "isEmpty",
+              "namespace": "value",
+              "signature": "a -> Bool",
+              "subordinates": [],
+              "warning": null
+            }
+          ],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "doc": {
+            "document": {
+              "document": {
+                "string": "Kept for compatibility.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "kind": "function",
+          "location": {
+            "end_column": 21,
+            "end_line": 88,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 88
+          },
+          "name": "legacy",
+          "namespace": "value",
+          "signature": "Int -> Int",
+          "subordinates": [],
+          "warning": "use 'increment' instead"
+        }
+      ],
+      "description": {
+        "document": {
+          "document": {
+            "first": {
+              "string": "The module documentation follows the header fields. It links to\n ",
+              "tag": "DocString"
+            },
+            "second": {
+              "first": {
+                "name": "Counter",
+                "tag": "DocIdentifier"
+              },
+              "second": {
+                "first": {
+                  "string": " and to ",
+                  "tag": "DocString"
+                },
+                "second": {
+                  "first": {
+                    "string": "Data.Sections",
+                    "tag": "DocModule"
+                  },
+                  "second": {
+                    "string": ".",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocAppend"
+                },
+                "tag": "DocAppend"
+              },
+              "tag": "DocAppend"
+            },
+            "tag": "DocAppend"
+          },
+          "tag": "DocParagraph"
+        },
+        "meta": {
+          "version": null
+        }
+      },
+      "diagnostics": [],
+      "exports": [
+        {
+          "contents": [
+            1,
+            {
+              "string": "Counters",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": [
+            "intro",
+            {
+              "document": {
+                "first": {
+                  "string": "Counters wrap an ",
+                  "tag": "DocString"
+                },
+                "second": {
+                  "first": {
+                    "name": "Int",
+                    "tag": "DocIdentifier"
+                  },
+                  "second": {
+                    "first": {
+                      "string": ". They ",
+                      "tag": "DocString"
+                    },
+                    "second": {
+                      "first": {
+                        "document": {
+                          "string": "never",
+                          "tag": "DocString"
+                        },
+                        "tag": "DocEmphasis"
+                      },
+                      "second": {
+                        "string": " go below zero.",
+                        "tag": "DocString"
+                      },
+                      "tag": "DocAppend"
+                    },
+                    "tag": "DocAppend"
+                  },
+                  "tag": "DocAppend"
+                },
+                "tag": "DocAppend"
+              },
+              "tag": "DocParagraph"
+            }
+          ],
+          "tag": "doc_item"
+        },
+        {
+          "contents": [
+            "Counter",
+            "type",
+            {
+              "tag": "all_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "newCounter",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            2,
+            {
+              "string": "Operations",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": [
+            "increment",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "|+|",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            1,
+            {
+              "string": "Pairs",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": [
+            "Pair",
+            "type",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "Tagged",
+            "type",
+            {
+              "contents": [
+                "Tagged",
+                "tagOf"
+              ],
+              "tag": "some_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            null,
+            {
+              "document": {
+                "string": "An inline documentation chunk between two items.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            }
+          ],
+          "tag": "doc_item"
+        },
+        {
+          "contents": [
+            "Countable",
+            "type",
+            {
+              "tag": "all_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "legacy",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        }
+      ],
+      "exposed": true,
+      "extensions": [
+        "StandaloneDeriving",
+        "CUSKs",
+        "DeepSubsumption",
+        "DatatypeContexts",
+        "DoAndIfThenElse",
+        "EmptyDataDecls",
+        "FieldSelectors",
+        "ForeignFunctionInterface",
+        "ImplicitPrelude",
+        "ImplicitStagePersistence",
+        "ListTuplePuns",
+        "MonomorphismRestriction",
+        "PatternGuards",
+        "RelaxedPolyRec",
+        "StarIsType",
+        "TraditionalRecordSyntax"
+      ],
+      "file": "src/Data/Sections.hs",
+      "info": {
+        "copyright": "(c) Example",
+        "description": {
+          "string": "A module with export sections",
+          "tag": "DocString"
+        },
+        "license": "Unlicense",
+        "maintainer": "someone@example.com",
+        "portability": null,
+        "stability": "experimental"
+      },
+      "instances": [
+        {
+          "class": "Eq",
+          "derived": true,
+          "doc": null,
+          "head": "Eq Counter",
+          "location": {
+            "end_column": 27,
+            "end_line": 39,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 35
+          },
+          "overlap": null
+        },
+        {
+          "class": "Ord",
+          "derived": true,
+          "doc": null,
+          "head": "Ord Counter",
+          "location": {
+            "end_column": 27,
+            "end_line": 39,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 35
+          },
+          "overlap": null
+        },
+        {
+          "class": "Show",
+          "derived": true,
+          "doc": null,
+          "head": "Show Counter",
+          "location": {
+            "end_column": 27,
+            "end_line": 39,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 35
+          },
+          "overlap": null
+        },
+        {
+          "class": "Show",
+          "derived": true,
+          "doc": null,
+          "head": "Show a => Show (Tagged a)",
+          "location": {
+            "end_column": 18,
+            "end_line": 68,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 62
+          },
+          "overlap": null
+        },
+        {
+          "class": "Eq",
+          "derived": true,
+          "doc": null,
+          "head": "Eq a => Eq (Tagged a)",
+          "location": {
+            "end_column": 40,
+            "end_line": 70,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 70
+          },
+          "overlap": null
+        },
+        {
+          "class": "Countable",
+          "derived": false,
+          "doc": null,
+          "head": "Countable Counter",
+          "location": {
+            "end_column": 7,
+            "end_line": 88,
+            "file": "src/Data/Sections.hs",
+            "start_column": 1,
+            "start_line": 84
+          },
+          "overlap": null
+        }
+      ],
+      "name": "Data.Sections",
+      "named_chunks": {
+        "intro": {
+          "document": {
+            "first": {
+              "string": "Counters wrap an ",
+              "tag": "DocString"
+            },
+            "second": {
+              "first": {
+                "name": "Int",
+                "tag": "DocIdentifier"
+              },
+              "second": {
+                "first": {
+                  "string": ". They ",
+                  "tag": "DocString"
+                },
+                "second": {
+                  "first": {
+                    "document": {
+                      "string": "never",
+                      "tag": "DocString"
+                    },
+                    "tag": "DocEmphasis"
+                  },
+                  "second": {
+                    "string": " go below zero.",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocAppend"
+                },
+                "tag": "DocAppend"
+              },
+              "tag": "DocAppend"
+            },
+            "tag": "DocAppend"
+          },
+          "tag": "DocParagraph"
+        }
+      },
+      "warning": null
+    }
+  ],
+  "name": "sections",
+  "version": "1.2.0"
+}

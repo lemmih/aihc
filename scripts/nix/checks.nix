@@ -338,6 +338,7 @@
   testingTests = mkPackageTest hsPkgs.aihc-testing;
   aihcTests = mkAihcPackageTest hsPkgs.aihc;
   fmtTests = mkPackageTest hsPkgs.aihc-fmt;
+  haddockTests = mkPackageTest hsPkgs.aihc-haddock;
   unicode = import ./unicode.nix {inherit pkgs;};
   unicodeGenerated =
     pkgs.runCommand "aihc-unicode-generated" {
@@ -945,6 +946,7 @@ in {
     testing-tests = testingTests;
     aihc-tests = aihcTests;
     fmt-tests = fmtTests;
+    haddock-tests = haddockTests;
     unicode-generated = unicodeGenerated;
     nix-lint = nixLint;
     nix-format = nixFormat;

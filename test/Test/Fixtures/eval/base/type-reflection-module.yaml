@@ -4,6 +4,7 @@ modules:
 
     import Data.Proxy (Proxy (..))
     import Data.Typeable qualified as Typeable
+    import GHC.Types (TrName (..))
     import Type.Reflection (Module (..), TypeRep, typeRep)
     import Type.Reflection qualified as Reflection
 
@@ -23,7 +24,7 @@ modules:
       rnf value = Reflection.rnfModule value
 
     moduleValue :: Module
-    moduleValue = Module "base" "Type.Reflection"
+    moduleValue = Module (TrNameD "base") (TrNameD "Type.Reflection")
 
     boolRep :: TypeRep Bool
     boolRep = typeRep (Proxy :: Proxy Bool)
@@ -40,4 +41,4 @@ output: |
   True
 expression: result
 status: pass
-reason: Type.Reflection exports Module and parameterized TypeRep with rnf helpers used by deepseq
+reason: Type.Reflection exports Module and parameterized TypeRep with rnf helpers used by deepseq; a Module names its package and module with GHC.Types.TrName

@@ -6,12 +6,12 @@ import Aihc.Cli.BuildExe (LinkBundle (..), linkBundleManifestPath, runBuildExe, 
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcSemispace), InstallOptions (..), LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
-import Aihc.Cli.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
 import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
+import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (tcInterfaceTerms, tcTermKeyIdentifier)
 import Control.Concurrent (getNumCapabilities, setNumCapabilities)

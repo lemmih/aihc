@@ -68,6 +68,7 @@ import Aihc.Tc.Env (DataConSourceForm (..), TypeSynonymInfo (..))
 import Aihc.Tc.Types
   ( Pred (..),
     TcAxiomKey (..),
+    TcKinds,
     TcType (..),
     TcTypeKey,
     TyVarId,
@@ -79,10 +80,10 @@ import Aihc.Tc.Types
     tyConName,
     tyConNamespace,
     tyConPackageId,
+    typeKind,
     typeSchemeBody,
     pattern KConstraint,
     pattern KFun,
-    pattern KType,
   )
 import Control.Monad (zipWithM)
 import Data.List (nub, sort)
@@ -102,28 +103,32 @@ data FcDesugarResult = FcDesugarResult
 
 data DesugarConfig = DesugarConfig
   { primPackageId :: PackageId,
+    -- | The kind vocabulary of the compiler that checked these modules.
+    desugarKinds :: TcKinds,
     -- | The visible top-level names of the module, as
     -- 'Aihc.Resolve.exportedLocalNames' gives them. A name outside the set
     -- is private, so no other module can name it and the backend need not
     -- give it a symbol.
     exportedNames :: !(Maybe (Set (ResolutionNamespace, Text)))
   }
-  deriving (Eq, Show)
+  deriving (Show)
 
 -- | The desugaring configuration of one module, with the visibility of its
 -- top-level names taken from the resolver export scope. A module that the
 -- scope map does not mention keeps every name public.
-moduleDesugarConfig :: PackageId -> Package -> Text -> ModuleExports -> DesugarConfig
-moduleDesugarConfig prim package moduleName' exports =
+moduleDesugarConfig :: TcKinds -> PackageId -> Package -> Text -> ModuleExports -> DesugarConfig
+moduleDesugarConfig kinds prim package moduleName' exports =
   DesugarConfig
     { primPackageId = prim,
+      desugarKinds = kinds,
       exportedNames = Set.union (compilerVisibleNames moduleName') <$> exportedLocalNames package moduleName' exports
     }
 
 -- | The configuration of a caller that knows of no export list, and so
 -- keeps every top-level name public.
-allPublicDesugarConfig :: PackageId -> DesugarConfig
-allPublicDesugarConfig prim = DesugarConfig {primPackageId = prim, exportedNames = Nothing}
+allPublicDesugarConfig :: TcKinds -> PackageId -> DesugarConfig
+allPublicDesugarConfig kinds prim =
+  DesugarConfig {primPackageId = prim, desugarKinds = kinds, exportedNames = Nothing}
 
 -- | The names of one module that the compiler builds references to on its
 -- own, from whatever module it is desugaring, and that the export list of
@@ -169,7 +174,7 @@ interfaceConvertEnv config interface =
     (Map.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tcInterfaceTyCons interface])
     ( withClassTyCons
         (map (tyConKey . ciTyCon) (tcInterfaceClasses interface))
-        (withExportedNames (exportedNames config) (emptyConvertEnv (primPackageId config)))
+        (withExportedNames (exportedNames config) (emptyConvertEnv (desugarKinds config) (primPackageId config)))
     )
 
 convertTyConHeader :: ConvertEnv -> TyConInfo -> Either String (Name, Type)
@@ -309,7 +314,7 @@ headerIndex convertEnv interface =
             (classDictConName (ciTyCon info), HeaderClass info)
           ]
         | info <- tcInterfaceClasses interface,
-          not (isEqualityTyCon (ciTyCon info))
+          not (isEqualityTyCon (ceKinds convertEnv) (ciTyCon info))
         ]
     dataConFacts =
       [ (Name (dciName constructor) SortDataConstructor (OriginTop package moduleName'), HeaderDataCon constructor)
@@ -496,7 +501,7 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
           info <- lookupClassInfo package moduleName' (unqualifiedNameText (binderHeadName (Syn.classDeclHead classDecl))) classes
           -- Nominal equality uses coercions instead of a class dictionary.
           classDecls <-
-            if isEqualityTyCon (ciTyCon info)
+            if isEqualityTyCon (ceKinds env) (ciTyCon info)
               then pure []
               else (: []) <$> convertClass env info
           -- Each associated type family of the class is an empty family
@@ -608,7 +613,7 @@ convertClass env info = do
       bindersEnv = withTyVars tyVars env
       dictName = classDictTypeName (ciTyCon info)
   binders <- mapM (tyVarBinder bindersEnv) tyVars
-  result <- convertKind bindersEnv KType
+  result <- convertKind bindersEnv (typeKind (ceKinds bindersEnv))
   superFields <- mapM (convertType bindersEnv) (ciSuperClassTypes info)
   methodFields <- mapM (convertMethodField bindersEnv (ciName info) tyVars) (ciMethods info)
   let dictApp = foldl TyApp (TyCon dictName) (map (TyVar . binderName) binders)

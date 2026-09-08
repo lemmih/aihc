@@ -804,18 +804,19 @@ constructorGiven sp constructorName predicate = do
 
 instantiateConstructorPattern :: TcType -> TypeScheme -> TcM (TcType, [TcType], [Pred], [TyVarId])
 instantiateConstructorPattern scrutTy (ForAll tyVars predicates body) = do
+  kinds <- getKinds
   matched <- matchConstructorResult (Set.fromList (map tvUnique tyVars)) (constructorResultType body) =<< zonkType scrutTy
   let resultTyVars = constructorResultTyVars body
       isUniversal tyVar = tvUnique tyVar `Set.member` resultTyVars
   substitutions <- mapM (instantiateTyVar matched isUniversal) tyVars
   let substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty, _) <- substitutions]
-      instantiateType = applySubst substitution
+      instantiateType = applySubst kinds substitution
       typeArgs = map (instantiateType . TcTyVar) tyVars
       skolems = [skolem | (_, _, Just skolem) <- substitutions]
   pure
     ( instantiateType body,
       typeArgs,
-      map (applySubstPred substitution) predicates,
+      map (applySubstPred kinds substitution) predicates,
       skolems
     )
   where

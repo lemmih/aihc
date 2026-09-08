@@ -103,7 +103,6 @@ library
     Aihc.Cli.Options
     Aihc.Cli.PackageInterface
     Aihc.Cli.PackageManifest
-    Aihc.Cli.PackagePlan
     Aihc.Cli.ResolveArtifact
     Aihc.Cli.Runtime
     Aihc.Cli.Store
@@ -181,6 +180,7 @@ library
     aeson >=2.0 && <2.3,
     aihc-cpp,
     aihc-hackage,
+    aihc-package-plan,
     aihc-parser,
     aihc-resolve,
     aihc-tc,
@@ -347,6 +347,7 @@ test-suite spec
     aeson,
     aihc,
     aihc-hackage,
+    aihc-package-plan,
     aihc-parser,
     aihc-resolve,
     aihc-tc,

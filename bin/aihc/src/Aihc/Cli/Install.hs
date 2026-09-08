@@ -16,18 +16,6 @@ import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashCh
 import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeSourceExtension)
 import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
-import Aihc.Cli.PackagePlan
-  ( DependencyResolver (..),
-    DependencyVersions,
-    PackagePlan (..),
-    ParsedInterfaceFile (ParsedInterfaceFile),
-    buildPackagePlanWithResolver,
-    dependencyVersionsFromManifests,
-    localDependencyResolverWithFallback,
-    packageSpecFromSource,
-    parseInterfaceFile,
-    renderHumanDiagnostic,
-  )
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TaskGraph
@@ -51,6 +39,17 @@ import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower qualified as Lir
 import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory, wasmSysroot)
+import Aihc.PackagePlan
+  ( DependencyResolver (..),
+    DependencyVersions,
+    PackagePlan (..),
+    buildPackagePlanWithResolver,
+    dependencyVersionsFromManifests,
+    localDependencyResolverWithFallback,
+    packageSpecFromSource,
+  )
+import Aihc.PackagePlan.Diagnostic (renderHumanDiagnostic)
+import Aihc.PackagePlan.Source (ParsedInterfaceFile (ParsedInterfaceFile), parseInterfaceFile)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
     ImportDecl (..),
@@ -60,7 +59,7 @@ import Aihc.Parser.Syntax
     moduleName,
   )
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Prim.Wiring (primTcConfig)
+import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve
   ( ModuleExports,
     ModuleKey (..),
@@ -91,6 +90,7 @@ import Aihc.Tc
     TcDiagnostic (..),
     TcErrorKind (..),
     TcInterface (..),
+    TcKinds,
     TcSeverity (..),
     TcTermKey (..),
     TcType (..),
@@ -99,6 +99,7 @@ import Aihc.Tc
     TypeFamilyInstanceInfo (..),
     TypeScheme (..),
     mergeTcInterfaces,
+    mkTcKinds,
     renderPred,
     renderTcType,
     tcInterfaceClasses,
@@ -664,6 +665,11 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
         compiledReused = Set.unions (map typeUnitReused typeResults)
       }
 
+-- | The kind vocabulary of the aihc core libraries, given the identity of
+-- the primitive package.
+primKinds :: PackageId -> TcKinds
+primKinds = mkTcKinds . primTcWiring
+
 packagePrimIdentity :: Package -> ModuleExports -> PackageId
 packagePrimIdentity resolvePackage dependencyExports =
   fromMaybe (PackageId "aihc-prim") $
@@ -827,7 +833,7 @@ loadInstalledPackage requirements storePath = do
 parseSource :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
 parseSource root versions fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
-  ParsedInterfaceFile path modu sourceLines parseDiagnostics _ extensions <- parseInterfaceFile root versions fileInfo
+  ParsedInterfaceFile path modu sourceLines parseDiagnostics _ extensions _ <- parseInterfaceFile root versions fileInfo
   -- The type checker reads the language pragmas of the module. Give it the
   -- effective extensions, which include the cabal default extensions and
   -- the language edition. The type checker turns MonoLocalBinds on by
@@ -1307,7 +1313,7 @@ runTypeUnit context runtimes runtime = do
             let (checkedModules, _) = initialChecked
                 desugarConfigs =
                   Map.fromList
-                    [ (name, Fc.moduleDesugarConfig primIdentity resolvePackage name (resolveUnitExports resolvedOutput))
+                    [ (name, Fc.moduleDesugarConfig (primKinds primIdentity) primIdentity resolvePackage name (resolveUnitExports resolvedOutput))
                     | name <- unitNames
                     ]
             pure (Just (PendingCompile checkedModules desugarConfigs))
@@ -1482,11 +1488,12 @@ renderBackendPhaseTotals timings =
 compileCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO BackendPhaseTimings
 compileCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
   (splitModules, desugarNs) <- measureTime $ do
-    let bindings = concatMap tcModuleBindings checkedModules
+    let kinds = primKinds primIdentity
+        bindings = concatMap (tcModuleBindings kinds) checkedModules
         moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
         -- A module the resolver did not report on keeps every name public.
         desugarConfig name =
-          Map.findWithDefault (Fc.allPublicDesugarConfig primIdentity) name desugarConfigs
+          Map.findWithDefault (Fc.allPublicDesugarConfig kinds primIdentity) name desugarConfigs
         desugarResults =
           [ Fc.desugarModuleFc (desugarConfig name) bindings interface checked
           | (name, checked) <- zip moduleNames checkedModules
