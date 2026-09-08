@@ -3,7 +3,9 @@ modules:
   - |
     module Test where
     import Data.Proxy (Proxy (..))
-    import Type.Reflection (Typeable, eqTypeRep, typeOf, typeRep)
+    import Data.Typeable (typeRep)
+    import Data.Typeable (typeOf)
+    import Type.Reflection (Typeable)
 
     data Box a = Box a
 
@@ -12,19 +14,19 @@ modules:
 
     samePolymorphicRepresentation :: (Typeable a) => Proxy a -> Box a -> Bool
     samePolymorphicRepresentation proxy value =
-      eqTypeRep (typeOf value) (typeRep (boxProxy proxy))
+      (==) (typeOf value) (typeRep (boxProxy proxy))
 
     sameListRepresentation :: Bool
     sameListRepresentation =
-      eqTypeRep (typeOf [True, False]) (typeRep (Proxy :: Proxy [Bool]))
+      (==) (typeOf [True, False]) (typeRep (Proxy :: Proxy [Bool]))
 
     sameTupleRepresentation :: Bool
     sameTupleRepresentation =
-      eqTypeRep (typeOf (True, False)) (typeRep (Proxy :: Proxy (Bool, Bool)))
+      (==) (typeOf (True, False)) (typeRep (Proxy :: Proxy (Bool, Bool)))
 
     distinguishesFunctionArguments :: Bool
     distinguishesFunctionArguments =
-      case eqTypeRep
+      case (==)
         (typeRep (Proxy :: Proxy (Bool -> Int)))
         (typeRep (Proxy :: Proxy (Int -> Bool))) of
         True -> False

@@ -167,6 +167,7 @@ coreRecognizedClasses =
     ("GHC.Internal.Traversable", "Traversable"),
     ("Data.Data", "Data"),
     ("Type.Reflection", "Typeable"),
+    ("Type.Reflection.Internal", "Typeable"),
     ("GHC.Generics", "Generic"),
     ("GHC.Generics", "Generic1"),
     ("GHC.Internal.TH.Lift", "Lift")

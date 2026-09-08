@@ -1,0 +1,18 @@
+extensions: [DataKinds, GADTs, MagicHash, PolyKinds]
+modules:
+  - |
+    {-# LANGUAGE DataKinds, GADTs, MagicHash, PolyKinds #-}
+    module Test where
+    import GHC.Exts (Int#, TYPE, RuntimeRep (..))
+    import Type.Reflection
+
+    result :: Bool
+    result =
+      case eqTypeRep (typeRepKind (typeRep :: TypeRep Int#)) (typeRep :: TypeRep (TYPE 'IntRep)) of
+        Just HRefl -> True
+        Nothing -> False
+expression: result
+output: |
+  True
+status: pass
+reason: Kind reflection preserves an unboxed integer runtime representation.

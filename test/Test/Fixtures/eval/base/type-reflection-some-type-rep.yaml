@@ -2,11 +2,10 @@ modules:
   - |
     module Test where
 
-    import Data.Proxy (Proxy (..))
-    import Type.Reflection (SomeTypeRep (..), TypeRep, eqTypeRep, rnfSomeTypeRep, typeRep)
+    import Type.Reflection (SomeTypeRep (..), TypeRep, typeRep, eqTypeRep, rnfSomeTypeRep)
 
     boolRep :: TypeRep Bool
-    boolRep = typeRep (Proxy :: Proxy Bool)
+    boolRep = typeRep
 
     someBool :: SomeTypeRep
     someBool = SomeTypeRep boolRep
@@ -16,7 +15,10 @@ modules:
       case rnfSomeTypeRep someBool of
         () ->
           case someBool of
-            SomeTypeRep representation -> eqTypeRep representation boolRep
+            SomeTypeRep representation ->
+              case eqTypeRep representation boolRep of
+                Just _ -> True
+                Nothing -> False
 output: |
   True
 expression: result

@@ -4,6 +4,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 {-# HLINT ignore "Unused LANGUAGE pragma" #-}
@@ -21,6 +22,7 @@ module GHC.Types
     Constraint,
     Coercible,
     type (~),
+    type (~~),
     TYPE,
     Type,
     UnliftedType,
@@ -133,6 +135,9 @@ class Coercible a b
 -- | The compiler supplies nominal equality evidence for this class.
 type (~) :: forall k. k -> k -> Constraint
 class (a :: k) ~ (b :: k)
+
+type (~~) :: forall k1 k2. k1 -> k2 -> Constraint
+class (a :: k1) ~~ (b :: k2)
 
 infix 4 ~
 

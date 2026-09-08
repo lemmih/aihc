@@ -1,0 +1,62 @@
+extensions: [GADTs, PolyKinds, ScopedTypeVariables, PatternSynonyms, TypeOperators]
+modules:
+  - |
+    {-# LANGUAGE GADTs, PolyKinds, ScopedTypeVariables, PatternSynonyms, TypeOperators #-}
+    module Test where
+    import Data.Kind (Type)
+    import Data.Proxy (Proxy)
+    import Type.Reflection
+    import Type.Reflection.Unsafe
+
+    data Wire = Constructor TyCon [SomeTypeRep] | Apply Wire Wire
+
+    encode :: TypeRep a -> Wire
+    encode (Con' con kinds) = Constructor con kinds
+    encode (App function argument) = Apply (encode function) (encode argument)
+
+    decode :: Wire -> Maybe SomeTypeRep
+    decode (Constructor con kinds) = Just (SomeTypeRep (mkTrCon con kinds))
+    decode (Apply function argument) = do
+      SomeTypeRep f <- decode function
+      SomeTypeRep x <- decode argument
+      case typeRepKind f of
+        Fun expected result ->
+          case eqTypeRep expected (typeRepKind x) of
+            Just HRefl ->
+              case eqTypeRep (typeRepKind result) (typeRep :: TypeRep Type) of
+                Just HRefl -> Just (SomeTypeRep (mkTrApp f x))
+                Nothing -> Nothing
+            Nothing -> Nothing
+        _ -> Nothing
+
+    roundTrip :: TypeRep a -> Bool
+    roundTrip rep =
+      case decode (encode rep) of
+        Just (SomeTypeRep restored) ->
+          case eqTypeRep rep restored of
+            Just HRefl -> True
+            Nothing -> False
+        Nothing -> False
+
+    decodeAs :: TypeRep a -> Wire -> Maybe (TypeRep a)
+    decodeAs expected wire = do
+      SomeTypeRep rep <- decode wire
+      case eqTypeRep rep expected of
+        Just HRefl -> Just rep
+        Nothing -> Nothing
+
+    result :: Bool
+    result =
+      decodeAs (typeRep :: TypeRep Bool) (encode (typeRep :: TypeRep Bool)) == Just (typeRep :: TypeRep Bool)
+        && roundTrip (typeRep :: TypeRep Bool)
+        && roundTrip (typeRep :: TypeRep [Bool])
+        && roundTrip (typeRep :: TypeRep (Bool -> Int))
+        && roundTrip (typeRep :: TypeRep (Proxy Maybe))
+        && case decode (Apply (encode (typeRep :: TypeRep Bool)) (encode (typeRep :: TypeRep Int))) of
+             Nothing -> True
+             Just _ -> False
+expression: result
+output: |
+  True
+status: pass
+reason: Reflection preserves applications and kind arguments and rejects an invalid application.

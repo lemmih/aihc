@@ -235,7 +235,7 @@ renderEvTerm ev =
     EvCoercion coercion -> renderCoercion coercion
     EvSuperClass evidence _ _ _ index -> "super[" <> show index <> "](" <> renderEvTerm evidence <> ")"
     EvCast evidence coercion -> "cast(" <> renderEvTerm evidence <> ", " <> renderCoercion coercion <> ")"
-    EvTypeable _ ty arguments ->
+    EvTypeable _ ty _ _ arguments ->
       "typeable @" <> renderTcType ty <> renderEvidenceArgs arguments
     EvTypeLam variable body ->
       "Λ" <> T.unpack (tvName variable) <> ". " <> renderEvTerm body

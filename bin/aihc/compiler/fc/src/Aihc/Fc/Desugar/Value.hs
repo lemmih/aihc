@@ -530,15 +530,16 @@ desugarPatSynCall info annotation resultType scrutinee pattern' failureExpressio
       (requiredTerms, providedTerms) = splitAt (length (psiReqTheta info)) (tcAnnEvidenceTerms annotation)
       providedPredicates = [predicate | Ev.EvGiven predicate <- providedTerms]
       typeVariables = tcAnnTypeBinders annotation
-  typeBinders <- convertTypeBinders typeVariables
-  fieldTypes <- mapM requiredPatternType children
-  fields <- zipWithM freshPatternBinder children fieldTypes
-  dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] providedPredicates
-  requiredArguments <- mapM desugarEvidence requiredTerms
-  matcher <- patSynMatcherReference info annotation resultType
-  body' <- withAlternativeScope (not (null typeBinders)) (zipWith Dictionary providedPredicates dictionaries) (body fields fieldTypes)
-  let continuation = foldr ExTyLam (foldr ExLam (foldr ExLam body' fields) dictionaries) typeBinders
-  pure (ExApp (ExApp (ExApp (foldl ExApp matcher requiredArguments) (ExVar (binderName scrutinee))) continuation) failureExpression)
+  withTypeVariables typeVariables $ do
+    typeBinders <- convertTypeBinders typeVariables
+    fieldTypes <- mapM requiredPatternType children
+    fields <- zipWithM freshPatternBinder children fieldTypes
+    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] providedPredicates
+    requiredArguments <- mapM desugarEvidence requiredTerms
+    matcher <- patSynMatcherReference info annotation resultType
+    body' <- withAlternativeScope (not (null typeBinders)) (zipWith Dictionary providedPredicates dictionaries) (body fields fieldTypes)
+    let continuation = foldr ExTyLam (foldr ExLam (foldr ExLam body' fields) dictionaries) typeBinders
+    pure (ExApp (ExApp (ExApp (foldl ExApp matcher requiredArguments) (ExVar (binderName scrutinee))) continuation) failureExpression)
 
 desugarEarlyDecl :: Syn.Decl -> ValueM [Decl]
 desugarEarlyDecl declaration =
@@ -1538,7 +1539,7 @@ desugarViewPattern resultType fallback argument arguments argumentTypes (match, 
       then pure fallback
       else Just <$> desugarMatchArguments resultType fallback (argument : arguments) argumentTypes rest
   function <- desugarExpr viewFunction
-  innerType <- requiredPatternType inner
+  innerType <- viewPatternResultType viewFunction
   viewBinder <- freshPatternBinder inner innerType
   extra <- patternMatchBindings viewPattern argument ty
   let match' = match {Syn.matchPats = inner : drop 1 (Syn.matchPats match)}
@@ -1546,6 +1547,14 @@ desugarViewPattern resultType fallback argument arguments argumentTypes (match, 
     shareFailure resultType failure $ \shared ->
       desugarMatchArguments resultType shared (viewBinder : arguments) (innerType : restTypes) [(match', locals <> matchBinderLocals extra)]
   pure (ExLet (Bind viewBinder (ExApp function (ExVar (binderName argument)))) body)
+
+-- | Read the result type of the checked view function.
+viewPatternResultType :: Syn.Expr -> ValueM TcType
+viewPatternResultType expression = do
+  ty <- requiredExprType expression
+  case ty of
+    TcFunTy _ result -> pure result
+    _ -> failValue "view pattern has no checked function type"
 
 -- | Bind a failure expression once so that each use is a variable.
 shareFailure :: TcType -> Maybe Expr -> (Maybe Expr -> ValueM Expr) -> ValueM Expr
@@ -1997,18 +2006,19 @@ desugarPatternGroup resultType fallback remaining restTypes scrutineeType caseBi
   let subpatterns = patternChildren pattern'
       predicates = patternGivenPredicates pattern'
       typeVariables = patternTypeVariables pattern'
-  typeBinders <- convertTypeBinders typeVariables
-  fieldTypes <- patternFieldTypes pattern' subpatterns
-  fields <- zipWithM freshPatternBinder subpatterns fieldTypes
-  dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
-  rooted <- mapM (extendMatchWork caseBinder scrutineeType) works
-  expanded <- mapMaybeM (specializeMatchWork key (length fields) fields fieldTypes) rooted
-  body <-
-    withAlternativeScope
-      (not (null typeBinders))
-      (zipWith Dictionary predicates dictionaries)
-      (desugarMatchArguments resultType fallback (fields <> remaining) (fieldTypes <> restTypes) expanded)
-  pure (Alt constructor typeBinders (dictionaries <> fields) body)
+  withTypeVariables typeVariables $ do
+    typeBinders <- convertTypeBinders typeVariables
+    fieldTypes <- patternFieldTypes pattern' subpatterns
+    fields <- zipWithM freshPatternBinder subpatterns fieldTypes
+    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+    rooted <- mapM (extendMatchWork caseBinder scrutineeType) works
+    expanded <- mapMaybeM (specializeMatchWork key (length fields) fields fieldTypes) rooted
+    body <-
+      withAlternativeScope
+        (not (null typeBinders))
+        (zipWith Dictionary predicates dictionaries)
+        (desugarMatchArguments resultType fallback (fields <> remaining) (fieldTypes <> restTypes) expanded)
+    pure (Alt constructor typeBinders (dictionaries <> fields) body)
 
 specializeMatchWork :: Text -> Int -> [Binder] -> [TcType] -> MatchWork -> ValueM (Maybe MatchWork)
 specializeMatchWork key arity fields fieldTypes (match, locals) =
@@ -2256,7 +2266,9 @@ stringLiteralListPattern patternTy literal =
 requiredPatternType :: Syn.Pattern -> ValueM TcType
 requiredPatternType pattern' =
   case patternType pattern' of
-    Just ty -> pure ty
+    Just ty
+      | not (patternIsDefault pattern') -> pure (constructorResultType (length (patternChildren pattern')) ty)
+      | otherwise -> pure ty
     Nothing -> failValue ("missing checked pattern type: " <> take 80 (show pattern'))
 
 patternType :: Syn.Pattern -> Maybe TcType
@@ -3056,6 +3068,11 @@ desugarListCompGuard resultElementType guard success failure = do
 desugarListCompPattern :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
 desugarListCompPattern resultType binder ty pattern' success failure =
   case pattern' of
+    Syn.PAnn annotation _
+      | Just checked <- Syn.fromAnnotation annotation,
+        not (null (tcAnnTypeBinders checked)) || not (null (tcAnnEvidenceTerms checked)),
+        isJust (patternConstructorSourceName pattern') ->
+          desugarListCompConstructorPattern resultType binder pattern' success failure
     Syn.PAnn _ inner -> desugarListCompPattern resultType binder ty inner success failure
     Syn.PParen inner -> desugarListCompPattern resultType binder ty inner success failure
     Syn.PStrict inner -> desugarListCompPattern resultType binder ty inner success failure
@@ -3087,27 +3104,28 @@ desugarListCompConstructorPattern resultType binder pattern' success failure = d
       let children = patternChildren pattern'
           predicates = patternGivenPredicates pattern'
           typeVariables = patternTypeVariables pattern'
-      typeBinders <- convertTypeBinders typeVariables
-      fieldTypes <- patternFieldTypes pattern' children
-      fields <- zipWithM freshPatternBinder children fieldTypes
-      dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
-      constructor <- patternConstructor pattern'
-      resultType' <- convertCheckedType resultType
-      caseBinder <- freshBinderFromType "_list_comp_pattern" (binderType binder)
-      body <-
-        withAlternativeScope
-          (not (null typeBinders))
-          (zipWith Dictionary predicates dictionaries)
-          (desugarListCompChildPatterns resultType (zip3 fields fieldTypes children) success failure)
-      pure
-        ( ExCase
-            (ExVar (binderName binder))
-            caseBinder
-            resultType'
-            [ Alt constructor typeBinders (dictionaries <> fields) body,
-              Alt AltDefault [] [] failure
-            ]
-        )
+      withTypeVariables typeVariables $ do
+        typeBinders <- convertTypeBinders typeVariables
+        fieldTypes <- patternFieldTypes pattern' children
+        fields <- zipWithM freshPatternBinder children fieldTypes
+        dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+        constructor <- patternConstructor pattern'
+        resultType' <- convertCheckedType resultType
+        caseBinder <- freshBinderFromType "_list_comp_pattern" (binderType binder)
+        body <-
+          withAlternativeScope
+            (not (null typeBinders))
+            (zipWith Dictionary predicates dictionaries)
+            (desugarListCompChildPatterns resultType (zip3 fields fieldTypes children) success failure)
+        pure
+          ( ExCase
+              (ExVar (binderName binder))
+              caseBinder
+              resultType'
+              [ Alt constructor typeBinders (dictionaries <> fields) body,
+                Alt AltDefault [] [] failure
+              ]
+          )
 
 desugarListCompChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> Expr -> ValueM Expr
 desugarListCompChildPatterns resultType children success failure =
@@ -3369,6 +3387,14 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
                   Alt (AltData falseName) [] [] failure'
                 ]
             )
+    Syn.PAnn annotation _
+      | Just checked <- Syn.fromAnnotation annotation,
+        not (null (tcAnnTypeBinders checked)) || not (null (tcAnnEvidenceTerms checked)),
+        isJust (patternConstructorSourceName pattern') -> do
+          maybePatSyn <- patternPatSyn pattern'
+          case maybePatSyn of
+            Just (info, checkedSynonym) -> desugarPatSynWithFailure resultType binder pattern' info checkedSynonym success failure
+            Nothing -> desugarDoConstructorPattern resultType binder pattern' success failure
     Syn.PAnn _ inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PParen inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PStrict inner -> desugarPatternWithFailure resultType binder ty inner success failure
@@ -3383,7 +3409,7 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
       withLocals locals (desugarPatternWithFailure resultType binder ty inner success failure)
     Syn.PView viewFunction inner -> do
       function <- desugarExpr viewFunction
-      innerType <- requiredPatternType inner
+      innerType <- viewPatternResultType viewFunction
       viewBinder <- freshPatternBinder inner innerType
       body <- desugarPatternWithFailure resultType viewBinder innerType inner success failure
       pure (ExLet (Bind viewBinder (ExApp function (ExVar (binderName binder)))) body)
@@ -3409,20 +3435,21 @@ desugarDoConstructorPattern resultType binder pattern' success failure = do
       let children = patternChildren pattern'
           predicates = patternGivenPredicates pattern'
       let typeVariables = patternTypeVariables pattern'
-      typeBinders <- convertTypeBinders typeVariables
-      fieldTypes <- patternFieldTypes pattern' children
-      fields <- zipWithM freshPatternBinder children fieldTypes
-      dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
-      constructor <- patternConstructor pattern'
-      resultType' <- convertCheckedType resultType
-      caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
-      body <-
-        withAlternativeScope
-          (not (null typeBinders))
-          (zipWith Dictionary predicates dictionaries)
-          (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success failure)
-      let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
-      pure (ExCase (ExVar (binderName binder)) caseBinder resultType' (Alt constructor typeBinders (dictionaries <> fields) body : defaultAlternatives))
+      withTypeVariables typeVariables $ do
+        typeBinders <- convertTypeBinders typeVariables
+        fieldTypes <- patternFieldTypes pattern' children
+        fields <- zipWithM freshPatternBinder children fieldTypes
+        dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+        constructor <- patternConstructor pattern'
+        resultType' <- convertCheckedType resultType
+        caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
+        body <-
+          withAlternativeScope
+            (not (null typeBinders))
+            (zipWith Dictionary predicates dictionaries)
+            (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success failure)
+        let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
+        pure (ExCase (ExVar (binderName binder)) caseBinder resultType' (Alt constructor typeBinders (dictionaries <> fields) body : defaultAlternatives))
 
 desugarDoChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoChildPatterns resultType children success failure =
@@ -3723,7 +3750,7 @@ desugarEvidence evidence =
     Ev.EvCast inner coercion -> do
       expression <- desugarEvidence inner
       withCoercion coercion (pure . ExCast expression)
-    Ev.EvTypeable origin ty arguments -> desugarTypeableEvidence origin ty arguments
+    Ev.EvTypeable origin ty constructor kindArguments arguments -> desugarTypeableEvidence origin ty constructor kindArguments arguments
     Ev.EvTypeLam variable body ->
       withoutEvidenceScope (ExTyLam <$> convertTypeBinder variable <*> desugarEvidence body)
     Ev.EvDictLam predicate binderType body -> withoutEvidenceScope $ do
@@ -3841,76 +3868,85 @@ desugarStringValue value = do
     modifiedUtf8 '\0' = BS.pack [0xC0, 0x80]
     modifiedUtf8 character = TE.encodeUtf8 (T.singleton character)
 
-desugarTypeableEvidence :: Maybe (Text, Text) -> TcType -> [Ev.EvTerm] -> ValueM Expr
-desugarTypeableEvidence origin ty argumentEvidence = do
+desugarTypeableEvidence :: Maybe (Text, Text) -> TcType -> Ev.TypeableTyCon -> [(TcType, Ev.EvTerm)] -> [Ev.EvTerm] -> ValueM Expr
+desugarTypeableEvidence origin ty constructor kindArguments argumentEvidence = do
   (_, _, _, argumentTypes) <- typeableTypeView ty
   unless (length argumentTypes == length argumentEvidence) (failValue "Typeable evidence argument count does not match its type")
   argumentRepresentations <- zipWithM (desugarTypeableArgument origin) argumentTypes argumentEvidence
-  representation <- desugarTypeRepresentation origin ty argumentRepresentations
-  convertedType <- convertCheckedType ty
-  proxyName <- typeableName origin "Data.Proxy" "Proxy" SortTypeConstructor
-  proxyArguments <- typeableTypeArguments proxyName ty
-  let proxyType = foldl TyApp (TyCon proxyName) proxyArguments
-  proxyBinder <- freshBinderFromType "$typeable_proxy" proxyType
-  valueBinder <- freshBinderFromType "$typeable_value" convertedType
+  kindRepresentations <- mapM (uncurry (desugarTypeableArgument origin)) kindArguments
+  representation <- desugarTypeRepresentation origin ty constructor kindRepresentations argumentRepresentations
   dictionaryConstructor <- typeableName origin "Type.Reflection" "$Dict$Typeable" SortDataConstructor
-  pure
-    ( ExApp
-        (ExApp (ExTyApp (ExVar dictionaryConstructor) convertedType) (ExLam proxyBinder representation))
-        (ExLam valueBinder representation)
-    )
+  className <- typeableName origin "Type.Reflection" "Typeable" SortTypeConstructor
+  typeArguments <- typeableTypeArguments className ty
+  pure (ExApp (foldl ExTyApp (ExVar dictionaryConstructor) typeArguments) representation)
 
 desugarTypeableArgument :: Maybe (Text, Text) -> TcType -> Ev.EvTerm -> ValueM Expr
 desugarTypeableArgument origin ty evidence = do
   dictionary <- desugarEvidence evidence
-  convertedType <- convertCheckedType ty
   selector <- typeableName origin "Type.Reflection" "typeRep" SortValue
+  className <- typeableName origin "Type.Reflection" "Typeable" SortTypeConstructor
   someTypeRepConstructor <- typeableName origin "Type.Reflection" "SomeTypeRep" SortDataConstructor
-  proxyConstructor <- typeableName origin "Data.Proxy" "Proxy" SortDataConstructor
-  proxyArguments <- typeableTypeArguments proxyConstructor ty
-  let proxy = foldl ExTyApp (ExVar proxyConstructor) proxyArguments
-      typeRepValue = ExApp (ExApp (ExTyApp (ExVar selector) convertedType) dictionary) proxy
-  pure (ExApp (ExTyApp (ExVar someTypeRepConstructor) convertedType) typeRepValue)
+  typeArguments <- typeableTypeArguments className ty
+  let typeRepValue = ExApp (foldl ExTyApp (ExVar selector) typeArguments) dictionary
+  pure (ExApp (foldl ExTyApp (ExVar someTypeRepConstructor) typeArguments) typeRepValue)
 
-desugarTypeRepresentation :: Maybe (Text, Text) -> TcType -> [Expr] -> ValueM Expr
-desugarTypeRepresentation origin ty arguments = do
-  (package, moduleName', typeName, _) <- typeableTypeView ty
+desugarTypeRepresentation :: Maybe (Text, Text) -> TcType -> Ev.TypeableTyCon -> [Expr] -> [Expr] -> ValueM Expr
+desugarTypeRepresentation origin ty constructor kindRepresentations arguments = do
   someTypeRepName <- typeableName origin "Type.Reflection" "SomeTypeRep" SortTypeConstructor
   typeRepConstructor <- typeableName origin "Type.Reflection" "TypeRep" SortDataConstructor
-  tyCon <- desugarTypeableTyCon package moduleName' typeName
+  tyCon <- desugarTypeableTyCon constructor
   argumentList <- desugarFcList (TyCon someTypeRepName) arguments
   typeArguments <- typeableTypeArguments typeRepConstructor ty
-  pure (ExApp (ExApp (foldl ExTyApp (ExVar typeRepConstructor) typeArguments) tyCon) argumentList)
+  kindArguments <- desugarFcList (TyCon someTypeRepName) kindRepresentations
+  pure (ExApp (ExApp (ExApp (foldl ExTyApp (ExVar typeRepConstructor) typeArguments) tyCon) kindArguments) argumentList)
 
--- | The @GHC.Types.TyCon@ that the 'Typeable' evidence of a type carries.
---
--- The package, the module and the name identify the constructor, and are
--- what aihc compares two of them by. The kind arity and the kind
--- representation are a placeholder: the kind of a saturated type of kind
--- @Type@, whatever the arity of the constructor. Filling them in needs the
--- kind of the constructor, which the evidence does not carry, and nothing
--- in aihc reads either field back. They are there so that a constructor
--- has the shape that code written against GHC expects.
-desugarTypeableTyCon :: Text -> Text -> Text -> ValueM Expr
-desugarTypeableTyCon package moduleName' typeName = do
+-- | Convert the checked constructor metadata into runtime values.
+desugarTypeableTyCon :: Ev.TypeableTyCon -> ValueM Expr
+desugarTypeableTyCon (Ev.TypeableTyCon constructor arity kind) = do
   tyConConstructor <- primitiveName "GHC.Types" "TyCon" SortDataConstructor
   moduleConstructor <- primitiveName "GHC.Types" "Module" SortDataConstructor
-  intConstructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
-  kindRepTypeConstructor <- primitiveName "GHC.Types" "KindRepTYPE" SortDataConstructor
-  boxedRepConstructor <- primitiveName "GHC.Types" "BoxedRep" SortDataConstructor
-  liftedConstructor <- primitiveName "GHC.Types" "Lifted" SortDataConstructor
-  kinds <- valueKinds
-  intRepresentation <- convertRuntimeRep (intRep kinds)
-  packageName <- desugarTrName package
-  moduleValue <- desugarTrName moduleName'
-  nameValue <- desugarTrName typeName
+  packageName <- desugarTrName (packageIdText (tyConPackageId constructor))
+  moduleValue <- desugarTrName (tyConModuleName constructor)
+  nameValue <- desugarTrName (tyConName constructor)
+  kindArgs <- desugarTypeableInt arity
+  kindRep <- desugarTypeableKind kind
   let modul = foldl ExApp (ExVar moduleConstructor) [packageName, moduleValue]
-      kindArgs = ExApp (ExVar intConstructor) (ExLit (LitInt intRepresentation 0))
-      kindRep =
-        ExApp
-          (ExVar kindRepTypeConstructor)
-          (ExApp (ExVar boxedRepConstructor) (ExVar liftedConstructor))
   pure (foldl ExApp (ExVar tyConConstructor) [modul, nameValue, kindArgs, kindRep])
+
+desugarTypeableInt :: Int -> ValueM Expr
+desugarTypeableInt value = do
+  constructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
+  kinds <- valueKinds
+  representation <- convertRuntimeRep (intRep kinds)
+  pure (ExApp (ExVar constructor) (ExLit (LitInt representation (fromIntegral value))))
+
+desugarTypeableKind :: Ev.TypeableKind -> ValueM Expr
+desugarTypeableKind kind =
+  case kind of
+    Ev.TypeableKindVar index -> construct "KindRepVar" . (: []) =<< desugarTypeableInt index
+    Ev.TypeableKindType representation -> construct "KindRepTYPE" . (: []) =<< runtimeValue representation
+    Ev.TypeableKindFun argument result -> do
+      left <- desugarTypeableKind argument
+      right <- desugarTypeableKind result
+      construct "KindRepFun" [left, right]
+    Ev.TypeableKindApp function argument -> do
+      left <- desugarTypeableKind function
+      right <- desugarTypeableKind argument
+      construct "KindRepApp" [left, right]
+    Ev.TypeableKindCon constructor arguments -> do
+      con <- desugarTypeableTyCon constructor
+      args <- mapM desugarTypeableKind arguments
+      kindName <- primitiveName "GHC.Types" "KindRep" SortTypeConstructor
+      argList <- desugarFcList (TyCon kindName) args
+      construct "KindRepTyConApp" [con, argList]
+  where
+    construct name arguments = do
+      constructor <- primitiveName "GHC.Types" name SortDataConstructor
+      pure (foldl ExApp (ExVar constructor) arguments)
+    runtimeValue (TcTyCon constructor arguments) = do
+      values <- mapM runtimeValue arguments
+      construct (tyConName constructor) values
+    runtimeValue ty = failValue ("runtime representation is not concrete: " <> show ty)
 
 -- | A @GHC.Types.TrName@ holding a name. The dynamic form takes a list,
 -- which is what 'desugarStringValue' builds.

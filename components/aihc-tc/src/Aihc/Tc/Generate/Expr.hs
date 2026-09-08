@@ -10,6 +10,8 @@
 module Aihc.Tc.Generate.Expr
   ( inferExpr,
     inferExprAt,
+    checkExpr,
+    checkRhs,
   )
 where
 
@@ -448,9 +450,63 @@ inferLambdaCase sp alts = do
   (alts', cts) <- inferCaseAlts sp argTy resTy alts
   pure (ELambdaCase alts', TcFunTy argTy resTy, cts)
 
+-- | Pass the expected result into case branches before equality refinement.
+checkExpr :: TcType -> Expr -> TcM (Expr, TcType, [Ct])
+checkExpr expected expression = case expression of
+  EAnn annotation inner | checksExpectedResult inner -> do
+    (inner', ty, constraints) <- checkExpr expected inner
+    pure (EAnn annotation inner', ty, constraints)
+  EParen inner -> do
+    (inner', ty, constraints) <- checkExpr expected inner
+    pure (EParen inner', ty, constraints)
+  ECase scrutinee alternatives -> do
+    (scrutinee', scrutineeType, constraints) <- inferExpr scrutinee
+    prepareScrutinee constraints
+    (alternatives', branchConstraints) <- inferCaseAlts (exprSpan expression) scrutineeType expected alternatives
+    let pending = pendingAnnotation expected [] [] []
+    pure (annotatePendingExprAt (exprSpan expression) pending (ECase scrutinee' alternatives'), expected, constraints <> branchConstraints)
+  EDo statements DoPlain -> do
+    (statements', ty, constraints) <- inferDoStmtsWith (Just expected) (exprSpan expression) statements
+    let pending = pendingAnnotation ty [] [] []
+    pure (annotatePendingExprAt (exprSpan expression) pending (EDo statements' DoPlain), ty, constraints)
+  ELetDecls declarations body -> do
+    (declarations', body', ty, constraints) <- inferLocalDecls inferExpr declarations (checkExpr expected body)
+    pure (ELetDecls declarations' body', ty, constraints)
+  _ -> inferExpr expression
+
+checkRhs :: TcType -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
+checkRhs expected rhs = case rhs of
+  UnguardedRhs annotations expression Nothing -> do
+    (expression', ty, constraints) <- checkExpr expected expression
+    pure (UnguardedRhs annotations expression' Nothing, ty, constraints)
+  UnguardedRhs annotations expression (Just declarations) -> do
+    (declarations', expression', ty, constraints) <- inferLocalDecls inferExpr declarations (checkExpr expected expression)
+    pure (UnguardedRhs annotations expression' (Just declarations'), ty, constraints)
+  _ -> inferRhs rhs
+
+checksExpectedResult :: Expr -> Bool
+checksExpectedResult expression = case expression of
+  EAnn _ inner -> checksExpectedResult inner
+  EParen inner -> checksExpectedResult inner
+  ECase {} -> True
+  ELetDecls {} -> True
+  EDo _ DoPlain -> True
+  _ -> False
+
+-- | Connect application results before constructor patterns refine their indices.
+prepareScrutinee :: [Ct] -> TcM ()
+prepareScrutinee = mapM_ prepare
+  where
+    prepare constraint = case ctPred constraint of
+      EqPred {} -> do
+        _ <- solveEquality constraint
+        pure ()
+      _ -> pure ()
+
 inferCase :: SourceSpan -> Expr -> [CaseAlt Expr] -> TcM (Expr, TcType, [Ct])
 inferCase sp scrutinee alts = do
   (scrutinee', scrutTy, scrutCts) <- inferExpr scrutinee
+  prepareScrutinee scrutCts
   resTy <- freshMetaTv
   (alts', altCts) <- inferCaseAlts sp scrutTy resTy alts
   let pending = pendingAnnotation resTy [] [] []
@@ -513,7 +569,7 @@ inferCaseAlts sp scrutTy resTy alternatives = do
       let altSp = sourceSpanFromAnns altAnns
           branchSp = combineSourceSpan altSp sp
       patCheck <- checkPattern branchSp pat scrutTy
-      (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
+      (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternBindings (pcBindings patCheck) (checkRhs resTy rhs))
       resultEv <- freshEvVar
       let rhsSp = rhsExprSpan rhs `orSourceSpan` branchSp
           resultCt =
@@ -540,7 +596,7 @@ inferLambdaCaseAlt sp argTys resTy alt = do
   let pats = lambdaCaseAltPats alt
       rhs = lambdaCaseAltRhs alt
   patCheck <- checkFunctionPatterns sp (zip pats argTys)
-  (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
+  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternBindings (pcBindings patCheck) (checkRhs resTy rhs))
   ev <- freshEvVar
   let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
       rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
@@ -855,7 +911,7 @@ instantiateSigmaType :: TcType -> TcM (TcType, [TcType], [Pred])
 instantiateSigmaType = go []
   where
     go arguments (TcForAllTy binder body) = do
-      argument <- freshMetaTv
+      argument <- freshMetaTvOfKind (tvKind binder)
       go (arguments <> [argument]) (applySubst (Map.singleton (tvUnique binder) argument) body)
     go arguments (TcQualTy predicates body) = pure (body, arguments, predicates)
     go arguments ty = pure (ty, arguments, [])
@@ -1278,40 +1334,43 @@ inferDo sp flavor stmts =
       pure (EDo stmts flavor, resultTy, [])
 
 inferDoStmts :: SourceSpan -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
-inferDoStmts sp stmts =
+inferDoStmts = inferDoStmtsWith Nothing
+
+inferDoStmtsWith :: Maybe TcType -> SourceSpan -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
+inferDoStmtsWith expected sp stmts =
   case stmts of
     [] -> do
       emitError sp (OtherError "empty do block in TC MVP")
       resultTy <- freshMetaTv
       pure ([], resultTy, [])
-    [stmt] -> inferLastDoStmt sp stmt
-    stmt : rest -> inferDoStmt sp stmt rest
+    [stmt] -> inferLastDoStmt expected sp stmt
+    stmt : rest -> inferDoStmt expected sp stmt rest
 
-inferLastDoStmt :: SourceSpan -> DoStmt Expr -> TcM ([DoStmt Expr], TcType, [Ct])
-inferLastDoStmt ambient stmt =
+inferLastDoStmt :: Maybe TcType -> SourceSpan -> DoStmt Expr -> TcM ([DoStmt Expr], TcType, [Ct])
+inferLastDoStmt expected ambient stmt =
   case stmt of
     DoAnn ann inner -> do
-      (stmts', resultTy, cts) <- inferLastDoStmt (doStmtSpan stmt `orSourceSpan` ambient) inner
+      (stmts', resultTy, cts) <- inferLastDoStmt expected (doStmtSpan stmt `orSourceSpan` ambient) inner
       case stmts' of
         [inner'] -> pure ([DoAnn ann inner'], resultTy, cts)
         _ -> pure (stmts', resultTy, cts)
     DoExpr body -> do
-      (body', bodyTy, cts) <- inferExprAt ambient body
+      (body', bodyTy, cts) <- maybe (inferExprAt ambient body) (`checkExpr` body) expected
       pure ([DoExpr body'], bodyTy, cts)
     _ -> do
       emitError ambient (OtherError "the last statement in a do block must be an expression")
       resultTy <- freshMetaTv
       pure ([stmt], resultTy, [])
 
-inferDoStmt :: SourceSpan -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
-inferDoStmt ambient stmt rest =
+inferDoStmt :: Maybe TcType -> SourceSpan -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
+inferDoStmt expected ambient stmt rest =
   case stmt of
     DoAnn ann inner
       | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
         isDoMethodResolution resolution ->
-          inferResolvedDoStmt ambient ann resolution inner rest
+          inferResolvedDoStmt expected ambient ann resolution inner rest
     DoAnn ann inner -> do
-      (stmts', resultTy, cts) <- inferDoStmt (doStmtSpan stmt `orSourceSpan` ambient) inner rest
+      (stmts', resultTy, cts) <- inferDoStmt expected (doStmtSpan stmt `orSourceSpan` ambient) inner rest
       case stmts' of
         inner' : rest' -> pure (DoAnn ann inner' : rest', resultTy, cts)
         [] -> pure ([], resultTy, cts)
@@ -1322,7 +1381,7 @@ inferDoStmt ambient stmt rest =
       (action', actionTy, actionCts) <- inferExprAt ambient action
       patCheck <- checkPattern ambient pat itemTy
       (rest', resultTy, restCts) <-
-        withPatternBindings (pcBindings patCheck) (inferDoStmts ambient rest)
+        withPatternBindings (pcBindings patCheck) (inferDoStmtsWith expected ambient rest)
       actionEq <- wantedDoEq ambient actionTy (TcAppTy monadTy itemTy)
       resultEq <- wantedDoEq ambient resultTy (TcAppTy monadTy resultItemTy)
       monadCt <- wantedMonad ambient monadTy
@@ -1338,7 +1397,7 @@ inferDoStmt ambient stmt rest =
       itemTy <- freshMetaTv
       resultItemTy <- freshMetaTv
       (action', actionTy, actionCts) <- inferExprAt ambient action
-      (rest', resultTy, restCts) <- inferDoStmts ambient rest
+      (rest', resultTy, restCts) <- inferDoStmtsWith expected ambient rest
       actionEq <- wantedDoEq ambient actionTy (TcAppTy monadTy itemTy)
       resultEq <- wantedDoEq ambient resultTy (TcAppTy monadTy resultItemTy)
       monadCt <- wantedMonad ambient monadTy
@@ -1350,41 +1409,48 @@ inferDoStmt ambient stmt rest =
     DoLetDecls decls -> do
       (decls', rest', resultTy, cts) <-
         inferLocalDecls inferExpr decls $ do
-          (rest', resultTy, restCts) <- inferDoStmts ambient rest
+          (rest', resultTy, restCts) <- inferDoStmtsWith expected ambient rest
           pure (rest', resultTy, restCts)
       pure (DoLetDecls decls' : rest', resultTy, cts)
     DoRecStmt _ -> do
       emitError ambient (OtherError "recursive do statements are unsupported in TC MVP")
-      (rest', resultTy, cts) <- inferDoStmts ambient rest
+      (rest', resultTy, cts) <- inferDoStmtsWith expected ambient rest
       pure (stmt : rest', resultTy, cts)
 
-inferResolvedDoStmt :: SourceSpan -> Annotation -> ResolutionAnnotation -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
-inferResolvedDoStmt ambient resolutionAnn resolution stmt rest =
+inferResolvedDoStmt :: Maybe TcType -> SourceSpan -> Annotation -> ResolutionAnnotation -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
+inferResolvedDoStmt expected ambient resolutionAnn resolution stmt rest =
   case stmt of
     DoBind pat action -> do
       itemTy <- freshMetaTv
+      restExpected <- freshMetaTv
+      blockTy <- maybe freshMetaTv pure expected
       (action', actionTy, actionCts) <- inferExprAt ambient action
+      let bindTy = TcFunTy actionTy (TcFunTy (TcFunTy itemTy restExpected) blockTy)
+      (pending, methodCts) <- inferDoMethod ambient ">>=" resolution bindTy
+      prepareScrutinee (actionCts <> methodCts)
       patCheck <- checkPattern ambient pat itemTy
       (rest', restTy, restCts) <-
-        withPatternBindings (pcBindings patCheck) (inferDoStmts ambient rest)
-      blockTy <- freshMetaTv
-      let bindTy = TcFunTy actionTy (TcFunTy (TcFunTy itemTy restTy) blockTy)
-      (pending, methodCts) <- inferDoMethod ambient ">>=" resolution bindTy
+        withGivenPredicates (map ctPred (pcGivenCts patCheck)) $
+          withPatternBindings (pcBindings patCheck) (inferDoStmtsWith (Just restExpected) ambient rest)
+      resultEquality <- wantedDoEq ambient restTy restExpected
       let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
           stmt' = DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoBind pat' action'))
-      remainingCts <- solvePatternBranch ambient patCheck restTy restCts
+      remainingCts <- solvePatternBranch ambient patCheck restExpected (restCts <> [resultEquality])
       pure (stmt' : rest', blockTy, actionCts <> remainingCts <> methodCts)
     DoExpr action -> do
+      restExpected <- freshMetaTv
+      blockTy <- maybe freshMetaTv pure expected
       (action', actionTy, actionCts) <- inferExprAt ambient action
-      (rest', restTy, restCts) <- inferDoStmts ambient rest
-      blockTy <- freshMetaTv
-      let thenTy = TcFunTy actionTy (TcFunTy restTy blockTy)
+      let thenTy = TcFunTy actionTy (TcFunTy restExpected blockTy)
       (pending, methodCts) <- inferDoMethod ambient ">>" resolution thenTy
+      prepareScrutinee (actionCts <> methodCts)
+      (rest', restTy, restCts) <- inferDoStmtsWith (Just restExpected) ambient rest
+      resultEquality <- wantedDoEq ambient restTy restExpected
       let stmt' = DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoExpr action'))
-      pure (stmt' : rest', blockTy, actionCts <> restCts <> methodCts)
+      pure (stmt' : rest', blockTy, actionCts <> restCts <> methodCts <> [resultEquality])
     _ -> do
       emitError ambient (OtherError "internal do-bind annotation on a non-action statement")
-      inferDoStmt ambient stmt rest
+      inferDoStmt expected ambient stmt rest
 
 -- | The constraint that equates the argument of a literal method with the
 -- resolved type of the literal.

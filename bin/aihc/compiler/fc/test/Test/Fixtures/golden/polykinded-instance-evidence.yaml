@@ -1,0 +1,77 @@
+extensions: [GADTs, PolyKinds, ScopedTypeVariables]
+modules:
+  - |
+    {-# LANGUAGE GADTs, PolyKinds, ScopedTypeVariables #-}
+    module Test where
+    data Bool = True | False
+    data Maybe a = Nothing | Just a
+    data Rep (a :: k) = Rep
+    data SomeRep where
+      SomeRep :: forall k (a :: k). Rep a -> SomeRep
+    class Inspect a where
+      inspect :: a -> Bool
+    instance forall k (a :: k). Inspect (Rep a) where
+      inspect _ = True
+    inspectSome :: SomeRep -> Bool
+    inspectSome (SomeRep rep) = inspect rep
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tBool :: 2.tType {
+      pub 1.vTrue :: 1.tBool;
+      pub 1.vFalse :: 1.tBool
+  }
+
+  pub type 1.tMaybe (a : 2.tType) :: 2.tType {
+      pub 1.vNothing :: ∀(a : 2.tType). 1.tMaybe a;
+      pub 1.vJust :: ∀(a : 2.tType). a 2.→ 1.tMaybe a
+  }
+
+  pub type 1.tRep (k : 2.tType) (a : k) :: 2.tType {
+      pub 1.vRep :: ∀(k : 2.tType) (a : k). 1.tRep k a
+  }
+
+  pub type 1.tSomeRep :: 2.tType {
+      pub 1.vSomeRep :: ∀(k : 2.tType) (a : k). 1.tRep k a 2.→ 1.tSomeRep
+  }
+
+  pub type 1.t$Dict$Inspect (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Inspect :: ∀(a : 2.tType). (a 2.→ 1.tBool) 2.→ 1.t$Dict$Inspect a
+  }
+
+  pub val 1.vinspect :: ∀(a : 2.tType). 1.t$Dict$Inspect a 2.→ a 2.→ 1.tBool
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Inspect a).
+      case $d0 as ($dict : 1.t$Dict$Inspect a) return (a 2.→ 1.tBool) of {
+          1.v$Dict$Inspect ($method0 : a 2.→ 1.tBool) →
+              $method0
+      }
+
+  pub val 1.v$fInspectRepa :: ∀(k : 2.tType) (a : k). 1.t$Dict$Inspect (1.tRep k a)
+   = Λ(k : 2.tType).
+    Λ(a : k).
+      1.v$Dict$Inspect @(1.tRep k a) (λ(x : 1.tRep k a).
+        1.vTrue)
+
+  pub val 1.vinspectSome :: 1.tSomeRep 2.→ 1.tBool
+   = λ(x : 1.tSomeRep).
+    case x as (_scrut : 1.tSomeRep) return (1.tBool) of {
+        1.vSomeRep @(k : 2.tType) @(a : k) (rep : 1.tRep k a) →
+            1.vinspect @(1.tRep k a) (1.v$fInspectRepa @k @a) rep
+    }
+status: pass
+reason: Instance evidence supplies the kind argument of an existential type.
