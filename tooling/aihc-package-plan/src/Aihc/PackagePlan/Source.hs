@@ -9,13 +9,13 @@
 module Aihc.PackagePlan.Source
   ( ParsedInterfaceFile (..),
     parseInterfaceFile,
+    parseInterfaceBytes,
   )
 where
 
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (DependencyVersions, cppMacrosFromOptions, injectSyntheticCppMacros)
-import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.PackagePlan.Diagnostic (DiagnosticSourceMap, cppDiagnosticValue, diagnosticSourceMap, parseDiagnosticValue)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -37,6 +37,7 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Text.Encoding.Error (lenientDecode)
 import System.Directory (doesFileExist)
 import System.FilePath (makeRelative, normalise, splitDirectories, takeDirectory, takeExtension, (</>))
 
@@ -49,8 +50,13 @@ data ParsedInterfaceFile
 
 parseInterfaceFile :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO ParsedInterfaceFile
 parseInterfaceFile packageRoot versions fileInfo = do
-  rawSource <- HackageUtil.readTextFileLenient path
-  let normalized = normalizeSource path rawSource
+  bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
+  parseInterfaceBytes packageRoot versions fileInfo bytes
+
+-- | Parse the same source bytes that the caller uses for its input hash.
+parseInterfaceBytes :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> BS.ByteString -> IO ParsedInterfaceFile
+parseInterfaceBytes packageRoot versions fileInfo bytes = do
+  let normalized = normalizeSource path (TE.decodeUtf8With lenientDecode bytes)
       cabalExtSettings = mapMaybe (parseExtensionSettingName . T.pack) (HackageCabal.fileInfoExtensions fileInfo)
       cppEnabledGlobally = any isCppExtension cabalExtSettings
       cppEnabledInFile = any isCppExtension (headerExtensionSettings (readModuleHeaderPragmas normalized))

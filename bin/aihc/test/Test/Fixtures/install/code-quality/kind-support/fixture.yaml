@@ -1,0 +1,4 @@
+status: pass
+reason: An interface must retain constructors that occur only in variable kinds.
+expect-type-constructors:
+  - [Public, [K]]
