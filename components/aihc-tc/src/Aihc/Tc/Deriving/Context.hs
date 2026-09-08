@@ -133,13 +133,13 @@ derivingObligations kinds plan =
     TcDerivingAnyclass -> Just (Right (anyClassObligations kinds plan))
     TcDerivingStock
       | isSupportedStockClass (tcDerivingClassName plan) ->
-          Just (map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concat <$> stockFieldTypes kinds plan)
+          Just (map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concat <$> stockFieldTypes plan)
       | otherwise -> Nothing
     TcDerivingNewtype ->
       Just $ do
-        representation <- newtypeRepresentation kinds plan
+        representation <- newtypeRepresentation plan
         let substitution = Map.fromList (zip (map tvUnique (tcDerivingClassTyVars plan)) (tcDerivingHeadTypes plan))
-            supers = mapMaybe (constraintTypeToPred kinds . applySubst kinds substitution . tcDictBinderType) (tcDerivingClassSuperClasses plan)
+            supers = mapMaybe (constraintTypeToPred kinds . applySubst substitution . tcDictBinderType) (tcDerivingClassSuperClasses plan)
             methods = [ClassPred (tcDerivingClassTyCon plan) (init (tcDerivingHeadTypes plan) <> [representation]) | not (null (tcDerivingClassMethods plan))]
         pure (supers <> methods)
     TcDerivingVia {} -> Nothing
@@ -201,13 +201,13 @@ simplifyPredicate kinds environment owner predicate
     simplifyExisting (instanceInfo, substitution) =
       concat
         <$> mapM
-          (simplifyPredicate kinds environment owner . applySubstPred kinds substitution)
+          (simplifyPredicate kinds environment owner . applySubstPred substitution)
           (iiContext instanceInfo)
     simplifyDerived (candidate, substitution) = do
       context <- candidateContext candidate
       concat
         <$> mapM
-          (simplifyPredicate kinds environment owner . applySubstPred kinds substitution)
+          (simplifyPredicate kinds environment owner . applySubstPred substitution)
           context
     candidateContext candidate =
       case tcDerivingContext candidate of
@@ -227,10 +227,10 @@ firstSuccessful results =
 anyClassObligations :: TcKinds -> TcDerivingPlan -> [Pred]
 anyClassObligations kinds plan =
   mapMaybe
-    (constraintTypeToPred kinds . applySubst kinds substitution . tcDictBinderType)
+    (constraintTypeToPred kinds . applySubst substitution . tcDictBinderType)
     (tcDerivingClassSuperClasses plan)
     <> concat
-      [ map (applySubstPred kinds substitution) predicates
+      [ map (applySubstPred substitution) predicates
       | (methodName, predicates) <- tcDerivingDefaultSignatures plan,
         methodName `elem` tcDerivingDefaultMethods plan
       ]
@@ -243,8 +243,8 @@ anyClassObligations kinds plan =
 
 -- | The field types of every constructor of a stock deriving target, with
 -- the datatype parameters instantiated to the instance head.
-stockFieldTypes :: TcKinds -> TcDerivingPlan -> Either String [[TcType]]
-stockFieldTypes kinds plan = do
+stockFieldTypes :: TcDerivingPlan -> Either String [[TcType]]
+stockFieldTypes plan = do
   dataType <-
     maybe
       (Left (mechanism <> " requires checked datatype metadata"))
@@ -258,7 +258,7 @@ stockFieldTypes kinds plan = do
           | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
           ]
   pure
-    [ [applySubst kinds substitution (dcfiType field) | field <- dciFields constructor]
+    [ [applySubst substitution (dcfiType field) | field <- dciFields constructor]
     | constructor <- dtiConstructors dataType
     ]
   where
@@ -267,8 +267,8 @@ stockFieldTypes kinds plan = do
 -- | The representation type of a newtype deriving target: the field type
 -- of the newtype constructor, eta-reduced over the datatype parameters
 -- that the instance head leaves out.
-newtypeRepresentation :: TcKinds -> TcDerivingPlan -> Either String TcType
-newtypeRepresentation kinds plan = do
+newtypeRepresentation :: TcDerivingPlan -> Either String TcType
+newtypeRepresentation plan = do
   dataType <-
     maybe
       (Left "newtype deriving requires checked datatype metadata")
@@ -290,7 +290,7 @@ newtypeRepresentation kinds plan = do
           | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
           ]
       dropped = drop supplied (dtiTyVars dataType)
-  case etaReduce dropped (applySubst kinds substitution field) of
+  case etaReduce dropped (applySubst substitution field) of
     Just representation
       | not (any (`elem` typeTyVars representation) dropped) -> Right representation
     _ -> Left "newtype deriving cannot eta-reduce the representation type to the instance head"
@@ -410,6 +410,7 @@ typeableArguments predicate =
             TcFunTy argument result -> Just [argument, result]
             TcTyVar {} -> Nothing
             TcMetaTv {} -> Nothing
+            TcArrowTy -> Nothing
             TcForAllTy {} -> Nothing
             TcQualTy {} -> Nothing
             TcAppTy {} -> Nothing
@@ -458,6 +459,7 @@ typeMentionsTyCon name ty =
   case ty of
     TcTyVar {} -> False
     TcMetaTv {} -> False
+    TcArrowTy -> False
     TcTyCon tyCon arguments -> tyConName tyCon == name || any (typeMentionsTyCon name) arguments
     TcFunTy argument result -> typeMentionsTyCon name argument || typeMentionsTyCon name result
     TcForAllTy _ body -> typeMentionsTyCon name body
@@ -476,6 +478,7 @@ typeTyVars ty =
   case ty of
     TcTyVar tyVar -> [tyVar]
     TcMetaTv {} -> []
+    TcArrowTy -> []
     TcTyCon _ arguments -> concatMap typeTyVars arguments
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
     TcForAllTy tyVar body -> filter (/= tyVar) (typeTyVars body)

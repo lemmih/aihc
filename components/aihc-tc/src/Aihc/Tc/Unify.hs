@@ -71,6 +71,7 @@ occursIn :: Unique -> TcType -> Bool
 occursIn u = go
   where
     go (TcMetaTv u') = u == u'
+    go TcArrowTy = False
     go (TcTyVar _) = False
     go (TcTyCon _ args) = any go args
     go (TcFunTy a b) = go a || go b

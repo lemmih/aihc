@@ -409,6 +409,7 @@ renderTcTypeInModule currentModule = go 0
     go _ (TcTyVar tv) = T.unpack (tvName tv)
     go _ (TcMetaTv (Unique u)) = "?" ++ show u
     go _ KType = "Type"
+    go _ TcArrowTy = "(->)"
     go _ (TcTyCon (TyCon name 1) [arg])
       | name == T.pack "[]" = "[" ++ go 0 arg ++ "]"
     go _ (TcTyCon tc@(TyCon name arity) args)

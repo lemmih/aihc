@@ -28,6 +28,7 @@ import Control.Monad.Trans.State.Strict (gets, modify')
 -- | Zonk a type: chase meta-variable solutions to their final values.
 zonkType :: TcType -> TcM TcType
 zonkType ty = case ty of
+  TcArrowTy -> pure ty
   TcMetaTv u -> do
     mSol <- readMetaTv u
     case mSol of
@@ -37,11 +38,11 @@ zonkType ty = case ty of
         writeMetaTv u zonked
         pure zonked
   TcTyVar tv -> TcTyVar <$> zonkTyVar tv
-  TcTyCon tc args -> mkTyConApp <$> getKinds <*> pure tc <*> mapM zonkType args
+  TcTyCon tc args -> TcTyCon tc <$> mapM zonkType args
   TcFunTy a b -> TcFunTy <$> zonkType a <*> zonkType b
   TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> zonkType body
   TcQualTy preds body -> TcQualTy <$> mapM zonkPred preds <*> zonkType body
-  TcAppTy f a -> mkAppTy <$> getKinds <*> zonkType f <*> zonkType a
+  TcAppTy f a -> mkAppTy <$> zonkType f <*> zonkType a
 
 -- | Zonk a predicate.
 zonkPred :: Pred -> TcM Pred
@@ -63,12 +64,13 @@ defaultTypeKinds :: TcType -> TcM TcType
 defaultTypeKinds ty =
   case ty of
     TcMetaTv {} -> pure ty
+    TcArrowTy -> pure ty
     TcTyVar tv -> TcTyVar <$> defaultTyVarKinds tv
     TcTyCon tyCon args -> TcTyCon tyCon <$> mapM defaultTypeKinds args
     TcFunTy argument result -> TcFunTy <$> defaultTypeKinds argument <*> defaultTypeKinds result
     TcForAllTy tv body -> TcForAllTy <$> defaultTyVarKinds tv <*> defaultTypeKinds body
     TcQualTy predicates body -> TcQualTy <$> mapM defaultPredKinds predicates <*> defaultTypeKinds body
-    TcAppTy function argument -> mkAppTy <$> getKinds <*> defaultTypeKinds function <*> defaultTypeKinds argument
+    TcAppTy function argument -> mkAppTy <$> defaultTypeKinds function <*> defaultTypeKinds argument
 
 defaultTypeSchemeKinds :: TypeScheme -> TcM TypeScheme
 defaultTypeSchemeKinds (ForAll tyVars predicates body) =

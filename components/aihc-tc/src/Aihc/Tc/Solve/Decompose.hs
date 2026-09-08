@@ -28,12 +28,10 @@ decomposeNominalEquality rawLeft rawRight = do
           pure (Just (zip leftArgs rightArgs))
     decompose (TcFunTy leftArg leftResult) (TcFunTy rightArg rightResult) =
       pure (Just [(leftArg, rightArg), (leftResult, rightResult)])
-    decompose (TcAppTy function argument) (TcFunTy domain range) = do
-      arrow <- arrowTyCon
-      pure (Just [(function, TcTyCon arrow [domain]), (argument, range)])
-    decompose (TcFunTy domain range) (TcAppTy function argument) = do
-      arrow <- arrowTyCon
-      pure (Just [(TcTyCon arrow [domain], function), (range, argument)])
+    decompose (TcAppTy function argument) (TcFunTy domain range) =
+      pure (Just [(function, TcAppTy TcArrowTy domain), (argument, range)])
+    decompose (TcFunTy domain range) (TcAppTy function argument) =
+      pure (Just [(TcAppTy TcArrowTy domain, function), (range, argument)])
     decompose (TcAppTy function argument) (TcTyCon tyCon arguments)
       | not (null arguments) =
           pure (Just [(function, TcTyCon tyCon (init arguments)), (argument, last arguments)])
@@ -43,7 +41,3 @@ decomposeNominalEquality rawLeft rawRight = do
     decompose (TcAppTy leftFunction leftArgument) (TcAppTy rightFunction rightArgument) =
       pure (Just [(leftFunction, rightFunction), (leftArgument, rightArgument)])
     decompose _ _ = pure Nothing
-
-    arrowTyCon = do
-      kinds <- getKinds
-      wiredTyCon tcWiringArrowTyCon (KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds)))

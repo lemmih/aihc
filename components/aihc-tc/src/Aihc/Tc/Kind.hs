@@ -235,14 +235,14 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       resultKind <- freshKindMeta
       unifyKindsAt (surfaceTypeSpans [a, f]) fKind (KFun aKind resultKind)
       resultKind' <- zonkKind resultKind
-      pure (applyType kinds fTy aTy, resultKind')
+      pure (applyType fTy aTy, resultKind')
     TTypeApp f a -> do
       (fTy, fKind) <- convertSurfaceTypeWithKinds tvEnv f
       (aTy, aKind) <- convertSurfaceTypeWithKinds tvEnv a
       resultKind <- freshKindMeta
       unifyKindsAt (surfaceTypeSpans [a, f]) fKind (KFun aKind resultKind)
       resultKind' <- zonkKind resultKind
-      pure (applyType kinds fTy aTy, resultKind')
+      pure (applyType fTy aTy, resultKind')
     TInfix lhs name _ rhs -> do
       constructor <- inferTypeConstructor name
       applySurfaceTypeArguments tvEnv constructor [lhs, rhs]
@@ -350,12 +350,11 @@ applySurfaceTypeArguments :: TvKindEnv -> (TcType, TcType) -> [Type] -> TcM (TcT
 applySurfaceTypeArguments tvEnv = foldM applyArgument
   where
     applyArgument (functionType, functionKind) argument = do
-      kinds <- getKinds
       (argumentType, argumentKind) <- convertSurfaceTypeWithKinds tvEnv argument
       resultKind <- freshKindMeta
       unifyKindsAt (surfaceTypeSpan argument) functionKind (KFun argumentKind resultKind)
       resultKind' <- zonkKind resultKind
-      pure (applyType kinds functionType argumentType, resultKind')
+      pure (applyType functionType argumentType, resultKind')
 
 expandTypeSynonym :: TvKindEnv -> Type -> TcM (Maybe (TcType, TcType))
 expandTypeSynonym tvEnv ty =
@@ -388,7 +387,7 @@ instantiateTypeSynonym tvEnv synonymName synonym arguments = do
         else do
           checkedArguments <- zipWithM checkArgument params synonymArguments
           let substitution = Map.fromList (zip (map tvUnique params) checkedArguments)
-          expandedBody <- expandTcTypeSynonyms Set.empty (applySubst kinds substitution body)
+          expandedBody <- expandTcTypeSynonyms Set.empty (applySubst substitution body)
           expandedKind <- tcTypeKind expandedBody
           applyRemainingArguments (expandedBody, expandedKind) remainingArguments
   where
@@ -396,12 +395,11 @@ instantiateTypeSynonym tvEnv synonymName synonym arguments = do
 
     applyRemainingArguments result [] = pure result
     applyRemainingArguments (functionType, functionKind) (argument : rest) = do
-      kinds' <- getKinds
       (argumentType, argumentKind) <- convertSurfaceTypeWithKinds tvEnv argument
       resultKind <- freshKindMeta
       unifyKindsAt (surfaceTypeSpan argument) functionKind (KFun argumentKind resultKind)
       zonkedResultKind <- zonkKind resultKind
-      applyRemainingArguments (applyType kinds' functionType argumentType, zonkedResultKind) rest
+      applyRemainingArguments (applyType functionType argumentType, zonkedResultKind) rest
 
 typeApplicationSpine :: Type -> (Type, [Type])
 typeApplicationSpine = go []
@@ -413,10 +411,10 @@ typeApplicationSpine = go []
 
 expandTcTypeSynonyms :: Set TcTypeKey -> TcType -> TcM TcType
 expandTcTypeSynonyms expanding ty = do
-  kinds <- getKinds
   case ty of
     TcTyVar {} -> pure ty
     TcMetaTv {} -> pure ty
+    TcArrowTy -> pure ty
     TcTyCon tyCon arguments -> do
       expandedArguments <- mapM (expandTcTypeSynonyms expanding) arguments
       maybeInfo <- lookupTyConByIdentity tyCon
@@ -432,15 +430,15 @@ expandTcTypeSynonyms expanding ty = do
                 else do
                   let (synonymArguments, remainingArguments) = splitAt (length params) expandedArguments
                       substitution = Map.fromList (zip (map tvUnique params) synonymArguments)
-                      expandedBody = applySubst kinds substitution body
+                      expandedBody = applySubst substitution body
                       expanding' = Set.insert (tyConKey tyCon) expanding
                   normalizedBody <- expandTcTypeSynonyms expanding' expandedBody
-                  expandTcTypeSynonyms expanding' (foldl (applyType kinds) normalizedBody remainingArguments)
+                  expandTcTypeSynonyms expanding' (foldl applyType normalizedBody remainingArguments)
         _ -> pure (TcTyCon tyCon expandedArguments)
     TcFunTy argument result -> TcFunTy <$> expandTcTypeSynonyms expanding argument <*> expandTcTypeSynonyms expanding result
     TcForAllTy tyVar body -> TcForAllTy tyVar <$> expandTcTypeSynonyms expanding body
     TcQualTy predicates body -> TcQualTy <$> mapM expandPredicate predicates <*> expandTcTypeSynonyms expanding body
-    TcAppTy function argument -> applyType kinds <$> expandTcTypeSynonyms expanding function <*> expandTcTypeSynonyms expanding argument
+    TcAppTy function argument -> applyType <$> expandTcTypeSynonyms expanding function <*> expandTcTypeSynonyms expanding argument
   where
     expandPredicate predicate =
       case predicate of
@@ -544,8 +542,11 @@ inferBuiltinTypeConstructor builtin promotion =
     BuiltinArrow -> do
       kinds <- getKinds
       let kind = KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds))
-      tyCon <- wiredTyCon tcWiringArrowTyCon kind
-      pure (TcTyCon tyCon [], kind)
+      -- The type is a form of its own, but the interface still declares the
+      -- constructor: a partially applied arrow reaches the desugarer by
+      -- name, and the name has to be bound there.
+      _ <- wiredTyCon tcWiringArrowTyCon kind
+      pure (TcArrowTy, kind)
   where
     promoted = promotion == Promoted
 
@@ -672,6 +673,7 @@ isGroundKind ty =
   case ty of
     TcTyVar {} -> False
     TcMetaTv {} -> False
+    TcArrowTy -> False
     TcTyCon _ arguments -> all isGroundKind arguments
     TcFunTy argument result -> isGroundKind argument && isGroundKind result
     TcForAllTy {} -> False
@@ -687,6 +689,7 @@ bindKindMetaAt sp u kind
 zonkKind :: TcType -> TcM TcType
 zonkKind kind =
   case kind of
+    TcArrowTy -> pure kind
     TcMetaTv unique -> do
       solution <- readMetaTv unique
       case solution of
@@ -740,6 +743,7 @@ lookupKindSynonym tyCon
 defaultKindMetas :: TcType -> TcM TcType
 defaultKindMetas kind =
   case kind of
+    TcArrowTy -> pure kind
     TcMetaTv unique -> do
       solution <- readMetaTv unique
       case solution of
@@ -798,6 +802,7 @@ freshKindMeta = do
 occursInKind :: Unique -> TcType -> Bool
 occursInKind needle kind =
   case kind of
+    TcArrowTy -> False
     TcMetaTv unique -> unique == needle
     TcTyVar tyVar -> occursInKind needle (tvKind tyVar)
     TcTyCon _ arguments -> any (occursInKind needle) arguments
@@ -819,6 +824,10 @@ occursInKind needle kind =
 tcTypeKind :: TcType -> TcM TcType
 tcTypeKind ty =
   case ty of
+    -- @(->)@ takes two ordinary types and gives one.
+    TcArrowTy -> do
+      kinds <- getKinds
+      pure (KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds)))
     TcTyVar tyVar -> zonkKind (tvKind tyVar)
     TcMetaTv unique -> readMetaTvKind unique >>= zonkKind
     TcTyCon tyCon arguments -> do
@@ -853,9 +862,9 @@ tcTypeKind ty =
           emitError NoSourceSpan (KindMismatch (TcFunTy (typeKind kinds) (typeKind kinds)) functionKind')
           pure (typeKind kinds)
 
-applyType :: TcKinds -> TcType -> TcType -> TcType
-applyType kinds (TcTyCon tc args) arg = mkTyConApp kinds tc (args ++ [arg])
-applyType _ f arg = TcAppTy f arg
+applyType :: TcType -> TcType -> TcType
+applyType (TcTyCon tc args) arg = TcTyCon tc (args ++ [arg])
+applyType f arg = TcAppTy f arg
 
 listType :: TcType -> TcM TcType
 listType ty = do

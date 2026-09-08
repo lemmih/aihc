@@ -1818,6 +1818,7 @@ typeTyCons :: TcType -> [TyCon]
 typeTyCons ty = case ty of
   TcTyVar {} -> []
   TcMetaTv {} -> []
+  TcArrowTy -> []
   TcTyCon tyCon arguments -> tyCon : concatMap typeTyCons arguments
   TcFunTy argument result -> typeTyCons argument <> typeTyCons result
   TcForAllTy _ body -> typeTyCons body
@@ -1865,4 +1866,4 @@ stableHash chunks = replicate (16 - length rendered) '0' <> rendered
     hashChunk = BS.foldl' (\hash byte -> (hash `xor` fromIntegral byte) * 1099511628211)
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-15"
+packageArtifactFormatVersion = "aihc-artifacts-16"

@@ -30,13 +30,11 @@ proveGivenEquality predicates left right
       if null equalities then pure Nothing else prove equalities
   where
     prove equalities = do
-      kinds <- getKinds
-      arrow <- wiredTyCon tcWiringArrowTyCon (KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds)))
       let graph = List.foldl' addGiven Map.empty equalities
-          vertices = Set.toList (Set.unions (map (subterms arrow) (left : right : concat [[a, b] | (a, b, _) <- equalities])))
+          vertices = Set.toList (Set.unions (map subterms (left : right : concat [[a, b] | (a, b, _) <- equalities])))
           pairs = [(a, b) | a : rest <- List.tails vertices, b <- rest]
       projections <- traverse projection pairs
-      pure (findProof graph left right <|> findProof (closeGraph arrow pairs (concat projections) graph) left right)
+      pure (findProof graph left right <|> findProof (closeGraph pairs (concat projections) graph) left right)
     projection (a, b) = case (a, b) of
       (TcTyCon {}, TcTyCon {}) -> project a b
       (TcFunTy {}, TcFunTy {}) -> project a b
@@ -66,8 +64,8 @@ givenEqualities visited (predicate, evidence) = case predicate of
           Just info -> do
             kinds <- getKinds
             let substitution = Map.fromList (zip (map tvUnique (ciTyVars info)) arguments)
-                fields = classFieldTypes kinds info substitution
-                supers = map (constraintTypeToPred kinds . applySubst kinds substitution) (ciSuperClassTypes info)
+                fields = classFieldTypes info substitution
+                supers = map (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info)
             concat
               <$> traverse
                 (\(index, super) -> givenEqualities (tyCon : visited) (super, EvSuperClass evidence (ciOrigin info) predicate fields index))
@@ -94,11 +92,11 @@ findProof graph source target = go (Set.singleton source) [(source, Refl source)
     compose proof (Refl _) = proof
     compose first second = Trans first second
 
-closeGraph :: TyCon -> [(TcType, TcType)] -> [(TcType, TcType, Int, TcType, TcType)] -> ProofGraph -> ProofGraph
-closeGraph arrow pairs projections graph =
+closeGraph :: [(TcType, TcType)] -> [(TcType, TcType, Int, TcType, TcType)] -> ProofGraph -> ProofGraph
+closeGraph pairs projections graph =
   case List.foldl' project (List.foldl' extend (False, graph) pairs) projections of
     (False, _) -> graph
-    (True, graph') -> closeGraph arrow pairs projections graph'
+    (True, graph') -> closeGraph pairs projections graph'
   where
     project (changed, current) (outerLeft, outerRight, index, left, right)
       | isJust (findProof current left right) = (changed, current)
@@ -108,14 +106,14 @@ closeGraph arrow pairs projections graph =
     extend (changed, current) (left, right)
       | isJust (findProof current left right) = (changed, current)
       | otherwise =
-          case congruence arrow current left right of
+          case congruence current left right of
             Nothing -> (changed, current)
             Just proof -> (True, addProof left right proof current)
 
 -- | Congruence permits equality under a family as well as under a data type.
 -- This rule does not project equality out of a family application.
-congruence :: TyCon -> ProofGraph -> TcType -> TcType -> Maybe Coercion
-congruence arrow graph left right =
+congruence :: ProofGraph -> TcType -> TcType -> Maybe Coercion
+congruence graph left right =
   case (left, right) of
     (TcFunTy a b, TcFunTy c d) ->
       FunCo <$> findProof graph a c <*> findProof graph b d
@@ -124,21 +122,21 @@ congruence arrow graph left right =
         length leftArgs == length rightArgs ->
           TyConAppCo leftCon leftArgs <$> traverse (uncurry (findProof graph)) (zip leftArgs rightArgs)
     _ -> do
-      (leftFunction, leftArgument) <- application arrow left
-      (rightFunction, rightArgument) <- application arrow right
+      (leftFunction, leftArgument) <- application left
+      (rightFunction, rightArgument) <- application right
       AppCo <$> findProof graph leftFunction rightFunction <*> findProof graph leftArgument rightArgument
 
-application :: TyCon -> TcType -> Maybe (TcType, TcType)
-application arrow ty =
+application :: TcType -> Maybe (TcType, TcType)
+application ty =
   case ty of
     TcAppTy function argument -> Just (function, argument)
     TcTyCon tyCon arguments
       | not (null arguments) -> Just (TcTyCon tyCon (init arguments), last arguments)
-    TcFunTy domain range -> Just (TcTyCon arrow [domain], range)
+    TcFunTy domain range -> Just (TcAppTy TcArrowTy domain, range)
     _ -> Nothing
 
-subterms :: TyCon -> TcType -> Set.Set TcType
-subterms arrow ty =
-  Set.insert ty $ case application arrow ty of
-    Just (function, argument) -> subterms arrow function <> subterms arrow argument
+subterms :: TcType -> Set.Set TcType
+subterms ty =
+  Set.insert ty $ case application ty of
+    Just (function, argument) -> subterms function <> subterms argument
     Nothing -> Set.empty
