@@ -1,0 +1,36 @@
+== Map ==
+size: 9
+counts: brown=1 dog=1 fox=2 jumps=1 lazy=1 over=1 quick=1 sleeps=1 the=3
+the: Just 3
+cat: Nothing
+repeated: fox the
+total: 12
+== Set ==
+letters: abcdefghijklmnopqrstuvwxyz
+vowels used: aeiou
+no vowels: bcdfghjklmnpqrstvwxyz
+has q: True
+has y: True
+== Tree ==
+src
+|
++- Main.hs
+|
++- Data
+|  |
+|  +- Map.hs
+|  |
+|  `- Set.hs
+|
+`- Tree.hs
+nodes: 6
+depth: 3
+sorted: Data Main.hs Map.hs Set.hs Tree.hs src
+== Seq ==
+queue: [0,1,2,3,4,5]
+length: 6
+index 2: 2
+reverse: [5,4,3,2,1,0]
+doubled: [0,2,4,6,8,10]
+front: [0,1,2]
+back: [3,4,5]
