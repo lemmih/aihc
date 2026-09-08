@@ -156,8 +156,11 @@ solveDictWithGivensVisited visited givens ct
     tryInstances visited' className args (instanceInfo : rest)
       | not (instanceIsForClass className instanceInfo) =
           tryInstances visited' className args rest
-      | otherwise =
-          case matchTypes (iiHead instanceInfo) args of
+      | otherwise = do
+          matched <- case matchTypes (iiHead instanceInfo) args of
+            Nothing -> pure Nothing
+            Just substitution -> matchInstanceKinds (iiTyVars instanceInfo) substitution
+          case matched of
             Nothing -> tryInstances visited' className args rest
             Just subst -> do
               let context = map (applySubstPred subst) (iiContext instanceInfo)
@@ -492,3 +495,20 @@ typeableKindMetadata variables kind =
     _ -> abortTc "Typeable kind has no runtime representation"
   where
     recur = typeableKindMetadata variables
+
+-- | Include implicit kind arguments in instance evidence.
+matchInstanceKinds :: [TyVarId] -> Map Unique TcType -> TcM (Maybe (Map Unique TcType))
+matchInstanceKinds variables substitution = foldM extend (Just substitution) variables
+  where
+    extend Nothing _ = pure Nothing
+    extend (Just current) variable = case Map.lookup (tvUnique variable) current of
+      Nothing -> pure (Just current)
+      Just target -> do
+        targetKind <- tcTypeKind target >>= zonkKind
+        patternKind <- zonkKind (tvKind variable)
+        pure $ do
+          inferred <- matchTypes [patternKind] [targetKind]
+          foldM merge current (Map.toList inferred)
+    merge current (key, ty) = case Map.lookup key current of
+      Just existing | existing /= ty -> Nothing
+      _ -> Just (Map.insert key ty current)

@@ -716,7 +716,7 @@ instantiateSigmaType :: TcType -> TcM (TcType, [TcType], [Pred])
 instantiateSigmaType = go []
   where
     go arguments (TcForAllTy binder body) = do
-      argument <- freshMetaTv
+      argument <- freshMetaTvOfKind (tvKind binder)
       go (arguments <> [argument]) (applySubst (Map.singleton (tvUnique binder) argument) body)
     go arguments (TcQualTy predicates body) = pure (body, arguments, predicates)
     go arguments ty = pure (ty, arguments, [])

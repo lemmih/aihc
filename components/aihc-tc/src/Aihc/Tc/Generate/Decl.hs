@@ -706,7 +706,7 @@ generalizeDataKind (ForAll variables predicates body) = do
 
 closeKindVariables :: [TyVarId] -> [TyVarId]
 closeKindVariables variables =
-  uniqueKindVariables (concatMap (freeKindVariables . tvKind) variables <> variables)
+  uniqueKindVariables (concatMap (\variable -> freeKindVariables (tvKind variable) <> [variable]) variables)
 
 uniqueKindVariables :: [TyVarId] -> [TyVarId]
 uniqueKindVariables = nubBy (\left right -> tvUnique left == tvUnique right)
@@ -4163,7 +4163,8 @@ rejigIndices claimed ((param, writtenArg) : rest) = do
     TcTyVar tyVar
       | tvUnique tyVar `notElem` map tvUnique claimed -> pure (tyVar, [])
     _ -> do
-      fresh <- setTyVarKind (tvKind param) <$> freshSkolemTv (tvName param)
+      kind <- tcTypeKind writtenArg >>= zonkKind
+      fresh <- setTyVarKind kind <$> freshSkolemTv (tvName param)
       pure (fresh, [EqPred (TcTyVar fresh) writtenArg])
   (universals, restPredicates) <- rejigIndices (universal : claimed) rest
   pure (universal : universals, predicates <> restPredicates)

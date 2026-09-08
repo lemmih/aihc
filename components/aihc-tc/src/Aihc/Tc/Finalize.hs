@@ -95,6 +95,7 @@ defaultUnsolvedAnnotationMetas annotation =
   case firstMetaTcAnnotation annotation of
     Nothing -> pure annotation
     Just meta -> do
+      _ <- defaultKindMetas (TcMetaTv meta)
       solution <- readMetaTv meta
       case solution of
         Just {} -> pure ()

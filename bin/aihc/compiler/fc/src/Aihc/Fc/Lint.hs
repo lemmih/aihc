@@ -180,9 +180,9 @@ lintType env ty =
       binderEnv <- bindLocal env binder
       lintType binderEnv body
     TyEq left right -> do
-      leftKind <- lintType env left
-      rightKind <- lintType env right
-      unless (typesEqual env leftKind rightKind) (Left (KindMismatch "equality" leftKind rightKind))
+      -- Equality evidence can relate types with different kinds.
+      _ <- lintType env left
+      _ <- lintType env right
       Right (typeAppRep env (equalityRep (tePrimPackage env)))
 
 lintFun :: TypeEnv -> Type -> Type -> Type -> Type -> Either LintError Type
