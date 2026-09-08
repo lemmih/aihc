@@ -10,13 +10,14 @@ import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (zipWithM)
+import Control.Monad.Trans.Reader (asks)
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
 
-isCoercibleClass :: TyCon -> Bool
-isCoercibleClass constructor =
-  tyConModuleName constructor == "Data.Coerce"
-    && tyConName constructor == "Coercible"
+isCoercibleClass :: TyCon -> TcM Bool
+isCoercibleClass constructor = do
+  packageIdentity <- asks (tcConfigPrimPackage . tcEnvConfig)
+  pure (constructor == mkTyConWithOrigin packageIdentity "GHC.Types" "Coercible" 2)
 
 -- | Use nominal arguments unless a container has a known representation role.
 -- Unknown outer types wait for other constraints.

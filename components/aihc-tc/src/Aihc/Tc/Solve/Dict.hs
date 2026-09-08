@@ -65,6 +65,7 @@ solveDictWithGivensVisited visited givens ct
       case ctPred ct of
         ClassPred className args -> do
           args' <- mapM (reduceTypeFamilies <=< zonkType) args
+          coercibleClass <- isCoercibleClass className
           givens' <- mapM zonkPred givens
           givenEvidence <- givenDict (ctPred ct : visited) givens' className args'
           case givenEvidence of
@@ -73,7 +74,7 @@ solveDictWithGivensVisited visited givens ct
               pure DictSolved
             Nothing ->
               case (tyConName className, args') of
-                (_, [left, right]) | isCoercibleClass className -> do
+                (_, [left, right]) | coercibleClass -> do
                   info <- lookupClass className
                   solved <- case info of
                     Just classInfo
