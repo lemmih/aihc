@@ -361,11 +361,21 @@ invisibleKindArgs env tyCon arguments expectedKind = do
   variables <- extraKindVars env tyCon []
   mapM (kindVarToType env tyCon arguments expectedKind) variables
 
+-- | The type of one invisible kind argument. Inside the declaration of
+-- the type constructor its kind variable is in scope, so the variable
+-- itself is the argument. Otherwise the argument is inferred from the
+-- kinds of the visible arguments and the expected kind.
+--
+-- A unique alone does not identify the in-scope variable: uniques from an
+-- installed interface can repeat the current module's, so a signature
+-- variable of the module may share the unique of a kind variable of an
+-- imported type constructor. The names must agree as well.
 kindVarToType :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> TyVarId -> Either String Type
 kindVarToType env tyCon arguments expectedKind tyVar =
   case Map.lookup (tvUnique tyVar) (ceTyVars env) of
-    Just found -> Right (tyVarType found)
-    Nothing -> do
+    Just found
+      | tvName found == tvName tyVar -> Right (tyVarType found)
+    _ -> do
       substitution <- kindSubst env tyCon arguments expectedKind
       case Map.lookup (tvUnique tyVar) substitution of
         Just runtimeRep -> convertRep env runtimeRep
