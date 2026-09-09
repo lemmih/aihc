@@ -1,0 +1,18 @@
+; expect: 3, 1, 2
+; Each loop edge rotates three values at the same time.
+
+func @main() -> (i64, i64, i64) {
+entry:
+  jump loop(2, 1, 2, 3)
+
+loop(%count: i64, %first: i64, %second: i64, %third: i64):
+  %done = eq i64 %count, 0
+  br %done, exit(%first, %second, %third), step()
+
+step:
+  %next = sub i64 %count, 1
+  jump loop(%next, %second, %third, %first)
+
+exit(%a: i64, %b: i64, %c: i64):
+  return %a, %b, %c
+}

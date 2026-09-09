@@ -32,10 +32,12 @@ module Aihc.Arm64.Lir
 where
 
 import Aihc.Arm64.Assemble
+import Aihc.Lir.Convert (integerConversionBounds)
 import Aihc.Lir.Lint (LintError, lintModule)
 import Aihc.Lir.RegAlloc (Allocation (..), Registers (..), allocateRegistersFor, readCounts)
 import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
+import Aihc.Native.Move (orderMoves)
 import Control.Monad (forM, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, put)
@@ -809,29 +811,12 @@ tshow = T.pack . show
 -- The destinations are distinct. A move to the location a source is already
 -- in is dropped.
 parallelMove :: [(Location, MoveSource)] -> [Arm64Statement]
-parallelMove = go . filter (not . identity)
+parallelMove = concatMap emit . orderMoves locationOf SourceLocation (LocRegister scratchExtra)
   where
-    identity (destination, source) = source == SourceLocation destination
-    go [] = []
-    go pending =
-      case partitionReady pending of
-        ([], blocked) ->
-          -- Every destination is still read by another move, so the moves
-          -- form cycles. Park the destination of the first one.
-          case blocked of
-            (destination, _) : _ ->
-              let park = LocRegister scratchExtra
-                  redirect (target, source)
-                    | source == SourceLocation destination = (target, SourceLocation park)
-                    | otherwise = (target, source)
-               in emit (park, SourceLocation destination) <> go (map redirect blocked)
-            [] -> []
-        (ready, blocked) -> concatMap emit ready <> go blocked
-    partitionReady pending =
-      let readLocations = [location | (_, SourceLocation location) <- pending]
-       in ( [pair | pair@(destination, _) <- pending, destination `notElem` readLocations],
-            [pair | pair@(destination, _) <- pending, destination `elem` readLocations]
-          )
+    locationOf source =
+      case source of
+        SourceLocation location -> Just location
+        SourceLiteral _ _ -> Nothing
     emit (destination, source) =
       case (destination, source) of
         (LocRegister target, SourceLocation (LocRegister register)) -> move target register
@@ -1011,8 +996,9 @@ compileTerminator ctx next fused terminator =
               _ -> []
       pure (moves <> floatMoves <> leaveFrame ctx 0 <> adjustStack ArmAdd (ctxIncomingOverflow ctx) <> [arm64Instruction ArmRet])
     TailCall symbol arguments ->
-      tailCall (Left (lirSymbol symbol)) (maybe [] signatureParameters (Map.lookup symbol (ctxSignatures ctx))) arguments
-    TailCallIndirect target arguments signature -> tailCall (Right target) (signatureParameters signature) arguments
+      let signature = Map.lookup symbol (ctxSignatures ctx)
+       in tailCall (Left (lirSymbol symbol)) (maybe AihcConvention signatureConvention signature) (maybe [] signatureParameters signature) arguments
+    TailCallIndirect target arguments signature -> tailCall (Right target) (signatureConvention signature) (signatureParameters signature) arguments
     Trap message -> do
       stub <- trapLabel message
       pure [arm64Instruction (ArmB stub)]
@@ -1022,12 +1008,27 @@ compileTerminator ctx next fused terminator =
     labelOf target = ctxLabels ctx Map.! targetLabel target
     isNext target = Just (targetLabel target) == next
     branchTo target = [arm64Instruction (ArmB (labelOf target)) | not (isNext target)]
+    tailCall callee convention parameterTypes arguments =
+      case convention of
+        AihcConvention -> aihcTailCall callee parameterTypes arguments
+        CConvention -> do
+          argumentMoves <- cArgumentMoves ctx parameterTypes arguments
+          targetLoad <- case callee of
+            Left _ -> pure []
+            Right operand -> do
+              stub <- trapLabel "indirect call to a non-function"
+              let (loads, register) = operandIn ctx 0 Code scratchTarget operand
+              pure (loads <> move scratchTarget register <> [arm64Instruction (ArmCbz scratchTarget stub)])
+          let branch = case callee of
+                Left label -> arm64Instruction (ArmB label)
+                Right _ -> arm64Instruction (ArmBr scratchTarget)
+          pure (targetLoad <> argumentMoves <> leaveFrame ctx 0 <> [branch])
     -- The outgoing block replaces the incoming one. When it is no larger,
     -- it is written in place above the frame; when it is larger and the
     -- function has no frame, the stack pointer just moves down to make
     -- room; when it is larger and the function has a frame, it is built
     -- below the frame and copied up once the frame is gone.
-    tailCall callee parameterTypes arguments = do
+    aihcTailCall callee parameterTypes arguments = do
       let outgoing = overflowBytes (length arguments)
           incoming = ctxIncomingOverflow ctx
           types = parameterTypes <> repeat I64
@@ -1098,6 +1099,21 @@ compileTerminator ctx next fused terminator =
       | delta >= 0 = [arm64Instruction (ArmAdd scratchLeft scratchExtra (Arm64ImmediateValue (fromIntegral delta)))]
       | otherwise = [arm64Instruction (ArmSub scratchLeft scratchExtra (Arm64ImmediateValue (fromIntegral (negate delta))))]
 
+cArgumentMoves :: Ctx -> [Type] -> [Operand] -> M [Arm64Statement]
+cArgumentMoves ctx parameterTypes arguments = do
+  let (integers, floats) = classify (take (length arguments) (parameterTypes <> repeat I64))
+  when (length integers > length argumentRegisters) $ unsupported "C call with more than eight integer arguments"
+  when (length floats > floatArgumentCount) $ unsupported "C call with more than eight float arguments"
+  -- Move float arguments first. Integer moves can overwrite their source registers.
+  pure
+    ( concat
+        [ loads <> [arm64Instruction (ArmFmovToFloat (ty == F64) slot register)]
+        | ((index, ty), slot) <- zip floats [0 ..],
+          let (loads, register) = operandIn ctx 0 ty scratchLeft (arguments !! index)
+        ]
+        <> parallelMove [(LocRegister register, operandSource ctx ty (arguments !! index)) | ((index, ty), register) <- zip integers argumentRegisters]
+    )
+
 -- | Move the arguments of a jump into the parameters of the target, all at
 -- once.
 blockArgumentMoves :: Ctx -> Target -> M [Arm64Statement]
@@ -1152,7 +1168,7 @@ compileInstruction ctx (Instruction results operation) =
         pure (conditionLoads <> loads <> loads' <> [arm64Instruction (ArmCmp c (Arm64ImmediateValue 0)), arm64Instruction (ArmCsel dst a b ArmNe)])
     Load ty (Address base offset) _ -> do
       let (addressLines, baseRegister) = effectiveAddress base offset ty
-      single $ \dst -> pure (addressLines <> [loadMemory ty dst baseRegister (memoryOffset offset ty)])
+      single $ \dst -> pure (addressLines <> [loadMemory ty dst baseRegister (memoryOffset offset ty)] <> [mask | ty == I1, mask <- narrowRegister I1 dst])
     Store ty value (Address base offset) _ -> do
       let (loads, a) = operandIn ctx 0 ty scratchLeft value
           (addressLines, baseRegister) = effectiveAddress base offset ty
@@ -1405,10 +1421,8 @@ compileInstruction ctx (Instruction results operation) =
     floatToInteger signed from to dst a = do
       invalid <- trapLabel "invalid float to integer conversion"
       let widen = if from == F64 then [arm64Instruction (ArmFmovToFloat True 16 a)] else [arm64Instruction (ArmFmovToFloat False 16 (wordRegister a)), arm64Instruction (ArmFcvt True 16 16)]
-          bits = typeBits to
-          lower = if signed then negate (2 ^^ (bits - 1)) else -1 :: Double
-          upper = if signed then 2 ^^ (bits - 1) else 2 ^^ bits :: Double
-          lowerCondition = if signed then ArmMi else ArmLe
+          (lower, excludeLower, upper) = integerConversionBounds signed from to
+          lowerCondition = if excludeLower then ArmLe else ArmMi
           convertOp = if signed then ArmFcvtzs True dst 16 else ArmFcvtzu True dst 16
       pure
         ( widen
@@ -1459,20 +1473,7 @@ compileInstruction ctx (Instruction results operation) =
                     | (register, (ty, argument)) <- zip argumentRegisters (zip types arguments)
                     ]
               )
-          CConvention -> do
-            let (integers, floats) = classify (take (length arguments) types)
-            when (length integers > length argumentRegisters) $ unsupported "C call with more than eight integer arguments"
-            when (length floats > floatArgumentCount) $ unsupported "C call with more than eight float arguments"
-            -- The floats go first: a float register is never a home, while
-            -- the integer moves may overwrite one.
-            pure
-              ( concat
-                  [ loads <> [arm64Instruction (ArmFmovToFloat (ty == F64) slot register)]
-                  | ((index, ty), slot) <- zip floats [0 ..],
-                    let (loads, register) = operandIn ctx 0 ty scratchLeft (arguments !! index)
-                  ]
-                  <> parallelMove [(LocRegister register, operandSource ctx ty (arguments !! index)) | ((index, ty), register) <- zip integers argumentRegisters]
-              )
+          CConvention -> cArgumentMoves ctx parameterTypes arguments
       pure (adjustStack ArmSub outgoing <> argumentMoves <> branch <> resultMoves)
     callIndirect target arguments signature = do
       stub <- trapLabel "indirect call to a non-function"

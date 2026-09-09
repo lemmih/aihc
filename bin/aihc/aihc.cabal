@@ -156,8 +156,10 @@ library
     Aihc.CompilerBuildIdentity
     Aihc.Fc.Desugar.Value
     Aihc.Grin.Analysis
+    Aihc.Lir.Convert
     Aihc.Native.Elf
     Aihc.Native.MachO
+    Aihc.Native.Move
     Aihc.Native.Object
     Paths_aihc
 

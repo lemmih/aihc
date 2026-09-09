@@ -1,0 +1,38 @@
+; expect: 7.0, 3.5
+; C tail calls use separate integer and float argument registers.
+
+data @table align 8 = { code @single }
+
+func @double(%value: f64, %tag: i64) -> f64 cc c {
+entry:
+  %ok = eq i64 %tag, 42
+  %result = select f64 %ok, %value, 0.0
+  return %result
+}
+
+func @single(%tag: i64, %value: f32) -> f32 cc c {
+entry:
+  %ok = eq i64 %tag, 19
+  %result = select f32 %ok, %value, 0.0
+  return %result
+}
+
+func @forward(%value: f64, %tag: i64) -> f64 cc c {
+entry:
+  %prior = call @double(%value, %tag)
+  %next = fadd f64 %prior, 5.0
+  tailcall @double(%next, 42)
+}
+
+func @indirect(%target: code, %value: f32, %tag: i64) -> f32 cc c {
+entry:
+  tailcall.indirect %target(19, 3.5) : (i64, f32) -> f32 cc c
+}
+
+func @main() -> (f64, f32) {
+entry:
+  %first = call @forward(2.0, 42)
+  %target = load code [@table] align 8
+  %second = call @indirect(%target, 1.0, 8)
+  return %first, %second
+}

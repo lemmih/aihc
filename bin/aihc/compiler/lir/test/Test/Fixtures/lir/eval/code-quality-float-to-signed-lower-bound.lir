@@ -1,0 +1,14 @@
+; expect: -128, -128, -128, -2147483648, -9223372036854775808, 127, 0
+; The conversion truncates before the range check.
+
+func @main() -> (i8, i8, i8, i32, i64, i8, i8) {
+entry:
+  %fraction = ftoi.s f64 -128.5 to i8
+  %minimum = ftoi.s f64 -128.0 to i8
+  %single = ftoi.s f32 -128.5 to i8
+  %singleMinimum = ftoi.s f32 -2147483648.0 to i32
+  %wideMinimum = ftoi.s f64 -9223372036854775808.0 to i64
+  %upperFraction = ftoi.s f64 127.5 to i8
+  %unsignedFraction = ftoi.u f64 -0.5 to i8
+  return %fraction, %minimum, %single, %singleMinimum, %wideMinimum, %upperFraction, %unsignedFraction
+}

@@ -24,6 +24,7 @@ module Aihc.Wasm.Lir
   )
 where
 
+import Aihc.Lir.Convert (integerConversionBounds)
 import Aihc.Lir.Lint (LintError, lintModule)
 import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
@@ -712,6 +713,7 @@ compileInstruction fn (Instruction results operation) =
     Load ty address _ -> do
       offset <- effectiveAddress address
       emit (loadInstruction ty <> "\t" <> tshow offset)
+      when (ty == I1) (narrow I1)
       single
     Store ty value address _ -> do
       offset <- effectiveAddress address
@@ -780,12 +782,10 @@ compileInstruction fn (Instruction results operation) =
       emit "i32.and"
       trapIf "integer overflow"
 
-    -- NaN and values outside the range of the target trap. The bounds are
-    -- powers of two, so they are exact in both float widths.
+    -- Reject NaN and values whose truncation is outside the integer range.
     floatToInteger signed from value to = do
       let bits = typeBits to
-          lower = if signed then negate (2 ^^ (bits - 1)) else -1 :: Double
-          upper = if signed then 2 ^^ (bits - 1) else 2 ^^ bits :: Double
+          (lower, excludeLower, upper) = integerConversionBounds signed from to
           f = wasmType from
           target = if bits > 32 then I64 else I32
           suffix = if signed then "_s" else "_u"
@@ -795,7 +795,7 @@ compileInstruction fn (Instruction results operation) =
       trapIf "invalid float to integer conversion"
       push fn from value
       push fn from (OperandLiteral (LitFloat lower))
-      emit (f <> (if signed then ".lt" else ".le"))
+      emit (f <> (if excludeLower then ".le" else ".lt"))
       trapIf "invalid float to integer conversion"
       push fn from value
       push fn from (OperandLiteral (LitFloat upper))

@@ -1,0 +1,7 @@
+
+func @main() -> (i8, i64) {
+entry:
+  %narrow = rem.s i8 -128, -1
+  %wide = rem.s i64 -9223372036854775808, -1
+  return %narrow, %wide
+}
