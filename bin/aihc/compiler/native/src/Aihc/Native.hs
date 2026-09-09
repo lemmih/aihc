@@ -241,7 +241,13 @@ nativeTargetStoreDirectory target =
 backendCompiler :: NativeTarget -> IO (FilePath, [String])
 backendCompiler target =
   case target of
-    Llvm -> pure ("clang", ["-Wno-override-module", "-O2"])
+    -- -O0 matches the other targets, which pass no -O flag and so get Clang's
+    -- default. The LLVM backend used -O2, which costs roughly two thirds of the
+    -- install time for a large package: containers spends 32.7 s of its 39.8 s
+    -- in Clang at -O2 against 8.1 s for the in-house arm64 backend. aihc does
+    -- its own optimisation before emitting IR, so the target that shells out to
+    -- Clang should not also pay for Clang's optimiser by default.
+    Llvm -> pure ("clang", ["-Wno-override-module", "-O0"])
     Wasm32Wasip3 -> do
       compiler <- fromMaybe "clang" <$> lookupEnv "AIHC_WASM_CLANG"
       pure

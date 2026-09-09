@@ -22,10 +22,14 @@ tests :: TestTree
 tests =
   testGroup
     "backend compiler"
-    [ testCase "optimizes LLVM IR before object emission" $ do
+    [ testCase "leaves LLVM IR optimization to the compiler itself" $ do
+        -- aihc optimizes before it emits IR, and the other targets pass no -O
+        -- flag at all. Clang ran the LLVM target at -O2 on top of that, which
+        -- cost about two thirds of the install time of a large package.
         (compiler, arguments) <- backendCompiler Llvm
         assertEqual "LLVM compiler" "clang" compiler
-        assertBool "LLVM optimization flag" ("-O2" `elem` arguments)
+        assertBool "LLVM optimization flag" ("-O0" `elem` arguments)
+        assertBool "no redundant Clang optimization" ("-O2" `notElem` arguments)
         assertEqual "module-warning flag count" 1 (length (filter (== "-Wno-override-module") arguments)),
       testCase "renders common linker identities readably" $ do
         assertEqual
