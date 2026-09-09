@@ -1,22 +1,40 @@
 module Aihc.Cli.Install
   ( InstallResult (..),
+    InstallLocations (..),
+    InstalledPackage (..),
     ModuleCompileConfig (..),
     ModuleCompileRequest (..),
     ModuleCompileResult (..),
     compileModules,
     buildEnvironmentIdentity,
+    defaultBuildRoot,
     install,
     installWith,
+    installPlanPackages,
+    networkDependencyResolver,
     parsePackageTarget,
+    resolvePreferredVersion,
     runInstall,
   )
 where
 
-import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashChunks, publishArtifacts, restoreArtifacts, sourceFilesHash)
+import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashChunks, sourceFilesHash)
 import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeSourceExtension)
+import Aihc.Cli.BuildStamp
+  ( BackendStamp (..),
+    ModuleDigests (..),
+    PackageDigests (..),
+    ResolveStamp (..),
+    UnitStamp (..),
+    filesMatchStamps,
+    packageDigestsPath,
+    readStamp,
+    stampFiles,
+    writeStamp,
+  )
 import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
-import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
+import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifactParts)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TaskGraph
   ( Task (..),
@@ -27,7 +45,7 @@ import Aihc.Cli.TaskGraph
     renderTaskTimeline,
     runTaskGraph,
   )
-import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeArtifactParts, encodeTypeInterface)
+import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeArtifactParts)
 import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..))
 import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
@@ -43,6 +61,8 @@ import Aihc.PackagePlan
   ( DependencyResolver (..),
     DependencyVersions,
     PackagePlan (..),
+    PlanOrigin (..),
+    ResolvedSource (..),
     buildPackagePlanWithResolver,
     dependencyVersionsFromManifests,
     localDependencyResolverWithFallback,
@@ -123,13 +143,13 @@ import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
 import Control.DeepSeq (rnf)
 import Control.Exception (IOException, bracket, evaluate, throwIO, try)
-import Control.Monad (filterM, forM, unless, void, when, zipWithM)
+import Control.Monad (filterM, forM, forM_, unless, void, when, zipWithM)
 import Data.Aeson (Value)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.List (intercalate, isSuffixOf, nub, sortOn)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
@@ -151,15 +171,17 @@ import GHC.Clock (getMonotonicTimeNSec)
 import Paths_aihc (getDataFileName)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
-import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
+import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, makeRelative, takeDirectory, takeFileName, (<.>), (</>))
+import System.FilePath (dropExtension, makeRelative, takeDirectory, (<.>), (</>))
 import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stdout)
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 
 data InstallResult = InstallResult
-  { installStorePath :: !FilePath,
+  { -- | The package directory: in the store for an immutable package, in
+    -- the build directory for a local one.
+    installStorePath :: !FilePath,
     installWrittenModules :: ![Text],
     installReusedModules :: ![Text]
   }
@@ -179,11 +201,18 @@ data InstalledPackage = InstalledPackage
   { installedResult :: !InstallResult,
     installedName :: !Text,
     installedVersion :: !Text,
-    installedBuildFingerprint :: !Text,
+    -- | The name of the package directory: @NAME-VERSION-FINGERPRINT@ in the
+    -- store and @NAME-VERSION@ in a build directory.
+    installedIdentity :: !Text,
+    -- | Whether the package lives in the store. A store package depends on
+    -- store packages only.
+    installedImmutable :: !Bool,
+    installedManifest :: !PackageManifest,
     installedExports :: !ModuleExports,
     installedTypes :: !(Map.Map Text TcInterface),
     installedScopeHashes :: !(Map.Map Text Text),
     installedTypeHashes :: !(Map.Map Text Text),
+    installedInstanceDigest :: !Text,
     installedInstanceFacts :: !TcInterface,
     installedInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider))
   }
@@ -247,14 +276,29 @@ data TypeUnitResult = TypeUnitResult
   { typeUnitTypes :: !(Map.Map Text TcInterface),
     typeUnitHashes :: !(Map.Map Text Text),
     typeUnitOwnInstanceInterface :: !TcInterface,
+    -- | The digest of the instance facts of the unit. The facts artifact
+    -- carries the facts digests of the dependencies, so this digest changes
+    -- when an instance anywhere below the unit changes.
+    typeUnitFactsDigest :: !Text,
     typeUnitInstanceInterface :: !TcInterface,
     typeUnitDiagnostics :: ![TcDiagnostic],
     typeUnitWritten :: !(Set.Set Text),
     typeUnitReused :: !(Set.Set Text),
-    typeUnitCachePath :: !(Maybe FilePath),
+    -- | The stamp the backend writes once the objects of the unit exist.
+    typeUnitPendingStamp :: !(Maybe PendingStamp),
     typeUnitPendingCompile :: !(Maybe PendingCompile),
     typeUnitDesugarInterface :: !TcInterface,
     typeUnitSuccess :: !Bool
+  }
+
+-- | A unit stamp whose artifact files are not all written yet.
+data PendingStamp = PendingStamp
+  { pendingStampPath :: !FilePath,
+    pendingStampInputs :: ![(Text, Text)],
+    pendingStampTypes :: !(Map.Map Text Text),
+    pendingStampFacts :: !Text,
+    -- | The type artifacts and the facts artifact, relative to the package.
+    pendingStampFrontendFiles :: ![FilePath]
   }
 
 data UnitRuntime = UnitRuntime
@@ -265,7 +309,6 @@ data UnitRuntime = UnitRuntime
 
 data ModuleCompileConfig = ModuleCompileConfig
   { compileBuildIdentity :: !String,
-    compileCacheRoot :: !(Maybe FilePath),
     compileKeepCore :: !Bool,
     compileKeepGrin :: !Bool,
     compileKeepNative :: !Bool,
@@ -296,6 +339,7 @@ data CompiledPackageModules = CompiledPackageModules
     compiledTypes :: !(Map.Map Text TcInterface),
     compiledScopeHashes :: !(Map.Map Text Text),
     compiledTypeHashes :: !(Map.Map Text Text),
+    compiledInstanceDigest :: !Text,
     compiledInstanceFacts :: !TcInterface,
     compiledInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider)),
     compiledWritten :: !(Set.Set Text),
@@ -331,6 +375,11 @@ data PackageTaskContext = PackageTaskContext
     taskDependencyScopeHashes :: !(Map.Map Text Text),
     taskDependencyTypes :: !(Map.Map Text TcInterface),
     taskDependencyTypeHashes :: !(Map.Map Text Text),
+    -- | The instance digest of each dependency package, with the modules
+    -- it exposes. A unit that imports one of the modules takes the digest
+    -- as an input, because the instances the package supplies come from
+    -- the package as a whole.
+    taskDependencyPackages :: ![(Text, Text, Set.Set Text)],
     taskDependencyInstanceFacts :: !TcInterface,
     taskDependencyInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider)),
     taskBackendPhaseTimings :: !(IORef BackendPhaseTimings)
@@ -354,19 +403,18 @@ installWith output options = do
   storeRoot <- maybe defaultStoreRoot pure (installStoreRoot options)
   useColor <- hIsTerminalDevice output
   let target = installTarget options
-      targetStoreRoot = storeRoot </> nativeTargetStoreDirectory target
+      targetDirectory = nativeTargetStoreDirectory target
   let verbose message = when (installVerbose options) (hPutStrLn output message)
       printTimings message = when (installPrintTimings options) (hPutStrLn output message)
-  root <- resolveInstallTarget (installPackageTarget options)
-  let fallbackResolver = networkDependencyResolver
-      resolver = localDependencyResolverWithFallback fallbackResolver root
+  (root, origin) <- resolveInstallTarget (installPackageTarget options)
+  let resolver = localDependencyResolverWithFallback networkDependencyResolver root
   spec <- packageSpecFromSource root
   plan <- buildPackagePlanWithResolver resolver spec
+  buildRoot <- maybe (pure (defaultBuildRoot root)) pure (installBuildRoot options)
   buildIdentity <- buildEnvironmentIdentity target
   let config =
         ModuleCompileConfig
           { compileBuildIdentity = buildIdentity,
-            compileCacheRoot = Just (storeRoot </> ".build-cache"),
             compileKeepCore = installKeepCore options,
             compileKeepGrin = installKeepGrin options,
             compileKeepNative = installKeepNative options,
@@ -377,18 +425,33 @@ installWith output options = do
             compilePrintTimings = printTimings,
             compileUseColor = useColor
           }
-  installedResult <$> installPackagePlan config (installReinstall options) targetStoreRoot plan
+      locations =
+        InstallLocations
+          { locationStoreRoot = storeRoot </> targetDirectory,
+            locationBuildRoot = buildRoot </> targetDirectory,
+            locationImmutable = installImmutable options,
+            locationReinstall = installReinstall options
+          }
+  -- The resolver finds the package being installed by its name, which marks
+  -- it local. What the user asked for decides instead: a directory is local,
+  -- a Hackage release is not.
+  installedResult <$> installPackagePlan config locations plan {planOrigin = origin}
 
--- | Turn the install argument into a local package directory.
+-- | Where a local package builds unless @--build-root@ says otherwise.
+defaultBuildRoot :: FilePath -> FilePath
+defaultBuildRoot root = root </> ".aihc-target"
+
+-- | Turn the install argument into a local package directory and say where
+-- it came from.
 --
 -- An existing directory is used as-is. Anything else is parsed as a Hackage
 -- package name with an optional version (@NAME@ or @NAME-VERSION@) and
 -- downloaded from Hackage; without a version the preferred version is used.
-resolveInstallTarget :: String -> IO FilePath
+resolveInstallTarget :: String -> IO (FilePath, PlanOrigin)
 resolveInstallTarget target = do
   isDirectory <- doesDirectoryExist target
   if isDirectory
-    then pure target
+    then pure (target, PlanLocal)
     else case parsePackageTarget target of
       Nothing ->
         ioError
@@ -397,9 +460,11 @@ resolveInstallTarget target = do
           )
       Just (name, requestedVersion) -> do
         version <- maybe (resolvePreferredVersion name) pure requestedVersion
-        HackageDownload.downloadPackageWithOptions
-          HackageDownload.defaultDownloadOptions
-          PackageSpec {pkgName = name, pkgVersion = version}
+        path <-
+          HackageDownload.downloadPackageWithOptions
+            HackageDownload.defaultDownloadOptions
+            PackageSpec {pkgName = name, pkgVersion = version}
+        pure (path, PlanHackage)
 
 -- | Split a Hackage target into its package name and optional version.
 parsePackageTarget :: String -> Maybe (String, Maybe String)
@@ -420,13 +485,54 @@ networkDependencyResolver :: DependencyResolver
 networkDependencyResolver =
   DependencyResolver
     { resolverResolveVersion = resolvePreferredVersion,
-      resolverSourcePath = HackageDownload.downloadPackageWithOptions HackageDownload.defaultDownloadOptions
+      resolverSourcePath = fmap (`ResolvedSource` PlanHackage) . HackageDownload.downloadPackageWithOptions HackageDownload.defaultDownloadOptions
     }
 
-installPackagePlan :: ModuleCompileConfig -> Bool -> FilePath -> PackagePlan -> IO InstalledPackage
-installPackagePlan config reinstall storeRoot plan = do
-  dependencies <- mapM (installPackagePlan config False storeRoot) (planDependencyPlans plan)
-  installPackage config reinstall storeRoot dependencies (planSourcePath plan)
+-- | Where the packages of a plan go.
+--
+-- A package that is immutable for this compiler, which is a Hackage release
+-- or a core library, is installed into the store under a directory named by
+-- its fingerprint and never changed afterwards. A local package builds in
+-- place under the build root, where each unit keeps the artifacts of the
+-- previous build and replaces only the ones whose inputs changed.
+data InstallLocations = InstallLocations
+  { locationStoreRoot :: !FilePath,
+    locationBuildRoot :: !FilePath,
+    -- | Treat local packages as immutable and install them into the store.
+    locationImmutable :: !Bool,
+    -- | Build the packages the user named again, even where they exist.
+    locationReinstall :: !Bool
+  }
+
+installPackagePlan :: ModuleCompileConfig -> InstallLocations -> PackagePlan -> IO InstalledPackage
+installPackagePlan config locations plan = do
+  installed <- newIORef Map.empty
+  installPlanNode config locations installed True plan
+
+-- | Install every package of the plans and return the closure, each package
+-- once.
+installPlanPackages :: ModuleCompileConfig -> InstallLocations -> [PackagePlan] -> IO [InstalledPackage]
+installPlanPackages config locations plans = do
+  installed <- newIORef Map.empty
+  mapM_ (installPlanNode config locations installed True) plans
+  Map.elems <$> readIORef installed
+
+installPlanNode :: ModuleCompileConfig -> InstallLocations -> IORef (Map.Map FilePath InstalledPackage) -> Bool -> PackagePlan -> IO InstalledPackage
+installPlanNode config locations installed root plan = do
+  key <- canonicalizePath (planSourcePath plan)
+  known <- Map.lookup key <$> readIORef installed
+  case known of
+    Just package -> pure package
+    Nothing -> do
+      -- Only the package the user named is reinstalled.
+      let reinstall = root && locationReinstall locations
+      dependencies <- mapM (installPlanNode config locations installed False) (planDependencyPlans plan)
+      package <-
+        if locationImmutable locations || planOrigin plan /= PlanLocal
+          then installStorePackage config root reinstall (locationStoreRoot locations) dependencies (planSourcePath plan)
+          else installLocalPackage config reinstall (locationBuildRoot locations) dependencies (planSourcePath plan)
+      modifyIORef' installed (Map.insert key package)
+      pure package
 
 data PackageInputs = PackageInputs
   { inputCabalFile :: !FilePath,
@@ -455,49 +561,87 @@ readPackageInputs config root = do
         inputCCompileInfo = HackageCabal.collectLibraryCCompileInfoFor targetOs targetArch gpd root
       }
 
-installPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> FilePath -> IO InstalledPackage
-installPackage config reinstall storeRoot dependencies root = do
+-- | Install an immutable package into the store, unless the store has it.
+installStorePackage :: ModuleCompileConfig -> Bool -> Bool -> FilePath -> [InstalledPackage] -> FilePath -> IO InstalledPackage
+installStorePackage config named reinstall storeRoot dependencies root = do
   inputs <- readPackageInputs config root
-  (packageDirectory, unitIdentity, fingerprint) <- packageBuildInputs config dependencies root inputs
+  (packageDirectory, unitIdentity) <- storePackageIdentity config dependencies inputs
+  forM_ dependencies $ \dependency ->
+    unless (installedImmutable dependency) $
+      ioError
+        ( userError
+            ( "The package "
+                <> T.unpack unitIdentity
+                <> " is installed into the store but depends on the local package "
+                <> T.unpack (installedIdentity dependency)
+                <> ". Pass --immutable to install both into the store."
+            )
+        )
   let storePath = storeRoot </> packageDirectory
-  previous <- readBuildFingerprint storePath
-  if previous == Just fingerprint && not reinstall
-    then loadInstalledPackage Set.empty storePath
+  exists <- doesDirectoryExist storePath
+  if exists && not reinstall
+    then do
+      package <- loadInstalledPackage Set.empty True storePath
+      requireInstalledFlags config named package
+      pure package
     else do
       createDirectoryIfMissing True storeRoot
       bracket
         (createTemporaryStoreRoot storeRoot packageDirectory)
         removeTemporaryStoreRoot
-        (buildAndPublish inputs packageDirectory unitIdentity fingerprint storePath)
+        (buildAndPublish inputs packageDirectory unitIdentity storePath exists)
   where
-    buildAndPublish inputs packageDirectory unitIdentity fingerprint storePath temporaryRoot = do
-      let buildConfig = if reinstall then config {compileCacheRoot = Nothing} else config
-      built <- installPackageDirect buildConfig packageDirectory unitIdentity fingerprint temporaryRoot dependencies root inputs
-      (_, _, currentFingerprint) <- packageBuildInputs config dependencies root inputs
-      unless (currentFingerprint == fingerprint) (ioError (userError "Package inputs changed during the build. Install the package again."))
-      BS8.writeFile (buildFingerprintPath (installStorePath (installedResult built))) (BS8.pack fingerprint)
-      exists <- doesDirectoryExist storePath
+    buildAndPublish inputs packageDirectory unitIdentity storePath exists temporaryRoot = do
+      built <- installPackageDirect config packageDirectory unitIdentity True temporaryRoot dependencies root inputs
       when exists (removeDirectoryRecursive storePath)
       publishResult <- try (renameDirectory (installStorePath (installedResult built)) storePath)
       case publishResult of
         Right () -> pure (setInstalledStorePath storePath built)
         Left err -> do
-          published <- readBuildFingerprint storePath
-          if published == Just fingerprint
-            then loadInstalledPackage Set.empty storePath
+          published <- doesDirectoryExist storePath
+          if published
+            then loadInstalledPackage Set.empty True storePath
             else throwIO (err :: IOException)
 
-buildFingerprintPath :: FilePath -> FilePath
-buildFingerprintPath storePath = storePath </> "build-inputs.hash"
+-- | Build a local package in place under the build root.
+installLocalPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> FilePath -> IO InstalledPackage
+installLocalPackage config reinstall buildRoot dependencies root = do
+  inputs <- readPackageInputs config root
+  let (packageDirectory, unitIdentity) = localPackageIdentity inputs
+      buildPath = buildRoot </> packageDirectory
+  exists <- doesDirectoryExist buildPath
+  when (exists && reinstall) (removeDirectoryRecursive buildPath)
+  createDirectoryIfMissing True buildPath
+  installPackageDirect config packageDirectory unitIdentity False buildRoot dependencies root inputs
 
-readBuildFingerprint :: FilePath -> IO (Maybe String)
-readBuildFingerprint storePath = do
-  let path = buildFingerprintPath storePath
-  exists <- doesFileExist path
-  if exists then Just . BS8.unpack <$> BS.readFile path else pure Nothing
+-- | The flags the store entry was built with must cover the flags of this
+-- install: the entry is never changed, so a missing output stays missing.
+-- The extra outputs matter for the package the user named; a dependency
+-- only has to have code when code is wanted.
+requireInstalledFlags :: ModuleCompileConfig -> Bool -> InstalledPackage -> IO ()
+requireInstalledFlags config named package = do
+  let built = packageManifestFlags (installedManifest package)
+      missing =
+        [ flag
+        | named,
+          (wanted, flag) <- [(compileKeepCore config, "keep-core"), (compileKeepGrin config, "keep-grin"), (compileKeepNative config, "keep-native")],
+          wanted,
+          flag `notElem` built
+        ]
+          <> ["code" | not (compileNoCode config), "no-code" `elem` built]
+  unless (null missing) $
+    ioError
+      ( userError
+          ( "The store holds "
+              <> T.unpack (installedIdentity package)
+              <> " built without "
+              <> intercalate ", " (map (("--" <>) . T.unpack) missing)
+              <> ". Pass --reinstall to build it again."
+          )
+      )
 
-installPackageDirect :: ModuleCompileConfig -> FilePath -> Text -> String -> FilePath -> [InstalledPackage] -> FilePath -> PackageInputs -> IO InstalledPackage
-installPackageDirect config packageDirectory unitIdentity fingerprint storeRoot dependencies root inputs = do
+installPackageDirect :: ModuleCompileConfig -> FilePath -> Text -> Bool -> FilePath -> [InstalledPackage] -> FilePath -> PackageInputs -> IO InstalledPackage
+installPackageDirect config packageDirectory unitIdentity immutable storeRoot dependencies root inputs = do
   let target = compileTarget config
       verbose = compileVerbose config
   verbose ("Read Cabal package: " <> root)
@@ -525,23 +669,31 @@ installPackageDirect config packageDirectory unitIdentity fingerprint storeRoot 
             [ outputObjectPath (moduleOutputPaths storePath target (sourceName source))
             | source <- parsed
             ]
-    cObjects <- compilePackageCFiles target verbose root storePath cCompileInfo
-    buildLibraryArchive target verbose archive (moduleObjects <> cObjects)
-  writePackageManifest
-    (packageManifestPath storePath)
-    PackageManifest
-      { packageManifestName = packageNameText,
-        packageManifestVersion = packageVersionText,
-        packageManifestIdentity = T.pack packageDirectory,
-        packageManifestUnitId = unitIdentity,
-        packageManifestDependencies =
-          sortOn
-            id
-            [ T.pack (takeFileName (installStorePath (installedResult dependency)))
-            | dependency <- dependencies
-            ],
-        packageManifestModules = sortOn id (HackageCabal.collectLibraryExposedModules gpd)
-      }
+    -- The archive follows its objects and the C sources. Both are known
+    -- without reading the objects: a unit that wrote an object says so, and
+    -- the C sources are hashed for the archive stamp.
+    archiveInputs <- archiveInputsHash config root dependencies inputs
+    let stampPath = storePath </> "lib" </> "archive.hash"
+    previous <- readStampText stampPath
+    archiveExists <- doesFileExist archive
+    let current = not (Set.null written) || not archiveExists || previous /= Just archiveInputs
+    if current
+      then do
+        cObjects <- compilePackageCFiles target verbose root storePath cCompileInfo
+        buildLibraryArchive target verbose archive (moduleObjects <> cObjects)
+        BS8.writeFile stampPath (BS8.pack archiveInputs)
+      else verbose ("Reuse archive: " <> archive)
+  let manifest =
+        PackageManifest
+          { packageManifestName = packageNameText,
+            packageManifestVersion = packageVersionText,
+            packageManifestIdentity = T.pack packageDirectory,
+            packageManifestUnitId = unitIdentity,
+            packageManifestDependencies = sortOn id (map installedIdentity dependencies),
+            packageManifestModules = sortOn id (HackageCabal.collectLibraryExposedModules gpd),
+            packageManifestFlags = compileFlagNames config
+          }
+  writePackageManifest (packageManifestPath storePath) manifest
   let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
       ownExports =
         Map.filterWithKey
@@ -552,18 +704,40 @@ installPackageDirect config packageDirectory unitIdentity fingerprint storeRoot 
       { installedResult = InstallResult storePath (Set.toAscList written) (Set.toAscList reused),
         installedName = packageNameText,
         installedVersion = packageVersionText,
-        installedBuildFingerprint = T.pack fingerprint,
+        installedIdentity = T.pack packageDirectory,
+        installedImmutable = immutable,
+        installedManifest = manifest,
         installedExports = ownExports,
         installedTypes = Map.restrictKeys allTypes exposedNames,
         installedScopeHashes = Map.restrictKeys allScopeHashes exposedNames,
         installedTypeHashes = Map.restrictKeys allTypeHashes exposedNames,
+        installedInstanceDigest = compiledInstanceDigest compiled,
         installedInstanceFacts = compiledInstanceFacts compiled,
         installedInstanceProviders = Map.restrictKeys (compiledInstanceProviders compiled) exposedNames
       }
 
+readStampText :: FilePath -> IO (Maybe String)
+readStampText path = do
+  exists <- doesFileExist path
+  if exists then Just . BS8.unpack <$> BS.readFile path else pure Nothing
+
+-- | The names of the flags an installed package records in its manifest.
+compileFlagNames :: ModuleCompileConfig -> [Text]
+compileFlagNames config =
+  [ flag
+  | (set, flag) <-
+      [ (compileKeepCore config, "keep-core"),
+        (compileKeepGrin config, "keep-grin"),
+        (compileKeepNative config, "keep-native"),
+        (compileLint config, "lint"),
+        (compileNoCode config, "no-code")
+      ],
+    set
+  ]
+
 compileModules :: ModuleCompileConfig -> ModuleCompileRequest -> IO ModuleCompileResult
 compileModules config request = do
-  dependencies <- mapM (loadInstalledPackage Set.empty) (compileDependencyRoots request)
+  dependencies <- mapM (loadInstalledPackage Set.empty True) (compileDependencyRoots request)
   compiled <-
     compileModulesWithDependencies
       config
@@ -597,6 +771,10 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
       dependencyTypes = LazyMap.unions (map installedTypes loadedDependencies)
       dependencyScopeHashes = Map.unions (map installedScopeHashes loadedDependencies)
       dependencyTypeHashes = LazyMap.unions (map installedTypeHashes loadedDependencies)
+      dependencyPackages =
+        [ (installedName dependency, installedInstanceDigest dependency, Map.keysSet (installedTypeHashes dependency))
+        | dependency <- loadedDependencies
+        ]
       dependencyInstanceFacts = mergeTcInterfaces (map installedInstanceFacts loadedDependencies)
       dependencyInstanceProviders = Map.unions (map installedInstanceProviders loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
@@ -612,6 +790,7 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
             taskDependencyScopeHashes = dependencyScopeHashes,
             taskDependencyTypes = dependencyTypes,
             taskDependencyTypeHashes = dependencyTypeHashes,
+            taskDependencyPackages = dependencyPackages,
             taskDependencyInstanceFacts = dependencyInstanceFacts,
             taskDependencyInstanceProviders = dependencyInstanceProviders,
             taskBackendPhaseTimings = backendPhaseTimings
@@ -651,7 +830,21 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
           | (runtime, result) <- zip runtimes typeResults,
             source <- sourceUnitSources (runtimeUnit runtime)
           ]
-  writePackageInstanceArtifact verbose outputRoot allTypeHashes instanceProviders packageInstanceInterface
+  instanceDigest <- writePackageInstanceArtifact verbose outputRoot allTypeHashes instanceProviders packageInstanceInterface
+  -- A consumer takes the digests from here rather than encoding the
+  -- interfaces again.
+  writeStamp
+    (packageDigestsPath outputRoot)
+    PackageDigests
+      { packageDigestsModules =
+          Map.fromList
+            [ (sourceName source, ModuleDigests scopeDigest typeDigest)
+            | source <- parsed,
+              Just scopeDigest <- [Map.lookup (sourceName source) localScopeHashes],
+              Just typeDigest <- [Map.lookup (sourceName source) localTypeHashes]
+            ],
+        packageDigestsInstances = instanceDigest
+      }
   pure
     CompiledPackageModules
       { compiledSources = parsed,
@@ -659,6 +852,7 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
         compiledTypes = allTypes,
         compiledScopeHashes = allScopeHashes,
         compiledTypeHashes = allTypeHashes,
+        compiledInstanceDigest = instanceDigest,
         compiledInstanceFacts = packageInstanceInterface,
         compiledInstanceProviders = instanceProviders,
         compiledWritten = Set.unions (map typeUnitWritten typeResults),
@@ -682,24 +876,68 @@ packagePrimIdentity resolvePackage dependencyExports =
             dependencyName == "aihc-prim"
           ]
 
-packageBuildInputs :: ModuleCompileConfig -> [InstalledPackage] -> FilePath -> PackageInputs -> IO (FilePath, Text, String)
-packageBuildInputs config dependencies root inputs = do
-  let gpd = inputDescription inputs
-      cabalFile = inputCabalFile inputs
-      files = inputSources inputs
+-- | The directory name and unit identity of a package in the store.
+--
+-- The fingerprint is a function of the plan: the package name and version,
+-- the compiler, the target, and the identities of the dependencies. It does
+-- not read the sources, so a consumer computes it without them. A Hackage
+-- release never changes, and a core library is identified by the compiler
+-- it ships with.
+storePackageIdentity :: ModuleCompileConfig -> [InstalledPackage] -> PackageInputs -> IO (FilePath, Text)
+storePackageIdentity config dependencies inputs = do
+  let (unitIdentity, packageNameText, packageVersionText) = packageUnitIdentity inputs
       cInputs = inputCCompileInfo inputs
-  let packageId = package (packageDescription gpd)
-      packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
-      packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
-      dependencyBuilds = sortOn id [(T.pack (takeFileName (installStorePath (installedResult dependency))), installedBuildFingerprint dependency) | dependency <- dependencies]
-      unitIdentity = packageNameText <> "-" <> packageVersionText
-  sourceHash <- sourceFilesHash root (cabalFile : map HackageCabal.fileInfoPath files <> HackageCabal.cCompileSources cInputs)
   cSysrootArguments <-
     if compileNoCode config || null (HackageCabal.cCompileSources cInputs)
       then pure []
       else wasmSysrootIncludeArguments (compileTarget config)
-  let packageHash = stableHash (map TE.encodeUtf8 (packageArtifactFormatVersion : T.pack (compileOptionsKey config) : T.pack sourceHash : T.pack (show cSysrootArguments) : concatMap (\(identity, fingerprint) -> [identity, fingerprint]) dependencyBuilds))
-  pure (T.unpack unitIdentity, unitIdentity, packageHash)
+  let fingerprint =
+        stableHash
+          ( map
+              TE.encodeUtf8
+              ( packageArtifactFormatVersion
+                  : T.pack (packageOptionsKey config)
+                  : T.pack (show cSysrootArguments)
+                  : packageNameText
+                  : packageVersionText
+                  : sortOn id (map installedIdentity dependencies)
+              )
+          )
+  pure (T.unpack unitIdentity <> "-" <> take 16 fingerprint, unitIdentity)
+
+-- | The directory name and unit identity of a package in a build directory.
+localPackageIdentity :: PackageInputs -> (FilePath, Text)
+localPackageIdentity inputs =
+  let (unitIdentity, _, _) = packageUnitIdentity inputs
+   in (T.unpack unitIdentity, unitIdentity)
+
+packageUnitIdentity :: PackageInputs -> (Text, Text, Text)
+packageUnitIdentity inputs =
+  let packageId = package (packageDescription (inputDescription inputs))
+      packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
+      packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
+   in (packageNameText <> "-" <> packageVersionText, packageNameText, packageVersionText)
+
+-- | What the package archive depends on besides the module objects.
+archiveInputsHash :: ModuleCompileConfig -> FilePath -> [InstalledPackage] -> PackageInputs -> IO String
+archiveInputsHash config root dependencies inputs = do
+  let cInputs = inputCCompileInfo inputs
+  sourceHash <- sourceFilesHash root (inputCabalFile inputs : HackageCabal.cCompileSources cInputs)
+  cSysrootArguments <-
+    if null (HackageCabal.cCompileSources cInputs)
+      then pure []
+      else wasmSysrootIncludeArguments (compileTarget config)
+  pure
+    ( stableHash
+        ( map
+            TE.encodeUtf8
+            ( T.pack (backendOptionsKey config)
+                : T.pack sourceHash
+                : T.pack (show cSysrootArguments)
+                : sortOn id (map installedIdentity dependencies)
+            )
+        )
+    )
 
 buildEnvironmentIdentity :: NativeTarget -> IO String
 buildEnvironmentIdentity target = do
@@ -717,12 +955,29 @@ buildEnvironmentIdentity target = do
   headerHash <- stableHash <$> mapM BS.readFile headers
   pure (stableHash (map BS8.pack [compilerBuildIdentity, compilerHash, archiverHash, headerHash, show arguments]))
 
-compileOptionsKey :: ModuleCompileConfig -> String
-compileOptionsKey config =
+-- | The part of the configuration that changes what a package is: the
+-- compiler and the target. Flags that add or drop outputs, such as
+-- @--keep-core@, or that only check, such as @--lint@, are recorded in the
+-- manifest instead.
+packageOptionsKey :: ModuleCompileConfig -> String
+packageOptionsKey config =
   stableHash
     [ BS8.pack (compileBuildIdentity config),
       TE.encodeUtf8 packageArtifactFormatVersion,
-      BS8.pack (show (compileTarget config, compileKeepCore config, compileKeepGrin config, compileKeepNative config, compileLint config, compileNoCode config))
+      BS8.pack (show (compileTarget config))
+    ]
+
+-- | The part of the configuration the type interfaces depend on.
+frontendOptionsKey :: ModuleCompileConfig -> String
+frontendOptionsKey = packageOptionsKey
+
+-- | The part of the configuration the backend outputs depend on.
+backendOptionsKey :: ModuleCompileConfig -> String
+backendOptionsKey config =
+  stableHash
+    [ BS8.pack (compileBuildIdentity config),
+      TE.encodeUtf8 packageArtifactFormatVersion,
+      BS8.pack (show (compileTarget config, compileKeepCore config, compileKeepGrin config, compileKeepNative config, compileLint config))
     ]
 
 createTemporaryStoreRoot :: FilePath -> FilePath -> IO FilePath
@@ -751,7 +1006,7 @@ loadRequiredDependencies :: [SourceModule] -> [InstalledPackage] -> IO [Installe
 loadRequiredDependencies sources = mapM loadDependency
   where
     requirements = requiredDependencyModules sources
-    loadDependency dependency = loadInstalledPackage requirements (installStorePath (installedResult dependency))
+    loadDependency dependency = loadInstalledPackage requirements (installedImmutable dependency) (installStorePath (installedResult dependency))
 
 requiredDependencyModules :: [SourceModule] -> Set.Set (Maybe Text, Text)
 requiredDependencyModules sources =
@@ -770,11 +1025,13 @@ requiredDependencyModules sources =
       importDeclPackage importDecl == Just "this"
         || (isNothing (importDeclPackage importDecl) && importDeclModule importDecl `Set.member` localNames)
 
-loadInstalledPackage :: Set.Set (Maybe Text, Text) -> FilePath -> IO InstalledPackage
-loadInstalledPackage requirements storePath = do
+loadInstalledPackage :: Set.Set (Maybe Text, Text) -> Bool -> FilePath -> IO InstalledPackage
+loadInstalledPackage requirements immutable storePath = do
   manifestResult <- readPackageManifest (packageManifestPath storePath)
   manifest <- either (ioError . userError . ("Invalid installed package manifest: " <>)) pure manifestResult
-  fingerprint <- readBuildFingerprint storePath
+  digests <-
+    readStamp (packageDigestsPath storePath)
+      >>= maybe (ioError (userError ("The installed package has no digests: " <> storePath))) pure
   let selectedModules = filter (moduleRequired manifest) (packageManifestModules manifest)
   entries <- mapM loadModule selectedModules
   (instanceFacts', instanceProviders) <-
@@ -784,18 +1041,22 @@ loadInstalledPackage requirements storePath = do
   let package = Package (packageManifestName manifest) (PackageId (packageManifestUnitId manifest))
       exports = Map.fromList [(ModuleKey package name, scope) | (name, scope, _) <- entries]
       types = LazyMap.fromList [(name, interface) | (name, _, interface) <- entries]
-      scopeHashes = Map.fromList [(name, T.pack (stableHash [BL.toStrict (encodeResolveScope scope)])) | (name, scope, _) <- entries]
-      typeHashes = LazyMap.fromList [(name, T.pack (stableHash [BL.toStrict (encodeTypeInterface interface)])) | (name, _, interface) <- entries]
+      exposed = Map.restrictKeys (packageDigestsModules digests) (Set.fromList (packageManifestModules manifest))
+      scopeHashes = Map.map moduleScopeDigest exposed
+      typeHashes = Map.map moduleTypeDigest exposed
   pure
     InstalledPackage
       { installedResult = InstallResult storePath [] (packageManifestModules manifest),
         installedName = packageManifestName manifest,
         installedVersion = packageManifestVersion manifest,
-        installedBuildFingerprint = maybe (packageManifestIdentity manifest) T.pack fingerprint,
+        installedIdentity = packageManifestIdentity manifest,
+        installedImmutable = immutable,
+        installedManifest = manifest,
         installedExports = exports,
         installedTypes = types,
         installedScopeHashes = scopeHashes,
         installedTypeHashes = typeHashes,
+        installedInstanceDigest = packageDigestsInstances digests,
         installedInstanceFacts = instanceFacts',
         installedInstanceProviders = instanceProviders
       }
@@ -1158,33 +1419,78 @@ runResolveUnit context runtimes runtime = do
       dependencyNames = nub (importedNames <> wiredInterfaceModules)
       availableExports = Map.unions (map resolveUnitExports dependencyResults) `Map.union` dependencyExports
       availableScopeHashes = Map.unions (map resolveUnitScopeHashes dependencyResults) `Map.union` dependencyScopeHashes
-      dependencyHashes = Map.fromList [("scope:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name scopeHashes]]
-      scopeHashes = availableScopeHashes
+      scopeInputs = [("scope:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableScopeHashes]]
       sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
-      hashes = sortOn fst (sourceHashes <> Map.toList dependencyHashes)
-      resolvePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "resolve.cbor"
+      inputs = sortOn fst (sourceHashes <> scopeInputs)
+      resolvePath source = moduleDirectory (sourceModuleAst source) </> "resolve.cbor"
+      stampPath = storePath </> unitResolveStampPath unit
       parseSuccess = all (null . sourceModuleParseDiagnostics) sources
       dependenciesSucceeded = all resolveUnitSuccess dependencyResults
-  let builtinScope = builtinFunctionScope resolvePackage availableExports packageModules
-      resolved = resolveWithDeps builtinScope availableExports packageModules
-      errors = resolveErrors resolved
-      unitExports = extractInterfaceWithDeps availableExports resolved
-      success = parseSuccess && dependenciesSucceeded && null errors
-  when success (mapM_ (\source -> writeArtifact verbose hashes unitExports resolvePackage (resolvePath source) source) sources)
-  let ownScopeHashes = updateScopeHashes resolvePackage unitExports Map.empty sources
-  atomically $
-    putTMVar
-      (runtimeResolveResult runtime)
-      ResolveUnitResult
-        { resolveUnitExports = unitExports,
-          resolveUnitScopeHashes = ownScopeHashes,
-          resolveUnitResolved = Just resolved,
-          resolveUnitErrors = errors,
-          resolveUnitSuccess = success
-        }
+  reused <-
+    if parseSuccess && dependenciesSucceeded
+      then reuseResolveUnit storePath stampPath inputs resolvePackage (map resolvePath sources)
+      else pure Nothing
+  result <- case reused of
+    Just (unitExports, scopeHashes) -> do
+      verbose ("Reuse resolve context: " <> T.unpack (unitLabel unit))
+      pure
+        ResolveUnitResult
+          { resolveUnitExports = unitExports,
+            resolveUnitScopeHashes = scopeHashes,
+            resolveUnitResolved = Nothing,
+            resolveUnitErrors = [],
+            resolveUnitSuccess = True
+          }
+    Nothing -> do
+      let builtinScope = builtinFunctionScope resolvePackage availableExports packageModules
+          resolved = resolveWithDeps builtinScope availableExports packageModules
+          errors = resolveErrors resolved
+          unitExports = extractInterfaceWithDeps availableExports resolved
+          success = parseSuccess && dependenciesSucceeded && null errors
+      scopeHashes <-
+        if success
+          then do
+            digests <- forM sources $ \source -> writeArtifact verbose inputs unitExports resolvePackage (storePath </> resolvePath source) source
+            files <- stampFiles storePath (map resolvePath sources)
+            writeStamp stampPath ResolveStamp {resolveStampInputs = inputs, resolveStampScopes = Map.fromList digests, resolveStampFiles = files}
+            pure (Map.fromList digests)
+          else pure Map.empty
+      pure
+        ResolveUnitResult
+          { resolveUnitExports = unitExports,
+            resolveUnitScopeHashes = scopeHashes,
+            resolveUnitResolved = Just resolved,
+            resolveUnitErrors = errors,
+            resolveUnitSuccess = success
+          }
+  atomically (putTMVar (runtimeResolveResult runtime) result)
   where
     config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
+
+-- | The exports and scope digests of a unit whose resolve artifacts were
+-- built from the same inputs, if the artifacts are the ones the stamp
+-- recorded.
+reuseResolveUnit :: FilePath -> FilePath -> [(Text, Text)] -> Package -> [FilePath] -> IO (Maybe (ModuleExports, Map.Map Text Text))
+reuseResolveUnit storePath stampPath inputs resolvePackage artifactPaths = do
+  stamp <- readStamp stampPath
+  case stamp of
+    Just recorded | resolveStampInputs recorded == inputs -> do
+      current <- filesMatchStamps storePath (resolveStampFiles recorded)
+      if not current
+        then pure Nothing
+        else do
+          decoded <- forM artifactPaths $ \path -> decodeResolveArtifact <$> BS.readFile (storePath </> path)
+          case sequence decoded of
+            Left _ -> pure Nothing
+            Right artifacts ->
+              pure
+                ( Just
+                    ( Map.fromList [(ModuleKey resolvePackage (resolveArtifactModuleName artifact), resolveArtifactScope artifact) | artifact <- artifacts],
+                      resolveStampScopes recorded
+                    )
+                )
+    _ -> pure Nothing
 
 runTypeUnit :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> UnitRuntime -> IO ()
 runTypeUnit context runtimes runtime = do
@@ -1214,11 +1520,33 @@ runTypeUnit context runtimes runtime = do
       scopeInputs =
         [("scope:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableScopeHashes]]
       typeInputs =
+        [("type:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableTypeHashes]]
+      -- The instances a unit sees come from every unit below it and from
+      -- the dependency packages that supply an imported module. A facts
+      -- digest covers the facts of the units below the one it names.
+      factsInputs =
+        [ ("facts:" <> unitLabel (runtimeUnit (lookupRuntime runtimes dependency)), typeUnitFactsDigest result)
+        | (dependency, result) <- zip (sourceUnitDependencies unit) dependencyResults
+        ]
+      packageInputs =
+        [ ("package:" <> name, digest)
+        | (name, digest, modules) <- taskDependencyPackages context,
+          any (`Set.member` modules) dependencyNames
+        ]
+      inputs =
         sortOn fst $
           sourceHashes
             <> scopeInputs
-            <> [("type:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableTypeHashes]]
-      typePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "type.cbor"
+            <> typeInputs
+            <> factsInputs
+            <> packageInputs
+            <> [ ("options:frontend", T.pack (frontendOptionsKey config)),
+                 ("options:extensions", T.pack (show (map sourceModuleExtensions sources)))
+               ]
+      typePath source = moduleDirectory (sourceModuleAst source) </> "type.cbor"
+      factsPath = unitFactsPath unit
+      stampPath = storePath </> unitStampPath unit
+      frontendFiles = factsPath : map typePath sources
       externalInstanceProviders =
         Set.unions
           [ Map.findWithDefault Set.empty name dependencyInstanceProviders
@@ -1258,24 +1586,15 @@ runTypeUnit context runtimes runtime = do
         pure (checked, checkedDiagnostics)
       dependencySuccess = all typeUnitSuccess dependencyResults
       resolveSuccess = resolveUnitSuccess resolvedOutput
-  let cacheKey =
-        stableHash
-          [ BS8.pack (compileOptionsKey config),
-            BS8.pack (show resolvePackage),
-            BS8.pack (show typeInputs),
-            BL.toStrict (encodeTypeInterface importedTypes),
-            BS8.pack (show (map sourceModuleExtensions sources))
-          ]
-      cachePath = (</> cacheKey) <$> compileCacheRoot config
-  reused <- case cachePath of
-    Just path | resolveSuccess && dependencySuccess -> restoreArtifacts path storePath (unitArtifactPaths config unit)
-    _ -> pure False
-  if reused
-    then do
-      artifacts <- mapM (fmap decodeTypeArtifact . BL.readFile . typePath) sources
-      ownFacts <- typeArtifactInterface . decodeTypeArtifact <$> BL.readFile (storePath </> unitFactsPath unit)
+  reused <-
+    if resolveSuccess && dependencySuccess
+      then reuseTypeUnit config storePath stampPath inputs
+      else pure Nothing
+  case reused of
+    Just recorded -> do
+      artifacts <- mapM (fmap decodeTypeArtifact . BL.readFile . (storePath </>) . typePath) sources
+      ownFacts <- typeArtifactInterface . decodeTypeArtifact <$> BL.readFile (storePath </> factsPath)
       let interfaces = map typeArtifactInterface artifacts
-          hashes = Map.fromList (zip unitNames (map (T.pack . stableHash . pure . BL.toStrict . encodeTypeInterface) interfaces))
           complete = mergeTcInterfaces (importedTypes : ownFacts : interfaces)
       verbose ("Reuse type and backend artifacts: " <> T.unpack (unitLabel unit))
       atomically $
@@ -1283,18 +1602,19 @@ runTypeUnit context runtimes runtime = do
           (runtimeTypeResult runtime)
           TypeUnitResult
             { typeUnitTypes = Map.fromList (zip unitNames interfaces),
-              typeUnitHashes = hashes,
+              typeUnitHashes = unitStampTypes recorded,
               typeUnitOwnInstanceInterface = ownFacts,
+              typeUnitFactsDigest = unitStampFacts recorded,
               typeUnitInstanceInterface = unionTcInterfaces [importedInstanceInterface, ownFacts],
               typeUnitDiagnostics = [],
               typeUnitWritten = Set.empty,
               typeUnitReused = Set.fromList unitNames,
-              typeUnitCachePath = Nothing,
+              typeUnitPendingStamp = Nothing,
               typeUnitPendingCompile = Nothing,
               typeUnitDesugarInterface = complete,
               typeUnitSuccess = True
             }
-    else do
+    Nothing -> do
       (initialChecked@(_, checkedInterface), diagnostics) <- checkUnit
       let completeInterface = mergeTcInterfaces [importedTypes, checkedInterface]
           unitTypes = map (moduleTypeInterface (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
@@ -1302,10 +1622,17 @@ runTypeUnit context runtimes runtime = do
           completeInstanceInterface = unionTcInterfaces [importedInstanceInterface, ownInstanceInterface]
           typeSuccess = not (any ((== TcError) . diagSeverity) diagnostics)
           success = resolveSuccess && dependencySuccess && typeSuccess
-      ownTypeHashes <-
+      (ownTypeHashes, factsDigest) <-
         if success
-          then Map.fromList <$> zipWithM (writeTypeArtifact verbose typeInputs typePath) sources unitTypes
-          else pure Map.empty
+          then do
+            typeHashes <- Map.fromList <$> zipWithM (writeTypeArtifact verbose inputs ((storePath </>) . typePath)) sources unitTypes
+            -- The facts artifact records the facts digests it was built
+            -- above, so its own digest changes with any of them.
+            let factsBytes = encodeTypeArtifact (TypeArtifact "$unit" (sortOn fst (factsInputs <> packageInputs)) Map.empty ownInstanceInterface)
+            createDirectoryIfMissing True (takeDirectory (storePath </> factsPath))
+            BL.writeFile (storePath </> factsPath) factsBytes
+            pure (typeHashes, T.pack (stableHash [BL.toStrict factsBytes]))
+          else pure (Map.empty, "")
       pendingCompile <-
         if compileNoCode config || not success
           then pure Nothing
@@ -1318,6 +1645,19 @@ runTypeUnit context runtimes runtime = do
                     ]
             pure (Just (PendingCompile checkedModules desugarConfigs))
       let unitSet = Set.fromList unitNames
+          -- A unit with warnings is not stamped, so the next build reports
+          -- them again.
+          pendingStamp
+            | success && null diagnostics =
+                Just
+                  PendingStamp
+                    { pendingStampPath = stampPath,
+                      pendingStampInputs = inputs,
+                      pendingStampTypes = ownTypeHashes,
+                      pendingStampFacts = factsDigest,
+                      pendingStampFrontendFiles = frontendFiles
+                    }
+            | otherwise = Nothing
       -- Force the type result before this type-check task ends.
       typeResult <-
         evaluate
@@ -1325,26 +1665,54 @@ runTypeUnit context runtimes runtime = do
             { typeUnitTypes = Map.fromList (zip unitNames unitTypes),
               typeUnitHashes = ownTypeHashes,
               typeUnitOwnInstanceInterface = ownInstanceInterface,
+              typeUnitFactsDigest = factsDigest,
               typeUnitInstanceInterface = completeInstanceInterface,
               typeUnitDiagnostics = diagnostics,
               typeUnitWritten = unitSet,
               typeUnitReused = Set.empty,
-              typeUnitCachePath = if success && null diagnostics then cachePath else Nothing,
+              typeUnitPendingStamp = pendingStamp,
               typeUnitPendingCompile = pendingCompile,
               typeUnitDesugarInterface = completeInterface,
               typeUnitSuccess = success
             }
-      when success $ do
-        createDirectoryIfMissing True (takeDirectory (storePath </> unitFactsPath unit))
-        BL.writeFile (storePath </> unitFactsPath unit) (encodeTypeArtifact (TypeArtifact "$unit" [] Map.empty ownInstanceInterface))
       when (compileNoCode config) $
-        case typeUnitCachePath typeResult of
-          Just path -> publishArtifacts path storePath (unitArtifactPaths config unit)
-          Nothing -> pure ()
+        forM_ pendingStamp $
+          \pending -> writeUnitStamp storePath pending Nothing
       atomically (putTMVar (runtimeTypeResult runtime) typeResult)
   where
     config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
+
+-- | The stamp of a unit whose type artifacts, and objects when code is
+-- wanted, were built from the same inputs and are still the recorded files.
+reuseTypeUnit :: ModuleCompileConfig -> FilePath -> FilePath -> [(Text, Text)] -> IO (Maybe UnitStamp)
+reuseTypeUnit config storePath stampPath inputs = do
+  stamp <- readStamp stampPath
+  case stamp of
+    Just recorded | unitStampInputs recorded == inputs -> do
+      frontendCurrent <- filesMatchStamps storePath (unitStampFiles recorded)
+      backendCurrent <-
+        if compileNoCode config
+          then pure True
+          else case unitStampBackend recorded of
+            Just backend | backendStampOptions backend == T.pack (backendOptionsKey config) -> filesMatchStamps storePath (backendStampFiles backend)
+            _ -> pure False
+      pure (if frontendCurrent && backendCurrent then Just recorded else Nothing)
+    _ -> pure Nothing
+
+writeUnitStamp :: FilePath -> PendingStamp -> Maybe (Text, [FilePath]) -> IO ()
+writeUnitStamp storePath pending backend = do
+  files <- stampFiles storePath (pendingStampFrontendFiles pending)
+  backendStamp <- forM backend $ \(options, paths) -> BackendStamp options <$> stampFiles storePath paths
+  writeStamp
+    (pendingStampPath pending)
+    UnitStamp
+      { unitStampInputs = pendingStampInputs pending,
+        unitStampTypes = pendingStampTypes pending,
+        unitStampFacts = pendingStampFacts pending,
+        unitStampFiles = files,
+        unitStampBackend = backendStamp
+      }
 
 runBackendUnit :: PackageTaskContext -> UnitRuntime -> IO ()
 runBackendUnit context runtime = do
@@ -1363,33 +1731,40 @@ runBackendUnit context runtime = do
           (moduleOutputPaths storePath (compileTarget config))
           (pendingDesugarConfigs pending)
           (pendingModules pending)
+      forM_ (typeUnitPendingStamp result) $ \stamp ->
+        writeUnitStamp storePath stamp (Just (T.pack (backendOptionsKey config), unitBackendPaths config (runtimeUnit runtime)))
       ended <- getMonotonicTimeNSec
       atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> withOtherTime started ended phaseTimings, ()))
     _ -> do
       ended <- getMonotonicTimeNSec
       atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> withOtherTime started ended mempty, ()))
-  case typeUnitCachePath result of
-    Just path -> publishArtifacts path (taskStorePath context) (unitArtifactPaths (taskModuleCompileConfig context) (runtimeUnit runtime))
-    Nothing -> pure ()
+
+unitStampDirectory :: FilePath
+unitStampDirectory = ".units"
+
+unitStampBase :: SourceUnit -> FilePath
+unitStampBase unit = unitStampDirectory </> stableHash [TE.encodeUtf8 (unitLabel unit)]
 
 unitFactsPath :: SourceUnit -> FilePath
-unitFactsPath unit = ".units" </> stableHash [TE.encodeUtf8 (unitLabel unit)] <> ".cbor"
+unitFactsPath unit = unitStampBase unit <.> "cbor"
 
-unitArtifactPaths :: ModuleCompileConfig -> SourceUnit -> [FilePath]
-unitArtifactPaths config unit = unitFactsPath unit : concatMap paths (sourceUnitSources unit)
+unitResolveStampPath :: SourceUnit -> FilePath
+unitResolveStampPath unit = unitStampBase unit <.> "resolve.json"
+
+unitStampPath :: SourceUnit -> FilePath
+unitStampPath unit = unitStampBase unit <.> "unit.json"
+
+-- | The backend outputs of a unit, relative to the package.
+unitBackendPaths :: ModuleCompileConfig -> SourceUnit -> [FilePath]
+unitBackendPaths config unit = concatMap paths (sourceUnitSources unit)
   where
     paths source =
       let name = sourceName source
-          directory = moduleNameDirectory name
           output = moduleOutputPaths "" (compileTarget config) name
-       in [directory </> "resolve.cbor", directory </> "type.cbor"]
-            <> if compileNoCode config
-              then []
-              else
-                [outputObjectPath output]
-                  <> [outputFcPath output | compileKeepCore config]
-                  <> concat [[outputGrinPath output, outputCpsGrinPath output, outputGcGrinPath output] | compileKeepGrin config]
-                  <> [outputNativePath output | compileKeepNative config]
+       in [outputObjectPath output]
+            <> [outputFcPath output | compileKeepCore config]
+            <> concat [[outputGrinPath output, outputCpsGrinPath output, outputGcGrinPath output] | compileKeepGrin config]
+            <> [outputNativePath output | compileKeepNative config]
 
 instanceFacts :: TcInterface -> TcInterface
 instanceFacts interface =
@@ -1425,13 +1800,15 @@ selectInstanceProviders complete providers
     first transform (left, right) = (transform left, right)
     tyConOrigin tyCon = (tyConPackageId tyCon, tyConModuleName tyCon)
 
-writePackageInstanceArtifact :: (String -> IO ()) -> FilePath -> Map.Map Text Text -> Map.Map Text (Set.Set InstanceProvider) -> TcInterface -> IO ()
+writePackageInstanceArtifact :: (String -> IO ()) -> FilePath -> Map.Map Text Text -> Map.Map Text (Set.Set InstanceProvider) -> TcInterface -> IO Text
 writePackageInstanceArtifact verbose storePath typeHashes providers interface = do
   let path = storePath </> "instances.cbor"
       hashes = sortOn fst [("type:" <> name, digest) | (name, digest) <- Map.toList typeHashes]
+      bytes = encodeTypeArtifact (TypeArtifact "$package-instances" hashes (Map.map Set.toAscList providers) interface)
   createDirectoryIfMissing True storePath
-  BL.writeFile path (encodeTypeArtifact (TypeArtifact "$package-instances" hashes (Map.map Set.toAscList providers) interface))
+  BL.writeFile path bytes
   verbose ("Write package instances: " <> path)
+  pure (T.pack (stableHash [BL.toStrict bytes]))
 
 wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Tuple", "GHC.Types"]
@@ -1969,31 +2346,26 @@ writeTypeArtifact verbose hashes artifactPath source interface = do
   verbose ("Write type interface: " <> T.unpack name)
   pure (name, T.pack (stableHash [BL.toStrict interfaceBytes]))
 
-updateScopeHashes :: Package -> ModuleExports -> Map.Map Text Text -> [SourceModule] -> Map.Map Text Text
-updateScopeHashes package exports = foldl' update
-  where
-    update hashes source =
-      let name = fromMaybe "Main" (moduleName (sourceModuleAst source))
-          scope = Map.findWithDefault (error "missing resolve scope") (ModuleKey package name) exports
-          scopeBytes = BL.toStrict (encodeResolveScope scope)
-       in Map.insert name (T.pack (stableHash [scopeBytes])) hashes
-
 moduleDirectory :: Module -> FilePath
 moduleDirectory = moduleNameDirectory . fromMaybe "Main" . moduleName
 
 moduleNameDirectory :: Text -> FilePath
 moduleNameDirectory = foldl' (</>) "" . map T.unpack . T.splitOn "."
 
-writeArtifact :: (String -> IO ()) -> [(Text, Text)] -> ModuleExports -> Package -> FilePath -> SourceModule -> IO ()
+-- | Write the resolve artifact of a module and return the digest of the
+-- scope inside it, taken from the bytes as written.
+writeArtifact :: (String -> IO ()) -> [(Text, Text)] -> ModuleExports -> Package -> FilePath -> SourceModule -> IO (Text, Text)
 writeArtifact verbose hashes exports package path source = do
   createDirectoryIfMissing True (takeDirectory path)
   let name = fromMaybe "Main" (moduleName (sourceModuleAst source))
       scope = Map.findWithDefault (error "missing resolve scope") (ModuleKey package name) exports
-  BL.writeFile path (encodeResolveArtifact (ResolveArtifact name hashes scope))
+      (artifactBytes, scopeBytes) = encodeResolveArtifactParts (ResolveArtifact name hashes scope)
+  BL.writeFile path artifactBytes
   verbose ("Write resolve context: " <> T.unpack name)
+  pure (name, T.pack (stableHash [BL.toStrict scopeBytes]))
 
 stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-17"
+packageArtifactFormatVersion = "aihc-artifacts-18"

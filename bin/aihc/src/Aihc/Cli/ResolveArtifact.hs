@@ -2,6 +2,7 @@ module Aihc.Cli.ResolveArtifact
   ( ResolveArtifact (..),
     decodeResolveArtifact,
     encodeResolveArtifact,
+    encodeResolveArtifactParts,
     encodeResolveScope,
   )
 where
@@ -29,13 +30,22 @@ data ResolveArtifact = ResolveArtifact
   deriving (Eq)
 
 encodeResolveArtifact :: ResolveArtifact -> BL.ByteString
-encodeResolveArtifact artifact =
-  Builder.toLazyByteString $
-    cborArray 4
-      <> cborText "aihc-resolve"
-      <> cborText (resolveArtifactModuleName artifact)
-      <> encodeHashes (resolveArtifactInputHashes artifact)
-      <> encodeScope (resolveArtifactScope artifact)
+encodeResolveArtifact = fst . encodeResolveArtifactParts
+
+-- | The artifact bytes together with the bytes of the scope inside them, so
+-- that the writer can take the scope digest from bytes it encodes anyway.
+encodeResolveArtifactParts :: ResolveArtifact -> (BL.ByteString, BL.ByteString)
+encodeResolveArtifactParts artifact =
+  ( Builder.toLazyByteString $
+      cborArray 4
+        <> cborText "aihc-resolve"
+        <> cborText (resolveArtifactModuleName artifact)
+        <> encodeHashes (resolveArtifactInputHashes artifact)
+        <> Builder.lazyByteString scopeBytes,
+    scopeBytes
+  )
+  where
+    scopeBytes = encodeResolveScope (resolveArtifactScope artifact)
 
 encodeResolveScope :: Scope -> BL.ByteString
 encodeResolveScope = Builder.toLazyByteString . encodeScope

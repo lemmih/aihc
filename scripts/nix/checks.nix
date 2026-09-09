@@ -191,7 +191,7 @@
       --target ${backend} \
       --gc ${gc} \
       --store "$store" \
-      --build-root "$TMPDIR/.aihc-cache" \
+      --build-root "$TMPDIR/.aihc-target" \
       "''${package_flags[@]}" \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
@@ -270,7 +270,7 @@
     if timeout --foreground --kill-after=5s 120s ${aihcExe} build-exe "$source" \
       --target wasm32-wasip3 \
       --store "$store" \
-      --build-root "$TMPDIR/.aihc-cache" \
+      --build-root "$TMPDIR/.aihc-target" \
       "''${package_flags[@]}" \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
@@ -419,7 +419,7 @@
       store="$TMPDIR/store"
       mkdir -p "$store"
 
-      ${aihcExe} install core-libs/aihc-prim --store "$store" --keep-core --keep-grin --lint --target apple-arm64
+      ${aihcExe} install core-libs/aihc-prim --store "$store" --immutable --keep-core --keep-grin --lint --target apple-arm64
 
       test -n "$(find "$store" -path '*/GHC/Prim/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
@@ -427,7 +427,7 @@
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
 
-      ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --keep-core --lint --target apple-arm64
+      ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --immutable --keep-core --lint --target apple-arm64
 
       test -n "$(find "$store" -path '*/Language/Haskell/TH/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Internal/TH/Syntax/GHC.Internal.TH.Syntax.o' -print -quit)"
@@ -468,7 +468,7 @@
       mkdir -p "$out/prim"
 
       ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          ${aihcExe} install core-libs/aihc-prim --store "$out/prim" --target ${target}
+          ${aihcExe} install core-libs/aihc-prim --store "$out/prim" --immutable --target ${target}
         '')
         specSeedPrimTargets}
 
@@ -476,7 +476,7 @@
       # aihc-base as well. Keeping them apart matches what the suite builds for
       # itself outside CI, so a test sees the same store either way.
       cp -R --no-preserve=mode "$out/prim" "$out/core"
-      ${aihcExe} install core-libs/aihc-base --store "$out/core" --target ${specSeedBaseTarget}
+      ${aihcExe} install core-libs/aihc-base --store "$out/core" --immutable --target ${specSeedBaseTarget}
     '';
 
   # The compiler owns preparation of the installed toolchain. Runtime archives
@@ -527,7 +527,7 @@
       mkdir -p "$out"
 
       ${aihcExe} prepare-runtime --target ${target} --gc semispace --store "$out"
-      ${aihcExe} install core-libs/aihc-base --store "$out" --lint --target ${target}
+      ${aihcExe} install core-libs/aihc-base --store "$out" --immutable --lint --target ${target}
 
       test -n "$(find "$out" -type f -name 'package.json' -print -quit)"
       test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
@@ -593,7 +593,7 @@
       ln -sfn ${src} "$workspace/${package.name}"
       ${pkgs.lib.concatMapStrings linkWorkspaceEntry dependencies}
 
-      install_output=$(${aihcExe} install "$workspace/${package.name}" --store "$out" ${lintFlag} --target ${target})
+      install_output=$(${aihcExe} install "$workspace/${package.name}" --store "$out" --immutable ${lintFlag} --target ${target})
       printf '%s\n' "$install_output"
       test -s "''${install_output#store: }/lib/lib${package.name}.a"
       test -z "$(find "$out" -type f -name 'core.bad' -print -quit)"
@@ -624,6 +624,35 @@
           extraNames}
       '';
 
+  # build-exe computes the store directory of each package from its plan, which
+  # reads the Cabal files of the package and its dependencies. The extra
+  # packages of an example therefore come with their sources in a workspace.
+  exampleWorkspaceFor = exampleName: let
+    extraNames = exampleExtraHackagePackages.${exampleName} or [];
+  in
+    pkgs.linkFarm "aihc-example-workspace-${exampleName}" (map (name: let
+        package = findHackagePackage name;
+      in {
+        inherit name;
+        path = hackage.fetchPackage pkgs package;
+      })
+      extraNames);
+
+  examplePackageFlags = exampleName: let
+    extraNames = exampleExtraHackagePackages.${exampleName} or [];
+  in
+    pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames
+    + pkgs.lib.optionalString (extraNames != []) " --workspace ${exampleWorkspaceFor exampleName}";
+
+  # The plan of an executable names the core libraries, so build-exe needs
+  # their Cabal files even when the store already holds them.
+  exportCoreLibsRoot = ''
+    coreLibsRoot="$TMPDIR/aihc-core-libs-root"
+    mkdir -p "$coreLibsRoot"
+    ln -sfn ${sources.coreLibrariesSrc pkgs}/core-libs "$coreLibsRoot/core-libs"
+    export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
+  '';
+
   exampleTestInputs = [
     pkgs.coreutils
     pkgs.diffutils
@@ -643,7 +672,7 @@
     '';
     installExtraForTarget = target:
       pkgs.lib.concatMapStringsSep "\n" (package: ''
-        ${aihcExe} install "$workspace/${package.name}" --store "$store" --target ${target}
+        ${aihcExe} install "$workspace/${package.name}" --store "$store" --immutable --target ${target}
       '')
       extraPackages;
   in
@@ -664,19 +693,16 @@
       ${pkgs.lib.concatMapStringsSep "\n" installExtraForTarget targets}
     '';
 
-  mkExampleTest = exampleName: target: let
-    extraNames = exampleExtraHackagePackages.${exampleName} or [];
-    packageFlags =
-      pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames;
-  in
+  mkExampleTest = exampleName: target:
     mkSourceCheck "aihc-example-${exampleName}-${target}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
       set -euo pipefail
       export GHCRTS=-N1
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
+      ${exportCoreLibsRoot}
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
-      package_flags=(${packageFlags})
+      package_flags=(${examplePackageFlags exampleName})
 
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
@@ -824,11 +850,7 @@
     wasmLd
   ];
 
-  mkWasip3ExampleTest = exampleName: let
-    extraNames = exampleExtraHackagePackages.${exampleName} or [];
-    packageFlags =
-      pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames;
-  in
+  mkWasip3ExampleTest = exampleName:
     mkSourceCheck "aihc-wasip3-example-${exampleName}" (sources.exampleSrc exampleName pkgs) wasip3ExampleInputs ''
       set -euo pipefail
       export GHCRTS=-N1
@@ -836,9 +858,10 @@
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       export AIHC_WASM_SYSROOT=${wasmSysroot}
+      ${exportCoreLibsRoot}
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
-      package_flags=(${packageFlags})
+      package_flags=(${examplePackageFlags exampleName})
 
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
@@ -876,18 +899,15 @@
   # instead of failing the derivation, so the consumer reports every example.
   crossExampleBundlesFor = target: let
     toolchain = exampleToolchainWith (crossSetupFor target) target;
-    renderExample = exampleName: let
-      extraNames = exampleExtraHackagePackages.${exampleName} or [];
-      packageFlags =
-        pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames;
-    in ''
+    renderExample = exampleName: ''
       example_name=${pkgs.lib.escapeShellArg exampleName}
       bundle="$out/$example_name"
       mkdir -p "$bundle"
       cp -R --no-preserve=mode "examples/$example_name" "$bundle/example"
       if (
         set -euo pipefail
-        package_flags=(${packageFlags})
+        ${exportCoreLibsRoot}
+        package_flags=(${examplePackageFlags exampleName})
         ${mkExampleExtraInstall {
           inherit toolchain;
           targets = [target];
@@ -897,7 +917,7 @@
           --target ${target} \
           --gc semispace \
           --store "$store" \
-          --build-root "$TMPDIR/.aihc-cache-$example_name" \
+          --build-root "$TMPDIR/.aihc-target-$example_name" \
           "''${package_flags[@]}" \
           --no-link \
           --output "$bundle/link"

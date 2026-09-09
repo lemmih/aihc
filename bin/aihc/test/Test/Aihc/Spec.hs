@@ -35,14 +35,11 @@ import System.Directory
     getCurrentDirectory,
     getFileSize,
     getModificationTime,
-    getPermissions,
     getTemporaryDirectory,
     listDirectory,
     removeDirectoryRecursive,
     removeFile,
     setModificationTime,
-    setOwnerWritable,
-    setPermissions,
     withCurrentDirectory,
   )
 import System.Environment (lookupEnv)
@@ -81,14 +78,13 @@ tests =
             AllFinish
             [ testCase "builds imported source modules and runs the executable" (test_buildExeSourceDirectories coreStore),
               testCase "reports the ambiguous installed module" (test_buildExeAmbiguousModule coreStore),
-              testCase "reports ambiguous package builds" (test_buildExeAmbiguousPackage coreStore),
-              testCase "reports conflicting dependency builds" (test_buildExeConflictingDependencies coreStore),
               testCase "reports the generated entry collision" (test_buildExeEntryCollision coreStore),
               testCase "writes a link bundle that link-exe turns into the executable" (test_buildExeLinkBundle coreStore)
             ],
         testGroup
           "install"
           [ testCase "reuses unchanged fixture modules" (test_installIncremental primStore),
+            testCase "installs an immutable package once" (test_installImmutable primStore),
             testCase "writes Core files and reuses an installed package" (test_installResolveArtifacts primStore),
             testCase "accepts type-check warnings" (test_installTypeWarning primStore),
             testCase "loads the implicit Prelude type interface" (test_installImplicitPrelude primStore),
@@ -141,6 +137,7 @@ withBuildExeSandbox getStore prefix action = do
               buildExeGarbageCollector = GcSemispace,
               buildExeStoreRoot = Just storeRoot,
               buildExeBuildRoot = Nothing,
+              buildExeWorkspace = Nothing,
               buildExeLint = False,
               buildExeNoLink = False,
               buildExeOutputFile = Just (sandboxRoot sandbox </> "program")
@@ -172,20 +169,20 @@ test_buildExeSourceDirectories getStore =
         unusedType = basePackage </> "Data" </> "Bool" </> "type.cbor"
     resolveBytes <- BS.readFile unusedResolve
     BS.writeFile unusedResolve "invalid unused resolve interface"
-    let activeRoot = storeRoot </> ".active" </> nativeTargetStoreDirectory target
-    createDirectoryIfMissing True activeRoot
-    writeFile (activeRoot </> T.unpack (packageManifestName manifest <> "-" <> packageManifestVersion manifest)) "absent-cached-build"
-    let storeCache = storeRoot </> ".build-cache"
-    createDirectoryIfMissing True storeCache
-    writePackageManifest (packageManifestPath storeCache) manifest {packageManifestVersion = "9999"}
-    writeFile (basePackage </> "build-inputs.hash") "invalid-build-fingerprint"
-    bracket (getPermissions storeCache) (setPermissions storeCache) $ \permissions -> do
-      setPermissions storeCache (setOwnerWritable False permissions)
-      withCurrentDirectory root (runBuildExe options)
-    assertFileExists (root </> ".aihc-cache" </> nativeTargetStoreDirectory target </> "Main" </> "Main.o")
-    assertFileDoesNotExist (root </> ".aihc-cache" </> nativeTargetStoreDirectory target </> "GHC" </> "Base" </> "GHC.Base.o")
-    removeDirectoryRecursive storeCache
-    removeFile (basePackage </> "build-inputs.hash")
+    -- The store is never listed, so a stray package directory beside the
+    -- real ones cannot take part in the build.
+    let strayPackage = storeRoot </> nativeTargetStoreDirectory target </> "aihc-base-9999-0123456789abcdef"
+    createDirectoryIfMissing True strayPackage
+    writePackageManifest (packageManifestPath strayPackage) manifest {packageManifestVersion = "9999"}
+    withCurrentDirectory root (runBuildExe options)
+    let mainObject = root </> ".aihc-target" </> nativeTargetStoreDirectory target </> "Main" </> "Main.o"
+    assertFileExists mainObject
+    assertFileDoesNotExist (root </> ".aihc-target" </> nativeTargetStoreDirectory target </> "GHC" </> "Base" </> "GHC.Base.o")
+    -- The second build finds every module of the executable unchanged.
+    mainTime <- getModificationTime mainObject
+    withCurrentDirectory root (runBuildExe options)
+    rebuiltTime <- getModificationTime mainObject
+    assertEqual "unchanged executable modules are reused" mainTime rebuiltTime
     let customBuildRoot = root </> "custom-build-root"
     withCurrentDirectory fixtureRoot (runBuildExe options {buildExeBuildRoot = Just customBuildRoot})
     assertFileExists (customBuildRoot </> nativeTargetStoreDirectory target </> "Main" </> "Main.o")
@@ -250,51 +247,21 @@ test_buildExeLinkBundle getStore =
     assertEqual "linked executable stdout" "build-exe works\n" stdout
     assertEqual "linked executable stderr" "" stderr
 
+-- | A workspace package that exposes a module of aihc-base makes an import
+-- of that module ambiguous.
 test_buildExeAmbiguousModule :: IO SeedStore -> Assertion
 test_buildExeAmbiguousModule getStore =
-  withBuildExeSandbox getStore "aihc-build-exe-ambiguous-module" $ \sandbox _ storeRoot options -> do
-    writeCachedPackage storeRoot (buildExeTarget options) "duplicate-1.0.0-a" "duplicate" "1.0.0" [] ["System.IO"]
-    err <-
-      buildExeError
-        (sandboxRoot sandbox)
-        options {buildExePackageConstraints = buildExePackageConstraints options <> ["duplicate == 1.0.0"]}
-        "expected the installed module import to be ambiguous"
-    assertBool "reports the ambiguous installed module" ("Ambiguous installed module: System.IO" `isInfixOf` err)
-
-test_buildExeAmbiguousPackage :: IO SeedStore -> Assertion
-test_buildExeAmbiguousPackage getStore =
-  withBuildExeSandbox getStore "aihc-build-exe-ambiguous-package" $ \sandbox _ storeRoot options -> do
-    let target = buildExeTarget options
-    writeCachedPackage storeRoot target "duplicate-1.0.0-a" "duplicate" "1.0.0" [] ["System.IO"]
-    writeCachedPackage storeRoot target "duplicate-1.0.0-b" "duplicate" "1.0.0" [] []
-    err <-
-      buildExeError
-        (sandboxRoot sandbox)
-        options {buildExePackageConstraints = buildExePackageConstraints options <> ["duplicate == 1.0.0"]}
-        "expected the compiled package build to be ambiguous"
-    assertBool
-      "reports ambiguous package builds"
-      ("More than one compiled build fulfills the constraint for duplicate" `isInfixOf` err)
-
-test_buildExeConflictingDependencies :: IO SeedStore -> Assertion
-test_buildExeConflictingDependencies getStore =
-  withBuildExeSandbox getStore "aihc-build-exe-conflicting-dependencies" $ \sandbox _ storeRoot options -> do
-    let target = buildExeTarget options
-    writeCachedPackage storeRoot target "shared-1.0.0-a" "shared" "1.0.0" [] []
-    writeCachedPackage storeRoot target "shared-1.0.0-b" "shared" "1.0.0" [] []
-    writeCachedPackage storeRoot target "root-a-1.0.0" "root-a" "1.0.0" ["shared-1.0.0-a"] []
-    writeCachedPackage storeRoot target "root-b-1.0.0" "root-b" "1.0.0" ["shared-1.0.0-b"] []
+  withBuildExeSandbox getStore "aihc-build-exe-ambiguous-module" $ \sandbox _ _ options -> do
+    workspace <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/workspace"
     err <-
       buildExeError
         (sandboxRoot sandbox)
         options
-          { buildExePackageConstraints =
-              buildExePackageConstraints options <> ["root-a == 1.0.0", "root-b == 1.0.0"]
+          { buildExePackageConstraints = buildExePackageConstraints options <> ["duplicate == 1.0.0"],
+            buildExeWorkspace = Just workspace
           }
-        "expected the dependency builds to conflict"
-    assertBool
-      "reports conflicting dependency builds"
-      ("The dependency plan selects more than one build of shared" `isInfixOf` err)
+        "expected the installed module import to be ambiguous"
+    assertBool "reports the ambiguous installed module" ("Ambiguous installed module: System.IO" `isInfixOf` err)
 
 test_buildExeEntryCollision :: IO SeedStore -> Assertion
 test_buildExeEntryCollision getStore =
@@ -312,30 +279,13 @@ test_buildExeEntryCollision getStore =
       "reports the generated entry collision"
       ("Source module conflicts with generated module Aihc.Entry" `isInfixOf` err)
 
-writeCachedPackage :: FilePath -> NativeTarget -> FilePath -> Text -> Text -> [Text] -> [Text] -> IO ()
-writeCachedPackage storeRoot target identity name version dependencies modules = do
-  let packageRoot = storeRoot </> nativeTargetStoreDirectory target </> identity
-      archive = packageRoot </> "lib" </> "lib" <> T.unpack name <> ".a"
-  createDirectoryIfMissing True (takeDirectory archive)
-  writePackageManifest
-    (packageManifestPath packageRoot)
-    PackageManifest
-      { packageManifestName = name,
-        packageManifestVersion = version,
-        packageManifestIdentity = T.pack identity,
-        packageManifestUnitId = T.pack identity,
-        packageManifestDependencies = dependencies,
-        packageManifestModules = modules
-      }
-  BS.writeFile archive ""
-
 test_installIncremental :: IO SeedStore -> Assertion
 test_installIncremental getStore = do
   fixture <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/incremental"
   withSandbox getStore "aihc-incremental" $ \sandbox -> do
     store <- sandboxStore sandbox "store"
     let root = sandboxRoot sandbox </> "source"
-        options = InstallOptions root (Just store) True False False False False False False False AppleArm64
+        options = InstallOptions root (Just store) (Just (sandboxRoot sandbox </> "build")) False True False False False False False False False AppleArm64
     createDirectoryIfMissing True (root </> "src")
     let dependencyRoot = sandboxRoot sandbox </> "dep"
     createDirectoryIfMissing True (dependencyRoot </> "src")
@@ -376,27 +326,49 @@ test_installIncremental getStore = do
     assertEqual "dependency implementation preserves module artifacts" ["A", "B", "C"] (sort (installReusedModules dependencyChanged))
     noCode <- install options {installNoCode = True}
     assertEqual "code mode preserves package selection" (installStorePath dependencyChanged) (installStorePath noCode)
-    assertFileDoesNotExist (installStorePath noCode </> "A" </> "A.o")
+    assertEqual "no-code build reuses the checked modules" ["A", "B", "C"] (sort (installReusedModules noCode))
     withCode <- install options
     assertEqual "code artifacts remain available" (installStorePath dependencyChanged) (installStorePath withCode)
     assertFileExists (installStorePath withCode </> "A" </> "A.o")
-    cachedObjects <- listNamedFiles (store </> ".build-cache") "C.o"
-    assertBool "module cache contains the independent object" (not (null cachedObjects))
-    forM_ cachedObjects $ \path -> BS.writeFile path "invalid object"
-    removeDirectoryRecursive (installStorePath withCode)
+    -- A rewritten object is not the one the unit stamp recorded.
+    BS.writeFile (installStorePath withCode </> "C" </> "C.o") "invalid object"
     repaired <- install options
-    assertEqual "corrupt module cache rebuilds the module" ["C"] (installWrittenModules repaired)
-    assertEqual "valid module cache remains available" ["A", "B"] (sort (installReusedModules repaired))
+    assertEqual "replaced object rebuilds the module" ["C"] (installWrittenModules repaired)
+    assertEqual "other modules remain available" ["A", "B"] (sort (installReusedModules repaired))
     forced <- install options {installReinstall = True}
     assertEqual "forced modules" ["A", "B", "C"] (sort (installWrittenModules forced))
-    removeFile (installStorePath forced </> "build-inputs.hash")
-    withoutFingerprint <- install options
-    assertEqual "missing build metadata preserves package selection" (installStorePath first) (installStorePath withoutFingerprint)
-    removeDirectoryRecursive (store </> ".build-cache")
-    withoutCache <- install options
-    finalManifest <- readPackageManifest (packageManifestPath (installStorePath withoutCache)) >>= either assertFailure pure
-    assertEqual "cache removal preserves package identity" (packageManifestIdentity initialManifest) (packageManifestIdentity finalManifest)
-    assertEqual "cache removal preserves dependency selection" (packageManifestDependencies initialManifest) (packageManifestDependencies finalManifest)
+    unitsAgain <- install options
+    assertEqual "forced build leaves reusable modules" ["A", "B", "C"] (sort (installReusedModules unitsAgain))
+    finalManifest <- readPackageManifest (packageManifestPath (installStorePath unitsAgain)) >>= either assertFailure pure
+    assertEqual "rebuilds preserve package identity" (packageManifestIdentity initialManifest) (packageManifestIdentity finalManifest)
+    assertEqual "rebuilds preserve dependency selection" (packageManifestDependencies initialManifest) (packageManifestDependencies finalManifest)
+    storeEntries <- listDirectory (store </> nativeTargetStoreDirectory AppleArm64)
+    assertBool "local packages stay out of the store" (not (any ("demo-" `isPrefixOf`) storeEntries || any ("dep-" `isPrefixOf`) storeEntries))
+
+-- | A local package installed with @--immutable@ goes into the store under a
+-- fingerprint, and the store entry is reused as it is.
+test_installImmutable :: IO SeedStore -> Assertion
+test_installImmutable getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
+  withSandbox getStore "aihc-install-immutable" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) True False False False False False False False False AppleArm64
+    first <- install options
+    assertEqual "written modules" ["Demo"] (installWrittenModules first)
+    assertEqual "store directory" (storeRoot </> nativeTargetStoreDirectory AppleArm64) (takeDirectory (installStorePath first))
+    assertBool "store directory carries a fingerprint" ("demo-0.1.0.0-" `isPrefixOf` takeFileName (installStorePath first))
+    second <- install options
+    assertEqual "store entry is reused" (installStorePath first) (installStorePath second)
+    assertEqual "store entry is not rebuilt" [] (installWrittenModules second)
+    missingCore <- try (install options {installKeepCore = True}) :: IO (Either IOException InstallResult)
+    case missingCore of
+      Left err -> assertBool "asks for a reinstall" ("--reinstall" `isInfixOf` ioeGetErrorString err)
+      Right _ -> assertFailure "expected the store entry without Core to be refused"
+    withCore <- install options {installKeepCore = True, installReinstall = True}
+    assertEqual "reinstall keeps the fingerprint" (installStorePath first) (installStorePath withCore)
+    assertCoreFile (installStorePath withCore </> "Demo" </> "core")
+    buildExists <- doesDirectoryExist (sandboxRoot sandbox </> "build")
+    assertBool "immutable packages do not use the build directory" (not buildExists)
 
 test_installResolveArtifacts :: IO SeedStore -> Assertion
 test_installResolveArtifacts getStore =
@@ -404,7 +376,7 @@ test_installResolveArtifacts getStore =
     storeRoot <- sandboxStore sandbox "store"
     let sourceRoot = sandboxRoot sandbox </> "source"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallOptions sourceRoot (Just storeRoot) True False False False False False False False AppleArm64
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -458,11 +430,11 @@ test_installTimingOutput getStore = do
   withSandbox getStore "aihc-install-timings" $ \sandbox -> do
     verboseStore <- sandboxStore sandbox "verbose"
     timingStore <- sandboxStore sandbox "timings"
-    let baseOptions = InstallOptions fixtureRoot Nothing False False False False False True False False AppleArm64
+    let baseOptions = InstallOptions fixtureRoot Nothing Nothing False False False False False False True False False AppleArm64
     verboseOutput <-
-      captureInstallOutput baseOptions {installStoreRoot = Just verboseStore, installVerbose = True}
+      captureInstallOutput baseOptions {installStoreRoot = Just verboseStore, installBuildRoot = Just (verboseStore <> "-build"), installVerbose = True}
     timingOutput <-
-      captureInstallOutput baseOptions {installStoreRoot = Just timingStore, installPrintTimings = True}
+      captureInstallOutput baseOptions {installStoreRoot = Just timingStore, installBuildRoot = Just (timingStore <> "-build"), installPrintTimings = True}
     assertBool "verbose output contains an installation step" ("Read Cabal package:" `isInfixOf` verboseOutput)
     assertBool "verbose output does not contain timings" (not ("Compile time:" `isInfixOf` verboseOutput))
     assertBool
@@ -508,7 +480,7 @@ test_installResolveError getStore = do
         forM [1, 2, 4] $ \workers -> do
           setNumCapabilities workers
           storeRoot <- sandboxStore sandbox ("store-" <> show workers)
-          let options = InstallOptions fixtureRoot (Just storeRoot) False False False False False False False False AppleArm64
+          let options = InstallOptions fixtureRoot (Just storeRoot) (Just (storeRoot <> "-build")) False False False False False False False False False AppleArm64
           result <- try (install options) :: IO (Either IOException InstallResult)
           case result of
             Right _ -> assertFailure "expected frontend compilation to fail"
@@ -549,13 +521,13 @@ test_installKeepGrin getStore = do
     withoutStore <- sandboxStore sandbox "without"
     withStore <- sandboxStore sandbox "with"
     noCodeStore <- sandboxStore sandbox "no-code"
-    withoutGrin <- install (InstallOptions fixtureRoot (Just withoutStore) False False False False False False False False AppleArm64)
+    withoutGrin <- install (InstallOptions fixtureRoot (Just withoutStore) (Just (withoutStore <> "-build")) False False False False False False False False False AppleArm64)
     assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "core")
     assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "grin")
     assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "cps.grin")
     assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "gc.grin")
     assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "Demo.o.lir")
-    retained <- install (InstallOptions fixtureRoot (Just withStore) True True False False False False False False AppleArm64)
+    retained <- install (InstallOptions fixtureRoot (Just withStore) (Just (withStore <> "-build")) False True True False False False False False False AppleArm64)
     let corePath = installStorePath retained </> "Demo" </> "core"
         grinPath = installStorePath retained </> "Demo" </> "grin"
         cpsGrinPath = installStorePath retained </> "Demo" </> "cps.grin"
@@ -566,7 +538,7 @@ test_installKeepGrin getStore = do
     originalCore <- readFile corePath
     removeFile cpsGrinPath
     removeFile gcGrinPath
-    repaired <- install (InstallOptions fixtureRoot (Just withStore) True True False False True False False False AppleArm64)
+    repaired <- install (InstallOptions fixtureRoot (Just withStore) (Just (withStore <> "-build")) False True True False False True False False False AppleArm64)
     assertFileExists grinPath
     assertFileExists cpsGrinPath
     assertFileExists gcGrinPath
@@ -575,7 +547,7 @@ test_installKeepGrin getStore = do
     assertEqual "GRIN repair writes the module" ["Demo"] (installWrittenModules repaired)
     noCode <-
       install
-        (InstallOptions fixtureRoot (Just noCodeStore) True True True True False True False False AppleArm64)
+        (InstallOptions fixtureRoot (Just noCodeStore) (Just (noCodeStore <> "-build")) False True True True True False True False False AppleArm64)
     let noCodeRoot = installStorePath noCode
     assertFileExists (noCodeRoot </> "Demo" </> "resolve.cbor")
     assertFileExists (noCodeRoot </> "Demo" </> "type.cbor")
@@ -606,7 +578,7 @@ test_installTargetArchives getStore = do
     results <- forM targets $ \target -> do
       let directory = nativeTargetStoreDirectory target
           nativeExtension = nativeArtifactExtension target
-      result <- install (InstallOptions fixtureRoot (Just storeRoot) True False True False False False False False target)
+      result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False True False False False False False target)
       let objectPath = installStorePath result </> "Demo" </> "Demo.o"
           nativePath = objectPath <> nativeExtension
           corePath = installStorePath result </> "Demo" </> "core"
@@ -628,7 +600,7 @@ test_installTargetArchives getStore = do
       assertEqual ("archive members for " <> show target) ["Demo.o"] members
       originalCore <- readFile corePath
       removeFile nativePath
-      repaired <- install (InstallOptions fixtureRoot (Just storeRoot) True False True False True False False False target)
+      repaired <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False True False True False False False target)
       assertFileExists nativePath
       repairedCore <- readFile corePath
       assertEqual "native output repair keeps Core" originalCore repairedCore
@@ -640,10 +612,6 @@ test_installTargetArchives getStore = do
         assertBool
           "targets preserve package identity"
           (all ((== takeFileName (installStorePath first)) . takeFileName . installStorePath) rest)
-        firstFingerprint <- BS.readFile (installStorePath first </> "build-inputs.hash")
-        forM_ rest $ \result -> do
-          fingerprint <- BS.readFile (installStorePath result </> "build-inputs.hash")
-          assertBool "targets have separate build fingerprints" (firstFingerprint /= fingerprint)
 
 assertCoreFile :: FilePath -> Assertion
 assertCoreFile path = do
@@ -660,7 +628,7 @@ test_installArchSourceDirs getStore = do
   withSandbox getStore "aihc-install-arch-source-dirs" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
     forM_ targets $ \target -> do
-      result <- install (InstallOptions fixtureRoot (Just storeRoot) True False False False False False False False target)
+      result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False False False target)
       core <- readFile (installStorePath result </> "Payload" </> "core")
       let expected = archSourceDirPayload target
           unexpected = if expected == "32#" then "64#" else "32#"
@@ -682,7 +650,7 @@ test_installCSources getStore = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/c-sources"
   withSandbox getStore "aihc-install-c-sources" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
-    result <- install (InstallOptions fixtureRoot (Just storeRoot) False False False False False False False False AppleArm64)
+    result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64)
     let archivePath = installStorePath result </> "lib" </> "libdemo.a"
     assertFileExists archivePath
     members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
@@ -713,7 +681,7 @@ test_installEmptyArchive getStore =
           ]
       )
     writeFile (sourceDir </> "Demo.hs") "module Demo () where\n"
-    result <- install (InstallOptions sourceRoot (Just storeRoot) False False False False False False False False AppleArm64)
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64)
     let archivePath = installStorePath result </> "lib" </> "libdemo.a"
     assertFileExists archivePath
     members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
@@ -760,7 +728,7 @@ test_installMinVersionMacros getStore =
             "#endif"
           ]
       )
-    result <- install (InstallOptions sourceRoot (Just storeRoot) False False False False False False False False AppleArm64)
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64)
     assertEqual "written modules" ["Demo"] (installWrittenModules result)
 
 -- Every standin under core-libs claims the version of the boot library it
@@ -783,7 +751,7 @@ test_installFcCcall getStore =
     storeRoot <- sandboxStore sandbox "store"
     let sourceRoot = sandboxRoot sandbox </> "source"
         sourceDir = sourceRoot </> "src"
-        options = InstallOptions sourceRoot (Just storeRoot) True False False False False False False False AppleArm64
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -810,7 +778,7 @@ test_installAihcPrim = do
   withTempDir "aihc-install-aihc-prim" $ \root -> do
     let storeRoot = root </> "store"
         targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
-        options = InstallOptions aihcPrimRoot (Just storeRoot) True True False True False False False False AppleArm64
+        options = InstallOptions aihcPrimRoot (Just storeRoot) Nothing True True True False True False False False False AppleArm64
     createDirectoryIfMissing True storeRoot
     caught <- try (install options) :: IO (Either IOException InstallResult)
     result <- case caught of
@@ -823,7 +791,8 @@ test_installAihcPrim = do
           Fc.storeModuleLoader
             targetStoreRoot
             (if requested == packageId then PackageId (T.pack (takeFileName packageDir)) else requested)
-    assertEqual "installed artifacts use the selected package identity" (packageManifestIdentity manifest) (packageManifestUnitId manifest)
+    assertBool "the store directory carries the unit identity and a fingerprint" ((packageManifestUnitId manifest <> "-") `T.isPrefixOf` packageManifestIdentity manifest)
+    assertEqual "the store directory is the manifest identity" (T.unpack (packageManifestIdentity manifest)) (takeFileName packageDir)
     mapM_ (assertTypeArtifactSize packageDir) ["GHC.Tuple", "GHC.Types"]
     mapM_ (assertModuleCore packageDir) aihcPrimLibraryModules
     coreFiles <- listNamedFiles packageDir "core"
@@ -930,7 +899,7 @@ test_installTypeWarning getStore = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/type-warning"
   withSandbox getStore "aihc-install-type-warning" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
-    let options = InstallOptions fixtureRoot (Just storeRoot) False False False False False True False False AppleArm64
+    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False True False False AppleArm64
     result <- install options
     assertEqual "warning does not prevent installation" ["Demo"] (installWrittenModules result)
 
@@ -940,7 +909,7 @@ test_installImplicitPrelude getStore = do
   withSandbox getStore "aihc-install-implicit-prelude" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
     let sourceRoot = fixtureRoot </> "demo"
-        options = InstallOptions sourceRoot (Just storeRoot) False False False False False True False False AppleArm64
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False True False False AppleArm64
     result <- install options
     assertEqual "implicit Prelude user" ["Demo"] (installWrittenModules result)
 
@@ -950,7 +919,7 @@ test_installTypeReexports getStore =
     storeRoot <- sandboxStore sandbox "store"
     let sourceRoot = sandboxRoot sandbox </> "source"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallOptions sourceRoot (Just storeRoot) False False False False False False False False AppleArm64
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -980,15 +949,18 @@ test_installLocalDependencies getStore = do
   withSandbox getStore "aihc-install-local-dependencies" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
     let sourceRoot = fixtureRoot </> "demo"
-        options = InstallOptions sourceRoot (Just storeRoot) False False False False False False False False AppleArm64
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64
     _ <- install options
     let targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
+        targetBuildRoot = sandboxRoot sandbox </> "build" </> nativeTargetStoreDirectory AppleArm64
     storeEntries <- listDirectory targetStoreRoot
     assertBool "temporary store directories are absent" (not (any (".tmp-" `isPrefixOf`) storeEntries))
-    let dependencyStores = filter (== "dep-1.0.0") storeEntries
+    assertBool "local dependencies stay out of the store" (not (any ("dep-" `isPrefixOf`) storeEntries))
+    buildEntries <- listDirectory targetBuildRoot
+    let dependencyStores = filter (== "dep-1.0.0") buildEntries
     case dependencyStores of
       [dependencyStore] -> do
-        let dependencyStoreRoot = targetStoreRoot </> dependencyStore
+        let dependencyStoreRoot = targetBuildRoot </> dependencyStore
             unusedTypePath = dependencyStoreRoot </> "Dep" </> "Unused" </> "type.cbor"
             sentinelPath = dependencyStoreRoot </> "reinstall-sentinel"
         assertFileExists (dependencyStoreRoot </> "Dep" </> "resolve.cbor")
@@ -998,9 +970,11 @@ test_installLocalDependencies getStore = do
         writeFile sentinelPath "dependency was not reinstalled"
         reinstalled <- install options {installReinstall = True}
         assertEqual "reinstall writes the specified package" ["Demo"] (installWrittenModules reinstalled)
+        -- The dependency is not reinstalled, but the replaced artifact is
+        -- not the one its unit stamp recorded, so that unit is rebuilt.
         assertFileExists sentinelPath
         unusedTypeBytes <- BS.readFile unusedTypePath
-        assertEqual "reinstall does not read or replace the unused module" "invalid unused type artifact" unusedTypeBytes
+        assertBool "the replaced artifact of the dependency is rebuilt" (unusedTypeBytes /= "invalid unused type artifact")
       _ -> assertFailure ("expected one installed dependency, got " <> show dependencyStores)
 
 test_installInstanceVisibility :: IO SeedStore -> Assertion
@@ -1009,7 +983,7 @@ test_installInstanceVisibility getStore = do
   withSandbox getStore "aihc-install-instance-visibility" $ \sandbox -> do
     let installFixture source store =
           install
-            (InstallOptions (fixtureRoot </> source) (Just store) False False False False False True False False AppleArm64)
+            (InstallOptions (fixtureRoot </> source) (Just store) (Just (store <> "-build")) False False False False False False True False False AppleArm64)
     withoutStore <- sandboxStore sandbox "without-store"
     withStore <- sandboxStore sandbox "with-store"
     withoutResult <- try (installFixture "without" withoutStore) :: IO (Either IOException InstallResult)

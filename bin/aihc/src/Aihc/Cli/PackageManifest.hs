@@ -20,20 +20,25 @@ data PackageManifest = PackageManifest
     packageManifestIdentity :: !Text,
     packageManifestUnitId :: !Text,
     packageManifestDependencies :: ![Text],
-    packageManifestModules :: ![Text]
+    packageManifestModules :: ![Text],
+    -- | The install flags the package was built with, such as @keep-core@
+    -- or @no-code@. A store entry never changes, so an install that asks
+    -- for an output the entry lacks must rebuild it.
+    packageManifestFlags :: ![Text]
   }
   deriving (Eq, Show)
 
 instance Aeson.ToJSON PackageManifest where
   toJSON manifest =
     Aeson.object
-      [ "schemaVersion" .= (3 :: Int),
+      [ "schemaVersion" .= (4 :: Int),
         "name" .= packageManifestName manifest,
         "version" .= packageManifestVersion manifest,
         "identity" .= packageManifestIdentity manifest,
         "unitId" .= packageManifestUnitId manifest,
         "dependencies" .= packageManifestDependencies manifest,
-        "modules" .= packageManifestModules manifest
+        "modules" .= packageManifestModules manifest,
+        "flags" .= packageManifestFlags manifest
       ]
 
 instance Aeson.FromJSON PackageManifest where
@@ -47,6 +52,7 @@ instance Aeson.FromJSON PackageManifest where
         PackageManifest name version identity identity
           <$> object .: "dependencies"
           <*> object .: "modules"
+          <*> pure []
       3 ->
         PackageManifest
           <$> object .: "name"
@@ -55,6 +61,16 @@ instance Aeson.FromJSON PackageManifest where
           <*> object .: "unitId"
           <*> object .: "dependencies"
           <*> object .: "modules"
+          <*> pure []
+      4 ->
+        PackageManifest
+          <$> object .: "name"
+          <*> object .: "version"
+          <*> object .: "identity"
+          <*> object .: "unitId"
+          <*> object .: "dependencies"
+          <*> object .: "modules"
+          <*> object .: "flags"
       _ -> fail "unsupported package manifest schema"
 
 packageManifestPath :: FilePath -> FilePath

@@ -34,6 +34,7 @@ data BuildExeOptions = BuildExeOptions
     buildExeGarbageCollector :: !GarbageCollector,
     buildExeStoreRoot :: !(Maybe FilePath),
     buildExeBuildRoot :: !(Maybe FilePath),
+    buildExeWorkspace :: !(Maybe FilePath),
     buildExeLint :: !Bool,
     buildExeNoLink :: !Bool,
     buildExeOutputFile :: !(Maybe FilePath)
@@ -57,6 +58,8 @@ data PrepareRuntimeOptions = PrepareRuntimeOptions
 data InstallOptions = InstallOptions
   { installPackageTarget :: !String,
     installStoreRoot :: !(Maybe FilePath),
+    installBuildRoot :: !(Maybe FilePath),
+    installImmutable :: !Bool,
     installKeepCore :: !Bool,
     installKeepGrin :: !Bool,
     installKeepNative :: !Bool,
@@ -142,11 +145,12 @@ buildExeOptionsParser =
     <*> nativeTargetOption
     <*> garbageCollectorOption
     <*> storeRootOption "Override the aihc store root"
+    <*> buildRootOption "Write the executable's module artifacts under DIR instead of .aihc-target"
     <*> OA.optional
       ( OA.strOption
-          ( OA.long "build-root"
+          ( OA.long "workspace"
               <> OA.metavar "DIR"
-              <> OA.help "Write local compiler artifacts under DIR"
+              <> OA.help "Take the sources of a package constraint from DIR/NAME before Hackage"
           )
       )
     <*> lintOption
@@ -232,6 +236,16 @@ garbageCollectorOption =
         <> OA.help "Select the garbage collector"
     )
 
+buildRootOption :: String -> OA.Parser (Maybe FilePath)
+buildRootOption description =
+  OA.optional
+    ( OA.strOption
+        ( OA.long "build-root"
+            <> OA.metavar "DIR"
+            <> OA.help description
+        )
+    )
+
 storeRootOption :: String -> OA.Parser (Maybe FilePath)
 storeRootOption description =
   OA.optional
@@ -250,6 +264,11 @@ installOptionsParser =
           <> OA.help "Local Cabal package directory, or a Hackage package name with an optional version (NAME[-VERSION])"
       )
     <*> storeRootOption "Override the aihc store root"
+    <*> buildRootOption "Build a local package under DIR instead of its .aihc-target directory"
+    <*> OA.switch
+      ( OA.long "immutable"
+          <> OA.help "Install a local package into the store, as if it were a Hackage release"
+      )
     <*> OA.switch
       ( OA.long "keep-core"
           <> OA.help "Retain Core (System FC) files"
@@ -265,7 +284,7 @@ installOptionsParser =
     <*> lintOption
     <*> OA.switch
       ( OA.long "reinstall"
-          <> OA.help "Build the package again when it exists in the store"
+          <> OA.help "Build the package again when it exists"
       )
     <*> OA.switch
       ( OA.long "no-code"

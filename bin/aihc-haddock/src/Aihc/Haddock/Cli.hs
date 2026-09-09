@@ -172,5 +172,5 @@ networkResolver :: DependencyResolver
 networkResolver =
   DependencyResolver
     { resolverResolveVersion = resolvePreferredVersion,
-      resolverSourcePath = HackageDownload.downloadPackageWithOptions HackageDownload.defaultDownloadOptions
+      resolverSourcePath = fmap (`ResolvedSource` PlanHackage) . HackageDownload.downloadPackageWithOptions HackageDownload.defaultDownloadOptions
     }

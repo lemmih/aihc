@@ -9,18 +9,25 @@ module Aihc.Cli.BuildExe
 where
 
 import Aihc.Cli.Install
-  ( ModuleCompileConfig (..),
+  ( InstallLocations (..),
+    InstallResult (..),
+    ModuleCompileConfig (..),
     ModuleCompileRequest (..),
     ModuleCompileResult (..),
     buildEnvironmentIdentity,
     compileModules,
+    installPlanPackages,
+    networkDependencyResolver,
   )
+import Aihc.Cli.Install qualified as Install
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector, LinkExeOptions (..))
-import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest)
+import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Hackage.Cabal qualified as HackageCabal
+import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, renderNativeTarget, wasmSysroot)
+import Aihc.PackagePlan (CoreProvider (..), DependencyResolver (..), PackagePlan, buildPackagePlanWithResolver, coreProviders, workspaceDependencyResolver)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -37,11 +44,11 @@ import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (Package (..), PackageId (..))
 import Control.Exception (bracket)
-import Control.Monad (filterM, foldM, forM, unless, when)
+import Control.Monad (filterM, foldM, forM, forM_, unless, when)
 import Data.Aeson ((.:), (.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BL
-import Data.List (find, isInfixOf, isPrefixOf, isSuffixOf, nub, sortOn)
+import Data.List (isInfixOf, isPrefixOf, isSuffixOf, nub, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Set qualified as Set
@@ -51,7 +58,7 @@ import Data.Text.IO qualified as TIO
 import Distribution.Package (unPackageName)
 import Distribution.Parsec (simpleParsec)
 import Distribution.Types.Dependency (Dependency (..))
-import Distribution.Version (Version, VersionRange, withinRange)
+import Distribution.Version (VersionRange, withinRange)
 import System.Directory
   ( copyFile,
     createDirectory,
@@ -71,8 +78,7 @@ import System.Process (readProcessWithExitCode)
 
 data InstalledPackage = InstalledPackage
   { installedManifest :: !PackageManifest,
-    installedRoot :: !FilePath,
-    installedVersion :: !Version
+    installedRoot :: !FilePath
   }
 
 data PackageConstraint = PackageConstraint
@@ -105,26 +111,15 @@ runBuildExe options = do
   storeRoot <- maybe defaultStoreRoot pure (buildExeStoreRoot options)
   currentDirectory <- getCurrentDirectory
   let target = buildExeTarget options
-      targetStoreRoot = storeRoot </> nativeTargetStoreDirectory target
-      localBuildRoot = fromMaybe (currentDirectory </> ".aihc-cache") (buildExeBuildRoot options)
-      buildRoot = localBuildRoot </> nativeTargetStoreDirectory target
+      targetDirectory = nativeTargetStoreDirectory target
+      localBuildRoot = fromMaybe (currentDirectory </> ".aihc-target") (buildExeBuildRoot options)
+      buildRoot = localBuildRoot </> targetDirectory
       sourceDirectories = case buildExeSourceDirectories options of [] -> ["."]; values -> values
       output = fromMaybe (dropExtension (buildExeSourceFile options)) (buildExeOutputFile options)
-  available <- readInstalledPackages targetStoreRoot
-  constraints <- mapM parsePackageConstraint (buildExePackageConstraints options)
-  selected <- resolvePackages available (constraints <> map implicitConstraint ["aihc-base", "aihc-prim"])
-  mapM_ requirePackageArchive selected
-  let moduleIndex = buildInstalledModuleIndex selected
-  sources <- discoverSources sourceDirectories moduleIndex (buildExeSourceFile options)
-  validateInstalledDependencies moduleIndex sources
-  sourceFiles <- materializeSourceFiles buildRoot selected sources
-  runtime <- ensureRuntime storeRoot target (buildExeGarbageCollector options)
-  entry <- ensureEntry storeRoot target
   buildIdentity <- buildEnvironmentIdentity target
   let compileConfig =
         ModuleCompileConfig
           { compileBuildIdentity = buildIdentity,
-            compileCacheRoot = Just (buildRoot </> "artifacts"),
             compileKeepCore = False,
             compileKeepGrin = False,
             compileKeepNative = False,
@@ -135,7 +130,30 @@ runBuildExe options = do
             compilePrintTimings = const (pure ()),
             compileUseColor = False
           }
-      compileRequest =
+  constraints <- mapM parsePackageConstraint (buildExePackageConstraints options)
+  -- The packages of an executable are installed like any other: the plan
+  -- names them, their fingerprints name the store directories, and a
+  -- directory that is absent is built. Nothing lists the store.
+  let resolver = maybe networkDependencyResolver (workspaceDependencyResolver networkDependencyResolver) (buildExeWorkspace options)
+      locations =
+        InstallLocations
+          { locationStoreRoot = storeRoot </> targetDirectory,
+            locationBuildRoot = buildRoot,
+            locationImmutable = True,
+            locationReinstall = False
+          }
+  plans <- mapM (planConstraint resolver) (constraints <> map implicitConstraint ["aihc-base", "aihc-prim"])
+  installed <- installPlanPackages compileConfig locations plans
+  let selected = map installedPackage installed
+  validateSelectedPackageNames selected
+  mapM_ requirePackageArchive selected
+  let moduleIndex = buildInstalledModuleIndex selected
+  sources <- discoverSources sourceDirectories moduleIndex (buildExeSourceFile options)
+  validateInstalledDependencies moduleIndex sources
+  sourceFiles <- materializeSourceFiles buildRoot selected sources
+  runtime <- ensureRuntime storeRoot target (buildExeGarbageCollector options)
+  entry <- ensureEntry storeRoot target
+  let compileRequest =
         ModuleCompileRequest
           { compileOutputRoot = buildRoot,
             compilePackageRoot = currentDirectory,
@@ -152,6 +170,43 @@ runBuildExe options = do
   if buildExeNoLink options
     then writeLinkBundle target output objects archives entry runtime
     else linkExecutable target output objects archives entry runtime
+
+-- | The plan of one package constraint. A core library has the version it
+-- ships with; any other package takes the version the resolver selects,
+-- which the constraint must accept.
+planConstraint :: DependencyResolver -> PackageConstraint -> IO PackagePlan
+planConstraint resolver constraint = do
+  let name = T.unpack (constraintName constraint)
+  versionText <-
+    case [coreProviderVersion provider | provider <- coreProviders, coreProviderName provider == name] of
+      version : _ -> pure version
+      [] -> resolverResolveVersion resolver name
+  version <-
+    maybe
+      (ioError (userError ("Invalid version " <> versionText <> " for package " <> name)))
+      pure
+      (simpleParsec versionText)
+  unless (version `withinRange` constraintRange constraint) $
+    ioError (userError ("The selected version " <> versionText <> " of " <> name <> " does not fulfill the constraint"))
+  buildPackagePlanWithResolver resolver (PackageSpec name versionText)
+
+installedPackage :: Install.InstalledPackage -> InstalledPackage
+installedPackage package =
+  InstalledPackage (Install.installedManifest package) (installStorePath (Install.installedResult package))
+
+validateSelectedPackageNames :: [InstalledPackage] -> IO ()
+validateSelectedPackageNames selected =
+  forM_ (Map.toList packagesByName) $ \(name, packages) ->
+    case packages of
+      [_] -> pure ()
+      _ -> ioError (userError ("The dependency plan selects more than one build of " <> T.unpack name))
+  where
+    packagesByName =
+      Map.fromListWith
+        (<>)
+        [ (packageManifestName (installedManifest package), [package])
+        | package <- selected
+        ]
 
 -- | Everything the final link of an executable consumes, with paths relative
 -- to the bundle directory. The bundle is self-contained, so a machine that
@@ -277,85 +332,6 @@ parsePackageConstraint input =
   case simpleParsec input of
     Just (Dependency name versionRange _) -> pure (PackageConstraint (T.pack (unPackageName name)) versionRange)
     Nothing -> ioError (userError ("Invalid package constraint: " <> input))
-
-readInstalledPackages :: FilePath -> IO [InstalledPackage]
-readInstalledPackages targetRoot = do
-  exists <- doesDirectoryExist targetRoot
-  unless exists (ioError (userError ("No libraries are compiled for the target in " <> targetRoot)))
-  entries <- listDirectory targetRoot
-  fmap concat . forM entries $ \entry -> do
-    let root = targetRoot </> entry
-        path = packageManifestPath root
-    existsManifest <- doesFileExist path
-    if not existsManifest
-      then pure []
-      else do
-        decoded <- readPackageManifest path
-        manifest <- either (ioError . userError . (("Invalid package manifest " <> path <> ": ") <>)) pure decoded
-        version <-
-          maybe
-            (ioError (userError ("Invalid installed package version: " <> T.unpack (packageManifestVersion manifest))))
-            pure
-            (simpleParsec (T.unpack (packageManifestVersion manifest)))
-        pure [InstalledPackage manifest root version]
-
-resolvePackages :: [InstalledPackage] -> [PackageConstraint] -> IO [InstalledPackage]
-resolvePackages available constraints = do
-  roots <- mapM select grouped
-  closure <- foldM addPackage [] roots
-  validateSelectedPackageNames closure
-  validateSelectedConstraints closure grouped
-  pure closure
-  where
-    grouped =
-      [ (name, Map.findWithDefault [] name rangesByName)
-      | name <- nub (map constraintName constraints)
-      ]
-    rangesByName =
-      Map.fromListWith
-        (<>)
-        [(constraintName constraint, [constraintRange constraint]) | constraint <- constraints]
-    select (name, ranges) =
-      case sortOn installedVersion (filter (matches name ranges) available) of
-        [] -> ioError (userError ("No compiled library fulfills the constraint for " <> T.unpack name))
-        matches' ->
-          case filter ((== installedVersion (last matches')) . installedVersion) matches' of
-            [package] -> pure package
-            _ -> ioError (userError ("More than one compiled build fulfills the constraint for " <> T.unpack name))
-    matches name ranges package =
-      packageManifestName (installedManifest package) == name
-        && all (installedVersion package `withinRange`) ranges
-    addPackage selected package
-      | identity package `elem` map identity selected = pure selected
-      | otherwise = do
-          dependencies <- mapM requireIdentity (packageManifestDependencies (installedManifest package))
-          foldM addPackage (selected <> [package]) dependencies
-    requireIdentity wanted =
-      maybe
-        (ioError (userError ("A required compiled library is absent: " <> T.unpack wanted)))
-        pure
-        (find ((== wanted) . identity) available)
-    identity = packageManifestIdentity . installedManifest
-    validateSelectedPackageNames selected =
-      mapM_ validateName (Map.toList packagesByName)
-      where
-        packagesByName =
-          Map.fromListWith
-            (<>)
-            [ (packageManifestName (installedManifest package), [package])
-            | package <- selected
-            ]
-        validateName (_, [_]) = pure ()
-        validateName (name, _) = ioError (userError ("The dependency plan selects more than one build of " <> T.unpack name))
-    validateSelectedConstraints selected =
-      mapM_ $ \(name, ranges) ->
-        case filter ((== name) . packageManifestName . installedManifest) selected of
-          [package]
-            | all (installedVersion package `withinRange`) ranges -> pure ()
-            | otherwise -> conflict name
-          [] -> conflict name
-          _ -> ioError (userError ("The dependency plan selects more than one version of " <> T.unpack name))
-    conflict name = ioError (userError ("The installed dependency plan does not fulfill the constraint for " <> T.unpack name))
 
 packageCObjects :: InstalledPackage -> IO [FilePath]
 packageCObjects package = do
