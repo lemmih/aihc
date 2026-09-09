@@ -3,6 +3,7 @@ extensions:
 modules:
   - |
     module Test where
+    import GHC.Types (Type)
     data Token = Token
     class Supply (a :: Type) where
       supply :: p a -> Token
