@@ -125,7 +125,6 @@ import Aihc.Parser.Syntax
     ExportSpec (..),
     Expr (..),
     Extension (..),
-    ExtensionSetting (..),
     GuardQualifier (..),
     ImportItem (..),
     InstanceDeclItem (..),
@@ -134,8 +133,6 @@ import Aihc.Parser.Syntax
     Pattern (..),
     SourceSpan (..),
     Type (..),
-    applyExtensionSetting,
-    applyImpliedExtensions,
     fromAnnotation,
     mkAnnotation,
   )
@@ -611,14 +608,6 @@ typecheckModuleWithState config st m =
 -- later pragma wins, and an enabled extension brings its implied
 -- extensions with it at once. A later NoMonoLocalBinds then turns off the
 -- MonoLocalBinds that an earlier TypeFamilies implied, like in GHC.
-effectiveModuleExtensions :: [ExtensionSetting] -> [Extension]
-effectiveModuleExtensions = foldl step [MonoLocalBinds, MonomorphismRestriction]
-  where
-    step extensions setting =
-      case setting of
-        EnableExtension _ -> applyImpliedExtensions (applyExtensionSetting setting extensions)
-        DisableExtension _ -> applyExtensionSetting setting extensions
-
 annotateModuleDiagnostics :: [TcDiagnostic] -> Module -> Module
 annotateModuleDiagnostics diagnostics m =
   let (located, unlocated) = partitionDiagnostics diagnostics

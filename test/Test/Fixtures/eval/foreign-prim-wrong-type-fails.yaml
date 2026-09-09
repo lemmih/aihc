@@ -7,6 +7,6 @@ modules:
 output: ""
 expression: |
   (+#) 1#
-error: 'desugar error: foreign import prim +# must repeat the type of GHC.Prim.+#: expected Int# → Int# → Int#, got Int# → Int#'
+error: 'typecheck error: Test: foreign import prim +# must repeat the type of GHC.Prim.+#: expected Int# → Int# → Int#, got Int# → Int#'
 status: fail
 reason: known foreign import prim declarations with incorrect types are rejected before evaluation

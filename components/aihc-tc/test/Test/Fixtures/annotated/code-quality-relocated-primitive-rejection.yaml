@@ -1,0 +1,28 @@
+extensions: []
+primitive-terms:
+  operation: ["", Runtime.Operation, operation]
+modules:
+  - |
+    module Runtime.Operation where
+    data Value = Value
+    foreign import prim operation :: Value -> Value
+  - |
+    module Test where
+    import Runtime.Operation (Value)
+    foreign import prim operation :: Value
+annotated:
+  - |
+    module Runtime.Operation where
+    data Value = Value
+         │       └─ type: Value
+         └─ type: Type
+    foreign import prim operation :: Value -> Value
+    └─ type: Value → Value
+  - |
+    module Test where
+    import Runtime.Operation (Value)
+    foreign import prim operation :: Value
+    │                   └─ error: foreign import prim operation must repeat the type of Runtime.Operation.operation: expected Value → Value, got Value
+    └─ type: Runtime.Operation.Value
+status: pass
+reason: Primitive declarations retain the type from the configured module.

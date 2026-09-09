@@ -73,8 +73,6 @@ import Aihc.Parser.Syntax
     TypeSynDecl (..),
     UnqualifiedName (..),
     ValueDecl (..),
-    applyExtensionSetting,
-    applyImpliedExtensions,
     binderHeadName,
     binderHeadParams,
     fromAnnotation,
@@ -140,6 +138,7 @@ import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
+import Aihc.Tc.TypeScheme (equivalentTypeSchemes, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
@@ -921,8 +920,7 @@ annotateDeclDerivingTc extensions decl =
 
 moduleEnabledExtensions :: Module -> [Extension]
 moduleEnabledExtensions modu =
-  applyImpliedExtensions $
-    foldr applyExtensionSetting [] (moduleLanguagePragmas modu)
+  effectiveModuleExtensions (moduleLanguagePragmas modu)
 
 annotateDeclTc :: (Text, Text) -> Map Text [Text] -> Map Text TcType -> Decl -> TcM Decl
 annotateDeclTc origin classMethods checkedValueTypes decl =
@@ -1184,9 +1182,34 @@ annotateForeignDeclTc foreignDecl = do
       registerForeignImport key (TcForeignCCallImport (foreignSafetyMark (foreignSafety foreignDecl)) checkedPlan)
       pure (DeclAnn (mkAnnotation checkedPlan) annotated)
     CPrim -> do
+      checkPrimitiveImportType sourceSpan key ty
       registerForeignImport key TcForeignPrimImport
       pure annotated
     _ -> pure annotated
+
+-- | A primitive declaration must retain the configured primitive type.
+checkPrimitiveImportType :: SourceSpan -> TcTermKey -> TcType -> TcM ()
+checkPrimitiveImportType sourceSpan key declaredType = do
+  wiring <- getWiring
+  case key of
+    TcTermGlobal package declaredModule name -> do
+      let canonicalIdentity@(canonicalPackage, canonicalModule, canonicalName) = tcWiringPrimitiveTerm wiring name
+          canonicalKey = TcTermGlobal canonicalPackage canonicalModule canonicalName
+          canonicalLabel = T.unpack (canonicalModule <> "." <> canonicalName)
+      when ((package, declaredModule, name) /= canonicalIdentity) $
+        if Set.member canonicalIdentity (tcWiringRestrictedPrimitiveTerms wiring)
+          then emitError sourceSpan (OtherError ("foreign primitive " <> T.unpack name <> " is only accepted at the configured identity " <> canonicalLabel))
+          else do
+            canonical <- lookupTermKey canonicalKey
+            case canonical of
+              Just binder -> do
+                let canonicalType = case binder of
+                      TcIdBinder scheme _ -> schemeToType scheme
+                      TcMonoIdBinder ty -> ty
+                unless (equivalentTypeSchemes (typeSchemeFromType canonicalType) (typeSchemeFromType declaredType)) $
+                  emitError sourceSpan (OtherError ("foreign import prim " <> T.unpack name <> " must repeat the type of " <> canonicalLabel <> ": expected " <> renderTcType canonicalType <> ", got " <> renderTcType declaredType))
+              Nothing -> pure ()
+    _ -> pure ()
 
 -- | Record the checked calling convention of a foreign import, so that the
 -- interface of the module carries it.
@@ -4437,15 +4460,11 @@ tcMatchEquation expectedOrigin argTys resTy match = do
       pure (match {matchPats = pats', matchRhs = annotateRhsCast resTy ev rhs'}, bodyWanteds, [])
     else do
       -- GADT givens: wrap body wanteds in an implication.
-      level <- getTcLevel
       let impl =
             Implication
               { implSkols = pcSkolems patCheck,
-                implGivenEvs = map ctEvVar givenCts,
                 implGivenCts = givenCts,
-                implWantedCts = bodyWanteds,
-                implTcLevel = level,
-                implInfo = AppOrigin sp
+                implWantedCts = bodyWanteds
               }
       pure (match {matchPats = pats', matchRhs = annotateRhsCast resTy ev rhs'}, [], [impl])
 

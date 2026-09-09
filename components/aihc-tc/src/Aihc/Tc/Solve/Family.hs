@@ -16,9 +16,11 @@ module Aihc.Tc.Solve.Family
 where
 
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
-import Aihc.Tc.Monad (TcM, getKinds, getTyConEnv, getTypeFamilyInstances, lookupTyConByIdentity)
+import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyInstances, lookupTyConByIdentity)
 import Aihc.Tc.Types
 import Control.Monad (foldM)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (gets)
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -38,7 +40,7 @@ reduceTypeFamilies ty =
     TcAppTy function argument -> do
       function' <- reduceTypeFamilies function
       argument' <- reduceTypeFamilies argument
-      reduceHead (applyType function' argument')
+      reduceHead (mkAppTy function' argument')
     TcForAllTy tyVar body -> TcForAllTy tyVar <$> reduceTypeFamilies body
     TcQualTy predicates body -> TcQualTy <$> mapM reducePredFamilies predicates <*> reduceTypeFamilies body
     _ -> pure ty
@@ -56,8 +58,8 @@ reducePredFamilies predicate =
 -- | Whether a type constructor is a type family.
 isTypeFamilyTyCon :: TcM (TyCon -> Bool)
 isTypeFamilyTyCon = do
-  tyCons <- getTyConEnv
-  pure (\tyCon -> maybe False ((== TypeFamilyTyCon) . tciFlavor) (Map.lookup tyCon tyCons))
+  tyCons <- lift $ gets tcsGlobalTyCons
+  pure (\tyCon -> maybe False ((== TypeFamilyTyCon) . tciFlavor) (Map.lookup (tyConKey tyCon) tyCons))
 
 -- | Whether a type is a saturated application of a type family that no
 -- equation reduces yet. The equality solver waits for such a type.
@@ -103,7 +105,7 @@ reduceHead ty =
               kinds <- getKinds
               equations <- familyEquations tyCon
               case firstEquation kinds equations familyArguments of
-                Just reduced -> reduceTypeFamilies (foldl applyType reduced extraArguments)
+                Just reduced -> reduceTypeFamilies (foldl mkAppTy reduced extraArguments)
                 Nothing -> pure ty
         _ -> pure ty
     _ -> pure ty
@@ -161,10 +163,6 @@ couldUnify patternType target =
     (TcAppTy function argument, TcAppTy targetFunction targetArgument) ->
       couldUnify function targetFunction && couldUnify argument targetArgument
     _ -> patternType == target
-
-applyType :: TcType -> TcType -> TcType
-applyType (TcTyCon tyCon arguments) argument = TcTyCon tyCon (arguments <> [argument])
-applyType function argument = TcAppTy function argument
 
 -- | Match pattern types against target types. The type variables of the
 -- patterns are the pattern variables.

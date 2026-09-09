@@ -77,9 +77,10 @@ equivalentType renaming left right =
   case (left, right) of
     (TcTyVar leftVar, TcTyVar rightVar) ->
       Map.lookup (tvUnique leftVar) renaming == Just (tvUnique rightVar)
+    (TcArrowTy, TcArrowTy) -> True
     (TcMetaTv leftMeta, TcMetaTv rightMeta) -> leftMeta == rightMeta
     (TcTyCon leftCon leftArgs, TcTyCon rightCon rightArgs) ->
-      tyConName leftCon == tyConName rightCon
+      leftCon == rightCon
         && length leftArgs == length rightArgs
         && and (zipWith (equivalentType renaming) leftArgs rightArgs)
     (TcFunTy leftArg leftResult, TcFunTy rightArg rightResult) ->

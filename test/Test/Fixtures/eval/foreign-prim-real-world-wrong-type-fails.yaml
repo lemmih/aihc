@@ -7,6 +7,6 @@ modules:
 output: ""
 expression: |
   realWorld#
-error: 'desugar error: foreign import prim realWorld# must repeat the type of GHC.Prim.realWorld#: expected State# RealWorld, got ()'
+error: 'typecheck error: Test: foreign import prim realWorld# must repeat the type of GHC.Prim.realWorld#: expected State# RealWorld, got ()'
 status: fail
 reason: realWorld# must have the exact State# RealWorld type

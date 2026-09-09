@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | The type checker configuration of the aihc core libraries.
 --
@@ -33,6 +34,7 @@ import Aihc.Tc
     mkTcConfig,
     mkTyConWithNamespace,
   )
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -75,6 +77,8 @@ primTcWiring prim =
         tyCon ResolutionNamespaceType "GHC.Classes" name 1,
       tcWiringPrimitiveTyCon = \name ->
         tyCon ResolutionNamespaceType "GHC.Prim" name 0,
+      tcWiringPrimitiveTerm = (prim,"GHC.Prim",),
+      tcWiringRestrictedPrimitiveTerms = Set.singleton (prim, "GHC.Prim", "seq"),
       tcWiringKindTyCon = types ResolutionNamespaceType,
       tcWiringKindDataCon = types ResolutionNamespaceTerm,
       tcWiringLiftClass = ("GHC.Internal.TH.Lift", "Lift")

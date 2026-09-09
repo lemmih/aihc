@@ -21,7 +21,9 @@ module Aihc.Tc.Wiring
 where
 
 import Aihc.Parser.Syntax (TupleFlavor (..))
+import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (TcKinds (..), TyCon)
+import Data.Set (Set)
 import Data.Text (Text)
 
 -- | The type constructors of the built-in syntactic forms, and the names
@@ -67,6 +69,10 @@ data TcWiring = TcWiring
     -- | An unlifted primitive type of one name, such as @Int#@. A foreign
     -- declaration marshals through these.
     tcWiringPrimitiveTyCon :: Text -> TyCon,
+    -- | The canonical package, module, and term name of each primitive.
+    tcWiringPrimitiveTerm :: Text -> (PackageId, Text, Text),
+    -- | These primitives permit declarations only at their canonical identities.
+    tcWiringRestrictedPrimitiveTerms :: Set (PackageId, Text, Text),
     -- | A constructor of the kind vocabulary of one name and arity, such
     -- as @TYPE@ or @RuntimeRep@. The type checker builds kinds of its own
     -- and needs them to be the same types as the ones it reads back from

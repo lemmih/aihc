@@ -4,7 +4,7 @@
 module Test.Tc.Properties
   ( prop_interfaceMergeIdempotent,
     prop_kindEncodingUsesType,
-    prop_reflexiveEq,
+    prop_zonkAssignedMeta,
     prop_starUsesType,
     prop_zonkIdempotent,
     tcProperties,
@@ -45,7 +45,7 @@ tcProperties =
     [ testProperty "lifted kind encoding uses GHC.Types.Type" prop_kindEncodingUsesType,
       testProperty "star uses GHC.Types.Type" prop_starUsesType,
       testProperty "zonking idempotent" prop_zonkIdempotent,
-      testProperty "reflexive equality solved" prop_reflexiveEq,
+      testProperty "zonk reads an assigned metavariable" prop_zonkAssignedMeta,
       testProperty "interface merge is idempotent" prop_interfaceMergeIdempotent
     ]
 
@@ -116,8 +116,8 @@ prop_zonkIdempotent = property $ do
     Left err -> fail (show err)
 
 -- | A reflexive equality (a ~ a) should be trivially solvable.
-prop_reflexiveEq :: Property
-prop_reflexiveEq = property $
+prop_zonkAssignedMeta :: Property
+prop_zonkAssignedMeta = property $
   case runTcM
     testTcEnv
     initTcState

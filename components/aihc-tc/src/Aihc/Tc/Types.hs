@@ -26,6 +26,8 @@ module Aihc.Tc.Types
     mkTyConWithNamespace,
     TypeScheme (..),
     typeKindInEnv,
+    TcTypeApplicationKinds (..),
+    typeApplicationKinds,
     typeKind,
     constraintKind,
     runtimeRepKind,
@@ -84,9 +86,6 @@ module Aihc.Tc.Types
     collectForAllTypes,
     collectTypeApplications,
     isImplicitParamTyConName,
-    TcLevel (..),
-    topTcLevel,
-    pushLevel,
   )
 where
 
@@ -636,11 +635,43 @@ isFixedRuntimeRep representation =
             && tyConName tyCon `elem` names
         _ -> False
 
-newtype TcLevel = TcLevel Int
-  deriving (Eq, Ord, Show, Read)
+-- | Kind arguments for a checked type constructor application.
+data TcTypeApplicationKinds = TcTypeApplicationKinds
+  { tcInvisibleKindSubstitution :: Map Unique TcType,
+    tcVisibleArgumentKinds :: [TcType]
+  }
+  deriving (Eq, Show, Read)
 
-topTcLevel :: TcLevel
-topTcLevel = TcLevel 0
+typeApplicationKinds :: TcKinds -> TcKindEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String TcTypeApplicationKinds
+typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
+  ForAll quantified _ resultKind <- maybe (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))) Right (Map.lookup (tyConKey tyCon) kindEnv)
+  let quantifiedUniques = map tvUnique quantified
+      (argumentSubstitution, remainingKind) = go quantifiedUniques Map.empty resultKind arguments
+      resultSubstitution =
+        case expectedKind of
+          Just expected -> matchKind quantifiedUniques remainingKind expected
+          Nothing -> Map.empty
+      substitution = argumentSubstitution <> resultSubstitution
+  pure (TcTypeApplicationKinds substitution (argumentKinds (applySubst substitution resultKind)))
+  where
+    argumentKinds (KFun argument result) = argument : argumentKinds result
+    argumentKinds _ = []
+    go quantifiedUniques substitution (KFun formal result) (argument : rest) =
+      case typeKindInEnv kinds kindEnv argument of
+        Right argumentKind ->
+          let found = matchKind quantifiedUniques (applySubst substitution formal) argumentKind
+           in go quantifiedUniques (substitution <> found) (applySubst found result) rest
+        Left _ -> go quantifiedUniques substitution result rest
+    go _ substitution kind _ = (substitution, applySubst substitution kind)
 
-pushLevel :: TcLevel -> TcLevel
-pushLevel (TcLevel level) = TcLevel (level + 1)
+    matchKind quantifiedUniques (TcTyVar tyVar) actual
+      | tvUnique tyVar `elem` quantifiedUniques = Map.singleton (tvUnique tyVar) actual
+    matchKind quantifiedUniques (KTYPE (TcTyVar tyVar)) (KTYPE runtimeRep)
+      | tvUnique tyVar `elem` quantifiedUniques = Map.singleton (tvUnique tyVar) runtimeRep
+    matchKind quantifiedUniques (KFun left right) (KFun left' right') =
+      matchKind quantifiedUniques left left' <> matchKind quantifiedUniques right right'
+    matchKind quantifiedUniques (TcTyCon left formalArguments) (TcTyCon right actualArguments)
+      | left == right,
+        length formalArguments == length actualArguments =
+          Map.unions (zipWith (matchKind quantifiedUniques) formalArguments actualArguments)
+    matchKind _ _ _ = Map.empty

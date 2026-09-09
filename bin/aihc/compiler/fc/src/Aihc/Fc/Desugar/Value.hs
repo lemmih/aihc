@@ -62,7 +62,6 @@ import Aihc.Tc.Annotations
     TcNewtypeInstance (..),
     TcNewtypeMethod (..),
     TcPatSynAnnotation (..),
-    renderTcType,
   )
 import Aihc.Tc.Evidence qualified as Ev
 import Aihc.Tc.Solve.Dict (matchTypes)
@@ -687,10 +686,7 @@ annotatedForeignDecl = go Nothing Nothing
 desugarForeign :: Maybe TcForeignImportAnnotation -> Syn.ForeignDecl -> ValueM [Decl]
 desugarForeign foreignPlan foreignDecl =
   case Syn.foreignCallConv foreignDecl of
-    Syn.CPrim -> do
-      _ <- validatePrimitiveSeqOrigin foreignDecl
-      validatePrimitiveType foreignDecl
-      pure []
+    Syn.CPrim -> pure []
     Syn.CCall -> do
       unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC does not accept foreign exports")
       unless (isJust foreignPlan) (failValue "missing checked foreign import plan")
@@ -773,91 +769,6 @@ convertForeignSafetyMark safety =
     TcForeignUnsafe -> pure ForeignUnsafe
     TcForeignSafe -> pure ForeignSafe
     TcForeignInterruptible -> failValue "System FC does not accept interruptible foreign imports"
-
-validatePrimitiveSeqOrigin :: Syn.ForeignDecl -> ValueM Bool
-validatePrimitiveSeqOrigin foreignDecl =
-  if Syn.unqualifiedNameText (Syn.foreignName foreignDecl) == "seq"
-    then do
-      moduleOrigin <- gets vsModuleOrigin
-      primitivePackage <- gets (cePrimPackage . vsConvertEnv)
-      unless (moduleOrigin == (primitivePackage, primitiveModuleName)) $
-        failValue "System FC accepts a foreign primitive named seq only in the configured GHC.Prim module"
-      pure True
-    else pure False
-
--- | The module that declares the type of every primitive.
-primitiveModuleName :: Text
-primitiveModuleName = "GHC.Prim"
-
--- | A @foreign import prim@ selects its primitive by name alone, so a
--- declaration that gives the primitive a different type lowers to a call
--- that no evaluator or backend can honour. The configured GHC.Prim module
--- declares the type of every primitive, so a redeclaration elsewhere must
--- repeat that type. A name GHC.Prim does not declare stays unchecked here;
--- the evaluators and backends reject the unknown primitive.
-validatePrimitiveType :: Syn.ForeignDecl -> ValueM ()
-validatePrimitiveType foreignDecl = do
-  moduleOrigin <- gets vsModuleOrigin
-  primitivePackage <- gets (cePrimPackage . vsConvertEnv)
-  types <- gets vsBindingTypes
-  let name = Syn.unqualifiedNameText (Syn.foreignName foreignDecl)
-      (package, moduleName') = moduleOrigin
-      canonical = Map.lookup (TcTermGlobal primitivePackage primitiveModuleName name) types
-      declared = Map.lookup (TcTermGlobal package moduleName' name) types
-  unless (moduleOrigin == (primitivePackage, primitiveModuleName)) $
-    case (canonical, declared) of
-      (Just canonicalType, Just declaredType) ->
-        unless (alphaEqTcTypes canonicalType declaredType) $
-          failValue
-            ( "foreign import prim "
-                <> T.unpack name
-                <> " must repeat the type of "
-                <> T.unpack primitiveModuleName
-                <> "."
-                <> T.unpack name
-                <> ": expected "
-                <> renderTcType canonicalType
-                <> ", got "
-                <> renderTcType declaredType
-            )
-      _ -> pure ()
-
--- | Whether two checked types are equal up to the names of the type
--- variables they bind. Kinds and contexts take part in the comparison.
-alphaEqTcTypes :: TcType -> TcType -> Bool
-alphaEqTcTypes = go Map.empty
-  where
-    go bound left right =
-      case (left, right) of
-        (TcTyVar leftVar, TcTyVar rightVar) ->
-          case Map.lookup (tvUnique leftVar) bound of
-            Just unique -> unique == tvUnique rightVar
-            Nothing -> tvUnique leftVar == tvUnique rightVar
-        (TcMetaTv leftUnique, TcMetaTv rightUnique) -> leftUnique == rightUnique
-        (TcTyCon leftTyCon leftArguments, TcTyCon rightTyCon rightArguments) ->
-          leftTyCon == rightTyCon && goAll bound leftArguments rightArguments
-        (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
-          go bound leftArgument rightArgument && go bound leftResult rightResult
-        (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
-          go bound leftFunction rightFunction && go bound leftArgument rightArgument
-        (TcForAllTy leftVar leftBody, TcForAllTy rightVar rightBody) ->
-          go bound (tvKind leftVar) (tvKind rightVar)
-            && go (Map.insert (tvUnique leftVar) (tvUnique rightVar) bound) leftBody rightBody
-        (TcQualTy leftPredicates leftBody, TcQualTy rightPredicates rightBody) ->
-          length leftPredicates == length rightPredicates
-            && and (zipWith (goPred bound) leftPredicates rightPredicates)
-            && go bound leftBody rightBody
-        _ -> False
-    goAll bound left right = length left == length right && and (zipWith (go bound) left right)
-    goPred bound left right =
-      case (left, right) of
-        (ClassPred leftTyCon leftArguments, ClassPred rightTyCon rightArguments) ->
-          leftTyCon == rightTyCon && goAll bound leftArguments rightArguments
-        (EqPred leftLeft leftRight, EqPred rightLeft rightRight) ->
-          go bound leftLeft rightLeft && go bound leftRight rightRight
-        (IParamPred leftName leftType, IParamPred rightName rightType) ->
-          leftName == rightName && go bound leftType rightType
-        _ -> left == right
 
 foreignImportPlanDependencies :: TcType -> TcForeignImportAnnotation -> ValueM [ForeignImportDependency]
 foreignImportPlanDependencies ty plan = do
@@ -2601,19 +2512,6 @@ convertOccurrenceTypeArguments name arguments = do
       (converted :) <$> convertArguments env (applySubst substitution body) rest
     convertArguments env _ remaining = mapM (convertType env) remaining
 
-localOccurrenceTypeArguments :: Syn.Name -> TcAnnotation -> ValueM [TcType]
-localOccurrenceTypeArguments name annotation
-  | not (null (tcAnnTypeArgs annotation)) = pure (tcAnnTypeArgs annotation)
-  | otherwise = do
-      local <- maybe (pure Nothing) (\key -> Map.lookup key <$> gets vsLocals) (nameTermKey name)
-      pure
-        ( fromMaybe [] $ do
-            (_, declaredType) <- local
-            let (typeVariables, bodyType) = peelForAlls declaredType
-            substitution <- matchTypes [bodyType] [tcAnnType annotation]
-            mapM (\typeVariable -> Map.lookup (tvUnique typeVariable) substitution) typeVariables
-        )
-
 desugarInfixOperator :: Syn.Name -> ValueM Expr
 desugarInfixOperator operator = do
   let maybeAnnotation = listToMaybe (mapMaybe Syn.fromAnnotation (Syn.nameAnns operator))
@@ -2679,7 +2577,7 @@ desugarVariable maybeAnnotation name = do
       case maybeAnnotation of
         Nothing -> desugarTermReference variable [] [] []
         Just annotation -> do
-          inferredTypes <- localOccurrenceTypeArguments name annotation
+          let inferredTypes = tcAnnTypeArgs annotation
           types <- convertOccurrenceTypeArguments name inferredTypes
           evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
           desugarTermReference variable types evidence (seqTermArgumentTypes annotation)
@@ -2780,7 +2678,7 @@ desugarStrictConstructor name annotation strictFlags = do
     then failValue ("strict constructor " <> T.unpack (Syn.nameText name) <> " has an unexpected field count")
     else do
       constructor <- resolvedTermName name
-      inferredTypes <- localOccurrenceTypeArguments name annotation
+      let inferredTypes = tcAnnTypeArgs annotation
       types <- convertOccurrenceTypeArguments name inferredTypes
       evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
       fields <- mapM (freshBinder "_strict_field") fieldTypes

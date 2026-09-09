@@ -156,15 +156,9 @@ ctEqProvenance ct =
 data Implication = Implication
   { -- | Skolem type variables introduced by this implication.
     implSkols :: ![TyVarId],
-    -- | Evidence variables for given constraints.
-    implGivenEvs :: ![EvVar],
     -- | Given constraints (from GADT match, etc.).
     implGivenCts :: ![Ct],
     -- | Wanted constraints to solve under this implication.
-    implWantedCts :: ![Ct],
-    -- | Nesting level.
-    implTcLevel :: !TcLevel,
-    -- | What caused this implication.
-    implInfo :: !CtOrigin
+    implWantedCts :: ![Ct]
   }
   deriving (Show)

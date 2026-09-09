@@ -12,6 +12,6 @@ modules:
     result = seq Unit True
 output: ""
 expression: result
-error: 'desugar error: System FC accepts a foreign primitive named seq only in the configured GHC.Prim module'
+error: 'typecheck error: Test: foreign primitive seq is only accepted at the configured identity GHC.Prim.seq'
 status: fail
-reason: System FC accepts imported seq only from the configured GHC.Prim module
+reason: TC accepts primitive seq only in the configured GHC.Prim module

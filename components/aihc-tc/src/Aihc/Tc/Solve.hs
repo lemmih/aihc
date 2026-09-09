@@ -152,7 +152,7 @@ processEq (wl, inerts) ct = do
 -- wanteds that are stuck on a meta variable of the enclosing scope and do
 -- not mention a skolem of the implication.
 solveImplication :: Implication -> TcM [Ct]
-solveImplication impl = withTcLevel $ do
+solveImplication impl = do
   outerPredicates <- getGivenPredicates
   let rawGivens = implGivenCts impl
       wanteds = implWantedCts impl

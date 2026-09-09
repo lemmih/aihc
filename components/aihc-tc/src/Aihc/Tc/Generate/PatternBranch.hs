@@ -23,16 +23,12 @@ solvePatternBranch sourceSpan patternCheck branchResultType bodyWanteds
   | null (pcGivenCts patternCheck) && null (pcSkolems patternCheck) =
       pure (pcWantedCts patternCheck <> bodyWanteds)
   | otherwise = do
-      level <- getTcLevel
       let givens = pcGivenCts patternCheck
           implication =
             Implication
               { implSkols = pcSkolems patternCheck,
-                implGivenEvs = map ctEvVar givens,
                 implGivenCts = givens,
-                implWantedCts = pcWantedCts patternCheck <> bodyWanteds,
-                implTcLevel = level,
-                implInfo = CaseBranchOrigin sourceSpan
+                implWantedCts = pcWantedCts patternCheck <> bodyWanteds
               }
       result <- solveWithImpls [] [implication]
       rejectEscapingPatternType sourceSpan (pcSkolems patternCheck) branchResultType
