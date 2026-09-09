@@ -75,4 +75,11 @@ jobs:
           fi
 
       - name: Run flake checks
-        run: nix flake check --max-jobs 4 --print-build-logs
+        env:
+          # The self-hosted runners have 16-32 threads, so the previous cap of 4
+          # left most of the machine idle: the example and hackage-install
+          # derivations fan out to ~60 independent builds that then drained
+          # through four slots. Hosted fallback runners have 4 cores, so they
+          # keep the old cap.
+          MAX_JOBS: ${{ needs.select-runner.outputs.use_self_hosted == 'true' && 12 || 4 }}
+        run: nix flake check --max-jobs "$MAX_JOBS" --print-build-logs

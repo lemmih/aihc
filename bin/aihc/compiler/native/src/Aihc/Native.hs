@@ -30,6 +30,7 @@ module Aihc.Native
   )
 where
 
+import Aihc.DataFiles (getDataFileName)
 import Aihc.Grin.Syntax
 import Control.Monad (filterM)
 import Data.Bits (shiftR, (.&.))
@@ -44,7 +45,6 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
 import Data.Word (Word8)
-import Paths_aihc (getDataFileName)
 import System.Directory (doesFileExist, findExecutable)
 import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory, (</>))
