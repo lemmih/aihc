@@ -155,6 +155,7 @@ library
     Aihc.Wasm.Lir
 
   other-modules:
+    Aihc.Cli.Cbor
     Aihc.Cli.InterfaceTyCons
     Aihc.Cli.TaskGraph
     Aihc.CompilerBuildIdentity

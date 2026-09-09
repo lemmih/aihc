@@ -6,13 +6,15 @@ import Aihc.Cli.BuildExe (LinkBundle (..), linkBundleManifestPath, runBuildExe, 
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcSemispace), InstallOptions (..), LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
+import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
 import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
 import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
-import Aihc.Resolve (PackageId (..))
+import Aihc.Parser.Syntax qualified as Syntax
+import Aihc.Resolve (PackageId (..), ResolvedName (..), Scope (..), emptyScope)
 import Aihc.Tc (TyConInfo (..), tcInterfaceTerms, tcInterfaceTyCons, tcTermKeyIdentifier, tyConName)
 import Control.Concurrent (getNumCapabilities, setNumCapabilities)
 import Control.Exception (IOException, bracket, try)
@@ -23,6 +25,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isSpace)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort, stripPrefix)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -108,8 +111,43 @@ tests =
             -- the test that covers the install the seed store performs.
             testCase "install writes core for aihc-prim and lints stored programs" test_installAihcPrim,
             testCase "parses Hackage package targets" test_parsePackageTarget
+          ],
+        testGroup
+          "artifacts"
+          [ testCase "resolve artifacts keep each kind of resolved name" test_resolveArtifactRoundTrip
           ]
       ]
+
+-- | The scope encoder must keep each constructor of a resolved name.
+--
+-- The essential property is that the encoder and the decoder agree on all
+-- four constructors of a resolved name. No fixture can test this property.
+-- An exported scope holds only top-level names, thus source text cannot put
+-- a local name or an error in a scope that the compiler writes to the
+-- store. This test is a hand-written exception to the fixture rule.
+test_resolveArtifactRoundTrip :: Assertion
+test_resolveArtifactRoundTrip = do
+  let qualified =
+        emptyScope
+          { scopeTypes = Map.singleton "Box" (ResolvedTopLevel (PackageId "demo") (Syntax.mkName (Just "Demo") Syntax.NameConId "Box"))
+          }
+      scope =
+        emptyScope
+          { scopeTerms =
+              Map.fromList
+                [ ("here", ResolvedLocal 7 (Syntax.mkUnqualifiedName Syntax.NameVarId "here")),
+                  ("broken", ResolvedError "unbound"),
+                  ("syntax", ResolvedSyntax)
+                ],
+            scopeQualifiedModules = Map.singleton "D" qualified
+          }
+      artifact = ResolveArtifact "Demo" scope
+      bytes = BL.toStrict (encodeResolveArtifact artifact)
+  decoded <- either (assertFailure . ("invalid resolve artifact: " <>)) pure (decodeResolveArtifact bytes)
+  let decodedScope = resolveArtifactScope decoded
+  assertEqual "resolved terms" (scopeTerms scope) (scopeTerms decodedScope)
+  assertEqual "qualified module types" (Map.map scopeTypes (scopeQualifiedModules scope)) (Map.map scopeTypes (scopeQualifiedModules decodedScope))
+  assertBool "resolve artifact round trip" (artifact == decoded)
 
 -- | Each package fixture specifies its expected error or stored constructors.
 data InstallFixture = InstallFixture
@@ -143,7 +181,8 @@ testInstallFixtures getStore = do
             Just _ -> assertFailure (name <> ": install accepted a package that requires an error")
             Nothing -> forM_ (installFixtureTyCons fixture) $ \(moduleName, expected) -> do
               bytes <- BL.readFile (installStorePath result </> moduleName </> "type.cbor")
-              let actual = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons (typeArtifactInterface (decodeTypeArtifact bytes)))
+              artifact <- either (assertFailure . ((name <> ": invalid type artifact: ") <>)) pure (decodeTypeArtifact bytes)
+              let actual = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons (typeArtifactInterface artifact))
               forM_ expected $ \constructor ->
                 assertBool (name <> ": missing type constructor " <> constructor <> " in " <> moduleName) (constructor `elem` actual)
 
@@ -978,7 +1017,7 @@ test_installTypeReexports getStore =
     writeFile (sourceDir </> "B.hs") "module Demo.B (module Demo.A) where\nimport Demo.A\n"
     result <- install options
     bytes <- BL.readFile (installStorePath result </> "Demo" </> "B" </> "type.cbor")
-    let artifact = decodeTypeArtifact bytes
+    artifact <- either (assertFailure . ("invalid type artifact: " <>)) pure (decodeTypeArtifact bytes)
     let termNames = mapMaybe (tcTermKeyIdentifier . fst) (tcInterfaceTerms (typeArtifactInterface artifact))
     assertBool "re-exported signature" ("fn" `elem` termNames)
 
