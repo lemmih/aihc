@@ -1,0 +1,2 @@
+status: pass
+reason: A preprocessor warning must not prevent package installation.

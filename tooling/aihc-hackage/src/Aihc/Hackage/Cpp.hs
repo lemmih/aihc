@@ -12,6 +12,7 @@
 module Aihc.Hackage.Cpp
   ( emulatedGhcVersion,
     builtinCppMacros,
+    compilerCppHeader,
     cppMacrosFromOptions,
     DependencyVersions,
     minVersionMacroName,
@@ -45,15 +46,60 @@ builtinCppMacros =
     [ ("__GLASGOW_HASKELL__", T.pack (show (major * 100 + minor))),
       ("__GLASGOW_HASKELL_FULL_VERSION__", T.pack (show (releaseVersionText emulatedGhc))),
       ("__GLASGOW_HASKELL_PATCHLEVEL1__", T.pack (show patch1)),
-      ("__GLASGOW_HASKELL_PATCHLEVEL2__", T.pack (show patch2)),
-      ("WORD_SIZE_IN_BITS", "64"),
-      ("WORD_SIZE_IN_BITS_FLOAT", "64.0"),
-      ("SIZEOF_HSWORD", "8"),
-      ("SIZEOF_HSDOUBLE", "8"),
-      ("SIZEOF_HSFLOAT", "4")
+      ("__GLASGOW_HASKELL_PATCHLEVEL2__", T.pack (show patch2))
     ]
+    `M.union` M.restrictKeys machineCppMacros (S.fromList ["WORD_SIZE_IN_BITS", "WORD_SIZE_IN_BITS_FLOAT", "SIZEOF_HSWORD", "SIZEOF_HSDOUBLE", "SIZEOF_HSFLOAT"])
   where
     (major, minor, patch1, patch2) = compilerVersionComponents
+
+-- | Compiler headers for Haskell source use the same 64-bit model as CPP macros.
+-- Native C compilation uses its separate target ABI headers.
+compilerCppHeader :: FilePath -> Maybe Text
+compilerCppHeader path = case path of
+  -- Haskell source does not receive host configuration features.
+  "ghcautoconf.h" -> Just (header "GHCAUTOCONF_H" [] [])
+  "MachDeps.h" -> Just (header "MACHDEPS_H" ["#include \"ghcplatform.h\""] (M.toList machineCppMacros))
+  "ghcplatform.h" ->
+    Just
+      ( header
+          "GHCPLATFORM_H"
+          []
+          [ ("SIZEOF_VOID_P", wordBytes),
+            ("SIZEOF_UNSIGNED_LONG", wordBytes),
+            ("SIZEOF_UNSIGNED_LONG_LONG", "8")
+          ]
+      )
+  _ -> Nothing
+  where
+    wordBytes = T.pack (show haskellWordBytes)
+    header guard includes definitions =
+      T.unlines
+        (["#ifndef " <> guard, "#define " <> guard] <> includes <> map define definitions <> ["#endif"])
+    define (name, value) = "#define " <> name <> " " <> value
+
+haskellWordBytes :: Int
+haskellWordBytes = 8
+
+machineCppMacros :: Map Text Text
+machineCppMacros =
+  M.fromList
+    ( [("WORD_SIZE_IN_BITS", bits), ("WORD_SIZE_IN_BITS_FLOAT", bits <> ".0")]
+        <> concatMap
+          sizeAndAlignment
+          [ ("HSCHAR", 4),
+            ("HSINT", haskellWordBytes),
+            ("HSWORD", haskellWordBytes),
+            ("HSFLOAT", 4),
+            ("HSDOUBLE", 8),
+            ("WORD16", 2),
+            ("WORD32", 4),
+            ("WORD64", 8)
+          ]
+    )
+  where
+    bits = T.pack (show (haskellWordBytes * 8))
+    sizeAndAlignment (name, bytes) =
+      [("SIZEOF_" <> name, T.pack (show bytes)), ("ALIGNMENT_" <> name, T.pack (show bytes))]
 
 -- | The four components GHC exposes through its version macros.
 compilerVersionComponents :: (Int, Int, Int, Int)

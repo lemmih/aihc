@@ -14,6 +14,7 @@ where
 
 import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashChunks, publishArtifacts, restoreArtifacts, sourceFilesHash)
 import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeSourceExtension)
+import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
 import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
@@ -49,7 +50,7 @@ import Aihc.PackagePlan
     packageSpecFromSource,
   )
 import Aihc.PackagePlan.Diagnostic (renderHumanDiagnostic)
-import Aihc.PackagePlan.Source (ParsedInterfaceFile (ParsedInterfaceFile), parseInterfaceFile)
+import Aihc.PackagePlan.Source (ParsedInterfaceFile (ParsedInterfaceFile), parseInterfaceBytes)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
     ImportDecl (..),
@@ -79,36 +80,24 @@ import Aihc.Resolve
     unionScope,
   )
 import Aihc.Tc
-  ( AssociatedTypeInfo (..),
-    ClassInfo (..),
-    DataConFieldInfo (..),
-    DataConInfo (..),
+  ( ClassInfo (..),
     DataFamilyInstanceInfo (..),
-    DataTypeInfo (..),
     InstanceInfo (..),
-    Pred (..),
     TcDiagnostic (..),
     TcErrorKind (..),
     TcInterface (..),
     TcKinds,
     TcSeverity (..),
     TcTermKey (..),
-    TcType (..),
-    TyCon,
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
-    TypeScheme (..),
     mergeTcInterfaces,
     mkTcKinds,
     renderPred,
     renderTcType,
-    tcInterfaceClasses,
     tcInterfaceDataFamilyInstances,
-    tcInterfaceDataTypes,
-    tcInterfaceForeignImports,
     tcInterfaceInstances,
     tcInterfaceTerms,
-    tcInterfaceTyCons,
     tcInterfaceTypeFamilyInstances,
     tcModuleBindings,
     tcModuleDiagnostics,
@@ -116,21 +105,20 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
     unionTcInterfaces,
   )
-import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..))
-import Aihc.Tc.Env (TypeSynonymInfo (..))
-import Aihc.Tc.Types (tvKind, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
 import Control.DeepSeq (rnf)
 import Control.Exception (IOException, bracket, evaluate, throwIO, try)
 import Control.Monad (filterM, forM, unless, void, when, zipWithM)
-import Data.Aeson (Value)
+import Data.Aeson (Value (..))
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
-import Data.List (intercalate, isSuffixOf, nub, sortOn)
+import Data.List (intercalate, isSuffixOf, nub, partition, sortOn)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe)
@@ -155,7 +143,7 @@ import System.Directory (createDirectory, createDirectoryIfMissing, doesDirector
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, makeRelative, takeDirectory, takeFileName, (<.>), (</>))
-import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stdout)
+import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stderr, stdout)
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 
 data InstallResult = InstallResult
@@ -833,7 +821,11 @@ loadInstalledPackage requirements storePath = do
 parseSource :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
 parseSource root versions fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
-  ParsedInterfaceFile path modu sourceLines parseDiagnostics _ extensions _ <- parseInterfaceFile root versions fileInfo
+  ParsedInterfaceFile path modu sourceLines parseDiagnostics cppDiagnostics extensions _ <- parseInterfaceBytes root versions fileInfo bytes
+  let (cppWarnings, cppErrors) = partition isCppWarning cppDiagnostics
+  mapM_ (hPutStrLn stderr . renderHumanDiagnostic "cpp") cppWarnings
+  unless (null cppErrors) $
+    ioError (userError ("Preprocess failed:\n" <> concatMap (renderHumanDiagnostic "cpp") cppErrors))
   -- The type checker reads the language pragmas of the module. Give it the
   -- effective extensions, which include the cabal default extensions and
   -- the language edition. The type checker turns MonoLocalBinds on by
@@ -841,6 +833,10 @@ parseSource root versions fileInfo = do
   let monoLocalBinds = [Syntax.DisableExtension Syntax.MonoLocalBinds | Syntax.MonoLocalBinds `notElem` extensions]
       modu' = modu {Syntax.moduleLanguagePragmas = monoLocalBinds <> map Syntax.EnableExtension extensions <> Syntax.moduleLanguagePragmas modu}
   pure (SourceModule path (BS.length bytes) (T.pack (stableHash [bytes, BS8.pack (show modu'), BS8.pack (show extensions)])) modu' extensions sourceLines parseDiagnostics)
+
+isCppWarning :: Value -> Bool
+isCppWarning (Object diagnostic) = KeyMap.lookup "severity" diagnostic == Just (String "Warning")
+isCppWarning _ = False
 
 loadSourceModules :: Int -> FilePath -> DependencyVersions -> [HackageCabal.FileInfo] -> IO ([SourceModule], [TaskTiming])
 loadSourceModules workers root versions files = do
@@ -1835,7 +1831,7 @@ addReferencedFacts complete interface =
     callStackModules =
       Set.fromList
         [ (tyConPackageId tyCon, tyConModuleName tyCon)
-        | tyCon <- concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface),
+        | tyCon <- Set.toList (Set.unions (map (typeSchemeTyCons . snd) (tcInterfaceTerms interface))),
           tyConName tyCon == "CallStack"
         ]
     callStackSupportTerms =
@@ -1856,18 +1852,9 @@ addReferencedFacts complete interface =
             tyConName tyCon `elem` ["SrcLoc", "CallStack"]
           ]
     referenced =
-      Set.fromList
-        ( concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface)
-            <> concatMap (typeSchemeTyCons . snd) callStackSupportTerms
-            <> callStackSupportTyCons
-            <> concatMap tyConInfoTyCons (tcInterfaceTyCons interface)
-            <> concatMap dataTypeInfoTyCons (tcInterfaceDataTypes interface)
-            <> concatMap classInfoTyCons (tcInterfaceClasses interface)
-            <> concatMap instanceInfoTyCons (tcInterfaceInstances interface)
-            <> concatMap dataFamilyInstanceInfoTyCons (tcInterfaceDataFamilyInstances interface)
-            <> concatMap typeFamilyInstanceInfoTyCons (tcInterfaceTypeFamilyInstances interface)
-            <> concatMap (foreignImportInfoTyCons . snd) (tcInterfaceForeignImports interface)
-        )
+      interfaceTyCons interface
+        <> Set.unions (map (typeSchemeTyCons . snd) callStackSupportTerms)
+        <> Set.fromList callStackSupportTyCons
     reachable = closeTyCons Set.empty referenced
     reachableKeys = Set.map tyConKey reachable
     supportTyCons = Map.restrictKeys availableTyCons (reachableKeys `Set.difference` Map.keysSet (tcInterfaceTyConMap interface))
@@ -1879,85 +1866,11 @@ addReferencedFacts complete interface =
           let (tyCon, pending') = Set.deleteFindMin pending
               key = tyConKey tyCon
               dependencies =
-                Set.fromList
-                  ( maybe [] tyConInfoTyCons (Map.lookup key availableTyCons)
-                      <> maybe [] dataTypeInfoTyCons (Map.lookup key availableDataTypes)
-                      <> maybe [] classInfoTyCons (Map.lookup key availableClasses)
-                  )
+                maybe mempty tyConInfoTyCons (Map.lookup key availableTyCons)
+                  <> maybe mempty dataTypeInfoTyCons (Map.lookup key availableDataTypes)
+                  <> maybe mempty classInfoTyCons (Map.lookup key availableClasses)
               found' = Set.insert tyCon found
            in closeTyCons found' (pending' <> (dependencies `Set.difference` found'))
-
--- | The type constructors that a foreign call marshals through.
-foreignImportInfoTyCons :: TcForeignImportInfo -> [TyCon]
-foreignImportInfoTyCons info =
-  case info of
-    TcForeignPrimImport -> []
-    TcForeignCCallImport _ plan ->
-      concatMap marshalTyCons (tcForeignArguments plan <> [tcForeignResult plan])
-  where
-    marshalTyCons marshal = typeTyCons (tcForeignSourceType marshal) <> typeTyCons (tcForeignPrimitiveType marshal)
-
-tyConInfoTyCons :: TyConInfo -> [TyCon]
-tyConInfoTyCons info =
-  typeSchemeTyCons (tciKindScheme info)
-    <> maybe [] (maybe [] typeTyCons . tsiBody) (tciTypeSynonym info)
-
-dataTypeInfoTyCons :: DataTypeInfo -> [TyCon]
-dataTypeInfoTyCons info =
-  dtiTyCon info
-    : typeTyCons (dtiResultKind info)
-      <> concatMap dataConInfoTyCons (dtiConstructors info)
-
-dataConInfoTyCons :: DataConInfo -> [TyCon]
-dataConInfoTyCons info =
-  concatMap predTyCons (dciTheta info)
-    <> concatMap (typeTyCons . dcfiType) (dciFields info)
-    <> typeTyCons (dciResTy info)
-
-classInfoTyCons :: ClassInfo -> [TyCon]
-classInfoTyCons info =
-  ciTyCon info
-    : concatMap (typeTyCons . TcTyVar) (ciKindTyVars info)
-      <> concatMap typeTyCons (ciSuperClassTypes info)
-      <> concatMap (typeSchemeTyCons . snd) (ciMethods info)
-      <> concatMap (typeSchemeTyCons . snd) (ciDefaultSignatures info)
-      <> map atiTyCon (ciAssociatedTypes info)
-      <> concatMap typeFamilyInstanceInfoTyCons (mapMaybe atiDefault (ciAssociatedTypes info))
-
-instanceInfoTyCons :: InstanceInfo -> [TyCon]
-instanceInfoTyCons info =
-  typeTyCons (iiDictType info)
-    <> concatMap predTyCons (iiContext info)
-    <> concatMap typeTyCons (iiHead info)
-
-dataFamilyInstanceInfoTyCons :: DataFamilyInstanceInfo -> [TyCon]
-dataFamilyInstanceInfoTyCons info =
-  dfiiRepresentationTyCon info : typeTyCons (dfiiFamilyType info)
-
-typeFamilyInstanceInfoTyCons :: TypeFamilyInstanceInfo -> [TyCon]
-typeFamilyInstanceInfoTyCons info = typeTyCons (tfiiLeft info) <> typeTyCons (tfiiRight info)
-
-typeSchemeTyCons :: TypeScheme -> [TyCon]
-typeSchemeTyCons (ForAll _ predicates body) = concatMap predTyCons predicates <> typeTyCons body
-
-predTyCons :: Pred -> [TyCon]
-predTyCons predicate = case predicate of
-  ClassPred tyCon arguments -> tyCon : concatMap typeTyCons arguments
-  EqPred left right -> typeTyCons left <> typeTyCons right
-  IParamPred _ payload -> typeTyCons payload
-  QuantifiedPred variables antecedents consequent ->
-    concatMap (typeTyCons . tvKind) variables <> concatMap predTyCons antecedents <> predTyCons consequent
-
-typeTyCons :: TcType -> [TyCon]
-typeTyCons ty = case ty of
-  TcTyVar {} -> []
-  TcMetaTv {} -> []
-  TcArrowTy -> []
-  TcTyCon tyCon arguments -> tyCon : concatMap typeTyCons arguments
-  TcFunTy argument result -> typeTyCons argument <> typeTyCons result
-  TcForAllTy _ body -> typeTyCons body
-  TcQualTy predicates body -> concatMap predTyCons predicates <> typeTyCons body
-  TcAppTy function argument -> typeTyCons function <> typeTyCons argument
 
 writeTypeArtifact :: (String -> IO ()) -> [(Text, Text)] -> (SourceModule -> FilePath) -> SourceModule -> TcInterface -> IO (Text, Text)
 writeTypeArtifact verbose hashes artifactPath source interface = do

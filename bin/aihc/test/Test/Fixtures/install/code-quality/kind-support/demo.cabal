@@ -1,0 +1,15 @@
+cabal-version: 3.0
+name: kind-support
+version: 0.1.0.0
+
+library
+  exposed-modules: Public
+  other-modules: Hidden
+  hs-source-dirs: src
+  build-depends: aihc-prim
+  default-language: Haskell2010
+  default-extensions:
+    DataKinds
+    KindSignatures
+    NoImplicitPrelude
+    PolyKinds
