@@ -1,5 +1,6 @@
 ; error: @main/entry: tailcall @g has result types (i32), expected (i64)
 ; error: @main/entry: tailcall @g has calling convention c, expected aihc
+; error: @indirect/entry: tailcall.indirect %target has calling convention c, expected aihc
 
 func @g() -> i32 cc c {
 entry:
@@ -9,4 +10,13 @@ entry:
 func @main() -> i64 {
 entry:
   tailcall @g()
+}
+
+; An aihc function has an overflow parameter block when it has many
+; parameters. Only the epilogue and an aihc tail call release that block. A
+; C callee cannot release it, so the lint must reject this indirect form
+; also.
+func @indirect(%target: code, %a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64, %i: i64) -> i64 {
+entry:
+  tailcall.indirect %target(%i) : (i64) -> i64 cc c
 }
