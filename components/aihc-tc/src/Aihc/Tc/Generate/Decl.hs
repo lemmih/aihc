@@ -1451,7 +1451,7 @@ annotateValueDeclTc checkedValueTypes valueDecl =
       pure (bindingTy, FunctionBind name matches)
     PatternBind anns pat rhs ->
       case patternBinderName pat of
-        Just (_, name) -> do
+        Just (name, _) -> do
           bindingTy <- checkedBindingType name
           pure (bindingTy, PatternBind anns pat rhs)
         Nothing -> do
@@ -1758,7 +1758,7 @@ tcInstanceItemBody classInfo givens headTys signatures item =
           pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName checkedType)) checkedBind)
     InstanceItemBind (PatternBind _ pat rhs) ->
       case patternBinderName pat of
-        Just (_, methodName) -> do
+        Just (methodName, _) -> do
           scheme@(ForAll methodTyVars methodGivens methodTy) <- methodExpectedScheme classInfo headTys methodName
           scope <- instanceMethodScope signatures methodName givens scheme [zeroArgMatch (patternSpan pat) rhs]
           (results, failed) <-
@@ -2940,49 +2940,6 @@ rejectEscapingExistentials outerType implications = do
           )
       )
 
-typeMentionsTyVar :: TyVarId -> TcType -> Bool
-typeMentionsTyVar target ty =
-  case ty of
-    TcTyVar tyVar -> tyVar == target || kindMentionsUnique (tvUnique target) (tvKind tyVar)
-    TcMetaTv {} -> False
-    TcArrowTy -> False
-    TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
-    TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
-    TcForAllTy tyVar body -> tyVar /= target && typeMentionsTyVar target body
-    TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
-    TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
-
-kindMentionsUnique :: Unique -> TcType -> Bool
-kindMentionsUnique target kind =
-  case kind of
-    TcTyVar tyVar -> tvUnique tyVar == target || kindMentionsUnique target (tvKind tyVar)
-    TcMetaTv unique -> unique == target
-    TcArrowTy -> False
-    TcTyCon _ arguments -> any (kindMentionsUnique target) arguments
-    TcFunTy argument result -> kindMentionsUnique target argument || kindMentionsUnique target result
-    TcForAllTy tyVar body -> tvUnique tyVar /= target && kindMentionsUnique target body
-    TcQualTy predicates body -> any (predicateMentionsUnique target) predicates || kindMentionsUnique target body
-    TcAppTy function argument -> kindMentionsUnique target function || kindMentionsUnique target argument
-  where
-    predicateMentionsUnique unique predicate =
-      case predicate of
-        ClassPred _ arguments -> any (kindMentionsUnique unique) arguments
-        EqPred left right -> kindMentionsUnique unique left || kindMentionsUnique unique right
-        IParamPred _ payload -> kindMentionsUnique unique payload
-        QuantifiedPred variables antecedents consequent ->
-          all ((/= unique) . tvUnique) variables
-            && (any (predicateMentionsUnique unique) antecedents || predicateMentionsUnique unique consequent)
-
-predicateMentionsTyVar :: TyVarId -> Pred -> Bool
-predicateMentionsTyVar target predicate =
-  case predicate of
-    ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
-    EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
-    IParamPred _ payload -> typeMentionsTyVar target payload
-    QuantifiedPred variables antecedents consequent ->
-      target `notElem` variables
-        && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)
-
 zonkPred :: Pred -> TcM Pred
 zonkPred pred' =
   case pred' of
@@ -3451,6 +3408,8 @@ typeSuffix kinds ty =
     TcTyVar tv -> tvName tv
     TcArrowTy -> tyConName (kindsArrowTyCon kinds)
     TcAppTy TcArrowTy argument -> tyConName (kindsArrowTyCon kinds) <> typeSuffix kinds argument
+    TcFunTy argument result ->
+      tyConName (kindsArrowTyCon kinds) <> typeSuffix kinds argument <> typeSuffix kinds result
     TcTyCon tc [] -> tyConName tc
     TcTyCon (TyCon "[]" _) [_] -> "List"
     TcTyCon tc args -> tyConName tc <> T.concat (map (typeSuffix kinds) args)
@@ -4292,7 +4251,7 @@ tcValueDecl (PatternBind _ pat rhs) = case patternBinderName pat of
   -- Bare variable pattern (e.g. @x = 5@, @(.>.) = (++)@): type-check as a
   -- zero-argument function so that the binding gets generalized and registered
   -- in the environment.
-  Just (displayName, name) -> do
+  Just (name, displayName) -> do
     case patternBinderSyntaxName pat of
       Just binder -> do
         key <- resolvedUnqualifiedTermKey binder
@@ -4305,9 +4264,10 @@ tcValueDecl (PatternBind _ pat rhs) = case patternBinderName pat of
     pure [TcBindingResult "<pattern>" "<pattern>" zonkedTy]
 
 -- | Extract the binder name from a pattern binding's LHS, if it is a bare
--- variable pattern.  Returns @(displayName, envName)@ for simple variable
+-- variable pattern.  Returns @(envName, displayName)@ for simple variable
 -- patterns (possibly wrapped in parens or annotations), 'Nothing' for
 -- non-trivial patterns like tuples or constructors.
+-- The pair has the same order as 'binderBindingName'.
 patternBinderSyntaxName :: Pattern -> Maybe UnqualifiedName
 patternBinderSyntaxName (PVar n) = Just n
 patternBinderSyntaxName (PParen inner) = patternBinderSyntaxName inner
@@ -4316,7 +4276,7 @@ patternBinderSyntaxName _ = Nothing
 
 patternBinderName :: Pattern -> Maybe (Text, Text)
 patternBinderName pat =
-  (\n -> (renderBinderName n, unqualifiedNameText n)) <$> patternBinderSyntaxName pat
+  binderBindingName <$> patternBinderSyntaxName pat
 
 zeroArgMatch :: SourceSpan -> Rhs Expr -> Match
 zeroArgMatch sp rhs =

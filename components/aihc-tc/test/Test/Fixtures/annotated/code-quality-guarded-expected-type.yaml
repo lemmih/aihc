@@ -1,0 +1,48 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  data Count = One | Two
+       │       │     └─ type: Count
+       │       └─ type: Count
+       └─ type: Type
+  data Tag a where
+       └─ type: Type → Type
+    FlagTag :: Tag Flag
+    └─ type: ∀ a. (a ~ Flag) ⇒ Tag a
+    CountTag :: Tag Count
+    └─ type: ∀ a. (a ~ Count) ⇒ Tag a
+  pick :: Tag a -> a
+  pick tag
+  │    └─ type: Tag a
+  └─ type: ∀ a. Tag a → a
+    | True = case tag of
+             └─ type: a
+        FlagTag -> On
+        └─ type: Tag a; type-args: a; evidence: given a ~ Flag
+        CountTag -> One
+        └─ type: Tag a; type-args: a; evidence: given a ~ Count
+extensions:
+- GADTs
+modules:
+- |
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  data Flag = Off | On
+  data Count = One | Two
+  data Tag a where
+    FlagTag :: Tag Flag
+    CountTag :: Tag Count
+  pick :: Tag a -> a
+  pick tag
+    | True = case tag of
+        FlagTag -> On
+        CountTag -> One
+reason: A guarded body gets the expected type, as an unguarded body does.
+status: pass

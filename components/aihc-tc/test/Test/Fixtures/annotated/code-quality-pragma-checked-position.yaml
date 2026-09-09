@@ -1,0 +1,44 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  data Count = One | Two
+       │       │     └─ type: Count
+       │       └─ type: Count
+       └─ type: Type
+  data Tag a where
+       └─ type: Type → Type
+    FlagTag :: Tag Flag
+    └─ type: ∀ a. (a ~ Flag) ⇒ Tag a
+    CountTag :: Tag Count
+    └─ type: ∀ a. (a ~ Count) ⇒ Tag a
+  pick :: Tag a -> a
+  pick tag = {-# SCC "pick" #-} case tag of
+  │    └─ type: Tag a           └─ type: a
+  └─ type: ∀ a. Tag a → a
+    FlagTag -> On
+    └─ type: Tag a; type-args: a; evidence: given a ~ Flag
+    CountTag -> One
+    └─ type: Tag a; type-args: a; evidence: given a ~ Count
+extensions:
+- GADTs
+modules:
+- |
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  data Flag = Off | On
+  data Count = One | Two
+  data Tag a where
+    FlagTag :: Tag Flag
+    CountTag :: Tag Count
+  pick :: Tag a -> a
+  pick tag = {-# SCC "pick" #-} case tag of
+    FlagTag -> On
+    CountTag -> One
+reason: A pragma does not stop the expected type from reaching the case
+  expression.
+status: pass

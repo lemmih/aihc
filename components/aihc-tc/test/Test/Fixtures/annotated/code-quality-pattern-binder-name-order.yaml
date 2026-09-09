@@ -1,0 +1,26 @@
+annotated:
+- |-
+  module Test where
+  class Apply f where
+  └─ class methods: <.> ∷ ∀ f. (Apply f) ⇒ f → f → f
+    (<.>) :: f -> f -> f
+    (<.>) = keepLeft
+    │       └─ type: f → f → f; type-args: f
+    └─ <.> ∷ ∀ f. (Apply f) ⇒ f → f → f
+  keepLeft :: f -> f -> f
+  keepLeft left _ = left
+  │        │    └─ type: f
+  │        └─ type: f
+  └─ type: ∀ f. f → f → f
+extensions: []
+modules:
+- |
+  module Test where
+  class Apply f where
+    (<.>) :: f -> f -> f
+    (<.>) = keepLeft
+  keepLeft :: f -> f -> f
+  keepLeft left _ = left
+reason: A default method that is a pattern binding uses the canonical method
+  name, not the display name.
+status: pass

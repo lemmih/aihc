@@ -81,6 +81,9 @@ module Aihc.Tc.Types
     typeSchemeBody,
     applySubst,
     applySubstPred,
+    typeMentionsTyVar,
+    predicateMentionsTyVar,
+    kindMentionsUnique,
     Pred (..),
     constraintTypeToPred,
     collectForAllTypes,
@@ -453,6 +456,57 @@ applySubstPred substitution predicate =
             [setTyVarKind (applySubst scopedSubstitution (tvKind variable)) variable | variable <- variables]
             (map (applySubstPred scopedSubstitution) antecedents)
             (applySubstPred scopedSubstitution consequent)
+
+-- | Whether a type mentions one type variable.
+--
+-- A type variable can occur in the kind of another type variable. An
+-- escape check must find that occurrence, so the walk looks in each kind
+-- that it finds.
+typeMentionsTyVar :: TyVarId -> TcType -> Bool
+typeMentionsTyVar target ty =
+  case ty of
+    TcTyVar tyVar -> tyVar == target || kindMentionsUnique (tvUnique target) (tvKind tyVar)
+    TcMetaTv {} -> False
+    TcArrowTy -> False
+    TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
+    TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
+    TcForAllTy tyVar body -> tyVar /= target && typeMentionsTyVar target body
+    TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
+    TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
+
+-- | Whether a predicate mentions one type variable.
+predicateMentionsTyVar :: TyVarId -> Pred -> Bool
+predicateMentionsTyVar target predicate =
+  case predicate of
+    ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
+    EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
+    IParamPred _ payload -> typeMentionsTyVar target payload
+    QuantifiedPred variables antecedents consequent ->
+      target `notElem` variables
+        && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)
+
+-- | Whether a kind mentions one unique. A type variable matches by its
+-- unique alone, because a kind can hold a different copy of it.
+kindMentionsUnique :: Unique -> TcType -> Bool
+kindMentionsUnique target kind =
+  case kind of
+    TcTyVar tyVar -> tvUnique tyVar == target || kindMentionsUnique target (tvKind tyVar)
+    TcMetaTv unique -> unique == target
+    TcArrowTy -> False
+    TcTyCon _ arguments -> any (kindMentionsUnique target) arguments
+    TcFunTy argument result -> kindMentionsUnique target argument || kindMentionsUnique target result
+    TcForAllTy tyVar body -> tvUnique tyVar /= target && kindMentionsUnique target body
+    TcQualTy predicates body -> any (predicateMentionsUnique target) predicates || kindMentionsUnique target body
+    TcAppTy function argument -> kindMentionsUnique target function || kindMentionsUnique target argument
+  where
+    predicateMentionsUnique unique predicate =
+      case predicate of
+        ClassPred _ arguments -> any (kindMentionsUnique unique) arguments
+        EqPred left right -> kindMentionsUnique unique left || kindMentionsUnique unique right
+        IParamPred _ payload -> kindMentionsUnique unique payload
+        QuantifiedPred variables antecedents consequent ->
+          all ((/= unique) . tvUnique) variables
+            && (any (predicateMentionsUnique unique) antecedents || predicateMentionsUnique unique consequent)
 
 -- The kind patterns recognise a kind by its namespace and its name, so
 -- that a kind built here and a kind resolved from an interface match each

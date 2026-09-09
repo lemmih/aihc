@@ -1,0 +1,24 @@
+annotated:
+- |-
+  module Test where
+  data Tuple2 a = MkBox a
+       │          └─ type: ∀ a. a → Tuple2 a
+       └─ type: Type → Type
+  data Flag = Flag
+       │      └─ type: Flag
+       └─ type: Type
+  pair :: (Flag, Flag)
+  pair = (Flag, Flag)
+  │      └─ type: (Flag, Flag); type-args: Flag, Flag
+  └─ type: (Flag, Flag)
+extensions: []
+modules:
+- |
+  module Test where
+  data Tuple2 a = MkBox a
+  data Flag = Flag
+  pair :: (Flag, Flag)
+  pair = (Flag, Flag)
+reason: A local type constructor with the name of a wired tuple must not take
+  the place of the wired tuple.
+status: pass
