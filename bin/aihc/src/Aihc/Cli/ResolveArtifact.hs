@@ -7,11 +7,11 @@ module Aihc.Cli.ResolveArtifact
   )
 where
 
-import Aihc.Parser.Syntax (FixityAssoc (..), Name (..), NameType (..), renderUnqualifiedName)
+import Aihc.Cli.Cbor (cborArray, cborText, cborWord, getArrayLength, getText, getWord)
+import Aihc.Parser.Syntax (FixityAssoc (..), Name (..), NameType (..), UnqualifiedName (..))
 import Aihc.Resolve (OperatorFixity (..), PackageId (..), ResolvedName (..), Scope (..))
-import Control.Monad (replicateM, unless, when)
+import Control.Monad (replicateM, when)
 import Data.Binary.Get qualified as Get
-import Data.Bits (shiftR)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BL
@@ -19,12 +19,10 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.Encoding qualified as TE
-import Data.Word (Word64, Word8)
+import Data.Word (Word64)
 
 data ResolveArtifact = ResolveArtifact
   { resolveArtifactModuleName :: !Text,
-    resolveArtifactInputHashes :: ![(Text, Text)],
     resolveArtifactScope :: !Scope
   }
   deriving (Eq)
@@ -37,10 +35,9 @@ encodeResolveArtifact = fst . encodeResolveArtifactParts
 encodeResolveArtifactParts :: ResolveArtifact -> (BL.ByteString, BL.ByteString)
 encodeResolveArtifactParts artifact =
   ( Builder.toLazyByteString $
-      cborArray 4
+      cborArray 3
         <> cborText "aihc-resolve"
         <> cborText (resolveArtifactModuleName artifact)
-        <> encodeHashes (resolveArtifactInputHashes artifact)
         <> Builder.lazyByteString scopeBytes,
     scopeBytes
   )
@@ -60,30 +57,15 @@ decodeResolveArtifact bytes =
 
 getArtifact :: Get.Get ResolveArtifact
 getArtifact = do
-  4 <- getArrayLength
+  3 <- getArrayLength
   "aihc-resolve" <- getText
   resolveArtifactModuleName <- getText
-  resolveArtifactInputHashes <- getHashes
   resolveArtifactScope <- getScope
-  pure ResolveArtifact {resolveArtifactModuleName, resolveArtifactInputHashes, resolveArtifactScope}
-
-encodeHashes :: [(Text, Text)] -> Builder.Builder
-encodeHashes hashes = cborArray (length hashes) <> foldMap pair hashes
-  where
-    pair (path, digest) = cborArray 2 <> cborText path <> cborText digest
-
-getHashes :: Get.Get [(Text, Text)]
-getHashes = do
-  count <- getArrayLength
-  replicateM count getPair
-  where
-    getPair = do
-      2 <- getArrayLength
-      (,) <$> getText <*> getText
+  pure ResolveArtifact {resolveArtifactModuleName, resolveArtifactScope}
 
 encodeScope :: Scope -> Builder.Builder
 encodeScope scope =
-  cborArray 7
+  cborArray 8
     <> encodeResolvedMap (scopeTerms scope)
     <> encodeResolvedMap (scopeTypes scope)
     <> encodeTextListMap (scopeConstructors scope)
@@ -91,11 +73,12 @@ encodeScope scope =
     <> encodeTextListMap (scopeMethods scope)
     <> encodeFixities (scopeFixities scope)
     <> encodeTextListMap (scopeAssociatedTypes scope)
+    <> encodeScopeMap (scopeQualifiedModules scope)
 
 getScope :: Get.Get Scope
 getScope = do
   length' <- getArrayLength
-  when (length' < 6 || length' > 7) $ fail "unsupported resolve scope layout"
+  when (length' < 6 || length' > 8) $ fail "unsupported resolve scope layout"
   scopeTerms <- getResolvedMap
   scopeTypes <- getResolvedMap
   scopeConstructors <- getTextListMap
@@ -104,7 +87,25 @@ getScope = do
   scopeFixities <- getFixities
   -- Artifacts written before associated type families have six entries.
   scopeAssociatedTypes <- if length' >= 7 then getTextListMap else pure Map.empty
-  pure Scope {scopeTerms, scopeTypes, scopeConstructors, scopeRecordFields, scopeMethods, scopeAssociatedTypes, scopeFixities, scopeQualifiedModules = Map.empty}
+  -- Artifacts written before the qualified modules of a scope have seven entries.
+  scopeQualifiedModules <- if length' >= 8 then getScopeMap else pure Map.empty
+  pure Scope {scopeTerms, scopeTypes, scopeConstructors, scopeRecordFields, scopeMethods, scopeAssociatedTypes, scopeFixities, scopeQualifiedModules}
+
+-- | The scope of each qualified import alias. An exported scope has no
+-- alias, but the encoder does not depend on that property.
+encodeScopeMap :: Map.Map Text Scope -> Builder.Builder
+encodeScopeMap entries = cborArray (Map.size entries) <> foldMap encodeEntry (Map.toAscList entries)
+  where
+    encodeEntry (alias, scope) = cborArray 2 <> cborText alias <> encodeScope scope
+
+getScopeMap :: Get.Get (Map.Map Text Scope)
+getScopeMap = do
+  count <- getArrayLength
+  Map.fromList <$> replicateM count getEntry
+  where
+    getEntry = do
+      2 <- getArrayLength
+      (,) <$> getText <*> getScope
 
 encodeResolvedMap :: Map.Map Text ResolvedName -> Builder.Builder
 encodeResolvedMap entries = cborArray (Map.size entries) <> foldMap encodeEntry (Map.toAscList entries)
@@ -126,7 +127,8 @@ encodeResolvedName resolved =
     ResolvedTopLevel (PackageId packageId) name ->
       cborArray 5 <> cborWord 0 <> cborText packageId <> cborText (fromMaybe "" (nameQualifier name)) <> cborWord (nameTypeTag (nameType name)) <> cborText (nameText name)
     ResolvedSyntax -> cborArray 1 <> cborWord 1
-    ResolvedLocal unique name -> cborArray 3 <> cborWord 2 <> cborWord (fromIntegral unique) <> cborText (renderUnqualifiedName name)
+    ResolvedLocal unique name ->
+      cborArray 4 <> cborWord 2 <> cborWord (fromIntegral unique) <> cborWord (nameTypeTag (unqualifiedNameType name)) <> cborText (unqualifiedNameText name)
     ResolvedError message -> cborArray 2 <> cborWord 3 <> cborText (T.pack message)
 
 getResolvedName :: Get.Get ResolvedName
@@ -142,6 +144,12 @@ getResolvedName = do
       let qualifier = if T.null qualifierText then Nothing else Just qualifierText
       pure (ResolvedTopLevel packageId (Name qualifier nameType' text []))
     (1, 1) -> pure ResolvedSyntax
+    (4, 2) -> do
+      unique <- getWord
+      nameType' <- getNameType
+      text <- getText
+      pure (ResolvedLocal (fromIntegral unique) (UnqualifiedName nameType' text []))
+    (2, 3) -> ResolvedError . T.unpack <$> getText
     _ -> fail "unsupported resolved name"
 
 nameTypeTag :: NameType -> Word64
@@ -206,47 +214,3 @@ getFixityAssoc = do
     1 -> pure InfixL
     2 -> pure InfixR
     _ -> fail "unsupported fixity association"
-
-cborArray :: Int -> Builder.Builder
-cborArray = cborMajor 4 . fromIntegral
-
-cborText :: Text -> Builder.Builder
-cborText value = cborMajor 3 (fromIntegral (BS.length bytes)) <> Builder.byteString bytes
-  where
-    bytes = TE.encodeUtf8 value
-
-cborWord :: Word64 -> Builder.Builder
-cborWord = cborMajor 0
-
-cborMajor :: Word8 -> Word64 -> Builder.Builder
-cborMajor major value
-  | value < 24 = Builder.word8 (major * 32 + fromIntegral value)
-  | value <= 255 = Builder.word8 (major * 32 + 24) <> Builder.word8 (fromIntegral value)
-  | value <= 65535 = Builder.word8 (major * 32 + 25) <> Builder.word16BE (fromIntegral value)
-  | value <= 4294967295 = Builder.word8 (major * 32 + 26) <> Builder.word32BE (fromIntegral value)
-  | otherwise = Builder.word8 (major * 32 + 27) <> Builder.word64BE value
-
-getArrayLength :: Get.Get Int
-getArrayLength = fromIntegral <$> getMajor 4
-
-getText :: Get.Get Text
-getText = do
-  length' <- getMajor 3
-  TE.decodeUtf8 <$> Get.getByteString (fromIntegral length')
-
-getWord :: Get.Get Word64
-getWord = getMajor 0
-
-getMajor :: Word8 -> Get.Get Word64
-getMajor expected = do
-  initial <- Get.getWord8
-  let major = initial `shiftR` 5
-      info = initial `mod` 32
-  unless (major == expected) (fail "unexpected CBOR major type")
-  case info of
-    value | value < 24 -> pure (fromIntegral value)
-    24 -> fromIntegral <$> Get.getWord8
-    25 -> fromIntegral <$> Get.getWord16be
-    26 -> fromIntegral <$> Get.getWord32be
-    27 -> Get.getWord64be
-    _ -> fail "unsupported CBOR length"

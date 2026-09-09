@@ -818,7 +818,7 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
           | (runtime, result) <- zip runtimes typeResults,
             source <- sourceUnitSources (runtimeUnit runtime)
           ]
-  instanceDigest <- writePackageInstanceArtifact verbose outputRoot allTypeHashes instanceProviders packageInstanceInterface
+  instanceDigest <- writePackageInstanceArtifact verbose outputRoot instanceProviders packageInstanceInterface
   -- A consumer takes the digests from here rather than encoding the
   -- interfaces again.
   writeStamp
@@ -1061,7 +1061,7 @@ loadInstalledPackage requirements immutable storePath = do
       resolveBytes <- BS.readFile resolvePath
       resolveArtifact <- either (ioError . userError . (("Invalid resolve artifact " <> resolvePath <> ": ") <>)) pure (decodeResolveArtifact resolveBytes)
       typeBytes <- BL.readFile typePath
-      let typeArtifact = decodeTypeArtifact typeBytes
+      typeArtifact <- readTypeArtifact typePath typeBytes
       unless (resolveArtifactModuleName resolveArtifact == name) (ioError (userError ("Resolve artifact module name does not match " <> resolvePath)))
       unless (typeArtifactModuleName typeArtifact == name) (ioError (userError ("Type artifact module name does not match " <> typePath)))
       pure (name, resolveArtifactScope resolveArtifact, typeArtifactInterface typeArtifact)
@@ -1073,7 +1073,7 @@ loadInstalledPackage requirements immutable storePath = do
         then pure (mempty, Map.empty)
         else do
           bytes <- BL.readFile path
-          let artifact = decodeTypeArtifact bytes
+          artifact <- readTypeArtifact path bytes
           unless (typeArtifactModuleName artifact == "$package-instances") (ioError (userError ("Package instance artifact name does not match " <> path)))
           let providers = Map.restrictKeys (Map.map Set.fromList (typeArtifactInstanceProviders artifact)) (Set.fromList selected)
               visibleProviders = Set.unions (Map.elems providers)
@@ -1446,7 +1446,7 @@ runResolveUnit context runtimes runtime = do
       scopeHashes <-
         if success
           then do
-            digests <- forM sources $ \source -> writeArtifact verbose inputs unitExports resolvePackage (storePath </> resolvePath source) source
+            digests <- forM sources $ \source -> writeArtifact verbose unitExports resolvePackage (storePath </> resolvePath source) source
             files <- stampFiles storePath (map resolvePath sources)
             writeStamp stampPath ResolveStamp {resolveStampInputs = inputs, resolveStampScopes = Map.fromList digests, resolveStampFiles = files}
             pure (Map.fromList digests)
@@ -1588,8 +1588,8 @@ runTypeUnit context runtimes runtime = do
       else pure Nothing
   case reused of
     Just recorded -> do
-      artifacts <- mapM (fmap decodeTypeArtifact . BL.readFile . (storePath </>) . typePath) sources
-      ownFacts <- typeArtifactInterface . decodeTypeArtifact <$> BL.readFile (storePath </> factsPath)
+      artifacts <- mapM (readTypeArtifactFile . (storePath </>) . typePath) sources
+      ownFacts <- typeArtifactInterface <$> readTypeArtifactFile (storePath </> factsPath)
       let interfaces = map typeArtifactInterface artifacts
           complete = mergeTcInterfaces (importedTypes : ownFacts : interfaces)
       verbose ("Reuse type and backend artifacts: " <> T.unpack (unitLabel unit))
@@ -1621,13 +1621,13 @@ runTypeUnit context runtimes runtime = do
       (ownTypeHashes, factsDigest) <-
         if success
           then do
-            typeHashes <- Map.fromList <$> zipWithM (writeTypeArtifact verbose inputs ((storePath </>) . typePath)) sources unitTypes
-            -- The facts artifact records the facts digests it was built
-            -- above, so its own digest changes with any of them.
-            let factsBytes = encodeTypeArtifact (TypeArtifact "$unit" (sortOn fst (factsInputs <> packageInputs)) Map.empty ownInstanceInterface)
+            typeHashes <- Map.fromList <$> zipWithM (writeTypeArtifact verbose ((storePath </>) . typePath)) sources unitTypes
+            let factsBytes = encodeTypeArtifact (TypeArtifact "$unit" Map.empty ownInstanceInterface)
             createDirectoryIfMissing True (takeDirectory (storePath </> factsPath))
             BL.writeFile (storePath </> factsPath) factsBytes
-            pure (typeHashes, T.pack (stableHash [BL.toStrict factsBytes]))
+            -- The facts digest covers the facts digests of the units below
+            -- this one, so it changes with any of them.
+            pure (typeHashes, T.pack (stableHash [BL.toStrict factsBytes, BS8.pack (show (sortOn fst (factsInputs <> packageInputs)))]))
           else pure (Map.empty, "")
       pendingCompile <-
         if compileNoCode config || not success
@@ -1796,11 +1796,10 @@ selectInstanceProviders complete providers
     first transform (left, right) = (transform left, right)
     tyConOrigin tyCon = (tyConPackageId tyCon, tyConModuleName tyCon)
 
-writePackageInstanceArtifact :: (String -> IO ()) -> FilePath -> Map.Map Text Text -> Map.Map Text (Set.Set InstanceProvider) -> TcInterface -> IO Text
-writePackageInstanceArtifact verbose storePath typeHashes providers interface = do
+writePackageInstanceArtifact :: (String -> IO ()) -> FilePath -> Map.Map Text (Set.Set InstanceProvider) -> TcInterface -> IO Text
+writePackageInstanceArtifact verbose storePath providers interface = do
   let path = storePath </> "instances.cbor"
-      hashes = sortOn fst [("type:" <> name, digest) | (name, digest) <- Map.toList typeHashes]
-      bytes = encodeTypeArtifact (TypeArtifact "$package-instances" hashes (Map.map Set.toAscList providers) interface)
+      bytes = encodeTypeArtifact (TypeArtifact "$package-instances" (Map.map Set.toAscList providers) interface)
   createDirectoryIfMissing True storePath
   BL.writeFile path bytes
   verbose ("Write package instances: " <> path)
@@ -2249,11 +2248,11 @@ addReferencedFacts complete interface =
               found' = Set.insert tyCon found
            in closeTyCons found' (pending' <> (dependencies `Set.difference` found'))
 
-writeTypeArtifact :: (String -> IO ()) -> [(Text, Text)] -> (SourceModule -> FilePath) -> SourceModule -> TcInterface -> IO (Text, Text)
-writeTypeArtifact verbose hashes artifactPath source interface = do
+writeTypeArtifact :: (String -> IO ()) -> (SourceModule -> FilePath) -> SourceModule -> TcInterface -> IO (Text, Text)
+writeTypeArtifact verbose artifactPath source interface = do
   let path = artifactPath source
       name = fromMaybe "Main" (moduleName (sourceModuleAst source))
-      (artifactBytes, interfaceBytes) = encodeTypeArtifactParts (TypeArtifact name hashes Map.empty interface)
+      (artifactBytes, interfaceBytes) = encodeTypeArtifactParts (TypeArtifact name Map.empty interface)
   createDirectoryIfMissing True (takeDirectory path)
   BL.writeFile path artifactBytes
   verbose ("Write type interface: " <> T.unpack name)
@@ -2267,18 +2266,26 @@ moduleNameDirectory = foldl' (</>) "" . map T.unpack . T.splitOn "."
 
 -- | Write the resolve artifact of a module and return the digest of the
 -- scope inside it, taken from the bytes as written.
-writeArtifact :: (String -> IO ()) -> [(Text, Text)] -> ModuleExports -> Package -> FilePath -> SourceModule -> IO (Text, Text)
-writeArtifact verbose hashes exports package path source = do
+writeArtifact :: (String -> IO ()) -> ModuleExports -> Package -> FilePath -> SourceModule -> IO (Text, Text)
+writeArtifact verbose exports package path source = do
   createDirectoryIfMissing True (takeDirectory path)
   let name = fromMaybe "Main" (moduleName (sourceModuleAst source))
       scope = Map.findWithDefault (error "missing resolve scope") (ModuleKey package name) exports
-      (artifactBytes, scopeBytes) = encodeResolveArtifactParts (ResolveArtifact name hashes scope)
+      (artifactBytes, scopeBytes) = encodeResolveArtifactParts (ResolveArtifact name scope)
   BL.writeFile path artifactBytes
   verbose ("Write resolve context: " <> T.unpack name)
   pure (name, T.pack (stableHash [BL.toStrict scopeBytes]))
+
+-- | Read a type artifact and report its path if the bytes are not valid.
+readTypeArtifactFile :: FilePath -> IO TypeArtifact
+readTypeArtifactFile path = BL.readFile path >>= readTypeArtifact path
+
+readTypeArtifact :: FilePath -> BL.ByteString -> IO TypeArtifact
+readTypeArtifact path bytes =
+  either (ioError . userError . (("Invalid type artifact " <> path <> ": ") <>)) pure (decodeTypeArtifact bytes)
 
 stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-18"
+packageArtifactFormatVersion = "aihc-artifacts-19"

@@ -7,6 +7,7 @@ module Aihc.Cli.TypeArtifact
   )
 where
 
+import Aihc.Cli.Cbor (cborArray, cborInt, cborText, cborWord, getArrayLength, getInt, getText, getWord)
 import Aihc.Cli.InterfaceTyCons (interfaceTyCons)
 import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
 import Aihc.Tc
@@ -50,20 +51,16 @@ import Aihc.Tc.Types (mkTyConWithNamespace, mkTyVarId, tyConModuleName, tyConNam
 import Control.Monad (replicateM, unless, when)
 import Data.Array (Array, listArray, (!))
 import Data.Binary.Get qualified as Get
-import Data.Bits (shiftR)
-import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
-import Data.Text.Encoding qualified as TE
-import Data.Word (Word64, Word8)
+import Data.Word (Word64)
 
 data TypeArtifact = TypeArtifact
   { typeArtifactModuleName :: !Text,
-    typeArtifactInputHashes :: ![(Text, Text)],
     typeArtifactInstanceProviders :: !(Map Text [(PackageId, Text)]),
     typeArtifactInterface :: TcInterface
   }
@@ -77,17 +74,15 @@ encodeTypeArtifact = fst . encodeTypeArtifactParts
 encodeTypeArtifactParts :: TypeArtifact -> (BL.ByteString, BL.ByteString)
 encodeTypeArtifactParts artifact =
   ( Builder.toLazyByteString $
-      cborArray 6
+      cborArray 5
         <> cborText "aihc-type"
         <> cborText (typeArtifactModuleName artifact)
-        <> encodeList encodeHash (typeArtifactInputHashes artifact)
         <> encodeList encodeModuleProviders (Map.toAscList (typeArtifactInstanceProviders artifact))
         <> Builder.lazyByteString interfaceBytes,
     interfaceBytes
   )
   where
     interfaceBytes = encodeTypeInterface (typeArtifactInterface artifact)
-    encodeHash (name, digest) = cborArray 2 <> cborText name <> cborText digest
     encodeModuleProviders (name, providers) = cborArray 2 <> cborText name <> encodeList encodeProvider providers
     encodeProvider (packageId, moduleName) = cborArray 2 <> putPackageId packageId <> cborText moduleName
 
@@ -97,25 +92,36 @@ encodeTypeInterface interface =
       tyConTable = Map.fromList (zip tyCons [0 ..])
    in Builder.toLazyByteString (encodeList putTyConDefinition tyCons <> putInterface tyConTable interface)
 
-decodeTypeArtifact :: BL.ByteString -> TypeArtifact
-decodeTypeArtifact = Get.runGet getArtifact
+decodeTypeArtifact :: BL.ByteString -> Either String TypeArtifact
+decodeTypeArtifact bytes =
+  case Get.runGetOrFail getArtifact bytes of
+    Left (_, _, message) -> Left message
+    Right (remaining, _, artifact)
+      | BL.null remaining -> Right artifact
+      | otherwise -> Left "invalid trailing data"
 
 getArtifact :: Get.Get TypeArtifact
 getArtifact = do
-  expectArray 6
+  expectArray 5
   expectText "aihc-type"
   typeArtifactModuleName <- getText
-  typeArtifactInputHashes <- getList getHash
   typeArtifactInstanceProviders <- Map.fromList <$> getList getModuleProviders
   tyCons <- getList getTyConDefinition
   let tyConTable = listArray (0, length tyCons - 1) tyCons
   interfaceBytes <- Get.getRemainingLazyByteString
-  let typeArtifactInterface = Get.runGet (getInterface tyConTable) interfaceBytes
-  pure TypeArtifact {typeArtifactModuleName, typeArtifactInputHashes, typeArtifactInstanceProviders, typeArtifactInterface}
+  typeArtifactInterface <- either fail pure (runInterface tyConTable interfaceBytes)
+  pure TypeArtifact {typeArtifactModuleName, typeArtifactInstanceProviders, typeArtifactInterface}
   where
-    getHash = expectArray 2 >> ((,) <$> getText <*> getText)
     getModuleProviders = expectArray 2 >> ((,) <$> getText <*> getList getProvider)
     getProvider = expectArray 2 >> ((,) <$> getPackageId <*> getText)
+
+-- | The interface part of an artifact. It is decoded on its own because the
+-- type constructor table comes before it.
+runInterface :: TyConTable -> BL.ByteString -> Either String TcInterface
+runInterface table bytes =
+  case Get.runGetOrFail (getInterface table) bytes of
+    Left (_, _, message) -> Left message
+    Right (_, _, interface) -> Right interface
 
 putInterface :: Map TyCon Word64 -> TcInterface -> Builder.Builder
 putInterface table interface =
@@ -761,62 +767,3 @@ expectText :: Text -> Get.Get ()
 expectText expected = do
   actual <- getText
   unless (actual == expected) (fail "unexpected artifact kind")
-
-cborArray :: Int -> Builder.Builder
-cborArray = cborMajor 4 . fromIntegral
-
-cborText :: Text -> Builder.Builder
-cborText value = cborMajor 3 (fromIntegral (BS.length bytes)) <> Builder.byteString bytes
-  where
-    bytes = TE.encodeUtf8 value
-
-cborInt :: Int -> Builder.Builder
-cborInt value
-  | value >= 0 = cborMajor 0 (fromIntegral value)
-  | otherwise = cborMajor 1 (fromIntegral (-1 - value))
-
-cborWord :: Word64 -> Builder.Builder
-cborWord = cborMajor 0
-
-cborMajor :: Word8 -> Word64 -> Builder.Builder
-cborMajor major value
-  | value < 24 = Builder.word8 (major * 32 + fromIntegral value)
-  | value <= 255 = Builder.word8 (major * 32 + 24) <> Builder.word8 (fromIntegral value)
-  | value <= 65535 = Builder.word8 (major * 32 + 25) <> Builder.word16BE (fromIntegral value)
-  | value <= 4294967295 = Builder.word8 (major * 32 + 26) <> Builder.word32BE (fromIntegral value)
-  | otherwise = Builder.word8 (major * 32 + 27) <> Builder.word64BE value
-
-getArrayLength :: Get.Get Int
-getArrayLength = fromIntegral <$> getMajor 4
-
-getText :: Get.Get Text
-getText = do
-  length' <- getMajor 3
-  TE.decodeUtf8 <$> Get.getByteString (fromIntegral length')
-
-getInt :: Get.Get Int
-getInt = do
-  initial <- Get.lookAhead Get.getWord8
-  let major = initial `shiftR` 5
-  value <- getMajor major
-  case major of
-    0 -> pure (fromIntegral value)
-    1 -> pure (-1 - fromIntegral value)
-    _ -> fail "unexpected CBOR integer"
-
-getWord :: Get.Get Word64
-getWord = getMajor 0
-
-getMajor :: Word8 -> Get.Get Word64
-getMajor expected = do
-  initial <- Get.getWord8
-  let major = initial `shiftR` 5
-      info = initial `mod` 32
-  unless (major == expected) (fail "unexpected CBOR major type")
-  case info of
-    value | value < 24 -> pure (fromIntegral value)
-    24 -> fromIntegral <$> Get.getWord8
-    25 -> fromIntegral <$> Get.getWord16be
-    26 -> fromIntegral <$> Get.getWord32be
-    27 -> Get.getWord64be
-    _ -> fail "unsupported CBOR length"
