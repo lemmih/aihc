@@ -382,6 +382,11 @@ kindVarToType env tyCon arguments expectedKind tyVar =
                 <> T.unpack (tyConName tyCon)
                 <> " with arguments "
                 <> show arguments
+                -- An argument whose kind could not be worked out binds
+                -- nothing, and is the usual reason a variable is left
+                -- over. Name those arguments: the variable alone does
+                -- not say which part of the type to look at.
+                <> concatMap ("\n  " <>) (Tc.tcSkippedArguments checkedKinds)
             )
 
 visibleArgumentKinds :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String [TcType]
