@@ -93,39 +93,35 @@ links and runs the bundles on macOS.
 
 ## Artifact reuse
 
-`aihc install` resolves the complete package plan before it reads build fingerprints or module caches.
-Package identities contain the selected package name and version.
-Source changes and build options do not change these identities or the selected dependencies.
-A separate build fingerprint includes source contents, dependency build fingerprints, compiler identity, target, and build options.
-A matching fingerprint permits reuse of the installed outputs.
-After a successful rebuild, installation replaces the outputs for the selected package.
-Cached artifacts never supply package candidates or select dependency versions.
+A package is either immutable or local, and the two never mix.
 
-Library installs retain module artifacts in the separate `.build-cache` directory.
-Executable builds retain module artifacts in their build directory.
-The compiler checks each dependency-cycle unit before it reuses its type interfaces and backend outputs.
-A changed interface invalidates dependent units.
-A changed implementation can preserve dependent artifacts when its interface stays the same.
-The compiler still parses sources and resolves names after a package source change.
-It rebuilds the package archive and its C sources.
+A Hackage release and a core library are immutable for a given compiler.
+`aihc install` puts them into the store under `<store>/<target>/<name>-<version>-<fingerprint>`.
+The fingerprint is a function of the plan alone: the package name and version, the compiler identity, the target, and the identities of the dependencies.
+It reads no sources, so a consumer computes it without them, and nothing ever lists the store.
+An existing directory is used as it is.
+`--reinstall` builds the named package again and replaces its directory.
+The manifest records the flags the entry was built with, and an install that asks for an output the entry lacks, such as `--keep-core`, must pass `--reinstall`.
 
-`--reinstall` bypasses module reuse for the specified package.
-Dependencies still use their normal cache checks.
-Code and no-code builds use separate artifact cache keys and build fingerprints.
-The artifact format version remains separate from compiler identity.
+A package installed from a local directory is mutable.
+It builds in place under `<directory>/.aihc-target/<target>/<name>-<version>`, or under `--build-root`.
+`--immutable` installs a local package into the store instead, as a core library is published.
+
+In a build directory every unit keeps a stamp beside its artifacts: the digests of the inputs it was built from, the digests of the interfaces it wrote, and the size and modification time of each artifact file.
+The inputs of a unit are its sources, the scope and type interfaces of the modules it imports, the instance facts of the units below it, and the instance digest of each dependency package it imports from.
+A later build parses the sources, walks the units in dependency order, and reuses a unit whose recorded inputs equal the current digests and whose artifacts are the recorded files.
+Everything else is rebuilt in place.
+No interface is encoded to learn its digest: source digests come from parsing, and artifact digests are taken from the bytes as they are written.
+Each package writes `digests.json` next to its manifest, from which consumers take the digests of its interfaces.
+
+`aihc build-exe` resolves its `--package` constraints through the same plan.
+The plan reads the Cabal files of the packages, from the Hackage download cache or from `--workspace DIR`, which holds a package source under `DIR/NAME`.
+A package that is absent from the store is built.
+The modules of the executable build under `.aihc-target` in the working directory, or under `--build-root`, with the same stamps as a local package.
 
 The Cabal build hook uses the current Git commit hash as the compiler identity.
 If Git or a commit is absent, the compiler identity is empty.
 Uncommitted compiler changes do not change this identity.
 The compiled program contains this identity as a pure constant.
-The identity requires no runtime executable path or filesystem access.
-The compiler uses the package main library because Cabal custom builds do not support named libraries.
 Host compiler and archiver identities use hashes of their resolved paths.
-The cache does not read executable contents.
-After a tool update at the same path, users must remove obsolete cached artifacts.
-The cache does not require Git metadata.
-Source checks use file contents, not timestamps.
-The source set contains the Cabal file and the selected Haskell and C source files.
-The cache reads these files directly.
-It does not scan source directories or classify build directories.
-Unselected files do not affect the build fingerprint.
+After a tool update at the same path, users must remove obsolete store entries.

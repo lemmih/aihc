@@ -12,6 +12,8 @@
 module Aihc.PackagePlan
   ( DependencyResolver (..),
     PackagePlan (..),
+    PlanOrigin (..),
+    ResolvedSource (..),
     buildPackagePlanWithResolver,
     DependencyVersions,
     dependencyVersionsFromManifests,
@@ -19,6 +21,7 @@ module Aihc.PackagePlan
     coreProviderSourcePath,
     CoreProvider (..),
     localDependencyResolverWithFallback,
+    workspaceDependencyResolver,
     packageSpecFromSource,
   )
 where
@@ -48,13 +51,32 @@ import System.FilePath (normalise, takeDirectory, (</>))
 
 data PackagePlan = PackagePlan
   { planSourcePath :: !FilePath,
+    planOrigin :: !PlanOrigin,
     planDependencyPlans :: ![PackagePlan]
+  }
+  deriving (Eq, Show)
+
+-- | Where the source of a planned package comes from. The origin decides
+-- whether the package is immutable: a Hackage release and a core library
+-- never change for a given compiler, while a local directory is edited.
+data PlanOrigin
+  = -- | A directory the user works in.
+    PlanLocal
+  | -- | A Hackage release.
+    PlanHackage
+  | -- | A standin under @core-libs@.
+    PlanCore
+  deriving (Eq, Ord, Show)
+
+data ResolvedSource = ResolvedSource
+  { resolvedSourcePath :: !FilePath,
+    resolvedSourceOrigin :: !PlanOrigin
   }
   deriving (Eq, Show)
 
 data DependencyResolver = DependencyResolver
   { resolverResolveVersion :: String -> IO String,
-    resolverSourcePath :: PackageSpec -> IO FilePath
+    resolverSourcePath :: PackageSpec -> IO ResolvedSource
   }
 
 data CoreProvider = CoreProvider
@@ -63,8 +85,19 @@ data CoreProvider = CoreProvider
     coreProviderSourceRel :: !FilePath
   }
 
+-- | Prefer the package being installed and its siblings in the directory
+-- above it over the fallback resolver.
 localDependencyResolverWithFallback :: DependencyResolver -> FilePath -> DependencyResolver
 localDependencyResolverWithFallback fallback rootSource =
+  localPackagesResolver fallback (Just rootSource) (takeDirectory (normalise rootSource))
+
+-- | Prefer the packages that are directories of the workspace over the
+-- fallback resolver.
+workspaceDependencyResolver :: DependencyResolver -> FilePath -> DependencyResolver
+workspaceDependencyResolver fallback = localPackagesResolver fallback Nothing
+
+localPackagesResolver :: DependencyResolver -> Maybe FilePath -> FilePath -> DependencyResolver
+localPackagesResolver fallback rootSource workspace =
   DependencyResolver
     { resolverResolveVersion = \name -> do
         local <- localPackage name
@@ -73,16 +106,19 @@ localDependencyResolverWithFallback fallback rootSource =
         local <- localPackage (pkgName spec)
         case local of
           Just (localSpec, path)
-            | pkgVersion localSpec == pkgVersion spec -> pure path
+            | pkgVersion localSpec == pkgVersion spec -> pure (ResolvedSource path PlanLocal)
           _ -> resolverSourcePath fallback spec
     }
   where
-    workspace = takeDirectory (normalise rootSource)
     localPackage name = do
-      rootSpec <- packageSpecFromSource rootSource
-      if pkgName rootSpec == name
-        then pure (Just (rootSpec, rootSource))
-        else do
+      root <- case rootSource of
+        Nothing -> pure Nothing
+        Just source -> do
+          rootSpec <- packageSpecFromSource source
+          pure (if pkgName rootSpec == name then Just (rootSpec, source) else Nothing)
+      case root of
+        Just found -> pure (Just found)
+        Nothing -> do
           let candidate = workspace </> name
           exists <- doesDirectoryExist candidate
           if exists
@@ -118,13 +154,14 @@ buildPackagePlanRecursive resolver stack rawSpec
   | packageSpecIdentity spec `elem` map packageSpecIdentity stack =
       ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
   | otherwise = do
-      sourcePath <- sourcePathForSpec resolver spec
+      ResolvedSource sourcePath origin <- sourcePathForSpec resolver spec
       dependencyNames <- packageDependencyNamesFromSource sourcePath
       dependencySpecs <- mapM resolveDependencySpec (withImplicitPrimDependency spec dependencyNames)
       dependencyPlans <- mapM (buildPackagePlanRecursive resolver (spec : stack)) dependencySpecs
       pure
         PackagePlan
           { planSourcePath = sourcePath,
+            planOrigin = origin,
             planDependencyPlans = dependencyPlans
           }
   where
@@ -146,10 +183,10 @@ withImplicitPrimDependency spec dependencies
   where
     isPrimDependency name = name == "aihc-prim" || name == "ghc-prim"
 
-sourcePathForSpec :: DependencyResolver -> PackageSpec -> IO FilePath
+sourcePathForSpec :: DependencyResolver -> PackageSpec -> IO ResolvedSource
 sourcePathForSpec resolver spec =
   case lookupCoreProvider (pkgName spec) of
-    Just provider -> coreProviderSourcePath provider
+    Just provider -> (`ResolvedSource` PlanCore) <$> coreProviderSourcePath provider
     Nothing -> resolverSourcePath resolver spec
 
 packageDependencyNamesFromSource :: FilePath -> IO [String]

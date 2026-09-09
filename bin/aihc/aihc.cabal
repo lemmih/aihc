@@ -104,6 +104,7 @@ library
     Aihc.Cli.ArtifactCache
     Aihc.Cli.Backend
     Aihc.Cli.BuildExe
+    Aihc.Cli.BuildStamp
     Aihc.Cli.Install
     Aihc.Cli.Options
     Aihc.Cli.PackageManifest

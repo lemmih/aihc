@@ -2,8 +2,6 @@
 -- compiler that consumes them.
 module Aihc.Cli.Store
   ( defaultStoreRoot,
-    installedLibrariesActivePath,
-    installedLibrariesRoot,
     installedEntryArchivePath,
     installedRuntimeArchivePath,
   )
@@ -17,12 +15,6 @@ defaultStoreRoot :: IO FilePath
 defaultStoreRoot = do
   cacheDirectory <- getXdgDirectory XdgCache "aihc"
   pure (cacheDirectory </> "store")
-
-installedLibrariesRoot :: FilePath -> FilePath
-installedLibrariesRoot storeRoot = storeRoot </> "libraries"
-
-installedLibrariesActivePath :: FilePath -> FilePath
-installedLibrariesActivePath storeRoot = installedLibrariesRoot storeRoot </> "active"
 
 installedEntryArchivePath :: FilePath -> NativeTarget -> FilePath
 installedEntryArchivePath storeRoot target =
