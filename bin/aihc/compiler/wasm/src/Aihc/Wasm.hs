@@ -7,7 +7,7 @@ module Aihc.Wasm
   )
 where
 
-import Paths_aihc (getDataFileName)
+import Aihc.DataFiles (getDataFileName)
 
 wasip3RuntimeSourcePath :: IO FilePath
 wasip3RuntimeSourcePath = getDataFileName "compiler/wasm/runtime/aihc_wasip3.c"

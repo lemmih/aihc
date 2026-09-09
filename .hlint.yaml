@@ -31,3 +31,13 @@
     within: System.FilePath.Posix
 - ignore:
     within: System.FilePath.Windows
+
+# Importing Paths_aihc bakes the configured datadir into the importer's
+# interface, so the check derivation that reuses the package intermediates
+# recompiles every transitive importer. Aihc.DataFiles re-exports the one
+# function that is needed behind a NOINLINE binding, which keeps the store path
+# out of its interface and stops the cascade there.
+- modules:
+    - name: Paths_aihc
+      within: Aihc.DataFiles
+      message: "Import Aihc.DataFiles instead of Paths_aihc; see Aihc.DataFiles for why."

@@ -47,6 +47,7 @@ import Aihc.Cli.TaskGraph
     runTaskGraph,
   )
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeArtifactParts)
+import Aihc.DataFiles (getDataFileName)
 import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..))
 import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
@@ -57,7 +58,7 @@ import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower qualified as Lir
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory, wasmSysroot)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendArchiver, backendCompiler, handwrittenCArguments, nativeTargetStoreDirectory, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyResolver (..),
     DependencyVersions,
@@ -156,7 +157,6 @@ import Distribution.Pretty (prettyShow)
 import Distribution.System (Arch (..), OS (..), buildArch, buildOS)
 import Distribution.Version (nullVersion)
 import GHC.Clock (getMonotonicTimeNSec)
-import Paths_aihc (getDataFileName)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
 import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
@@ -2070,6 +2070,7 @@ compilePackageCFiles target verbose packageRoot storePath info
         runTool
           compiler
           ( targetArguments
+              <> handwrittenCArguments
               <> HackageCabal.cCompileCcOptions info
               <> includeArguments
               <> ["-c", source, "-o", object]

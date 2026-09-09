@@ -158,6 +158,7 @@ library
     Aihc.Cli.InterfaceTyCons
     Aihc.Cli.TaskGraph
     Aihc.CompilerBuildIdentity
+    Aihc.DataFiles
     Aihc.Fc.Desugar.Value
     Aihc.Grin.Analysis
     Aihc.Lir.Convert

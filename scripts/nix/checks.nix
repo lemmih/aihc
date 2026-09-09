@@ -518,7 +518,15 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N1
+      # Installing aihc-base parallelises well -- it is many independent
+      # modules rather than a few large ones -- and this install gates the
+      # whole chain for its target, so it is worth threads: 14.3s at -N1, 5.1s
+      # at -N4, 3.8s at -N8. Only the three toolchains and two core-library
+      # derivations run in this window, so -N4 stays within the machine. The
+      # install fan-out later on is a different case and keeps -N1: there Nix
+      # already has a dozen jobs in flight, and per-process threads on top of
+      # that would oversubscribe the runner.
+      export GHCRTS=-N4
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -544,8 +552,26 @@
   findHackagePackage = name:
     pkgs.lib.findFirst (package: package.name == name) (throw "missing Hackage package ${name}") hackage.packages;
 
+  # Every package an example may ask for, across all examples.
+  exampleExtraPackageNames =
+    pkgs.lib.unique (builtins.concatLists (builtins.attrValues exampleExtraHackagePackages));
+
+  # The packages installed for a target: those whose own target list names it,
+  # plus the extras the examples for that target need. A target that only
+  # appears in examples, such as wasm32-wasip3, installs the extras alone.
+  hackagePackagesFor = target:
+    builtins.filter (
+      package:
+        builtins.elem target (package.targets or hackageInstallTargets)
+        || builtins.elem package.name exampleExtraPackageNames
+    )
+    hackage.packages;
+
   # Retain one package store per target. Dependent checks reuse this output.
-  hackageStoreFor = target: package: let
+  # `extraSetup` carries the environment a cross target needs, and must match
+  # the toolchain the store is layered on, so the cross bundles reuse these
+  # stores instead of installing the same packages again.
+  hackageStoreWith = extraSetup: target: package: let
     src = hackage.fetchPackage pkgs package;
     dependencies = package.dependencies or [];
     # Reuse registered dependencies with the same source and version.
@@ -579,13 +605,18 @@
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       export AIHC_WASM_SYSROOT=${wasmSysroot}
+      ${extraSetup}
       coreLibsRoot="$TMPDIR/aihc-core-libs-root"
       mkdir -p "$coreLibsRoot"
       ln -sfn ${sources.coreLibrariesSrc pkgs}/core-libs "$coreLibsRoot/core-libs"
       export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
-      cp -R --no-preserve=mode ${exampleToolchainFor target} "$out"
+      cp -R --no-preserve=mode ${exampleToolchainWith extraSetup target} "$out"
+      # Every dependency store is itself layered on this same toolchain
+      # derivation, so most of what follows is already present byte for byte.
+      # -n skips those rather than rewriting them; the paths that do differ are
+      # named after a content fingerprint, so equal names mean equal content.
       ${pkgs.lib.concatMapStringsSep "\n" (dependency: ''
-          cp -R --no-preserve=mode ${hackageStoreFor target dependency}/. "$out/"
+          cp -Rn --no-preserve=mode ${hackageStoreWith extraSetup target dependency}/. "$out/"
         '')
         reusableDependencies}
       workspace="$TMPDIR/workspace"
@@ -599,6 +630,28 @@
       test -z "$(find "$out" -type f -name 'core.bad' -print -quit)"
     '';
 
+  hackageStoreFor = hackageStoreWith "";
+
+  # One store per target holding every package that target installs. Each
+  # package is still its own derivation, so they build in parallel; this only
+  # gathers them. Examples and the cross bundles point at this instead of
+  # copying an overlapping subset per example, or reinstalling from source.
+  hackageStoreAllWith = extraSetup: target: let
+    packages = hackagePackagesFor target;
+  in
+    if packages == []
+    then exampleToolchainWith extraSetup target
+    else
+      pkgs.runCommand "aihc-hackage-store-${target}" {} ''
+        mkdir -p "$out"
+        ${pkgs.lib.concatMapStringsSep "\n" (package: ''
+            cp -Rn --no-preserve=mode ${hackageStoreWith extraSetup target package}/. "$out/"
+          '')
+          packages}
+      '';
+
+  hackageStoreAllFor = hackageStoreAllWith "";
+
   hackageInstallCases = pkgs.lib.concatMap (package:
     map (target: {
       name = "${package.name}-${package.version}-${target}";
@@ -610,19 +663,15 @@
   hackageInstallTests = assert hackage.packages != [];
     pkgs.linkFarm "aihc-hackage-install-tests" hackageInstallCases;
 
+  # An example with no extra packages waits only for the toolchain, so it still
+  # points at that rather than at the shared package store: making every example
+  # wait for every package would put the whole install matrix on their path.
   exampleStoreFor = target: exampleName: let
     extraNames = exampleExtraHackagePackages.${exampleName} or [];
   in
     if extraNames == []
     then exampleToolchainFor target
-    else
-      pkgs.runCommand "aihc-example-store-${exampleName}-${target}" {} ''
-        mkdir -p "$out"
-        ${pkgs.lib.concatMapStringsSep "\n" (name: ''
-            cp -R --no-preserve=mode ${hackageStoreFor target (findHackagePackage name)}/. "$out/"
-          '')
-          extraNames}
-      '';
+    else hackageStoreAllFor target;
 
   # build-exe computes the store directory of each package from its plan, which
   # reads the Cabal files of the package and its dependencies. The extra
@@ -660,38 +709,6 @@
     pkgs.llvmPackages.bintools
     pkgs.llvmPackages.clang
   ];
-
-  mkExampleExtraInstall = {
-    toolchain,
-    targets,
-  }: exampleName: let
-    extraNames = exampleExtraHackagePackages.${exampleName} or [];
-    extraPackages = map findHackagePackage extraNames;
-    linkWorkspaceEntry = package: ''
-      ln -sfn ${hackage.fetchPackage pkgs package} "$workspace/${package.name}"
-    '';
-    installExtraForTarget = target:
-      pkgs.lib.concatMapStringsSep "\n" (package: ''
-        ${aihcExe} install "$workspace/${package.name}" --store "$store" --immutable --target ${target}
-      '')
-      extraPackages;
-  in
-    if extraNames == []
-    then ''
-      store=${toolchain}
-    ''
-    else ''
-      store="$TMPDIR/example-store"
-      cp -R --no-preserve=mode ${toolchain} "$store"
-      coreLibsRoot="$TMPDIR/aihc-core-libs-root"
-      mkdir -p "$coreLibsRoot"
-      ln -sfn ${sources.coreLibrariesSrc pkgs}/core-libs "$coreLibsRoot/core-libs"
-      export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
-      workspace="$TMPDIR/workspace"
-      mkdir -p "$workspace"
-      ${pkgs.lib.concatMapStrings linkWorkspaceEntry extraPackages}
-      ${pkgs.lib.concatMapStringsSep "\n" installExtraForTarget targets}
-    '';
 
   mkExampleTest = exampleName: target:
     mkSourceCheck "aihc-example-${exampleName}-${target}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
@@ -898,7 +915,18 @@
   # links the bundles on macOS. A failing example records its status and log
   # instead of failing the derivation, so the consumer reports every example.
   crossExampleBundlesFor = target: let
-    toolchain = exampleToolchainWith (crossSetupFor target) target;
+    crossSetup = crossSetupFor target;
+    toolchain = exampleToolchainWith crossSetup target;
+    # The extras come from the shared package store for the target, built with
+    # the same cross setup as the toolchain it is layered on. Each example used
+    # to reinstall its extras from source into a private copy, so a package an
+    # example needs was compiled once here and again for every other example
+    # that named it.
+    packageStore = hackageStoreAllWith crossSetup target;
+    storeFor = exampleName:
+      if (exampleExtraHackagePackages.${exampleName} or []) == []
+      then toolchain
+      else packageStore;
     renderExample = exampleName: ''
       example_name=${pkgs.lib.escapeShellArg exampleName}
       bundle="$out/$example_name"
@@ -908,11 +936,7 @@
         set -euo pipefail
         ${exportCoreLibsRoot}
         package_flags=(${examplePackageFlags exampleName})
-        ${mkExampleExtraInstall {
-          inherit toolchain;
-          targets = [target];
-        }
-        exampleName}
+        store=${storeFor exampleName}
         timeout --foreground --kill-after=5s 300s ${aihcExe} build-exe "examples/$example_name/Main.hs" \
           --target ${target} \
           --gc semispace \
