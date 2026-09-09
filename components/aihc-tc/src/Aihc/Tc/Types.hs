@@ -692,7 +692,15 @@ isFixedRuntimeRep representation =
 -- | Kind arguments for a checked type constructor application.
 data TcTypeApplicationKinds = TcTypeApplicationKinds
   { tcInvisibleKindSubstitution :: Map Unique TcType,
-    tcVisibleArgumentKinds :: [TcType]
+    tcVisibleArgumentKinds :: [TcType],
+    -- | Why an argument contributed nothing to the substitution. An
+    -- argument whose kind cannot be worked out is skipped rather than
+    -- rejected, because the kinds of the other arguments often bind
+    -- every variable on their own. When they do not, the caller reports
+    -- a kind variable it cannot infer, and these are the reasons it
+    -- could not: without them the report names a variable but not the
+    -- argument that failed to bind it.
+    tcSkippedArguments :: [String]
   }
   deriving (Eq, Show, Read)
 
@@ -700,23 +708,30 @@ typeApplicationKinds :: TcKinds -> TcKindEnv -> TyCon -> [TcType] -> Maybe TcTyp
 typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
   ForAll quantified _ resultKind <- maybe (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))) Right (Map.lookup (tyConKey tyCon) kindEnv)
   let quantifiedUniques = map tvUnique quantified
-      (argumentSubstitution, remainingKind) = go quantifiedUniques Map.empty resultKind arguments
+      (argumentSubstitution, remainingKind, skipped) = go quantifiedUniques 0 Map.empty resultKind arguments
       resultSubstitution =
         case expectedKind of
           Just expected -> matchKind quantifiedUniques remainingKind expected
           Nothing -> Map.empty
       substitution = argumentSubstitution <> resultSubstitution
-  pure (TcTypeApplicationKinds substitution (argumentKinds (applySubst substitution resultKind)))
+  pure (TcTypeApplicationKinds substitution (argumentKinds (applySubst substitution resultKind)) skipped)
   where
     argumentKinds (KFun argument result) = argument : argumentKinds result
     argumentKinds _ = []
-    go quantifiedUniques substitution (KFun formal result) (argument : rest) =
+    go quantifiedUniques position substitution (KFun formal result) (argument : rest) =
       case typeKindInEnv kinds kindEnv argument of
         Right argumentKind ->
           let found = matchKind quantifiedUniques (applySubst substitution formal) argumentKind
-           in go quantifiedUniques (substitution <> found) (applySubst found result) rest
-        Left _ -> go quantifiedUniques substitution result rest
-    go _ substitution kind _ = (substitution, applySubst substitution kind)
+           in go quantifiedUniques (position + 1) (substitution <> found) (applySubst found result) rest
+        Left reason ->
+          let (substitution', kind, skipped) = go quantifiedUniques (position + 1) substitution result rest
+           in (substitution', kind, skippedArgument position reason : skipped)
+    go _ _ substitution kind _ = (substitution, applySubst substitution kind, [])
+
+    -- The caller prints the arguments themselves, so name the one that
+    -- failed by position rather than repeating it.
+    skippedArgument position reason =
+      "argument " <> show (position + 1 :: Int) <> " has no usable kind: " <> reason
 
     matchKind quantifiedUniques (TcTyVar tyVar) actual
       | tvUnique tyVar `elem` quantifiedUniques = Map.singleton (tvUnique tyVar) actual
