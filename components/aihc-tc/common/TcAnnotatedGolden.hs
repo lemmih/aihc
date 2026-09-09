@@ -46,6 +46,7 @@ import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult 
 import Aihc.Tc
   ( TcConfig,
     TcInterface,
+    TcWiring (..),
     emptyTcInterface,
     tcModuleDiagnostics,
     tcModuleSuccess,
@@ -53,7 +54,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Generate.Bind (freeVarsDecl)
 import Aihc.Tc.Generate.Pattern (patternBinderNames)
-import Aihc.Tc.Monad (TcTermKey (..), emptyTcEnv, initTcState, runTcM, tcAbortMessage)
+import Aihc.Tc.Monad (TcConfig (tcConfigWiring), TcTermKey (..), emptyTcEnv, initTcState, runTcM, tcAbortMessage)
 import Control.Exception (ErrorCall, displayException, evaluate, try)
 import Control.Monad (when)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -94,6 +95,8 @@ data TcAnnotatedCase = TcAnnotatedCase
     caseExtensions :: ![Extension],
     caseModules :: ![Text],
     caseAnnotated :: !(Maybe [String]),
+    casePrimitiveTerms :: !(Map Text (Text, Text, Text)),
+    caseRestrictedPrimitiveTerms :: !(Maybe [(Text, Text, Text)]),
     caseDependencies :: !(Maybe (Map Text [Text])),
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
@@ -178,16 +181,18 @@ loadTcAnnotatedCase path = do
 
 parseTcAnnotatedFixture :: FilePath -> Y.Value -> Either String TcAnnotatedCase
 parseTcAnnotatedFixture path value = do
-  (extNames, modules, annotatedTexts, dependencies, statusText, reasonText) <-
+  (extNames, modules, annotatedTexts, dependencies, primitiveTerms, restrictedPrimitiveTerms, statusText, reasonText) <-
     parseEither
       ( withObject "tc annotated fixture" $ \obj -> do
           exts <- obj .: "extensions"
           mods <- obj .: "modules" >>= parseModules
           annotated <- obj .:? "annotated" >>= traverse parseAnnotatedList
           dependencies <- obj .:? "dependencies"
+          primitiveTerms <- obj .:? "primitive-terms" .!= Map.empty
+          restrictedPrimitiveTerms <- obj .:? "restricted-primitive-terms"
           status <- obj .: "status"
           reason <- obj .:? "reason" .!= ""
-          pure (exts, mods, annotated, dependencies, status, reason)
+          pure (exts, mods, annotated, dependencies, primitiveTerms, restrictedPrimitiveTerms, status, reason)
       )
       value
   exts <- validateExtensions path extNames
@@ -205,6 +210,8 @@ parseTcAnnotatedFixture path value = do
         caseModules = modules,
         caseAnnotated = annotated,
         caseDependencies = dependencies,
+        casePrimitiveTerms = primitiveTerms,
+        caseRestrictedPrimitiveTerms = restrictedPrimitiveTerms,
         caseStatus = status,
         caseReason = reason
       }
@@ -287,12 +294,24 @@ checkTcAnnotatedCase tc =
         Right modules ->
           case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
-              typecheckModuleGraph (supportTcInterface primitiveSupport) (map snd resolvedModules)
+              typecheckModuleGraph (fixtureTcConfig tc) (supportTcInterface primitiveSupport) (map snd resolvedModules)
             ResolveResult {resolveErrors} ->
               Left ("resolve error: " <> show resolveErrors)
   where
     parseOne input =
       parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
+
+-- | Override primitive identities for source fixtures.
+fixtureTcConfig :: TcAnnotatedCase -> TcConfig
+fixtureTcConfig tc = testTcConfig {tcConfigWiring = wiring}
+  where
+    defaults = tcConfigWiring testTcConfig
+    identity (package, modu, name) = (PackageId package, modu, name)
+    wiring =
+      defaults
+        { tcWiringPrimitiveTerm = \name -> maybe (tcWiringPrimitiveTerm defaults name) identity (Map.lookup name (casePrimitiveTerms tc)),
+          tcWiringRestrictedPrimitiveTerms = maybe (tcWiringRestrictedPrimitiveTerms defaults) (Set.fromList . map identity) (caseRestrictedPrimitiveTerms tc)
+        }
 
 data ModuleNode = ModuleNode
   { nodeIndex :: !Int,
@@ -300,8 +319,8 @@ data ModuleNode = ModuleNode
     nodeDependencies :: ![Int]
   }
 
-typecheckModuleGraph :: TcInterface -> [Module] -> Either String [Module]
-typecheckModuleGraph baseInterface modules = do
+typecheckModuleGraph :: TcConfig -> TcInterface -> [Module] -> Either String [Module]
+typecheckModuleGraph config baseInterface modules = do
   (checkedModules, _) <- foldl' checkComponent (Right (Map.empty, Map.empty)) components
   traverse (lookupCheckedModule checkedModules) [0 .. length modules - 1]
   where
@@ -329,7 +348,7 @@ typecheckModuleGraph baseInterface modules = do
       dependencyInterfaces <- traverse (lookupDependencyInterface interfacesByIndex) dependencyIndices
       let importedInterface = mconcat (baseInterface : dependencyInterfaces)
           (checked, checkedInterface) =
-            typecheckModuleSccWithInterface testTcConfig importedInterface (map nodeModule componentNodes)
+            typecheckModuleSccWithInterface config importedInterface (map nodeModule componentNodes)
           checkedByIndex' = foldl' (\acc (node, modu) -> Map.insert (nodeIndex node) modu acc) checkedByIndex (zip componentNodes checked)
           interfacesByIndex' = foldl' (\acc node -> Map.insert (nodeIndex node) checkedInterface acc) interfacesByIndex componentNodes
       pure (checkedByIndex', interfacesByIndex')

@@ -1,0 +1,37 @@
+extensions: []
+primitive-terms:
+  force: ["", Runtime.Strict, force]
+  seq: ["", Runtime.Strict, seq]
+restricted-primitive-terms:
+  - ["", Runtime.Strict, force]
+modules:
+  - |
+    module Runtime.Strict where
+    data Value = Value
+    foreign import prim force :: Value -> Value
+    foreign import prim seq :: Value -> Value
+  - |
+    module Test where
+    import Runtime.Strict (Value)
+    foreign import prim force :: Value -> Value
+    foreign import prim seq :: Value -> Value
+annotated:
+  - |
+    module Runtime.Strict where
+    data Value = Value
+         │       └─ type: Value
+         └─ type: Type
+    foreign import prim force :: Value -> Value
+    └─ type: Value → Value
+    foreign import prim seq :: Value -> Value
+    └─ type: Value → Value
+  - |
+    module Test where
+    import Runtime.Strict (Value)
+    foreign import prim force :: Value -> Value
+    │                   └─ error: foreign primitive force is only accepted at the configured identity Runtime.Strict.force
+    └─ type: Runtime.Strict.Value → Runtime.Strict.Value
+    foreign import prim seq :: Value -> Value
+    └─ type: Runtime.Strict.Value → Runtime.Strict.Value
+status: pass
+reason: Only configured primitive identities restrict declaration locations.

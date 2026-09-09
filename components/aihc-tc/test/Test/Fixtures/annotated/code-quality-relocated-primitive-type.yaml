@@ -1,0 +1,21 @@
+extensions: []
+primitive-terms:
+  operation: ["", Runtime.Operation, operation]
+  other: ["", Runtime.Other, other]
+modules:
+  - |
+    module Runtime.Operation where
+    data Value = Value
+    foreign import prim operation :: Value -> Value
+  - |
+    module Runtime.Other where
+    import Runtime.Operation (Value)
+    foreign import prim other :: Value -> Value
+  - |
+    module Test where
+    import Runtime.Other ()
+    import Runtime.Operation (Value)
+    foreign import prim operation :: Value -> Value
+    foreign import prim other :: Value -> Value
+status: pass
+reason: Primitive declarations use the configured term identity.

@@ -144,7 +144,6 @@ import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds
 import Control.Applicative ((<|>))
 import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Reader (asks)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Char (isAlpha, isAlphaNum, ord)
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -1191,22 +1190,25 @@ annotateForeignDeclTc foreignDecl = do
 -- | A primitive declaration must retain the configured primitive type.
 checkPrimitiveImportType :: SourceSpan -> TcTermKey -> TcType -> TcM ()
 checkPrimitiveImportType sourceSpan key declaredType = do
-  primitivePackage <- asks (tcConfigPrimPackage . tcEnvConfig)
+  wiring <- getWiring
   case key of
-    TcTermGlobal package declaredModule "seq"
-      | (package, declaredModule) /= (primitivePackage, "GHC.Prim") ->
-          emitError sourceSpan (OtherError "foreign primitive seq is only accepted in the configured GHC.Prim module")
-    TcTermGlobal package declaredModule name
-      | (package, declaredModule) /= (primitivePackage, "GHC.Prim") -> do
-          canonical <- lookupTermKey (TcTermGlobal primitivePackage "GHC.Prim" name)
-          case canonical of
-            Just binder -> do
-              let canonicalType = case binder of
-                    TcIdBinder scheme _ -> schemeToType scheme
-                    TcMonoIdBinder ty -> ty
-              unless (equivalentTypeSchemes (typeSchemeFromType canonicalType) (typeSchemeFromType declaredType)) $
-                emitError sourceSpan (OtherError ("foreign import prim " <> T.unpack name <> " must repeat the type of GHC.Prim." <> T.unpack name <> ": expected " <> renderTcType canonicalType <> ", got " <> renderTcType declaredType))
-            Nothing -> pure ()
+    TcTermGlobal package declaredModule name -> do
+      let canonicalIdentity@(canonicalPackage, canonicalModule, canonicalName) = tcWiringPrimitiveTerm wiring name
+          canonicalKey = TcTermGlobal canonicalPackage canonicalModule canonicalName
+          canonicalLabel = T.unpack (canonicalModule <> "." <> canonicalName)
+      when ((package, declaredModule, name) /= canonicalIdentity) $
+        if Set.member canonicalIdentity (tcWiringRestrictedPrimitiveTerms wiring)
+          then emitError sourceSpan (OtherError ("foreign primitive " <> T.unpack name <> " is only accepted at the configured identity " <> canonicalLabel))
+          else do
+            canonical <- lookupTermKey canonicalKey
+            case canonical of
+              Just binder -> do
+                let canonicalType = case binder of
+                      TcIdBinder scheme _ -> schemeToType scheme
+                      TcMonoIdBinder ty -> ty
+                unless (equivalentTypeSchemes (typeSchemeFromType canonicalType) (typeSchemeFromType declaredType)) $
+                  emitError sourceSpan (OtherError ("foreign import prim " <> T.unpack name <> " must repeat the type of " <> canonicalLabel <> ": expected " <> renderTcType canonicalType <> ", got " <> renderTcType declaredType))
+              Nothing -> pure ()
     _ -> pure ()
 
 -- | Record the checked calling convention of a foreign import, so that the
