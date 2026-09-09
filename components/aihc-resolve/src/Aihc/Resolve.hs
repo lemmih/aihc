@@ -268,11 +268,7 @@ missingImportMemberAnnotation originScope item members =
     exportedMembers =
       case importItemTypeName item of
         Nothing -> []
-        Just itemName ->
-          let parentName = renderUnqualifiedName itemName
-           in Map.findWithDefault [] parentName (scopeConstructors originScope)
-                <> Map.findWithDefault [] parentName (scopeMethods originScope)
-                <> Map.findWithDefault [] parentName (scopeAssociatedTypes originScope)
+        Just itemName -> allTypeMembers (renderUnqualifiedName itemName) originScope
     missingMemberAnnotation member =
       let memberName = nameText (ieBundledMemberName member)
        in ResolutionAnnotation

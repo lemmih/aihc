@@ -25,6 +25,7 @@ module Aihc.Resolve.Scope
     resolveFixityName,
     collectPatVarBinders,
     importItemTypeName,
+    allTypeMembers,
   )
 where
 
@@ -769,8 +770,11 @@ collectPatVarBinders ambient pat =
   case peelPatternAnn pat of
     PVar name -> [(spanStartNameSpan ambient (renderUnqualifiedName name), name)]
     PTuple _ pats -> concatMap (collectPatVarBinders ambient) pats
+    PUnboxedSum _ _ inner -> collectPatVarBinders ambient inner
     PList pats -> concatMap (collectPatVarBinders ambient) pats
     PParen inner -> collectPatVarBinders ambient inner
+    PTypeSig inner _ -> collectPatVarBinders ambient inner
+    PView _ inner -> collectPatVarBinders ambient inner
     PAs alias inner ->
       (spanStartNameSpan ambient (renderUnqualifiedName alias), alias)
         : collectPatVarBinders ambient inner
