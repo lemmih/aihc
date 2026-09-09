@@ -13,10 +13,11 @@ import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
 import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.Resolve (PackageId (..))
-import Aihc.Tc (tcInterfaceTerms, tcTermKeyIdentifier)
+import Aihc.Tc (TyConInfo (..), tcInterfaceTerms, tcInterfaceTyCons, tcTermKeyIdentifier, tyConName)
 import Control.Concurrent (getNumCapabilities, setNumCapabilities)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM, forM_, void)
+import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -26,6 +27,7 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Data.Yaml qualified as Y
 import System.Directory
   ( copyFile,
     createDirectory,
@@ -83,7 +85,8 @@ tests =
             ],
         testGroup
           "install"
-          [ testCase "reuses unchanged fixture modules" (test_installIncremental primStore),
+          [ testCase "code-quality install fixtures" (testInstallFixtures primStore),
+            testCase "reuses unchanged fixture modules" (test_installIncremental primStore),
             testCase "installs an immutable package once" (test_installImmutable primStore),
             testCase "writes Core files and reuses an installed package" (test_installResolveArtifacts primStore),
             testCase "accepts type-check warnings" (test_installTypeWarning primStore),
@@ -107,6 +110,42 @@ tests =
             testCase "parses Hackage package targets" test_parsePackageTarget
           ]
       ]
+
+-- | Each package fixture specifies its expected error or stored constructors.
+data InstallFixture = InstallFixture
+  { installFixtureError :: Maybe String,
+    installFixtureTyCons :: [(String, [String])]
+  }
+
+instance FromJSON InstallFixture where
+  parseJSON = withObject "install fixture" $ \obj -> do
+    status <- obj .: "status"
+    if status == ("pass" :: String)
+      then InstallFixture <$> obj .:? "expect-error" <*> obj .:? "expect-type-constructors" .!= []
+      else fail "install fixtures require pass status"
+
+testInstallFixtures :: IO SeedStore -> Assertion
+testInstallFixtures getStore = do
+  root <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/code-quality"
+  names <- sort <$> listDirectory root
+  forM_ names $ \name -> do
+    let directory = root </> name
+    fixture <- Y.decodeFileThrow (directory </> "fixture.yaml")
+    assertBool (name <> ": empty expected diagnostic") (maybe True (not . null) (installFixtureError fixture))
+    withSandbox getStore ("aihc-" <> name) $ \sandbox -> do
+      store <- sandboxStore sandbox "store"
+      outcome <- try (install (InstallOptions directory (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False True False False buildExeHostTarget))
+      case outcome :: Either IOException InstallResult of
+        Left err -> do
+          assertBool (name <> ": unexpected error: " <> show err) (maybe False (`isInfixOf` show err) (installFixtureError fixture))
+        Right result ->
+          case installFixtureError fixture of
+            Just _ -> assertFailure (name <> ": install accepted a package that requires an error")
+            Nothing -> forM_ (installFixtureTyCons fixture) $ \(moduleName, expected) -> do
+              bytes <- BL.readFile (installStorePath result </> moduleName </> "type.cbor")
+              let actual = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons (typeArtifactInterface (decodeTypeArtifact bytes)))
+              forM_ expected $ \constructor ->
+                assertBool (name <> ": missing type constructor " <> constructor <> " in " <> moduleName) (constructor `elem` actual)
 
 test_parsePackageTarget :: Assertion
 test_parsePackageTarget = do

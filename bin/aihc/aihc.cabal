@@ -35,6 +35,9 @@ extra-source-files:
   test/Test/Fixtures/install/c-sources/cbits/helper.c
   test/Test/Fixtures/install/c-sources/demo.cabal
   test/Test/Fixtures/install/c-sources/src/Demo.hs
+  test/Test/Fixtures/install/code-quality/*/*.cabal
+  test/Test/Fixtures/install/code-quality/*/fixture.yaml
+  test/Test/Fixtures/install/code-quality/*/src/*.hs
   test/Test/Fixtures/install/incremental/Extra.hs
   test/Test/Fixtures/install/incremental/demo.cabal
   test/Test/Fixtures/install/incremental/dep/dep.cabal
@@ -104,7 +107,6 @@ library
     Aihc.Cli.BuildStamp
     Aihc.Cli.Install
     Aihc.Cli.Options
-    Aihc.Cli.PackageInterface
     Aihc.Cli.PackageManifest
     Aihc.Cli.ResolveArtifact
     Aihc.Cli.Runtime
@@ -153,6 +155,7 @@ library
     Aihc.Wasm.Lir
 
   other-modules:
+    Aihc.Cli.InterfaceTyCons
     Aihc.Cli.TaskGraph
     Aihc.CompilerBuildIdentity
     Aihc.Fc.Desugar.Value

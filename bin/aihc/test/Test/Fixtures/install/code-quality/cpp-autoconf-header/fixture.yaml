@@ -1,0 +1,2 @@
+status: pass
+reason: Compiler configuration headers preserve the Haskell word model.

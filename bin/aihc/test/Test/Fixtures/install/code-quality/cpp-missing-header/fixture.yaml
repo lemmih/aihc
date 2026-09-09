@@ -1,0 +1,3 @@
+status: pass
+reason: A missing source header must prevent package installation.
+expect-error: "missing include: aihc-code-quality-missing.h"
