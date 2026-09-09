@@ -5,7 +5,7 @@ module Test.Native.Compiler
   )
 where
 
-import Aihc.Native (NativeTarget (Llvm), backendCompiler, renderLinkedFunctionSymbol)
+import Aihc.Native (NativeTarget (Llvm), backendCompiler, handwrittenCArguments, renderLinkedFunctionSymbol)
 import Data.ByteString qualified as BS
 import Data.Char (digitToInt, isDigit, isHexDigit, ord)
 import Data.Text (Text)
@@ -22,14 +22,17 @@ tests :: TestTree
 tests =
   testGroup
     "backend compiler"
-    [ testCase "leaves LLVM IR optimization to the compiler itself" $ do
-        -- aihc optimizes before it emits IR, and the other targets pass no -O
-        -- flag at all. Clang ran the LLVM target at -O2 on top of that, which
-        -- cost about two thirds of the install time of a large package.
+    [ testCase "leaves generated code unoptimized by Clang" $ do
+        -- aihc optimizes before it emits IR, so Clang running its own optimizer
+        -- over generated code was redundant work on the compiler's hottest
+        -- path. Handwritten C is the other way round: compiled rarely, hot for
+        -- the life of every program linked against it, and -O is required
+        -- anyway because the runtime builds -Werror and glibc warns when
+        -- _FORTIFY_SOURCE is set without it.
         (compiler, arguments) <- backendCompiler Llvm
         assertEqual "LLVM compiler" "clang" compiler
-        assertBool "LLVM optimization flag" ("-O0" `elem` arguments)
-        assertBool "no redundant Clang optimization" ("-O2" `notElem` arguments)
+        assertBool "no Clang optimization of generated code" (all (`notElem` arguments) ["-O1", "-O2", "-O3"])
+        assertBool "handwritten C is optimized" ("-O2" `elem` handwrittenCArguments)
         assertEqual "module-warning flag count" 1 (length (filter (== "-Wno-override-module") arguments)),
       testCase "renders common linker identities readably" $ do
         assertEqual

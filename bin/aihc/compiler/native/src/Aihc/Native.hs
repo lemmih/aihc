@@ -11,6 +11,7 @@ module Aihc.Native
     WasmSysroot (..),
     backendArchiver,
     backendCompiler,
+    handwrittenCArguments,
     buildAddrLiteralPool,
     executableEntryName,
     hostNativeTarget,
@@ -237,17 +238,33 @@ nativeTargetStoreDirectory target =
     Llvm -> "llvm"
     Wasm32Wasip3 -> "wasm32-wasip3"
 
+-- | Arguments for compiling handwritten C: the runtime sources and the C
+-- sources of a Hackage package, as opposed to the code aihc generates.
+--
+-- These are optimised where generated code is not. Handwritten C is compiled
+-- rarely -- the runtime once per backend and collector, a package's C sources
+-- once per install -- and it stays hot for the whole life of every program
+-- linked against it, so the trade that makes generated code cheap runs the
+-- other way here. It is also required rather than merely wanted: the runtime
+-- builds with -Werror, and glibc's features.h raises #warning when
+-- _FORTIFY_SOURCE is set without -O, which the Nixpkgs Clang wrapper does.
+--
+-- Callers append their own arguments, so a caller that wants a different level
+-- can still override this by passing one later on the command line.
+handwrittenCArguments :: [String]
+handwrittenCArguments = ["-O2"]
+
 -- | Select the compiler driver and target arguments.
 backendCompiler :: NativeTarget -> IO (FilePath, [String])
 backendCompiler target =
   case target of
-    -- -O0 matches the other targets, which pass no -O flag and so get Clang's
-    -- default. The LLVM backend used -O2, which costs roughly two thirds of the
-    -- install time for a large package: containers spends 32.7 s of its 39.8 s
-    -- in Clang at -O2 against 8.1 s for the in-house arm64 backend. aihc does
-    -- its own optimisation before emitting IR, so the target that shells out to
-    -- Clang should not also pay for Clang's optimiser by default.
-    Llvm -> pure ("clang", ["-Wno-override-module", "-O0"])
+    -- No -O flag, matching the other targets. These arguments compile the code
+    -- aihc generates, which aihc has already optimised before emitting it, so
+    -- Clang's optimiser was redundant work on the hottest path in the compiler:
+    -- containers spent 32.7 s of a 39.8 s install in Clang at -O2, against
+    -- 8.1 s through the in-house arm64 backend. Handwritten C is a separate
+    -- case; see handwrittenCArguments.
+    Llvm -> pure ("clang", ["-Wno-override-module"])
     Wasm32Wasip3 -> do
       compiler <- fromMaybe "clang" <$> lookupEnv "AIHC_WASM_CLANG"
       pure

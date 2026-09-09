@@ -58,7 +58,7 @@ import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower qualified as Lir
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory, wasmSysroot)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendArchiver, backendCompiler, handwrittenCArguments, nativeTargetStoreDirectory, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyResolver (..),
     DependencyVersions,
@@ -2071,6 +2071,7 @@ compilePackageCFiles target verbose packageRoot storePath info
         runTool
           compiler
           ( targetArguments
+              <> handwrittenCArguments
               <> HackageCabal.cCompileCcOptions info
               <> includeArguments
               <> ["-c", source, "-o", object]
