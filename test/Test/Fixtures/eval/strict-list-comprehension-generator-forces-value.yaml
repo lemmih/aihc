@@ -1,0 +1,21 @@
+extensions:
+  - BangPatterns
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (raise#)
+
+    data Failure = Failure
+
+    values :: [()]
+    values = [raise# Failure]
+
+    result :: [Bool]
+    result = [True | !bound <- values]
+output: ""
+exception: Failure
+expression: result
+status: pass
+reason: A strict pattern in a list comprehension generator must force the bound value.

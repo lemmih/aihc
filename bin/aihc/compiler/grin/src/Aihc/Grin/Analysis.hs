@@ -1,7 +1,6 @@
 -- | Shared structural analyses over strict GRIN.
 module Aihc.Grin.Analysis
   ( freeExprVars,
-    freeNodeVars,
     maximumProgramVarUnique,
   )
 where

@@ -146,8 +146,12 @@ sanitizePkgName = T.map sanitizePkgChar
 -- dependency whose version is unknown is treated as newer than anything the
 -- file could ask for, which is the only answer that keeps the file
 -- compiling.
-injectSyntheticCppMacros :: [String] -> DependencyVersions -> [Text] -> Text -> Text
-injectSyntheticCppMacros cppOptions versions dependencies source =
+--
+-- The header is followed by a @#line 1@ directive naming the file, so that
+-- the lines the preprocessor reports are the lines of the original source
+-- rather than the lines of the source plus this header.
+injectSyntheticCppMacros :: FilePath -> [String] -> DependencyVersions -> [Text] -> Text -> Text
+injectSyntheticCppMacros path cppOptions versions dependencies source =
   let existingFromOptions = cppDefinedOrUndefinedFromOptions cppOptions
       shouldDefine name = not (name `S.member` existingFromOptions)
       compilerVersion = releaseCompilerVersion emulatedGhc
@@ -171,11 +175,25 @@ injectSyntheticCppMacros cppOptions versions dependencies source =
                   ]
                     ++ [minVersionDefine name version]
                 Nothing -> ["#define " <> name <> "(major1,major2,minor) 1"]
+      macroLines = compilerMacroLines ++ dependencyLines
       header =
-        if null (compilerMacroLines ++ dependencyLines)
+        if null macroLines
           then ""
-          else T.unlines (compilerMacroLines ++ dependencyLines)
+          else T.unlines (macroLines ++ [resetLineDirective path])
    in if T.null header then source else header <> source
+
+-- | The @#line@ directive that makes the next line count as line 1 of @path@.
+resetLineDirective :: FilePath -> Text
+resetLineDirective path = "#line 1 \"" <> escapeLineDirectivePath (T.pack path) <> "\""
+
+-- | Escape the characters a @#line@ directive's quoted path cannot carry
+-- literally.
+escapeLineDirectivePath :: Text -> Text
+escapeLineDirectivePath = T.concatMap escapeChar
+  where
+    escapeChar '\\' = "\\\\"
+    escapeChar '"' = "\\\""
+    escapeChar c = T.singleton c
 
 minVersionDefine :: Text -> [Int] -> Text
 minVersionDefine name version =

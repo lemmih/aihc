@@ -1,7 +1,8 @@
 module Main (main) where
 
+import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HC
-import Aihc.Hackage.Cpp (builtinCppMacros, injectSyntheticCppMacros)
+import Aihc.Hackage.Cpp (builtinCppMacros, cppMacrosFromOptions, injectSyntheticCppMacros)
 import Aihc.Hackage.Index (parseHackageIndex, parseHackageIndexUpdatedSince)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc, showVersionBranch)
 import Aihc.Hackage.Types (PackageSpec (..))
@@ -16,6 +17,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.List (isInfixOf, isSuffixOf, sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
@@ -57,6 +59,7 @@ main =
       testCase "collects exposed modules from active conditional library branches" test_collectsConditionalExposedModules,
       testCase "evaluates impl(ghc) conditions against the emulated compiler" test_evaluatesImplConditions,
       testCase "defines MIN_VERSION macros from resolved dependency versions" test_minVersionMacros,
+      testCase "reports source lines unshifted by the synthetic macro header" test_diagnosticsUseSourceLineNumbers,
       testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
       testCase "detects packages that default to Haskell98" test_detectsHaskell98DefaultLanguage,
       testCase "ignores inactive Haskell98 default-language branches" test_ignoresInactiveHaskell98DefaultLanguage,
@@ -172,7 +175,7 @@ test_evaluatesImplConditions = do
 test_minVersionMacros :: Assertion
 test_minVersionMacros = do
   let versions = Map.fromList [(T.pack "base", [4, 21, 2, 0])]
-      injected = injectSyntheticCppMacros [] versions (map T.pack ["base", "unknown-pkg"]) (T.pack "body\n")
+      injected = injectSyntheticCppMacros "Demo.hs" [] versions (map T.pack ["base", "unknown-pkg"]) (T.pack "body\n")
       macroLines = T.lines injected
       hasLine expected = assertBool expected (T.pack expected `elem` macroLines)
   hasLine "#define VERSION_base \"4.21.2.0\""
@@ -181,6 +184,7 @@ test_minVersionMacros = do
   let compilerVersion = releaseCompilerVersion emulatedGhc
   hasLine ("#define MIN_VERSION_ghc(major1,major2,minor) " <> atLeastThree compilerVersion)
   assertBool "MIN_VERSION_GLASGOW_HASKELL is a comparison" (any (T.pack "#define MIN_VERSION_GLASGOW_HASKELL(ma,mi,pl1,pl2) (" `T.isPrefixOf`) macroLines)
+  hasLine "#line 1 \"Demo.hs\""
   assertEqual "source follows the macros" (Just (T.pack "body")) (Just (last macroLines))
   where
     atLeastThree version =
@@ -188,6 +192,30 @@ test_minVersionMacros = do
             [x, y, z] -> (show x, show y, show z)
             _ -> error "unreachable"
        in "((major1) < " <> a <> " || (major1) == " <> a <> " && (major2) < " <> b <> " || (major1) == " <> a <> " && (major2) == " <> b <> " && (minor) <= " <> c <> ")"
+
+-- The synthetic macro header shifts every line of the file it is prepended
+-- to, so it ends with a @#line@ directive. Without it a diagnostic names a
+-- line as many lines below the real one as the header is long.
+test_diagnosticsUseSourceLineNumbers :: Assertion
+test_diagnosticsUseSourceLineNumbers = do
+  let path = "Demo.hs"
+      versions = Map.fromList [(T.pack "base", [4, 21, 2, 0])]
+      source = T.pack "module Demo where\n#warning demo warning\ndata Flag = Flag\n"
+      injected = injectSyntheticCppMacros path [] versions [T.pack "base"] source
+      config =
+        Cpp.defaultConfig
+          { Cpp.configInputFile = path,
+            Cpp.configMacros = cppMacrosFromOptions []
+          }
+  assertBool "the header must actually prepend lines" (length (T.lines injected) > length (T.lines source))
+  case Cpp.preprocess config (TE.encodeUtf8 injected) of
+    Cpp.Done result ->
+      case Cpp.resultDiagnostics result of
+        [diagnostic] -> do
+          assertEqual "warning line" 2 (Cpp.diagLine diagnostic)
+          assertEqual "warning file" path (Cpp.diagFile diagnostic)
+        diagnostics -> assertFailure ("expected one diagnostic, got " <> show (length diagnostics))
+    Cpp.NeedInclude request _ -> assertFailure ("unexpected include request: " <> show (Cpp.includePath request))
 
 test_extractsBuildToolDependencyNames :: Assertion
 test_extractsBuildToolDependencyNames = do

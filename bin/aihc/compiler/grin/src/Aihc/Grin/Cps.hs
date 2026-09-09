@@ -50,12 +50,13 @@ data ContinuationFrameKind
   = ContinuationFrameNormal
   | ContinuationFrameCatch
   | ContinuationFrameUpdate
-  | ContinuationFrameRestoreMask
   | ContinuationFrameStop
   deriving (Eq, Ord, Show, Read, Enum, Bounded)
 
 -- | Stable value stored in the shared runtime info-table ABI. Zero is reserved
--- for closures that are not continuation frames.
+-- for closures that are not continuation frames. The C runtime reserves code 4
+-- for a restore-mask frame. GRIN does not make that frame, thus code 4 is
+-- absent here.
 continuationFrameKindCode :: Maybe ContinuationFrameKind -> Int
 continuationFrameKindCode frameKind =
   case frameKind of
@@ -63,7 +64,6 @@ continuationFrameKindCode frameKind =
     Just ContinuationFrameNormal -> 1
     Just ContinuationFrameCatch -> 2
     Just ContinuationFrameUpdate -> 3
-    Just ContinuationFrameRestoreMask -> 4
     Just ContinuationFrameStop -> 5
 
 data CpsGrinError

@@ -273,7 +273,6 @@ data GrinAltCon
 data GrinLiteral
   = GrinLitInt !GrinRep !Integer
   | GrinLitChar !GrinRep !Char
-  | GrinLitString !Text
   | GrinLitAddr !ByteString
   deriving (Eq, Show, Read)
 
@@ -446,7 +445,6 @@ grinValueRuntimeRep value =
       case literal of
         GrinLitInt runtimeRep _ -> runtimeRep
         GrinLitChar runtimeRep _ -> runtimeRep
-        GrinLitString {} -> liftedGrinRep
         GrinLitAddr {} -> AddrRep
 
 isLiftedRuntimeRep :: GrinRep -> Bool
