@@ -12,13 +12,13 @@ import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Lower (lowerEntry, lowerModule, wasip3Target)
-import Aihc.Native (NativeTarget (Wasm32Wasip3), WasmSysroot (..), backendCompiler, executableEntryName, wasmSysroot)
+import Aihc.Native (NativeTarget (Wasm32Wasip3), WasmSysroot (..), backendCompiler, executableEntryName, renderLinkedGlobalSymbol, wasmSysroot)
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
 import Aihc.Wasm.Lir (compileLirModule)
 import Control.Exception (IOException, bracket, try)
-import Control.Monad (unless)
-import Data.Aeson (FromJSON (..), withObject, (.:))
+import Control.Monad (forM_, unless)
+import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import Data.List (sort)
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Text (Text)
@@ -50,13 +50,16 @@ tests = do
   tools <- findWasmTools
   let directory = root </> "bin" </> "aihc" </> "compiler" </> "lir" </> "test" </> "Test" </> "Fixtures" </> "lir" </> "eval"
       snapshotDirectory = root </> "bin" </> "aihc" </> "compiler" </> "grin" </> "test" </> "Test" </> "Fixtures" </> "grin-snapshot"
+      lowerDirectory = root </> "bin" </> "aihc" </> "compiler" </> "lir" </> "test" </> "Test" </> "Fixtures" </> "lir" </> "lower"
   names <- sort . filter ((== ".lir") . takeExtension) <$> listDirectory directory
   snapshots <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory snapshotDirectory
+  lowerFixtures <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory lowerDirectory
   pure
     ( testGroup
         "aihc-wasm"
         [ testGroup "Lir evaluation fixtures" (map (fixtureTest tools directory) names),
           testGroup "GRIN heap snapshots lowered for wasm32" (map (snapshotTest snapshotDirectory) snapshots),
+          testGroup "static data fixtures lowered for wasm32" (map (snapshotTest lowerDirectory) lowerFixtures),
           testGroup
             "programs through Lir"
             [ testCase "runs fork# and yield# with FIFO scheduling" (programTest tools "PCAB" schedulerProgram),
@@ -249,7 +252,8 @@ runTool tool arguments = do
 data SnapshotFixture = SnapshotFixture
   { snapshotFixtureEntry :: !Text,
     snapshotFixtureProgram :: !Text,
-    snapshotFixtureStatus :: !Text
+    snapshotFixtureStatus :: !Text,
+    snapshotFixtureWasmIntegerFields :: ![(Text, [Text])]
   }
 
 instance FromJSON SnapshotFixture where
@@ -259,6 +263,7 @@ instance FromJSON SnapshotFixture where
         <$> object .: "entry"
         <*> object .: "program"
         <*> object .: "status"
+        <*> object .:? "wasm-integer-fields" .!= []
 
 -- | Lower the fixture program for wasm32, check the Lir, and compile it.
 -- The snapshot runtime needs a C library, so the snapshot itself is not
@@ -275,6 +280,13 @@ snapshotTest directory name = testCase name $ do
   assertEqual "Lir pretty-printer round-trip" lirModule reparsed
   assembly <- compileText lirModule
   assertBool "info tables have 4-byte words" ("\t.p2align\t2, 0x0" `T.isInfixOf` assembly)
+  forM_ (snapshotFixtureWasmIntegerFields fixture) $ \(globalName, expected) -> do
+    let fields =
+          [ [T.pack (show ty) | DataInt ty _ <- dataFields item]
+          | ItemData item <- moduleItems lirModule,
+            dataName item == Symbol (renderLinkedGlobalSymbol globalName)
+          ]
+    assertEqual ("static integer field types: " <> T.unpack globalName) [expected] fields
 
 -- Programs
 

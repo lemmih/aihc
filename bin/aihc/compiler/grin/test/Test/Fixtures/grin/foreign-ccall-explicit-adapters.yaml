@@ -16,7 +16,7 @@ expected: |-
 
   constructor 1.I# [IntRep]
 
-  foreign identityInt = "identity_int" :: (int) -> int ! real-world
+  foreign 1.identityInt = "identity_int" :: (int) -> int ! real-world
 
   global 1.run = (P$run/1)
 
@@ -26,7 +26,7 @@ expected: |-
     case (foreign_box :: BoxedRep Lifted) as foreign_box_case :: BoxedRep Lifted of
       data 1.I# (foreign_field :: IntRep) ->
         foreign_result :: IntRep <-
-          foreign-call identityInt = "identity_int" :: (int) -> int ! real-world with (foreign_field :: IntRep)
+          foreign-call 1.identityInt = "identity_int" :: (int) -> int ! real-world with (foreign_field :: IntRep)
         store (C1.I# (foreign_result :: IntRep))
 
   $run (x :: BoxedRep Lifted) -> BoxedRep Lifted =

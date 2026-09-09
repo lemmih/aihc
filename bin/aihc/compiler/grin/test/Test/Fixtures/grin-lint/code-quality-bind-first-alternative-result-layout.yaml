@@ -1,0 +1,12 @@
+program: |
+  $entry -> IntRep =
+    (result%2 :: IntRep) <-
+      case (0 :: IntRep) as choice%1 :: IntRep of
+        0 ->
+          constant (1 :: WordRep)
+        _ ->
+          constant (2 :: IntRep)
+    constant (result%2 :: IntRep)
+error: result-layout
+status: pass
+reason: Each bound case result must match the binder layout.

@@ -1,0 +1,13 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    foreign import prim (-#) :: Int# -> Int# -> Int#
+output: |
+  9223372036854775807
+expression: |
+  (-#) (-9223372036854775808#) 1#
+status: pass
+reason: Int# subtract must wrap at the signed 64-bit limit.
