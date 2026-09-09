@@ -3,6 +3,7 @@ extensions:
 modules:
   - |
     module Test where
+    import GHC.Types (Type)
     data Box a = Box a
     class Map (f :: Type -> Type) where
       mapValue :: f a -> f a

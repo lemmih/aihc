@@ -4,6 +4,7 @@ extensions:
 modules:
   - |
     module Test where
+    import GHC.Types
     data Color = Red
     data BadApplication (a :: Color Type)
     data BadField (r :: RuntimeRep) = BadField r
@@ -11,12 +12,14 @@ annotated:
 - |-
   module Test where
   └─ error: kind mismatch: expected Type, got RuntimeRep
+  └─ error: kind mismatch: expected Type, got Type → Type
+  └─ error: kind mismatch: expected Type, got Type → Type
+  import GHC.Types
   data Color = Red
        │       └─ type: Color
        └─ type: Type
   data BadApplication (a :: Color Type)
-       └─ type: Color Type → Type └─ error: kind mismatch: expected Type, got Type → Type
-                                  └─ error: kind mismatch: expected Type, got Type → Type
+       └─ type: Color Type → Type
   data BadField (r :: RuntimeRep) = BadField r
        │                            └─ type: ∀ r. r → BadField r
        └─ type: GHC.Types.RuntimeRep → Type

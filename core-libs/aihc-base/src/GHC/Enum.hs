@@ -14,12 +14,13 @@ where
 
 import Data.Bool (Bool (..))
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
-import GHC.Internal.Char (Char)
+import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Integer (Integer (..), integerToInt#)
 import GHC.Num (Num (..))
 import GHC.Prim
   ( Int#,
+    chr#,
     int16ToInt#,
     int2Word#,
     int32ToInt#,
@@ -30,6 +31,7 @@ import GHC.Prim
     intToInt64#,
     intToInt8#,
     not#,
+    ord#,
     uncheckedShiftRL#,
     word16ToWord#,
     word2Int#,
@@ -42,10 +44,12 @@ import GHC.Prim
     wordToWord8#,
     (+#),
     (-#),
+    (/=#),
     (<#),
+    (>#),
   )
 import GHC.Prim.Enum (Bounded (..), Enum (..))
-import GHC.Types (VecCount (..), VecElem (..))
+import GHC.Types (Ordering (..), VecCount (..), VecElem (..), isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 boundedEnumFrom :: (Enum a, Bounded a) => a -> [a]
@@ -108,6 +112,61 @@ instance Enum Bool where
   enumFromThenTo True False False = [True, False]
   enumFromThenTo False False _ = [False]
   enumFromThenTo True True _ = [True]
+
+instance Bounded Ordering where
+  minBound = LT
+  maxBound = GT
+
+instance Enum Ordering where
+  succ LT = EQ
+  succ EQ = GT
+  succ GT = succError "Prelude.Enum.Ordering.succ"
+
+  pred GT = EQ
+  pred EQ = LT
+  pred LT = predError "Prelude.Enum.Ordering.pred"
+
+  toEnum (I# value) =
+    case value of
+      0# -> LT
+      1# -> EQ
+      2# -> GT
+      _ -> toEnumError "Ordering" (I# value) (LT, GT)
+
+  fromEnum LT = I# 0#
+  fromEnum EQ = I# 1#
+  fromEnum GT = I# 2#
+
+  enumFrom = boundedEnumFrom
+  enumFromThen = boundedEnumFromThen
+
+instance Bounded Char where
+  minBound = C# (chr# 0#)
+  maxBound = C# (chr# 1114111#)
+
+instance Enum Char where
+  succ (C# value) =
+    case isTrue# ((/=#) (ord# value) 1114111#) of
+      True -> C# (chr# ((+#) (ord# value) 1#))
+      False -> succError "Prelude.Enum.Char.succ"
+
+  pred (C# value) =
+    case isTrue# ((/=#) (ord# value) 0#) of
+      True -> C# (chr# ((-#) (ord# value) 1#))
+      False -> predError "Prelude.Enum.Char.pred"
+
+  toEnum (I# value) =
+    case isTrue# ((<#) value 0#) of
+      True -> toEnumError "Char" (I# value) (C# (chr# 0#), C# (chr# 1114111#))
+      False ->
+        case isTrue# ((>#) value 1114111#) of
+          True -> toEnumError "Char" (I# value) (C# (chr# 0#), C# (chr# 1114111#))
+          False -> C# (chr# value)
+
+  fromEnum (C# value) = I# (ord# value)
+
+  enumFrom = boundedEnumFrom
+  enumFromThen = boundedEnumFromThen
 
 instance Bounded Int where
   minBound =

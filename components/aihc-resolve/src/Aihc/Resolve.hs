@@ -521,10 +521,7 @@ resolveClassDecl classDecl = do
         let rendered = renderUnqualifiedName name
             span' = declKeywordNameSpan "class " declSpan rendered
          in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
-      head' =
-        case classDeclHead classDecl of
-          PrefixBinderHead name params -> PrefixBinderHead (resolveHeadName name) params
-          InfixBinderHead lhs name rhs params -> InfixBinderHead lhs (resolveHeadName name) rhs params
+  head' <- resolveBinderHeadKinds resolveHeadName (classDeclHead classDecl)
   context' <- traverse (mapM resolveType) (classDeclContext classDecl)
   items' <- mapM resolveClassDeclItem (classDeclItems classDecl)
   pure
@@ -1465,10 +1462,7 @@ resolveDataDecl keyword dataDecl = do
         let rendered = renderUnqualifiedName name
             span' = declKeywordNameSpan keyword declSpan rendered
          in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
-      head' =
-        case dataDeclHead dataDecl of
-          PrefixBinderHead name params -> PrefixBinderHead (resolveHeadName name) params
-          InfixBinderHead lhs name rhs params -> InfixBinderHead lhs (resolveHeadName name) rhs params
+  head' <- resolveBinderHeadKinds resolveHeadName (dataDeclHead dataDecl)
   context' <- mapM resolveType (dataDeclContext dataDecl)
   kind' <- traverse resolveType (dataDeclKind dataDecl)
   constructors' <- mapM resolveDataConDecl (dataDeclConstructors dataDecl)
@@ -1506,6 +1500,26 @@ resolveTypeFamilyResultSig resultSig =
     TypeFamilyTyVarSig binder -> TypeFamilyTyVarSig <$> resolveTyVarBinderKind binder
     TypeFamilyInjectiveSig binder injectivity ->
       TypeFamilyInjectiveSig <$> resolveTyVarBinderKind binder <*> pure injectivity
+
+-- | Resolve a declaration head: its own name, and the kind signature of
+-- every type variable it binds. A kind signature in a binder mentions
+-- type constructors -- @(s :: Type -> Type)@ names @Type@ -- and those
+-- have to be resolved like any other type, or the type checker is left to
+-- guess the constructor from its unqualified name.
+resolveBinderHeadKinds ::
+  (UnqualifiedName -> UnqualifiedName) ->
+  BinderHead UnqualifiedName ->
+  ResolveM (BinderHead UnqualifiedName)
+resolveBinderHeadKinds resolveHeadName head' =
+  case head' of
+    PrefixBinderHead name params ->
+      PrefixBinderHead (resolveHeadName name) <$> mapM resolveTyVarBinderKind params
+    InfixBinderHead lhs name rhs params ->
+      InfixBinderHead
+        <$> resolveTyVarBinderKind lhs
+        <*> pure (resolveHeadName name)
+        <*> resolveTyVarBinderKind rhs
+        <*> mapM resolveTyVarBinderKind params
 
 resolveTyVarBinderKind :: TyVarBinder -> ResolveM TyVarBinder
 resolveTyVarBinderKind binder = do
@@ -1550,10 +1564,7 @@ resolveDataFamilyDecl familyDecl = do
         let rendered = renderUnqualifiedName name
             span' = declKeywordNameSpan "data family " declSpan rendered
          in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
-      head' =
-        case dataFamilyDeclHead familyDecl of
-          PrefixBinderHead name params -> PrefixBinderHead (resolveHeadName name) params
-          InfixBinderHead lhs name rhs params -> InfixBinderHead lhs (resolveHeadName name) rhs params
+  head' <- resolveBinderHeadKinds resolveHeadName (dataFamilyDeclHead familyDecl)
   kind' <- traverse resolveType (dataFamilyDeclKind familyDecl)
   pure familyDecl {dataFamilyDeclHead = head', dataFamilyDeclKind = kind'}
 
@@ -1585,10 +1596,7 @@ resolveTypeSynDecl typeSynDecl = do
         let rendered = renderUnqualifiedName name
             span' = declKeywordNameSpan "type " declSpan rendered
          in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
-      head' =
-        case typeSynHead typeSynDecl of
-          PrefixBinderHead name params -> PrefixBinderHead (resolveHeadName name) params
-          InfixBinderHead lhs name rhs params -> InfixBinderHead lhs (resolveHeadName name) rhs params
+  head' <- resolveBinderHeadKinds resolveHeadName (typeSynHead typeSynDecl)
   body' <- resolveType (typeSynBody typeSynDecl)
   pure typeSynDecl {typeSynHead = head', typeSynBody = body'}
 
@@ -1600,10 +1608,7 @@ resolveNewtypeDecl newtypeDecl = do
         let rendered = renderUnqualifiedName name
             span' = declKeywordNameSpan "newtype " declSpan rendered
          in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
-      head' =
-        case newtypeDeclHead newtypeDecl of
-          PrefixBinderHead name params -> PrefixBinderHead (resolveHeadName name) params
-          InfixBinderHead lhs name rhs params -> InfixBinderHead lhs (resolveHeadName name) rhs params
+  head' <- resolveBinderHeadKinds resolveHeadName (newtypeDeclHead newtypeDecl)
   kind' <- traverse resolveType (newtypeDeclKind newtypeDecl)
   constructor' <- traverse resolveDataConDecl (newtypeDeclConstructor newtypeDecl)
   deriving' <- mapM resolveDerivingClause (newtypeDeclDeriving newtypeDecl)
