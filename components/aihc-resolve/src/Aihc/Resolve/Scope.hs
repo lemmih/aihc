@@ -24,6 +24,7 @@ module Aihc.Resolve.Scope
     resolveTypeName,
     resolveFixityName,
     collectPatVarBinders,
+    recordWildcardFieldNames,
     importItemTypeName,
     allTypeMembers,
   )
@@ -172,16 +173,17 @@ exportedLocalNames package name exports =
 exportedScope :: Package -> ModuleExports -> Module -> Scope
 exportedScope package exports modu =
   case moduleExports modu of
-    Nothing -> topLevelScope package modu
+    Nothing -> ownScope
     Just specs -> List.foldl' unionScope emptyScope (map exportSpecScope specs)
   where
-    availableScope = topLevelScope package modu `unionScope` importedScope package exports modu
+    ownScope = topLevelScope (importedRecordFields package exports modu) package modu
+    availableScope = ownScope `unionScope` importedScope package exports modu
 
     exportSpecScope spec =
       case spec of
         ExportAnn _ inner -> exportSpecScope inner
         ExportModule _ exportModuleName
-          | exportModuleName == moduleKey modu -> topLevelScope package modu
+          | exportModuleName == moduleKey modu -> ownScope
           | otherwise -> lookupImportedModule package Nothing exportModuleName exports
         ExportVar _ _ name -> selectTerm (nameText name) (exportSource name)
         ExportAbs _ (Just namespace) name
@@ -272,14 +274,24 @@ isTermNamespace namespace =
 exportBundledMemberName :: IEBundledMember -> Text
 exportBundledMemberName = nameText . ieBundledMemberName
 
-topLevelScope :: Package -> Module -> Scope
-topLevelScope package modu =
+-- | The top-level scope of one module. The first argument holds the record
+-- fields of each constructor that the module imports. A record wildcard in a
+-- top-level pattern binding binds one name for each such field.
+topLevelScope :: Map.Map Text [Text] -> Package -> Module -> Scope
+topLevelScope importedFields package modu =
   List.foldl' addDecl emptyScope (moduleDecls modu)
   where
     moduleKeyText = moduleKey modu
     qualify = ResolvedTopLevel (packageId package) . qualifyName (Just moduleKeyText)
+    -- A pattern binding can come before the data declaration that gives it
+    -- the record fields, so collect all fields of the module first.
+    visibleFields =
+      Map.unions
+        ( [fields | decl <- moduleDecls modu, let DeclExports _ _ _ fields _ _ _ = declExportedNames Map.empty decl]
+            <> [importedFields]
+        )
     addDecl scope decl =
-      let DeclExports termNames typeNames constructors recordFields methods associatedTypes fixities = declExportedNames decl
+      let DeclExports termNames typeNames constructors recordFields methods associatedTypes fixities = declExportedNames visibleFields decl
           scope' = List.foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify name) acc) scope termNames
           scope'' = List.foldl' (\acc name -> insertType (renderUnqualifiedName name) (qualify name) acc) scope' typeNames
           scope''' = scope'' {scopeConstructors = constructors `Map.union` scopeConstructors scope''}
@@ -293,15 +305,15 @@ topLevelScope package modu =
 -- associated type families by class, and operator fixities.
 data DeclExports = DeclExports [UnqualifiedName] [UnqualifiedName] (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text OperatorFixity)
 
-declExportedNames :: Decl -> DeclExports
-declExportedNames decl =
+declExportedNames :: Map.Map Text [Text] -> Decl -> DeclExports
+declExportedNames recordFields decl =
   case decl of
-    DeclAnn _ inner -> declExportedNames inner
+    DeclAnn _ inner -> declExportedNames recordFields inner
     DeclValue valueDecl ->
       case valueDecl of
         FunctionBind name _ -> DeclExports [name] [] Map.empty Map.empty Map.empty Map.empty Map.empty
         PatternBind _ pat _ ->
-          DeclExports (map snd (collectPatVarBinders NoSourceSpan pat)) [] Map.empty Map.empty Map.empty Map.empty Map.empty
+          DeclExports (map snd (collectPatVarBinders recordFields NoSourceSpan pat)) [] Map.empty Map.empty Map.empty Map.empty Map.empty
     DeclTypeSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty Map.empty Map.empty
     DeclForeign foreignDecl
       | foreignDirection foreignDecl == ForeignImport ->
@@ -485,7 +497,7 @@ moduleScope packageId exports modu =
     -- A module's own top-level names are also in scope qualified by the
     -- module name, so @M.x@ inside module @M@ names the local @x@.
     ownScope = insertQualifiedModule (moduleKey modu) unqualifiedOwnScope unqualifiedOwnScope
-    unqualifiedOwnScope = topLevelScope packageId modu
+    unqualifiedOwnScope = topLevelScope (importedRecordFields packageId exports modu) packageId modu
     preludeScope = lookupImportedModule packageId Nothing "Prelude" exports
     -- Implicit Prelude: names available unqualified AND as Prelude.xxx
     implicitPrelude
@@ -498,6 +510,17 @@ moduleScope packageId exports modu =
     listConstructorScope = selectTerm ":" ghcTypesScope
     -- Equality syntax uses the exported type identity without an import.
     equalityScope = selectType "~" ghcTypesScope
+
+-- | The record fields of each constructor that a module gets from another
+-- module. A record wildcard in a top-level pattern binding needs them.
+importedRecordFields :: Package -> ModuleExports -> Module -> Map.Map Text [Text]
+importedRecordFields packageId exports modu =
+  scopeRecordFields (importedScope packageId exports modu) `Map.union` preludeFields
+  where
+    preludeFields
+      | moduleImportsImplicitPrelude modu =
+          scopeRecordFields (lookupImportedModule packageId Nothing "Prelude" exports)
+      | otherwise = Map.empty
 
 -- | Whether the module gets the implicit Prelude import.
 --
@@ -765,24 +788,55 @@ resolveFixityName scope name =
     Nothing ->
       lookupFixity (nameText name) scope
 
-collectPatVarBinders :: SourceSpan -> Pattern -> [(SourceSpan, UnqualifiedName)]
-collectPatVarBinders ambient pat =
+-- | The term variables that a pattern binds.
+--
+-- This is the definition side of the same walk that @bindPattern@ does in
+-- "Aihc.Resolve". The two walks must agree. Thus this match gives one case
+-- for each pattern form and has no catch-all case. If the pattern syntax
+-- gets a new form, the compiler reports this function.
+--
+-- The first argument holds the record fields of each constructor. A record
+-- wildcard binds one variable for each field that the pattern does not
+-- list, and only the constructor gives those field names.
+collectPatVarBinders :: Map.Map Text [Text] -> SourceSpan -> Pattern -> [(SourceSpan, UnqualifiedName)]
+collectPatVarBinders recordFields ambient pat =
   case peelPatternAnn pat of
-    PVar name -> [(spanStartNameSpan ambient (renderUnqualifiedName name), name)]
-    PTuple _ pats -> concatMap (collectPatVarBinders ambient) pats
-    PUnboxedSum _ _ inner -> collectPatVarBinders ambient inner
-    PList pats -> concatMap (collectPatVarBinders ambient) pats
-    PParen inner -> collectPatVarBinders ambient inner
-    PTypeSig inner _ -> collectPatVarBinders ambient inner
-    PView _ inner -> collectPatVarBinders ambient inner
-    PAs alias inner ->
-      (spanStartNameSpan ambient (renderUnqualifiedName alias), alias)
-        : collectPatVarBinders ambient inner
-    PStrict inner -> collectPatVarBinders ambient inner
-    PIrrefutable inner -> collectPatVarBinders ambient inner
-    PRecord _ fields _ -> concatMap (collectPatVarBinders ambient . recordFieldValue) fields
-    PInfix left _ right ->
-      collectPatVarBinders ambient left <> collectPatVarBinders ambient right
-    PCon _ _ pats -> concatMap (collectPatVarBinders ambient) pats
-    PBuiltinCon _ _ pats -> concatMap (collectPatVarBinders ambient) pats
-    _ -> []
+    PVar name -> [binderAt name]
+    PAs alias inner -> binderAt alias : go inner
+    PRecord conName fields wildcard ->
+      concatMap (go . recordFieldValue) fields
+        <> map (binderAt . mkUnqualifiedName NameVarId) (recordWildcardFieldNames recordFields conName fields wildcard)
+    PTuple _ pats -> concatMap go pats
+    PUnboxedSum _ _ inner -> go inner
+    PList pats -> concatMap go pats
+    PParen inner -> go inner
+    PTypeSig inner _ -> go inner
+    PView _ inner -> go inner
+    PStrict inner -> go inner
+    PIrrefutable inner -> go inner
+    PInfix left _ right -> go left <> go right
+    PCon _ _ pats -> concatMap go pats
+    PBuiltinCon _ _ pats -> concatMap go pats
+    -- 'peelPatternAnn' removes each annotation, but the match must name
+    -- this form to stay exhaustive.
+    PAnn _ inner -> go inner
+    -- These forms bind no term variable.
+    PTypeBinder _ -> []
+    PTypeSyntax _ _ -> []
+    PWildcard -> []
+    PLit _ -> []
+    PNegLit _ -> []
+    PQuasiQuote _ _ -> []
+    PSplice _ -> []
+  where
+    go = collectPatVarBinders recordFields ambient
+    binderAt name = (spanStartNameSpan ambient (renderUnqualifiedName name), name)
+
+-- | The fields that a record wildcard @..@ binds: each field of the
+-- constructor that the pattern does not list.
+recordWildcardFieldNames :: Map.Map Text [Text] -> Name -> [RecordField Pattern] -> Bool -> [Text]
+recordWildcardFieldNames recordFields conName fields wildcard
+  | not wildcard = []
+  | otherwise = filter (`notElem` explicitFields) (Map.findWithDefault [] (nameText conName) recordFields)
+  where
+    explicitFields = map (nameText . recordFieldName) fields

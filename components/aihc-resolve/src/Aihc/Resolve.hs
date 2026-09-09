@@ -1421,38 +1421,51 @@ resolvePatternDefinition termDefinition pat =
     PNegLit lit -> annotatePatternLiteral (PNegLit lit) lit
     PParen inner ->
       PParen <$> resolvePatternDefinition termDefinition inner
-    PRecord name fields wildcard ->
-      PRecord
-        <$> resolveTermUseAtName name
-        <*> mapM
+    PRecord name fields wildcard -> do
+      name' <- resolveTermUseAtName name
+      fields' <-
+        mapM
           ( \field -> do
               value' <- resolvePatternDefinition termDefinition (recordFieldValue field)
               pure field {recordFieldValue = value'}
           )
           fields
-        <*> pure wildcard
+      wildcardNames <- wildcardFieldNames name fields wildcard
+      ambient <- currentSpan
+      let sp = effectiveResolutionSpan ambient (sourceSpanFromAnns (nameAnns name'))
+      -- A record wildcard binds each remaining field to a variable with the
+      -- field name. The pattern lists these fields as puns, so a later phase
+      -- sees an ordinary record pattern.
+      let wildcardFields =
+            [ RecordField
+                { recordFieldName = Name Nothing NameVarId fieldName [],
+                  recordFieldValue = PVar (resolveTermDefinitionAt sp termDefinition binder),
+                  recordFieldPun = True
+                }
+            | fieldName <- wildcardNames,
+              let binder = (mkUnqualifiedName NameVarId fieldName) {unqualifiedNameAnns = [mkAnnotation sp]}
+            ]
+      pure (PRecord name' (fields' <> wildcardFields) False)
     PTypeSig inner ty ->
       PTypeSig <$> resolvePatternDefinition termDefinition inner <*> resolveType ty
     PSplice expr ->
       PSplice <$> withResetLocalSupply (resolveExpr expr)
 
 bindRecordWildcardFields :: Name -> [RecordField Pattern] -> Bool -> ResolveM [(Text, ResolvedName)]
-bindRecordWildcardFields conName fields wildcard
-  | not wildcard = pure []
-  | otherwise =
-      mapM bindField =<< wildcardFields
+bindRecordWildcardFields conName fields wildcard =
+  mapM bindField =<< wildcardFieldNames conName fields wildcard
   where
-    wildcardFields = do
-      scope <- currentScope
-      let explicitFields = map (nameText . recordFieldName) fields
-      pure
-        ( filter (`notElem` explicitFields) $
-            Map.findWithDefault [] (nameText conName) (scopeRecordFields scope)
-        )
     bindField fieldName = do
       let binder = mkUnqualifiedName NameVarId fieldName
       resolvedName <- freshLocal binder
       pure (fieldName, resolvedName)
+
+-- | The field names that a record wildcard binds, taken from the
+-- constructor in the current scope.
+wildcardFieldNames :: Name -> [RecordField Pattern] -> Bool -> ResolveM [Text]
+wildcardFieldNames conName fields wildcard = do
+  scope <- currentScope
+  pure (recordWildcardFieldNames (scopeRecordFields scope) conName fields wildcard)
 
 resolveDataDecl :: Text -> DataDecl -> ResolveM DataDecl
 resolveDataDecl keyword dataDecl = do
@@ -1636,8 +1649,10 @@ resolveDataConDecl dataConDecl =
       (forallScope, forallVars') <- bindTyVarBinders forallVars
       extendScope forallScope $
         RecordCon forallVars' <$> mapM resolveType context <*> pure name <*> mapM resolveFieldDecl fields
-    GadtCon forallVars context names body ->
-      GadtCon forallVars <$> mapM resolveType context <*> pure names <*> resolveGadtBody body
+    GadtCon telescopes context names body -> do
+      (forallScope, telescopes') <- bindForallTelescopes telescopes
+      extendScope forallScope $
+        GadtCon telescopes' <$> mapM resolveType context <*> pure names <*> resolveGadtBody body
     TupleCon forallVars context flavor fields -> do
       (forallScope, forallVars') <- bindTyVarBinders forallVars
       extendScope forallScope $
@@ -1657,6 +1672,15 @@ resolveDataConDecl dataConDecl =
     resolveFieldDecl fieldDecl = do
       fieldType' <- resolveBangType (fieldType fieldDecl)
       pure fieldDecl {fieldType = fieldType'}
+
+-- | Bind the type variables of a chain of @forall@ telescopes.
+-- Each telescope is in the scope of the telescopes before it.
+bindForallTelescopes :: [ForallTelescope] -> ResolveM (Scope, [ForallTelescope])
+bindForallTelescopes = foldM step (emptyScope, [])
+  where
+    step (scope, acc) telescope = do
+      (binderScope, binders') <- extendScope scope (bindTyVarBinders (forallTelescopeBinders telescope))
+      pure (binderScope `unionScope` scope, acc <> [telescope {forallTelescopeBinders = binders'}])
 
 resolveGadtBody :: GadtBody -> ResolveM GadtBody
 resolveGadtBody body =
@@ -1768,18 +1792,19 @@ bindTyVarBinders =
       pure binder {tyVarBinderKind = kind'}
 
 allocateLocalDeclBinders :: [Decl] -> ResolveM (Map.Map Text ResolvedName, Scope)
-allocateLocalDeclBinders =
-  foldM step (Map.empty, emptyScope)
+allocateLocalDeclBinders decls = do
+  recordFields <- scopeRecordFields <$> currentScope
+  foldM (step recordFields) (Map.empty, emptyScope) decls
   where
-    step acc decl = foldM addBinder acc (declBinderCandidates decl)
+    step recordFields acc decl = foldM addBinder acc (declBinderCandidates recordFields decl)
     addBinder (targets, scope) (_, name) = do
       resolvedName <- freshLocal name
       let key = renderUnqualifiedName name
       pure (Map.insert key resolvedName targets, insertTerm key resolvedName scope)
 
 -- | Collect all term binders introduced by a declaration (handles tuple patterns etc.)
-declBinderCandidates :: Decl -> [(SourceSpan, UnqualifiedName)]
-declBinderCandidates decl =
+declBinderCandidates :: Map.Map Text [Text] -> Decl -> [(SourceSpan, UnqualifiedName)]
+declBinderCandidates recordFields decl =
   let (outerSp, innerDecl) = peelDeclSpan NoSourceSpan decl
    in case innerDecl of
         DeclValue valueDecl ->
@@ -1789,7 +1814,7 @@ declBinderCandidates decl =
                in [(spanStartNameSpan loc (renderUnqualifiedName name), name)]
             PatternBind _ pat _ ->
               let loc = effectiveResolutionSpan outerSp (peelPatternSpan NoSourceSpan pat)
-               in collectPatVarBinders loc pat
+               in collectPatVarBinders recordFields loc pat
         DeclTypeSig [name] _ ->
           [(spanStartNameSpan outerSp (renderUnqualifiedName name), name)]
         _ -> []
