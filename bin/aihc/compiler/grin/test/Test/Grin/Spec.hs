@@ -4,14 +4,22 @@ module Test.Grin.Spec (tests) where
 
 import Aihc.Fc qualified as Fc
 import Aihc.Fc.TypeOf qualified as FcType
-import Aihc.Grin (GrinProgram (..), InterpretError (..), ProgramStreams (..), interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram)
+import Aihc.Grin (GrinLintError (..), GrinProgram (..), InterpretError (..), ProgramStreams (..), interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram)
+import Aihc.Grin.Parser qualified as GrinParser
 import Aihc.Resolve (PackageId (..))
 import Aihc.Testing.EvalFixture qualified as EvalFixture
 import Control.Exception (evaluate)
+import Data.Aeson ((.:))
+import Data.Aeson.Types (parseEither, withObject)
+import Data.List (sort)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Yaml qualified as Y
 import GrinGolden qualified
+import System.Directory (listDirectory)
+import System.Environment (getEnv)
+import System.FilePath (takeExtension, (</>))
 import System.IO (stderr, stdin)
 import Test.Grin.Anf qualified as Anf
 import Test.Grin.Arbitrary (prop_grinPrettyRoundTrip)
@@ -28,6 +36,7 @@ data GrinEvalEnvironment = GrinEvalEnvironment
 
 tests :: IO TestTree
 tests = do
+  lintFixtures <- loadLintFixtures
   fixtures <- GrinGolden.loadGrinCases
   evalFixtures <- filter (("grin" `elem`) . EvalFixture.evalCaseEvaluators) <$> EvalFixture.loadEvalCases
   pure
@@ -36,12 +45,50 @@ tests = do
         [ testProperty "generated GRIN pretty-printer round-trip" prop_grinPrettyRoundTrip,
           Anf.tests,
           Lint.tests,
+          testGroup "GRIN lint fixtures" lintFixtures,
           Srt.tests,
           testGroup "GRIN golden tests" (map fixtureTest fixtures),
           withResource loadGrinEvalEnvironment (const (pure ())) $ \getEnvironment ->
             testGroup "shared evaluation fixtures via GRIN" (map (evalFixtureTest getEnvironment) evalFixtures)
         ]
     )
+
+-- | Parse each textual GRIN fixture before the lint status check.
+loadLintFixtures :: IO [TestTree]
+loadLintFixtures = do
+  root <- getEnv "AIHC_TEST_ROOT"
+  let directory = root </> "bin/aihc/compiler/grin/test/Test/Fixtures/grin-lint"
+  paths <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory directory
+  pure [testCase path (checkLintFixture (directory </> path)) | path <- paths]
+
+checkLintFixture :: FilePath -> IO ()
+checkLintFixture path = do
+  decoded <- Y.decodeFileEither path
+  case decoded of
+    Left problem -> assertFailure (Y.prettyPrintParseException problem)
+    Right value ->
+      case parseEither parseFixture value of
+        Left problem -> assertFailure problem
+        Right (source, expected) ->
+          case GrinParser.parseProgram source of
+            Left problem -> assertFailure (GrinParser.renderParseError problem)
+            Right program ->
+              case (expected, lintProgram program) of
+                ("none", []) -> pure ()
+                ("result-layout", problems@(_ : _))
+                  | all isResultLayout problems -> pure ()
+                (_, problems) -> assertFailure ("expected " <> T.unpack expected <> ", got " <> show problems)
+  where
+    parseFixture = withObject "GRIN lint fixture" $ \object -> do
+      source <- object .: "program"
+      status <- object .: "status"
+      expected <- object .: "error"
+      reason <- object .: "reason"
+      if status == ("pass" :: Text) && expected `elem` ["none", "result-layout"] && not (T.null reason)
+        then pure (source, expected)
+        else fail "invalid GRIN lint fixture status or error"
+    isResultLayout GrinLintResultLayout {} = True
+    isResultLayout _ = False
 
 -- | Lower aihc-prim and aihc-base to GRIN one time.
 loadGrinEvalEnvironment :: IO GrinEvalEnvironment

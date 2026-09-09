@@ -1,0 +1,14 @@
+program: |
+  $entry -> IntRep =
+    case (0 :: IntRep) as choice%1 :: IntRep of
+      0 ->
+        constant (1 :: IntRep)
+      _ ->
+        case (0 :: IntRep) as nested%2 :: IntRep of
+          0 ->
+            throw (0 :: IntRep)
+          _ ->
+            constant (2 :: WordRep)
+error: result-layout
+status: pass
+reason: A nested alternative must have the declared result layout.

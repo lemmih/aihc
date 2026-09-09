@@ -126,11 +126,10 @@ lintFunction env function =
   where
     bound = Set.fromList (grinFunctionParameters function)
     resultErrors =
-      case exprRuntimeReps (grinFunctionBody function) of
-        Just actual
-          | actual /= expected ->
-              [GrinLintResultLayout "function result" expected actual]
-        _ -> []
+      [ GrinLintResultLayout "function result" expected actual
+      | actual <- exprResultLayouts (grinFunctionBody function),
+        actual /= expected
+      ]
     expected = runtimeRepComponents (grinFunctionResultRep function)
 
 lintFunctionResult :: LintEnv -> GrinRep -> GrinExpr -> [GrinLintError]
@@ -250,11 +249,10 @@ lintKnownCall env bound functionName arguments =
 
 bindRepresentationErrors :: [GrinVar] -> GrinExpr -> [GrinLintError]
 bindRepresentationErrors vars valueExpr =
-  case exprRuntimeReps valueExpr of
-    Just actual
-      | actual /= expected ->
-          [GrinLintResultLayout "bind" expected actual]
-    _ -> []
+  [ GrinLintResultLayout "bind" expected actual
+  | actual <- exprResultLayouts valueExpr,
+    actual /= expected
+  ]
   where
     expected = map grinVarRuntimeRep vars
 
@@ -322,37 +320,37 @@ duplicates = go Set.empty Set.empty
       | value `Set.member` seen = go seen (Set.insert value repeated) rest
       | otherwise = go (Set.insert value seen) repeated rest
 
-exprRuntimeReps :: GrinExpr -> Maybe [GrinRep]
-exprRuntimeReps expr =
+-- | Each returning case alternative contributes its own result layout.
+-- Control transfers do not produce a result at this expression.
+exprResultLayouts :: GrinExpr -> [[GrinRep]]
+exprResultLayouts expr =
   case expr of
-    GrinConstant values -> Just (map grinValueRuntimeRep values)
-    GrinBind _ _ body -> exprRuntimeReps body
-    GrinStore {} -> Just [liftedGrinRep]
-    GrinEnsureHeap _ roots -> Just (map grinValueRuntimeRep roots)
-    GrinStoreUnchecked {} -> Just [liftedGrinRep]
-    GrinStoreRec _ body -> exprRuntimeReps body
-    GrinStoreRecUnchecked _ body -> exprRuntimeReps body
-    GrinUpdate _ value -> Just [grinValueRuntimeRep value]
-    GrinUpdateBlackhole _ value -> Just [grinValueRuntimeRep value]
-    GrinEval runtimeRep _ -> Just (runtimeRepComponents runtimeRep)
-    GrinCpsEval {} -> Nothing
+    GrinConstant values -> [map grinValueRuntimeRep values]
+    GrinBind _ _ body -> exprResultLayouts body
+    GrinStore {} -> [[liftedGrinRep]]
+    GrinEnsureHeap _ roots -> [map grinValueRuntimeRep roots]
+    GrinStoreUnchecked {} -> [[liftedGrinRep]]
+    GrinStoreRec _ body -> exprResultLayouts body
+    GrinStoreRecUnchecked _ body -> exprResultLayouts body
+    GrinUpdate _ value -> [[grinValueRuntimeRep value]]
+    GrinUpdateBlackhole _ value -> [[grinValueRuntimeRep value]]
+    GrinEval runtimeRep _ -> [runtimeRepComponents runtimeRep]
+    GrinCpsEval {} -> []
     GrinCall runtimeRep _ _ ->
       case runtimeRepComponents runtimeRep of
-        [] -> Nothing
-        components -> Just components
-    GrinPrimitiveCall runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
-    GrinCpsPrimitiveCall {} -> Nothing
-    GrinApply runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
-    GrinCpsApply {} -> Nothing
-    GrinContinue {} -> Nothing
-    GrinCpsRaise {} -> Nothing
-    GrinHalt {} -> Nothing
-    GrinExit {} -> Nothing
+        [] -> []
+        components -> [components]
+    GrinPrimitiveCall runtimeRep _ _ -> [runtimeRepComponents runtimeRep]
+    GrinCpsPrimitiveCall {} -> []
+    GrinApply runtimeRep _ _ -> [runtimeRepComponents runtimeRep]
+    GrinCpsApply {} -> []
+    GrinContinue {} -> []
+    GrinCpsRaise {} -> []
+    GrinHalt {} -> []
+    GrinExit {} -> []
     GrinCase _ _ alternatives ->
-      case alternatives of
-        first : _ -> exprRuntimeReps (grinAltRhs first)
-        [] -> Nothing
-    GrinThrow {} -> Nothing
-    GrinCatch runtimeRep _ _ _ -> Just (runtimeRepComponents runtimeRep)
+      concatMap (exprResultLayouts . grinAltRhs) alternatives
+    GrinThrow {} -> []
+    GrinCatch runtimeRep _ _ _ -> [runtimeRepComponents runtimeRep]
     GrinForeignCallExpr foreignCall _ ->
-      Just (grinForeignCallResultReps (grinForeignCallSignature foreignCall))
+      [grinForeignCallResultReps (grinForeignCallSignature foreignCall)]

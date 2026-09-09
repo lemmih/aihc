@@ -1,12 +1,12 @@
 expected: |-
   scope 1 = "" Test
 
-  foreign labs = "labs" :: (int) -> int ! pure
+  foreign 1.labs = "labs" :: (int) -> int ! pure
 
   global 1.run = (P$run/[[IntRep]])
 
   $run (x :: IntRep) -> IntRep =
-    foreign-call labs = "labs" :: (int) -> int ! pure with (x :: IntRep)
+    foreign-call 1.labs = "labs" :: (int) -> int ! pure with (x :: IntRep)
 extensions:
 - ForeignFunctionInterface
 - MagicHash
