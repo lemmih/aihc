@@ -92,7 +92,7 @@ preprocessInterfaceSource packageRoot versions fileInfo source = do
   where
     path = HackageCabal.fileInfoPath fileInfo
     cppOptions = HackageCabal.fileInfoCppOptions fileInfo
-    injectedSource = injectSyntheticCppMacros cppOptions versions (HackageCabal.fileInfoDependencies fileInfo) source
+    injectedSource = injectSyntheticCppMacros path cppOptions versions (HackageCabal.fileInfoDependencies fileInfo) source
     cppConfig =
       Cpp.defaultConfig
         { Cpp.configInputFile = path,

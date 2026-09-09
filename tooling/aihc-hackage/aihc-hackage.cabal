@@ -46,6 +46,7 @@ test-suite spec
   main-is: Spec.hs
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
+    aihc-cpp >=1.0 && <2,
     aihc-hackage,
     base >=4.16 && <5,
     bytestring,
