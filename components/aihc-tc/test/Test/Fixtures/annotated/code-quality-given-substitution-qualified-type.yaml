@@ -1,0 +1,59 @@
+annotated:
+- |-
+  {-# LANGUAGE FlexibleContexts, FlexibleInstances, GADTs, RankNTypes #-}
+  module Test where
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  data Answer = Answer
+       │        └─ type: Answer
+       └─ type: Type
+  data Holder t = Holder
+       │          └─ type: ∀ t. Holder t
+       └─ type: Type → Type
+  class Small a where
+  └─ class methods: small ∷ ∀ a. (Small a) ⇒ a → Answer
+    small :: a -> Answer
+  class Render a where
+  └─ class methods: render ∷ ∀ a. (Render a) ⇒ a → Answer
+    render :: a -> Answer
+  instance Render (Holder (Small Flag => Flag -> Answer)) where
+  └─ $fRenderHolderT ∷ () ⇒ Render (Holder ((Small Flag) ⇒ Flag → Answer))
+    render _ = Answer
+    │      └─ type: Holder ((Small Flag) ⇒ Flag → Answer)
+    └─ render ∷ Holder ((Small Flag) ⇒ Flag → Answer) → Answer
+  data Tag a where
+       └─ type: Type → Type
+    FlagTag :: Tag Flag
+    └─ type: ∀ a. (a ~ Flag) ⇒ Tag a
+  use :: Tag a -> Holder (Small a => a -> Answer) -> Answer
+  use FlagTag holder = render holder
+  │   │       │        └─ type: Holder ((Small a) ⇒ a → Answer) → Answer; type-args: Holder ((Small a) ⇒ a → Answer); evidence: $fRenderHolderT
+  │   │       └─ type: Holder ((Small a) ⇒ a → Answer)
+  │   └─ type: Tag a; type-args: a; evidence: given a ~ Flag
+  └─ type: ∀ a. Tag a → Holder ((Small a) ⇒ a → Answer) → Answer
+extensions:
+- FlexibleContexts
+- FlexibleInstances
+- GADTs
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE FlexibleContexts, FlexibleInstances, GADTs, RankNTypes #-}
+  module Test where
+  data Flag = Off | On
+  data Answer = Answer
+  data Holder t = Holder
+  class Small a where
+    small :: a -> Answer
+  class Render a where
+    render :: a -> Answer
+  instance Render (Holder (Small Flag => Flag -> Answer)) where
+    render _ = Answer
+  data Tag a where
+    FlagTag :: Tag Flag
+  use :: Tag a -> Holder (Small a => a -> Answer) -> Answer
+  use FlagTag holder = render holder
+reason: A given equality rewrites the types inside a qualified type.
+status: pass

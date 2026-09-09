@@ -328,11 +328,9 @@ convertTupleType tvEnv flavor arguments = do
           Unboxed -> mkTYPEKind kinds (tupleRep kinds argumentReps)
       fallbackKind = foldr KFun fallbackResultKind argumentKinds
   wired <- wiredTupleTyCon flavor arity
-  maybeTyCon <- lookupTyCon (tyConName wired)
-  tyCon <-
-    case maybeTyCon of
-      Just info -> pure (tciTyCon info)
-      Nothing -> mkWiredTyCon wired fallbackKind
+  -- The wiring gives the full identity of the tuple type constructor.
+  -- A bare name lookup can find a different constructor with the same name.
+  tyCon <- mkWiredTyCon wired fallbackKind
   let tupleType = TcTyCon tyCon argumentTypes
   tupleKind <- tcTypeKind tupleType
   pure (tupleType, tupleKind)

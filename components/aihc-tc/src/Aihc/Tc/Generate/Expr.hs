@@ -45,7 +45,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), PatSynDirection (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..), EvVar)
-import Aihc.Tc.Generate.Bind (inferGuardedRhss, inferLocalDecls, inferRhsWithLocals)
+import Aihc.Tc.Generate.Bind (checkGuardedRhss, inferGuardedRhss, inferLocalDecls)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Generate.Record (constructorNameSyntax, lookupRecordConstructor, orderRecordFields, recordFieldLabel, recordUpdateConstructors, synthesizedRecordLocal)
@@ -459,6 +459,10 @@ checkExpr expected expression = case expression of
   EParen inner -> do
     (inner', ty, constraints) <- checkExpr expected inner
     pure (EParen inner', ty, constraints)
+  -- A pragma does not change the type, so the expected type goes through it.
+  EPragma pragma inner -> do
+    (inner', ty, constraints) <- checkExpr expected inner
+    pure (EPragma pragma inner', ty, constraints)
   ECase scrutinee alternatives -> do
     (scrutinee', scrutineeType, constraints) <- inferExpr scrutinee
     prepareScrutinee constraints
@@ -482,12 +486,22 @@ checkRhs expected rhs = case rhs of
   UnguardedRhs annotations expression (Just declarations) -> do
     (declarations', expression', ty, constraints) <- inferLocalDecls inferExpr declarations (checkExpr expected expression)
     pure (UnguardedRhs annotations expression' (Just declarations'), ty, constraints)
-  _ -> inferRhs rhs
+  -- A guarded body gets the expected type, as an unguarded body does.
+  GuardedRhss annotations guardedRhss Nothing -> do
+    (guardedRhss', ty, constraints) <- checkGuardedRhss inferExpr (checkExpr expected) expected guardedRhss
+    pure (GuardedRhss annotations guardedRhss' Nothing, ty, constraints)
+  GuardedRhss annotations guardedRhss (Just declarations) -> do
+    (declarations', guardedRhss', ty, constraints) <-
+      inferLocalDecls inferExpr declarations (checkGuardedRhss inferExpr (checkExpr expected) expected guardedRhss)
+    pure (GuardedRhss annotations guardedRhss' (Just declarations'), ty, constraints)
 
+-- | Whether 'checkExpr' gives the expected type to this expression.
+-- Keep this list of constructors the same as the list in 'checkExpr'.
 checksExpectedResult :: Expr -> Bool
 checksExpectedResult expression = case expression of
   EAnn _ inner -> checksExpectedResult inner
   EParen inner -> checksExpectedResult inner
+  EPragma _ inner -> checksExpectedResult inner
   ECase {} -> True
   ELetDecls {} -> True
   EDo _ DoPlain -> True
@@ -612,9 +626,6 @@ sourceSpanFromAnns anns =
 combineSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
 combineSourceSpan NoSourceSpan fallback = fallback
 combineSourceSpan span' _ = span'
-
-inferRhs :: Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
-inferRhs = inferRhsWithLocals inferExpr
 
 -- | An application spine is a head and the frames applied to it, from the
 -- head outwards. A source span, a parenthesis, or a pragma between the
@@ -969,28 +980,6 @@ predicateMetaVariables predicate =
         <> concatMap predicateMetaVariables antecedents
         <> predicateMetaVariables consequent
 
-typeMentionsTyVar :: TyVarId -> TcType -> Bool
-typeMentionsTyVar target ty =
-  case ty of
-    TcTyVar tyVar -> tyVar == target
-    TcMetaTv {} -> False
-    TcArrowTy -> False
-    TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
-    TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
-    TcForAllTy binder body -> binder /= target && typeMentionsTyVar target body
-    TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
-    TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
-
-predicateMentionsTyVar :: TyVarId -> Pred -> Bool
-predicateMentionsTyVar target predicate =
-  case predicate of
-    ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
-    EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
-    IParamPred _ payload -> typeMentionsTyVar target payload
-    QuantifiedPred variables antecedents consequent ->
-      target `notElem` variables
-        && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)
-
 pendingTypeArgs :: Expr -> [TcType]
 pendingTypeArgs expr =
   case expr of
@@ -1104,16 +1093,14 @@ inferTuple sp flavor elems = do
       n = length tys
   kinds <- getKinds
   wired <- wiredTupleTyCon flavor n
-  maybeTyCon <- lookupTyCon (tyConName wired)
   elementKinds <- mapM tcTypeKind tys
   let fallbackKind =
         case flavor of
           Boxed -> foldr KFun (typeKind kinds) elementKinds
           Unboxed -> foldr KFun (mkTYPEKind kinds (tupleRep kinds (map (runtimeRepOrLifted kinds) elementKinds))) elementKinds
-  tc <-
-    case maybeTyCon of
-      Just info -> pure (tciTyCon info)
-      Nothing -> mkWiredTyCon wired fallbackKind
+  -- The wiring gives the full identity of the tuple type constructor.
+  -- A bare name lookup can find a different constructor with the same name.
+  tc <- mkWiredTyCon wired fallbackKind
   -- A tuple section such as @(0,)@ is a function of its missing fields.
   let tupleTy = TcTyCon tc tys
       missingTys = [ty | (Nothing, ty, _) <- results]

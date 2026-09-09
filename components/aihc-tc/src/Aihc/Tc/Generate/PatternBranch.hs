@@ -47,25 +47,3 @@ rejectEscapingPatternType sourceSpan skolems outerType = do
               <> T.unpack (T.intercalate ", " (map tvName escaping))
           )
       )
-
-typeMentionsTyVar :: TyVarId -> TcType -> Bool
-typeMentionsTyVar target ty =
-  case ty of
-    TcTyVar tyVar -> tyVar == target
-    TcMetaTv {} -> False
-    TcArrowTy -> False
-    TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
-    TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
-    TcForAllTy tyVar body -> tyVar /= target && typeMentionsTyVar target body
-    TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
-    TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
-
-predicateMentionsTyVar :: TyVarId -> Pred -> Bool
-predicateMentionsTyVar target predicate =
-  case predicate of
-    ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
-    EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
-    IParamPred _ payload -> typeMentionsTyVar target payload
-    QuantifiedPred variables antecedents consequent ->
-      target `notElem` variables
-        && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)

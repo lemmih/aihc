@@ -1,0 +1,36 @@
+annotated:
+- |-
+  {-# LANGUAGE ExistentialQuantification, TypeFamilies #-}
+  module Test where
+  type family Wrap a
+              └─ type: Type → Type
+  data Answer = Answer
+       │        └─ type: Answer
+       └─ type: Type
+  data Box = forall b. Box (Wrap b)
+       │     └─ type: ∀ b. Wrap b → Box
+       └─ type: Type
+  takeList :: [c] -> Answer
+  takeList _ = Answer
+  │        └─ type: [c]
+  └─ type: ∀ c. [c] → Answer
+  use :: Box -> Answer
+  use (Box value) = takeList value
+                    └─ error: unsolved constraint [t0] ~ Wrap b
+extensions:
+- ExistentialQuantification
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE ExistentialQuantification, TypeFamilies #-}
+  module Test where
+  type family Wrap a
+  data Answer = Answer
+  data Box = forall b. Box (Wrap b)
+  takeList :: [c] -> Answer
+  takeList _ = Answer
+  use :: Box -> Answer
+  use (Box value) = takeList value
+reason: A stuck equality that mentions an existential type variable must give
+  an error and must not disappear.
+status: pass
