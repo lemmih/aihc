@@ -518,7 +518,15 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N1
+      # Installing aihc-base parallelises well -- it is many independent
+      # modules rather than a few large ones -- and this install gates the
+      # whole chain for its target, so it is worth threads: 14.3s at -N1, 5.1s
+      # at -N4, 3.8s at -N8. Only the three toolchains and two core-library
+      # derivations run in this window, so -N4 stays within the machine. The
+      # install fan-out later on is a different case and keeps -N1: there Nix
+      # already has a dozen jobs in flight, and per-process threads on top of
+      # that would oversubscribe the runner.
+      export GHCRTS=-N4
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
