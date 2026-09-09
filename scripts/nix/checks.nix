@@ -580,8 +580,8 @@
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       export AIHC_WASM_SYSROOT=${wasmSysroot}
       cp -R --no-preserve=mode ${exampleToolchainFor target} "$out"
-      ${aihcExe} install --reinstall --print-timings core-libs/aihc-internal --store "$out" --lint --target ${target}
-      ${aihcExe} install --reinstall --print-timings core-libs/aihc-template-haskell --store "$out" --lint --target ${target}
+      ${aihcExe} install --reinstall core-libs/aihc-internal --store "$out" --lint --target ${target}
+      ${aihcExe} install --reinstall core-libs/aihc-template-haskell --store "$out" --lint --target ${target}
       test -n "$(find "$out" -type f -name 'libaihc-template-haskell.a' -print -quit)"
       test -z "$(find "$out" -type f -name 'core.bad' -print -quit)"
     '';

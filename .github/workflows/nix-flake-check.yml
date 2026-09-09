@@ -4,11 +4,6 @@ on:
   pull_request:
   merge_group:
   workflow_dispatch:
-    inputs:
-      rebuild_compiler:
-        description: Rebuild the type checker, compiler, and dependent checks.
-        type: boolean
-        default: false
 
 # A new push to a pull request cancels the runs of the same workflow that are
 # still queued or in progress for that pull request. Merge queue runs always
@@ -37,7 +32,6 @@ jobs:
         uses: ./.github/actions/select-ci-runner
         with:
           repository: ${{ github.repository }}
-          wait-for-self-hosted: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_compiler }}
           runner-label: ${{ vars.CI_NIX_CHECK_RUNNER_LABEL != '' && vars.CI_NIX_CHECK_RUNNER_LABEL || (vars.CI_SELF_HOSTED_RUNNER_LABEL != '' && vars.CI_SELF_HOSTED_RUNNER_LABEL || 'aihc-nix') }}
           fallback-runner: ${{ vars.CI_HOSTED_FALLBACK_RUNNER != '' && vars.CI_HOSTED_FALLBACK_RUNNER || 'ubuntu-24.04' }}
           runner-token: ${{ secrets.SELF_HOSTED_RUNNER_ADMIN_TOKEN != '' && secrets.SELF_HOSTED_RUNNER_ADMIN_TOKEN || secrets.AUTOMATION_PR_TOKEN }}
@@ -79,13 +73,6 @@ jobs:
           else
             echo "Nix store disk use is ${disk_use}%. Skip garbage collection."
           fi
-
-      - name: Prepare a compiler performance run
-        if: github.event_name == 'workflow_dispatch' && inputs.rebuild_compiler
-        run: |
-          for source in components/aihc-tc/src/Aihc/Tc.hs bin/aihc/src/Aihc/Cli/Options.hs; do
-            printf '\n-- CI performance run: %s-%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$source"
-          done
 
       - name: Run flake checks
         env:
