@@ -1,0 +1,29 @@
+extensions: [RecordWildCards]
+modules:
+- |
+  module Record where
+  data Box = Box { field :: Box }
+  box = Box { field = box }
+- |
+  module Main where
+  import Record
+  y = let Box{..} = box in field
+annotated:
+- |-
+  module Main where
+  import Record
+  y = let Box{..} = box in field
+  │       └─ v 0    │      └─ v 0
+  │       │         └─ v Record
+  │       └─ v Record
+  └─ v Main
+- |-
+  module Record where
+  data Box = Box { field :: Box }
+       │     └─ v Record    └─ t Record
+       └─ t Record
+  box = Box { field = box }
+  │     └─ v Record   └─ v Record
+  └─ v Record
+status: pass
+reason: A local record wildcard pattern binding allocates a binder for each field.

@@ -2973,7 +2973,9 @@ desugarListCompPattern resultType binder ty pattern' success failure =
           desugarListCompConstructorPattern resultType binder pattern' success failure
     Syn.PAnn _ inner -> desugarListCompPattern resultType binder ty inner success failure
     Syn.PParen inner -> desugarListCompPattern resultType binder ty inner success failure
-    Syn.PStrict inner -> desugarListCompPattern resultType binder ty inner success failure
+    Syn.PStrict inner -> do
+      body <- desugarListCompPattern resultType binder ty inner success failure
+      forceDefaultPattern resultType binder inner body
     Syn.PIrrefutable inner -> desugarListCompPattern resultType binder ty inner success failure
     Syn.PTypeSig inner _ -> desugarListCompPattern resultType binder ty inner success failure
     Syn.PVar name -> do
@@ -3295,7 +3297,9 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
             Nothing -> desugarDoConstructorPattern resultType binder pattern' success failure
     Syn.PAnn _ inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PParen inner -> desugarPatternWithFailure resultType binder ty inner success failure
-    Syn.PStrict inner -> desugarPatternWithFailure resultType binder ty inner success failure
+    Syn.PStrict inner -> do
+      body <- desugarPatternWithFailure resultType binder ty inner success failure
+      forceDefaultPattern resultType binder inner body
     Syn.PIrrefutable inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PTypeSig inner _ -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PVar name -> do
@@ -3379,6 +3383,18 @@ desugarDoNewtypePattern resultType binder pattern' dataType success failure = do
       unwrapped = ExCast (ExVar (binderName binder)) (CoAxiom axiom convertedArguments)
   body <- desugarPatternWithFailure resultType field childType child success failure
   pure (ExLet (Bind field unwrapped) body)
+
+-- | Force the value of a binder for a strict pattern. A refutable pattern
+-- makes its own case, which forces the value. A default pattern makes no
+-- case, so a case with one default alternative forces the value. This is
+-- the same form that the match compiler makes for a strict lambda pattern.
+forceDefaultPattern :: TcType -> Binder -> Syn.Pattern -> Expr -> ValueM Expr
+forceDefaultPattern resultType binder pattern' body
+  | not (patternIsDefault pattern') = pure body
+  | otherwise = do
+      resultType' <- convertCheckedType resultType
+      caseBinder <- freshBinderFromType "_strict_scrut" (binderType binder)
+      pure (ExCase (ExVar (binderName binder)) caseBinder resultType' [Alt AltDefault [] [] body])
 
 directPatternBindings :: Syn.Pattern -> Binder -> TcType -> ValueM (Maybe [(TcTermKey, (Binder, TcType))])
 directPatternBindings pattern' binder ty =

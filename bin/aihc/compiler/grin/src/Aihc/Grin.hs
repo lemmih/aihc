@@ -21,7 +21,6 @@ module Aihc.Grin
     gcGrinProgram,
     gcUpdateFunction,
     lowerGc,
-    normalizeHeapReservations,
     lowerProgram,
     lintProgram,
     lintCpsProgram,
@@ -32,19 +31,11 @@ module Aihc.Grin
     parseExpr,
     renderParseError,
     prettyProgram,
-    prettyExpr,
     ProgramStreams (..),
     interpretProgramBinding,
     interpretProgramIoBinding,
-    interpretProgramFunctionSnapshot,
     InterpretError (..),
     RuntimeValue (..),
-    HeapSnapshot (..),
-    SnapshotValue (..),
-    SnapshotCell (..),
-    renderSnapshotReturn,
-    renderSnapshotHeap,
-    renderHeapSnapshot,
   )
 where
 
@@ -62,11 +53,9 @@ import Aihc.Grin.Cps
     toCpsGrin,
   )
 import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, gcUpdateFunction, lowerGc)
-import Aihc.Grin.Heap (normalizeHeapReservations)
-import Aihc.Grin.Interpret (InterpretError (..), ProgramStreams (..), RuntimeValue (..), interpretProgramBinding, interpretProgramFunctionSnapshot, interpretProgramIoBinding)
+import Aihc.Grin.Interpret (InterpretError (..), ProgramStreams (..), RuntimeValue (..), interpretProgramBinding, interpretProgramIoBinding)
 import Aihc.Grin.Lint (GrinLintError (..), lintCpsProgram, lintGcProgram, lintProgram)
 import Aihc.Grin.Lower (lowerProgram)
 import Aihc.Grin.Parser (GrinParseError, parseExpr, parseProgram, renderParseError)
-import Aihc.Grin.Pretty (prettyExpr, prettyProgram)
-import Aihc.Grin.Snapshot
+import Aihc.Grin.Pretty (prettyProgram)
 import Aihc.Grin.Syntax

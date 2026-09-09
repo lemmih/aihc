@@ -8,6 +8,7 @@ module Aihc.Tc.Generate.Bind
     inferLocalDecls,
     inferRhsWithLocals,
     inferGuardedRhss,
+    checkGuardedRhss,
     collectRawSigs,
     sigToScheme,
     skolemize,
@@ -361,15 +362,22 @@ inferRhsWithLocals inferExpr rhs =
 inferGuardedRhss :: InferExpr -> [GuardedRhs Expr] -> TcM ([GuardedRhs Expr], TcType, [Ct])
 inferGuardedRhss inferExpr guardedRhss = do
   resultTy <- freshMetaTv
-  results <- mapM (inferGuardedRhs inferExpr resultTy) guardedRhss
+  checkGuardedRhss inferExpr inferExpr resultTy guardedRhss
+
+-- | Type-check guarded alternatives against a known result type.
+-- The caller gives a function that checks one body against that type.
+-- A guarded body then gets the result type, as an unguarded body does.
+checkGuardedRhss :: InferExpr -> InferExpr -> TcType -> [GuardedRhs Expr] -> TcM ([GuardedRhs Expr], TcType, [Ct])
+checkGuardedRhss inferExpr checkBody resultTy guardedRhss = do
+  results <- mapM (inferGuardedRhs inferExpr checkBody resultTy) guardedRhss
   pure (map fst results, resultTy, concatMap snd results)
 
-inferGuardedRhs :: InferExpr -> TcType -> GuardedRhs Expr -> TcM (GuardedRhs Expr, [Ct])
-inferGuardedRhs inferExpr resultTy guardedRhs = do
+inferGuardedRhs :: InferExpr -> InferExpr -> TcType -> GuardedRhs Expr -> TcM (GuardedRhs Expr, [Ct])
+inferGuardedRhs inferExpr checkBody resultTy guardedRhs = do
   let sp = sourceSpanFromAnnotations (guardedRhsAnns guardedRhs)
   (qualifiers', body', cts) <-
     inferGuardQualifiers inferExpr sp resultTy (guardedRhsGuards guardedRhs) $ do
-      (body', bodyTy, bodyCts) <- inferExpr (guardedRhsBody guardedRhs)
+      (body', bodyTy, bodyCts) <- checkBody (guardedRhsBody guardedRhs)
       ev <- freshEvVar
       let bodyCt = mkWantedCt (EqPred bodyTy resultTy) ev (AppOrigin sp) sp
       pure (body', bodyCts ++ [bodyCt])

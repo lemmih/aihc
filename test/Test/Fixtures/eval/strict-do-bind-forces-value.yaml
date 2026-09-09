@@ -1,0 +1,23 @@
+extensions:
+  - BangPatterns
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (raise#)
+
+    data Failure = Failure
+
+    value :: Maybe ()
+    value = Just (raise# Failure)
+
+    result :: Maybe Bool
+    result = do
+      !bound <- value
+      Just True
+output: ""
+exception: Failure
+expression: result
+status: pass
+reason: A strict pattern in a do block must force the bound value.

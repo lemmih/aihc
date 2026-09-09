@@ -1,0 +1,42 @@
+annotated:
+- |-
+  module Test where
+  data Alpha = Alpha
+       │       └─ type: Alpha
+       └─ type: Type
+  data Beta = Beta
+       │      └─ type: Beta
+       └─ type: Type
+  data Answer = Answer
+       │        └─ type: Answer
+       └─ type: Type
+  class Describe a where
+  └─ class methods: describe ∷ ∀ a. (Describe a) ⇒ a → Answer
+    describe :: a -> Answer
+  instance Describe (Alpha -> Answer) where
+  └─ $fDescribe(->)AlphaAnswer ∷ () ⇒ Describe (Alpha → Answer)
+    describe _ = Answer
+    │        └─ type: Alpha → Answer
+    └─ describe ∷ (Alpha → Answer) → Answer
+  instance Describe (Beta -> Answer) where
+  └─ $fDescribe(->)BetaAnswer ∷ () ⇒ Describe (Beta → Answer)
+    describe _ = Answer
+    │        └─ type: Beta → Answer
+    └─ describe ∷ (Beta → Answer) → Answer
+extensions:
+- FlexibleInstances
+modules:
+- |
+  module Test where
+  data Alpha = Alpha
+  data Beta = Beta
+  data Answer = Answer
+  class Describe a where
+    describe :: a -> Answer
+  instance Describe (Alpha -> Answer) where
+    describe _ = Answer
+  instance Describe (Beta -> Answer) where
+    describe _ = Answer
+reason: Two instance heads that differ inside an arrow get different dictionary
+  names.
+status: pass

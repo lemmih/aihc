@@ -162,17 +162,20 @@ solveImplication impl = do
   -- Equalities refine the types mentioned by dictionary wanteds, so preserve
   -- the main worklist's equality-before-dictionary ordering inside branches.
   let (equalityWanteds, dictionaryWanteds) = partitionWanteds wanteds
-  solveImplicationEqualities givenPredicates givenEqs equalityWanteds
-  concat <$> mapM (solveWantedWithGivens (implSkols impl) givenPredicates givenEqs) dictionaryWanteds
+      skolems = implSkols impl
+  deferredEqualities <- solveImplicationEqualities skolems givenPredicates givenEqs equalityWanteds
+  deferredDictionaries <- concat <$> mapM (solveWantedWithGivens skolems givenPredicates givenEqs) dictionaryWanteds
+  pure (deferredEqualities <> deferredDictionaries)
 
 -- | Retry equalities after argument constraints solve meta variables.
-solveImplicationEqualities :: [Pred] -> [(TcType, TcType)] -> [Ct] -> TcM ()
-solveImplicationEqualities predicates equalities constraints = do
+-- The result holds the equality wanteds that the enclosing scope must solve.
+solveImplicationEqualities :: [TyVarId] -> [Pred] -> [(TcType, TcType)] -> [Ct] -> TcM [Ct]
+solveImplicationEqualities skolems predicates equalities constraints = do
   results <- withGivenPredicates predicates (mapM solveEquality constraints)
   let remaining = [constraint | (constraint, result) <- zip constraints results, case result of EqSolved -> False; _ -> True]
   if length remaining < length constraints
-    then solveImplicationEqualities predicates equalities remaining
-    else mapM_ (solveWantedWithGivens [] predicates equalities) remaining
+    then solveImplicationEqualities skolems predicates equalities remaining
+    else concat <$> mapM (solveWantedWithGivens skolems predicates equalities) remaining
 
 partitionWanteds :: [Ct] -> ([Ct], [Ct])
 partitionWanteds = foldr partitionOne ([], [])
@@ -215,7 +218,16 @@ applyGivenSubst givens ty = foldr applyOne ty givens
             TcFunTy a b -> TcFunTy (applyOne (lhs, rhs) a) (applyOne (lhs, rhs) b)
             TcAppTy f a -> mkAppTy (applyOne (lhs, rhs) f) (applyOne (lhs, rhs) a)
             TcForAllTy tv body -> TcForAllTy tv (applyOne (lhs, rhs) body)
+            TcQualTy predicates body ->
+              TcQualTy (map (applyOnePred (lhs, rhs)) predicates) (applyOne (lhs, rhs) body)
             _ -> t
+    applyOnePred equality predicate =
+      case predicate of
+        ClassPred className arguments -> ClassPred className (map (applyOne equality) arguments)
+        EqPred left right -> EqPred (applyOne equality left) (applyOne equality right)
+        IParamPred name payload -> IParamPred name (applyOne equality payload)
+        QuantifiedPred variables antecedents consequent ->
+          QuantifiedPred variables (map (applyOnePred equality) antecedents) (applyOnePred equality consequent)
 
 -- | Attempt to solve a wanted constraint using given equalities.
 -- Equality evidence must prove the original endpoints.

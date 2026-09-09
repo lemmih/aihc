@@ -1121,6 +1121,13 @@ compileTerminator ctx next fused terminator =
       case convention of
         AihcConvention -> aihcTailCall callee parameterTypes arguments
         CConvention -> do
+          -- A tail call has the convention of the function that makes it.
+          -- The Lir lint rejects each other case. Only a C function comes
+          -- here, and a C function has no incoming overflow block. The
+          -- branch below keeps the return address, so a block that the
+          -- callee cannot release must stop the compilation.
+          when (ctxIncomingOverflow ctx /= 0) $
+            unsupported "C tail call from a function with an overflow parameter block"
           argumentMoves <- cArgumentMoves ctx parameterTypes arguments
           targetLoad <- case callee of
             Left _ -> pure []

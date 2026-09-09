@@ -1,0 +1,21 @@
+extensions: [GADTs]
+modules:
+- |
+  module Main where
+  class C a
+  data T where
+    MkT :: forall a. C a => a -> T
+annotated:
+- |-
+  module Main where
+  class C a
+        └─ t Main
+  data T where
+       └─ t Main
+    MkT :: forall a. C a => a -> T
+    └─ v Main        │ │    │    └─ t Main
+                     │ │    └─ t 0
+                     │ └─ t 0
+                     └─ t Main
+status: pass
+reason: A GADT constructor binds the type variables of its own forall.
