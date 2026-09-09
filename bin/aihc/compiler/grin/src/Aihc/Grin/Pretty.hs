@@ -1,7 +1,6 @@
 -- | Human-readable GRIN rendering for diagnostics and golden tests.
 module Aihc.Grin.Pretty
   ( prettyProgram,
-    prettyExpr,
   )
 where
 
@@ -17,9 +16,6 @@ import Prettyprinter (Doc, comma, hardline, hsep, indent, parens, pretty, punctu
 -- numbered scope prints as @number.name@, so that the package and the module
 -- occur one time only.
 newtype Scopes = Scopes (Map GrinScope Int)
-
-noScopes :: Scopes
-noScopes = Scopes Map.empty
 
 programScopes :: GrinProgram -> Scopes
 programScopes program = Scopes (Map.fromList (zip (grinProgramScopes program) [1 ..]))
@@ -76,9 +72,6 @@ prettyFunction scopes function =
 
 -- | Print one expression without a scope table. Diagnostics use this, where a
 -- name has no numbered scope to refer to.
-prettyExpr :: GrinExpr -> Doc ann
-prettyExpr = prettyExprWith noScopes
-
 prettyExprWith :: Scopes -> GrinExpr -> Doc ann
 prettyExprWith scopes expr =
   case expr of
@@ -247,7 +240,6 @@ prettyLiteral literal =
   case literal of
     GrinLitInt runtimeRep value -> parens (pretty value <+> "::" <+> prettyShow runtimeRep)
     GrinLitChar runtimeRep value -> parens (pretty (show value) <+> "::" <+> prettyShow runtimeRep)
-    GrinLitString value -> pretty (show (T.unpack value))
     GrinLitAddr value -> pretty (show (map (chr . fromIntegral) (BS.unpack value))) <> "#"
 
 -- | A variable's number only disambiguates same-named binders, so the common

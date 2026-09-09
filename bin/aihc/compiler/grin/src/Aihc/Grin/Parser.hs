@@ -536,8 +536,7 @@ grinLiteral =
   MP.choice
     [ MP.try typedIntegerLiteral,
       MP.try typedCharLiteral,
-      MP.try addressLiteral,
-      GrinLitString <$> stringText
+      addressLiteral
     ]
 
 typedIntegerLiteral :: Parser GrinLiteral

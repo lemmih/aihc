@@ -109,7 +109,6 @@ genLiteral =
   Gen.choice
     [ GrinLitInt <$> genRuntimeRep <*> Gen.integral (Range.linearFrom 0 (-100000) 100000),
       GrinLitChar <$> genRuntimeRep <*> Gen.unicodeAll,
-      GrinLitString <$> genText,
       GrinLitAddr . BS.pack <$> smallList (Gen.word8 Range.constantBounded)
     ]
 
