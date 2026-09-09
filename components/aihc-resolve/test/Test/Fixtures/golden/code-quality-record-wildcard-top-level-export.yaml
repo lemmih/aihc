@@ -1,0 +1,31 @@
+extensions: [RecordWildCards]
+modules:
+- |
+  module Record where
+  data Box = Box { field :: Box }
+  box = Box { field = box }
+- |
+  module Main where
+  import Record
+  Box{..} = box
+  y = field
+annotated:
+- |-
+  module Main where
+  import Record
+  Box{..} = box
+  └─ v Main └─ v Record
+  └─ v Record
+  y = field
+  │   └─ v Main
+  └─ v Main
+- |-
+  module Record where
+  data Box = Box { field :: Box }
+       │     └─ v Record    └─ t Record
+       └─ t Record
+  box = Box { field = box }
+  │     └─ v Record   └─ v Record
+  └─ v Record
+status: pass
+reason: A top level record wildcard pattern binds each remaining field.
