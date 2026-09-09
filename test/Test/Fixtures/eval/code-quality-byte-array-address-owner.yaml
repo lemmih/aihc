@@ -1,0 +1,32 @@
+extensions:
+  - ForeignFunctionInterface
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.Exts (Word64 (..))
+    import GHC.IO (IO (..))
+    import GHC.Prim
+      ( copyAddrToByteArray#,
+        mutableByteArrayContents#,
+        newAlignedPinnedByteArray#,
+      )
+    import System.IO.Unsafe (unsafePerformIO)
+
+    foreign import ccall unsafe strlen :: Addr# -> Word64#
+
+    data Bytes = Bytes Addr#
+
+    bytes :: IO Bytes
+    bytes = IO (\state -> case newAlignedPinnedByteArray# 4# 64# state of
+      (# next, array #) -> case copyAddrToByteArray# "abc\0"# array 0# 4# next of
+        final -> (# final, Bytes (mutableByteArrayContents# array) #))
+
+    result = case unsafePerformIO bytes of
+      Bytes address -> W64# (strlen address)
+output: "W64# 3"
+expression: result
+status: pass
+reason: An aligned byte array must retain its allocation while an address alias remains in use.
