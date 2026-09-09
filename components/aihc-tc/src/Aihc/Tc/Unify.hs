@@ -10,7 +10,7 @@ where
 import Aihc.Parser.Syntax (SourceSpan (..))
 import Aihc.Tc.Constraint (CtOrigin (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Kind (tcTypeKind, unifyKindsAt)
+import Aihc.Tc.Kind (refineGivenTyVarKinds, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (reduceTypeFamilies)
@@ -53,7 +53,7 @@ unifyTypesAt loc t1 t2
 -- | Unify a meta-variable with a type, performing the occurs check.
 unifyMetaTv :: SourceSpan -> Unique -> TcType -> TcM (Either TcErrorKind ())
 unifyMetaTv loc u ty = do
-  ty' <- zonkType ty
+  ty' <- zonkType ty >>= refineGivenTyVarKinds
   case ty' of
     TcMetaTv u' | u == u' -> pure (Right ())
     _

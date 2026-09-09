@@ -100,6 +100,7 @@ tests =
             testCase "prints timings independently from verbose output" (test_installTimingOutput primStore),
             testCase "reports all frontend errors in stable dependency order" (test_installResolveError primStore),
             testCase "writes Core for a ccall import" (test_installFcCcall primStore),
+            testCase "writes Core for a kind refined by a given equality" (test_installKindGivenRefinement primStore),
             testCase "compiles Cabal c-sources into the library archive" (test_installCSources primStore),
             testCase "writes an empty archive for a package with no code" (test_installEmptyArchive primStore),
             testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros primStore),
@@ -847,6 +848,55 @@ test_installFcCcall getStore =
     writeFile
       (sourceDir </> "Demo.hs")
       "module Demo where\nimport GHC.Prim (Int#)\ndata Int = I# Int#\nforeign import ccall unsafe \"foo\" foo :: Int -> Int\n"
+    result <- install options
+    assertCoreFile (installStorePath result </> "Demo" </> "core")
+
+-- | A GADT match can refine the kind of a type variable that an earlier
+-- binder brought into scope at an unrefined kind. Core generation recomputes
+-- kinds with no evidence to hand, so the refinement has to be recorded in the
+-- types the type checker hands over: without it the application @f x@ has a
+-- head whose kind is a bare variable, and no invisible kind argument for
+-- @Proxy@ can be worked out.
+test_installKindGivenRefinement :: IO SeedStore -> Assertion
+test_installKindGivenRefinement getStore =
+  withSandbox getStore "aihc-install-kind-given-refinement" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let sourceRoot = sandboxRoot sandbox </> "source"
+        sourceDir = sourceRoot </> "src"
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False False False AppleArm64
+    createDirectoryIfMissing True sourceDir
+    writeFile
+      (sourceRoot </> "demo.cabal")
+      ( unlines
+          [ "cabal-version: 3.0",
+            "name: demo",
+            "version: 0.1.0.0",
+            "library",
+            "  exposed-modules: Demo",
+            "  hs-source-dirs: src",
+            "  build-depends: aihc-prim",
+            "  default-language: Haskell2010",
+            "  default-extensions: GADTs, NoImplicitPrelude, PolyKinds, RankNTypes, ScopedTypeVariables"
+          ]
+      )
+    writeFile
+      (sourceDir </> "Demo.hs")
+      ( unlines
+          [ "module Demo where",
+            "import GHC.Types (Type)",
+            "data Proxy (a :: k) = Proxy",
+            "data Some where",
+            "  Some :: forall k (a :: k). Proxy a -> Some",
+            "data IsFun k where",
+            "  IsFun :: IsFun (Type -> Type)",
+            "apply :: forall a b. (a -> b) -> a -> b",
+            "apply f x = f x",
+            "mkApp :: forall k1 k2 (f :: k1 -> k2) (x :: k1). Proxy f -> Proxy x -> Proxy (f x)",
+            "mkApp _ _ = Proxy",
+            "rebuild :: forall k (f :: k) (x :: Type). IsFun k -> Proxy f -> Proxy x -> Some",
+            "rebuild IsFun pf px = apply Some (mkApp pf px)"
+          ]
+      )
     result <- install options
     assertCoreFile (installStorePath result </> "Demo" </> "core")
 
