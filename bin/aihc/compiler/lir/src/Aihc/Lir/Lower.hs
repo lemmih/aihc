@@ -822,7 +822,7 @@ lowerStaticObject env object = do
   target <- targetM
   header <- slotPointerFields target . (`DataSymbol` 0) <$> nodeInfoSymbol env node
   fields <- concat <$> mapM (staticField target) (grinNodeFields node)
-  let applied = [wordField target (toInteger (length (grinNodeFields node))) | isPartialConstructorNode node]
+  let applied = [DataInt I64 (toInteger (length (grinNodeFields node))) | isPartialConstructorNode node]
       payload = if null fields && isThunk then [DataZero 8] else fields
   emitItem (ItemData (DataItem (globalSymbol (staticObjectName object)) Export True 8 (header <> applied <> payload)))
   where
