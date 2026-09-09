@@ -104,7 +104,19 @@ newtype Unique = Unique Int
 
 -- | A type variable and its type-level kind.
 data TyVarId = TyVarIdInternal !Text !Unique !TcType
-  deriving (Eq, Ord, Show, Read)
+  deriving (Show, Read)
+
+-- | A type variable is its name and its unique; the kind is a property of
+-- the variable, not part of its identity. A GADT match can refine the kind
+-- of a variable that is already in scope, and the refined occurrence has to
+-- stay the same variable as the binder.
+instance Eq TyVarId where
+  TyVarIdInternal leftName leftUnique _ == TyVarIdInternal rightName rightUnique _ =
+    leftUnique == rightUnique && leftName == rightName
+
+instance Ord TyVarId where
+  compare (TyVarIdInternal leftName leftUnique _) (TyVarIdInternal rightName rightUnique _) =
+    compare leftUnique rightUnique <> compare leftName rightName
 
 -- | A type variable is matched by its name and its unique. Its kind is
 -- read with 'tvKind' and given with 'mkTyVarId': the module knows no kind

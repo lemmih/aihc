@@ -22,6 +22,7 @@ module Aihc.Tc.Kind
     tyConKindFromParams,
     tyConKindFromParamsWith,
     tcTypeKind,
+    refineGivenTyVarKinds,
     unifyKinds,
     unifyKindsAt,
     surfaceTypeSpan,
@@ -672,6 +673,34 @@ refineGivenKind kind = do
     replace ty left@TcTyVar {} right | ty == left, left /= right = Just right
     replace ty left right@TcTyVar {} | ty == right, left /= right = Just left
     replace _ _ _ = Nothing
+
+-- | Rewrite the kind of every type variable in a type with the equality
+-- evidence that is in scope, the way 'refineGivenKind' rewrites one kind.
+--
+-- A GADT match can refine a kind variable: matching @typeRepKind f@
+-- against the @Fun@ pattern gives @k ~ (arg -> res)@, which is what makes
+-- @f x@ well kinded for an @f :: k@ bound by an earlier match. The
+-- refinement lives in the constraint solver, so a type recorded without it
+-- carries the unrefined variable, and a later pass that recomputes kinds
+-- with no evidence to hand -- the FC converter -- cannot apply @f@ to
+-- anything. Applying the refinement before the type is recorded keeps
+-- those passes working from a type whose kinds already agree.
+refineGivenTyVarKinds :: TcType -> TcM TcType
+refineGivenTyVarKinds ty = do
+  predicates <- getGivenPredicates
+  if null [() | EqPred _ _ <- predicates]
+    then pure ty
+    else go ty
+  where
+    go t =
+      case t of
+        TcTyVar tyVar -> do
+          kind <- refineGivenKind (tvKind tyVar)
+          pure (TcTyVar (setTyVarKind kind tyVar))
+        TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM go arguments
+        TcFunTy argument result -> TcFunTy <$> go argument <*> go result
+        TcAppTy function argument -> TcAppTy <$> go function <*> go argument
+        _ -> pure t
 
 -- | Whether a kind is a runtime representation with no variables left in
 -- it, so that a representation-polymorphic variable may take it.
